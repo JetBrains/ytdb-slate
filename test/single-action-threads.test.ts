@@ -27,7 +27,7 @@ function fixtureRuntime() {
 function recoveryRuntime() {
   return createLogicalRuntime({
     trusted: true,
-    projectConfig: { router: { models: { replace: [{ model: "gpt-5.6-luna", preferredProvider: "test", providers: { test: "worker", backup: "worker-2" } }] } } },
+    projectConfig: { router: { models: { replace: [{ model: "luna-6", preferredProvider: "test", providers: { test: "worker", backup: "worker-2" } }] } } },
   });
 }
 
@@ -356,7 +356,7 @@ test("logical worker recovery retains tool results and records logical and physi
     const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
     const runtime = createLogicalRuntime({
       trusted: true,
-      projectConfig: { router: { models: { replace: [{ model: "gpt-5.6-luna", providers: { test: "worker", backup: "worker-2" }, preferredProvider: "test" }] } } },
+      projectConfig: { router: { models: { replace: [{ model: "luna-6", providers: { test: "worker", backup: "worker-2" }, preferredProvider: "test" }] } } },
     });
     const manager = new ThreadManager(store, {}, undefined, runtime);
     const listeners = new Set<(event: Record<string, unknown>) => void>();
@@ -410,19 +410,19 @@ test("logical worker recovery retains tool results and records logical and physi
         hasConfiguredAuth() { return true; }, async getAvailable() { return []; },
       },
     } as unknown as ExtensionContext;
-    const result = await manager.dispatch({ model: "gpt-5.6-luna", reason: "contract work", type: "general", task: "perform once" }, ctx, undefined);
+    const result = await manager.dispatch({ model: "luna-6", reason: "contract work", type: "general", task: "perform once" }, ctx, undefined);
     assert.equal(prompts[0], "perform once");
     assert.equal(prompts.length, 2);
     assert.match(prompts[1] ?? "", /conversation context is intact/i);
     assert.equal(session.messages.filter((message) => message === toolResult).length, 1);
-    assert.equal(result.episode.logicalModel, "gpt-5.6-luna");
+    assert.equal(result.episode.logicalModel, "luna-6");
     assert.equal(result.episode.requestedModel, "test/worker");
     assert.equal(result.episode.requestedEffort, "max");
     assert.equal(result.episode.model, "backup/worker-2");
     assert.equal(result.episode.effort, "max");
     const remembered = runtime.admit();
     assert.ok(remembered);
-    assert.equal(runtime.startRoute("gpt-5.6-luna", remembered.snapshot)?.provider, "backup");
+    assert.equal(runtime.startRoute("luna-6", remembered.snapshot)?.provider, "backup");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -458,9 +458,9 @@ test("queued initial routes revalidate registry and credentials before opening a
       const internals = manager as unknown as { live: Map<string, typeof session>; openWorkerFor(args: { thread: ThreadRecord }): Promise<{ session: typeof session }> };
       internals.openWorkerFor = async (args: any) => { opens++; bindFakeWorkerRequest(session, args.requestContract); internals.live.set(args.thread.id, session); return { session }; };
       const ctx = recoveryContext(root, state);
-      const first = manager.dispatch({ model: "gpt-5.6-luna", reason: "hold slot", type: "general", task: "first" }, ctx, undefined);
+      const first = manager.dispatch({ model: "luna-6", reason: "hold slot", type: "general", task: "first" }, ctx, undefined);
       await firstPrompt;
-      const second = manager.dispatch({ model: "gpt-5.6-luna", reason: "wait in queue", type: "general", task: "second" }, ctx, undefined);
+      const second = manager.dispatch({ model: "luna-6", reason: "wait in queue", type: "general", task: "second" }, ctx, undefined);
       while (store.threads.size < 2) await new Promise<void>((resolve) => setImmediate(resolve));
       assert.equal(opens, 1, `${drift} drift occurs after queue admission`);
       state[drift] = false;
@@ -552,7 +552,7 @@ test("initial route application rejects physical and effort mismatches without w
       const internals = manager as unknown as { live: Map<string, typeof session>; openWorkerFor(args: { thread: ThreadRecord }): Promise<{ session: typeof session }> };
       internals.openWorkerFor = async (args: any) => { bindFakeWorkerRequest(session, args.requestContract); internals.live.set(args.thread.id, session); return { session }; };
       await assert.rejects(
-        manager.dispatch({ model: "gpt-5.6-luna", reason: "validate application", type: "general", task: "must not run" }, recoveryContext(root, { registry: true, auth: true }), undefined),
+        manager.dispatch({ model: "luna-6", reason: "validate application", type: "general", task: "must not run" }, recoveryContext(root, { registry: true, auth: true }), undefined),
         /startup stopped before billed work/,
       );
       assert.equal(prompts, 0, mismatch);
@@ -592,7 +592,7 @@ test("async initial effort drift after credential validation cannot reach prompt
       return { ok: true, apiKey: "test" };
     };
     await assert.rejects(
-      manager.dispatch({ model: "gpt-5.6-luna", reason: "detect async effort drift", type: "general", task: "must not run" }, ctx, undefined),
+      manager.dispatch({ model: "luna-6", reason: "detect async effort drift", type: "general", task: "must not run" }, ctx, undefined),
       /startup stopped before billed work.*effort low/i,
     );
     assert.equal(authCalls, 3);
@@ -603,7 +603,7 @@ test("async initial effort drift after credential validation cannot reach prompt
     await assertNoDurableEpisodeConsumers(recoveryContext(root, { registry: true, auth: true }), "t1.e1", snapshots.at(-1));
     const next = runtime.admit();
     assert.ok(next);
-    assert.equal(runtime.startRoute("gpt-5.6-luna", next.snapshot)?.provider, "test");
+    assert.equal(runtime.startRoute("luna-6", next.snapshot)?.provider, "test");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -640,7 +640,7 @@ test("recovery route mismatches do not prompt or publish and keep initial execut
       };
       const internals = manager as unknown as { live: Map<string, typeof session>; openWorkerFor(args: { thread: ThreadRecord }): Promise<{ session: typeof session }> };
       internals.openWorkerFor = async (args: any) => { bindFakeWorkerRequest(session, args.requestContract); internals.live.set(args.thread.id, session); return { session }; };
-      const result = await manager.dispatch({ model: "gpt-5.6-luna", reason: "reject bad recovery", type: "general", task: "run once" }, recoveryContext(root, { registry: true, auth: true }), undefined);
+      const result = await manager.dispatch({ model: "luna-6", reason: "reject bad recovery", type: "general", task: "run once" }, recoveryContext(root, { registry: true, auth: true }), undefined);
       assert.equal(prompts, 1, mismatch);
       assert.equal(result.episode.status, "failed", mismatch);
       assert.equal(result.episode.model, "test/worker", mismatch);
@@ -648,7 +648,7 @@ test("recovery route mismatches do not prompt or publish and keep initial execut
       assert.match(result.episodeText, /completed partial output/, mismatch);
       const next = runtime.admit();
       assert.ok(next);
-      assert.equal(runtime.startRoute("gpt-5.6-luna", next.snapshot)?.provider, "test", mismatch);
+      assert.equal(runtime.startRoute("luna-6", next.snapshot)?.provider, "test", mismatch);
     } finally { rmSync(root, { recursive: true, force: true }); }
   }
 });
@@ -692,7 +692,7 @@ test("async recovery model drift after credential validation cannot reach prompt
       }));
       return { ok: true, apiKey: "test" };
     };
-    const result = await manager.dispatch({ model: "gpt-5.6-luna", reason: "detect async recovery drift", type: "general", task: "run once" }, ctx, undefined);
+    const result = await manager.dispatch({ model: "luna-6", reason: "detect async recovery drift", type: "general", task: "run once" }, ctx, undefined);
     assert.equal(authCalls, 5);
     assert.equal(prompts, 1);
     assert.equal(result.episode.status, "failed");
@@ -701,7 +701,7 @@ test("async recovery model drift after credential validation cannot reach prompt
     assert.match(result.episodeText, /retained initial output/);
     const next = runtime.admit();
     assert.ok(next);
-    assert.equal(runtime.startRoute("gpt-5.6-luna", next.snapshot)?.provider, "test");
+    assert.equal(runtime.startRoute("luna-6", next.snapshot)?.provider, "test");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -741,7 +741,7 @@ test("post-open validation failure waits at a deterministic barrier and starts n
       return { session };
     };
     const dispatch = manager.dispatch(
-      { model: "gpt-5.6-luna", reason: "barrier validation", type: "general", task: "must not run" },
+      { model: "luna-6", reason: "barrier validation", type: "general", task: "must not run" },
       recoveryContext(root, state),
       undefined,
     );
@@ -807,7 +807,7 @@ test("recovery validation failure, caller cancellation, and session replacement 
         return { session };
       };
       const dispatch = manager.dispatch(
-        { model: "gpt-5.6-luna", reason: `recovery ${mode}`, type: "general", task: "run once" },
+        { model: "luna-6", reason: `recovery ${mode}`, type: "general", task: "run once" },
         recoveryContext(root, state),
         controller.signal,
       );
@@ -859,13 +859,13 @@ test("a transient worker retry followed by billing stops before another provider
     };
     const internals = manager as unknown as { live: Map<string, typeof session>; openWorkerFor(args: { thread: ThreadRecord }): Promise<{ session: typeof session }> };
     internals.openWorkerFor = async (args: any) => { bindFakeWorkerRequest(session, args.requestContract); internals.live.set(args.thread.id, session); return { session }; };
-    const result = await manager.dispatch({ model: "gpt-5.6-luna", reason: "stop on billing", type: "general", task: "run" }, recoveryContext(root, { registry: true, auth: true }), undefined);
+    const result = await manager.dispatch({ model: "luna-6", reason: "stop on billing", type: "general", task: "run" }, recoveryContext(root, { registry: true, auth: true }), undefined);
     assert.equal(prompts, 1);
     assert.equal(switches, 0);
     assert.equal(result.episode.status, "failed");
     const next = runtime.admit();
     assert.ok(next);
-    assert.equal(runtime.startRoute("gpt-5.6-luna", next.snapshot)?.provider, "test");
+    assert.equal(runtime.startRoute("luna-6", next.snapshot)?.provider, "test");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -876,7 +876,7 @@ test("cancellation after a completed tool result retains durable bytes and every
     const store = new SlateStore({ appendEntry(_type: string, data: Record<string, unknown>) { snapshots.push(structuredClone(data)); } } as unknown as ExtensionAPI);
     const runtime = createLogicalRuntime({
       trusted: true,
-      projectConfig: { router: { models: { replace: [{ model: "gpt-5.6-luna", preferredProvider: "test", providers: { test: "worker" } }] } } },
+      projectConfig: { router: { models: { replace: [{ model: "luna-6", preferredProvider: "test", providers: { test: "worker" } }] } } },
     });
     const manager = new ThreadManager(store, {}, undefined, runtime, { enabled: true, maxRetries: 1, baseDelayMs: 0 });
     const controller = new AbortController();
@@ -907,7 +907,7 @@ test("cancellation after a completed tool result retains durable bytes and every
       find(provider: string, id: string) { return provider === "test" && id === "worker" ? worker : undefined; },
       async getApiKeyAndHeaders() { return { ok: true, apiKey: "test" }; }, async getAvailable() { return [worker]; }, hasConfiguredAuth() { return true; },
     } } as unknown as ExtensionContext;
-    const result = await manager.dispatch({ model: "gpt-5.6-luna", reason: "preserve completion", type: "general", task: "finish once" }, ctx, controller.signal);
+    const result = await manager.dispatch({ model: "luna-6", reason: "preserve completion", type: "general", task: "finish once" }, ctx, controller.signal);
     assert.match(result.episodeText, /COMPLETED TOOL BEFORE CANCEL/);
     assert.match(result.episodeText, /bounded completed result was retained/i);
     assert.match(result.episodeText, /worker action was cancelled/);
@@ -921,7 +921,7 @@ test("cancellation after a completed tool result retains durable bytes and every
     const restoredEpisode = restored.episodes.get(result.episode.id);
     assert.equal(restoredEpisode?.status, "failed");
     assert.equal(restoredEpisode?.reason, "preserve completion");
-    assert.equal(restoredEpisode?.logicalModel, "gpt-5.6-luna");
+    assert.equal(restoredEpisode?.logicalModel, "luna-6");
     assert.equal(restoredEpisode?.requestedModel, "test/worker");
     assert.equal(restoredEpisode?.requestedEffort, "max");
     assert.equal(restoredEpisode?.model, "test/worker");
@@ -943,7 +943,7 @@ test("cancellation after a completed tool result retains durable bytes and every
       return { ...result, thread: nextThread };
     };
     await later.dispatch(
-      { model: "gpt-5.6-luna", reason: "durable consumer", type: "general", task: "continue", contextEpisodeIds: [result.episode.id] },
+      { model: "luna-6", reason: "durable consumer", type: "general", task: "continue", contextEpisodeIds: [result.episode.id] },
       ctx,
       undefined,
     );
@@ -959,7 +959,7 @@ test("cancellation after finalized assistant text then an empty abort retains a 
     const store = new SlateStore({ appendEntry(_type: string, data: Record<string, unknown>) { snapshots.push(structuredClone(data)); } } as unknown as ExtensionAPI);
     const runtime = createLogicalRuntime({
       trusted: true,
-      projectConfig: { router: { models: { replace: [{ model: "gpt-5.6-luna", preferredProvider: "test", providers: { test: "worker" } }] } } },
+      projectConfig: { router: { models: { replace: [{ model: "luna-6", preferredProvider: "test", providers: { test: "worker" } }] } } },
     });
     const manager = new ThreadManager(store, {}, undefined, runtime, { enabled: true, maxRetries: 1, baseDelayMs: 0 });
     const controller = new AbortController();
@@ -986,7 +986,7 @@ test("cancellation after finalized assistant text then an empty abort retains a 
       find(provider: string, id: string) { return provider === "test" && id === "worker" ? worker : undefined; },
       async getApiKeyAndHeaders() { return { ok: true, apiKey: "test" }; }, async getAvailable() { return [worker]; }, hasConfiguredAuth() { return true; },
     } } as unknown as ExtensionContext;
-    const result = await manager.dispatch({ model: "gpt-5.6-luna", reason: "preserve finalized assistant", type: "general", task: "finish once" }, ctx, controller.signal);
+    const result = await manager.dispatch({ model: "luna-6", reason: "preserve finalized assistant", type: "general", task: "finish once" }, ctx, controller.signal);
     assert.match(result.episodeText, /COMPLETED ASSISTANT BEFORE CANCEL/);
     assert.match(result.episodeText, /bounded completed result was retained/i);
     assert.match(result.episodeText, /worker action was cancelled/);
@@ -1521,7 +1521,7 @@ test("a refused compaction inside a recovery prompt is not overwritten by the re
       return { session };
     };
     const result = await settlesWithin(
-      manager.dispatch({ model: "gpt-5.6-luna", reason: "recovery compaction refusal", type: "general", task: "run once" }, recoveryContext(root, { registry: true, auth: true }), undefined),
+      manager.dispatch({ model: "luna-6", reason: "recovery compaction refusal", type: "general", task: "run once" }, recoveryContext(root, { registry: true, auth: true }), undefined),
       "the dispatch after a refused recovery compaction",
       3_000,
     );
@@ -1537,7 +1537,7 @@ test("a refused compaction inside a recovery prompt is not overwritten by the re
     assert.equal(session.messages.filter((message) => message === toolResult).length, 1);
     const next = runtime.admit();
     assert.ok(next);
-    assert.equal(runtime.startRoute("gpt-5.6-luna", next.snapshot)?.provider, "test", "a refused action publishes no remembered provider");
+    assert.equal(runtime.startRoute("luna-6", next.snapshot)?.provider, "test", "a refused action publishes no remembered provider");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

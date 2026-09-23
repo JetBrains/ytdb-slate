@@ -234,8 +234,8 @@ test("handoff adoption keeps completed state while busy and unpauses only after 
     const run = async (busy: boolean) => {
       const runtime = createLogicalRuntime({ trusted: true });
       const base = createBaseModelTracker({ warn() {} });
-      const target = { provider: "openai", id: "gpt-5.6-luna" };
-      base.seed(target, "max"); base.adoptLogicalIdentity("gpt-5.6-luna");
+      const target = { provider: "openai", id: "gpt-6-luna" };
+      base.seed(target, "max"); base.adoptLogicalIdentity("luna-6");
       let thinking = busy ? "low" : "max";
       let modelSwitches = 0;
       let thinkingSwitches = 0;
@@ -249,7 +249,7 @@ test("handoff adoption keeps completed state while busy and unpauses only after 
       registerSlateHandoff(pi, store, () => ({ preserveGlobalModelDefault: false }), () => base, () => runtime);
       const file = join(projectDir, ".pi", "slate", "pending-handoff.json");
       mkdirSync(join(projectDir, ".pi", "slate"), { recursive: true });
-      writeFileSync(file, JSON.stringify({ parentSession: "parent", createdAt: Date.now(), brief: "done", model: target, thinkingLevel: "low", logicalModel: "gpt-5.6-luna", snapshot }));
+      writeFileSync(file, JSON.stringify({ parentSession: "parent", createdAt: Date.now(), brief: "done", model: target, thinkingLevel: "low", logicalModel: "luna-6", snapshot }));
       const held = busy ? runtime.ownership.acquire("main", SAVED_DEFAULT_RESOURCE_KEY) : undefined;
       const ctx = {
         cwd: projectDir, hasUI: false, model: target, isProjectTrusted: () => true,
@@ -268,7 +268,7 @@ test("handoff adoption keeps completed state while busy and unpauses only after 
         assert.equal(store.paused, false);
         assert.equal(thinking, "max");
         assert.equal(thinkingSwitches, 0, "the exact route and fixed effort no-op calls no Pi setter");
-        assert.equal(base.currentLogicalIdentity(), "gpt-5.6-luna");
+        assert.equal(base.currentLogicalIdentity(), "luna-6");
       }
     };
     await run(true);
@@ -282,7 +282,7 @@ test("handoff adoption reports persistence failures and preserves a safe pause b
       format: SLATE_STATE_FORMAT, threads: [], episodes: [], orchestratorMode: true, paused: true,
       workerCostUsd: 0, carriedCostUsd: 0,
     };
-    const target = { provider: "openai", id: "gpt-5.6-luna" };
+    const target = { provider: "openai", id: "gpt-6-luna" };
     const run = async (failAt?: number) => {
       const cwd = join(projectDir, `persistence-${failAt ?? "success"}`);
       mkdirSync(join(cwd, ".pi", "slate"), { recursive: true });
@@ -290,7 +290,7 @@ test("handoff adoption reports persistence failures and preserves a safe pause b
       const file = join(cwd, ".pi", "slate", "pending-handoff.json");
       writeFileSync(file, JSON.stringify({
         parentSession: "parent", createdAt: Date.now(), brief: "done", model: target,
-        logicalModel: "gpt-5.6-luna", snapshot,
+        logicalModel: "luna-6", snapshot,
       }));
       const runtime = createLogicalRuntime({ trusted: true });
       const base = createBaseModelTracker({ warn() {} });
@@ -350,7 +350,7 @@ test("handoff adoption keeps restored state paused on every identity and setter 
       format: SLATE_STATE_FORMAT, threads: [], episodes: [], orchestratorMode: true, paused: true,
       workerCostUsd: 0, carriedCostUsd: 0,
     };
-    const target = { provider: "openai", id: "gpt-5.6-luna" };
+    const target = { provider: "openai", id: "gpt-6-luna" };
     const cases = [
       ["missing-runtime", /not one unambiguous allowed logical choice/],
       ["ambiguous", /not one unambiguous allowed logical choice/],
@@ -368,7 +368,7 @@ test("handoff adoption keeps restored state paused on every identity and setter 
       writeFileSync(join(cwd, ".pi", "settings.json"), "{}");
       const ordinary = createLogicalRuntime({
         trusted: true,
-        projectConfig: mode === "ambiguous" ? { router: { models: { add: [{ model: "alias", capabilityRating: 40, costRating: 40, effort: "max", preferredProvider: "openai", providers: { openai: "gpt-5.6-luna" }, guidelines: [], cautions: [] }] } } } : undefined,
+        projectConfig: mode === "ambiguous" ? { router: { models: { add: [{ model: "alias", capabilityRating: 40, costRating: 40, effort: "max", preferredProvider: "openai", providers: { openai: "gpt-6-luna" }, guidelines: [], cautions: [] }] } } } : undefined,
       });
       let runtime: any = mode === "missing-runtime" ? undefined : ordinary;
       if (mode === "missing-effort") runtime = { ...ordinary, effortFor: () => undefined };
@@ -384,7 +384,7 @@ test("handoff adoption keeps restored state paused on every identity and setter 
       registerSlateHandoff(pi, store, () => ({ preserveGlobalModelDefault: false }), () => base, () => runtime);
       writeFileSync(join(cwd, ".pi", "slate", "pending-handoff.json"), JSON.stringify({
         parentSession: "parent", createdAt: Date.now(), brief: "done",
-        ...(mode === "missing-model" ? {} : { model: target }), logicalModel: mode === "ambiguous" ? undefined : "gpt-5.6-luna", snapshot,
+        ...(mode === "missing-model" ? {} : { model: target }), logicalModel: mode === "ambiguous" ? undefined : "luna-6", snapshot,
       }));
       const ctx = {
         cwd, hasUI: false, model: { provider: "other", id: "current" }, isProjectTrusted: () => true,

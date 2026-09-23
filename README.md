@@ -222,7 +222,7 @@ The `docs/agents/...` values below are placeholders. Point them at Markdown file
   "doctrineExtraPath": "docs/agents/workflow-additions.md",
   "reviewPerspectivesPath": "docs/agents/review-perspectives.md",
   "router": {
-    "models": { "include": ["gpt-5.6-luna", "claude-opus-5"] },
+    "models": { "include": ["luna-6", "claude-opus-5.5"] },
     "compressor": { "models": [{ "model": "claude-sonnet-5", "effort": "medium" }] }
   }
 }

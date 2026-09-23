@@ -4,12 +4,11 @@
   "router": {
     "models": {
       "include": [
-        "gpt-5.6-luna",
+        "luna-6",
         "claude-sonnet-5",
-        "gpt-5.6-terra",
-        "gpt-5.6-sol",
+        "sol-6",
         "gemini-3.8-flash",
-        "claude-opus-5",
+        "claude-opus-5.5",
         "gpt-6-astra"
       ]
     },

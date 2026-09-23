@@ -72,10 +72,10 @@ function source(): LogicalModelSource {
 
 const SHIPPED_DEFINITIONS: LogicalModelDefinition[] = [
 	{
-		model: "gpt-5.6-luna", capabilityRating: 45, effort: "max", costRating: 10,
-		preferredProvider: "openai", providers: providers("openai", "gpt-5.6-luna"),
-		guidelines: ["auxiliary tasks only, such as file location or check-result collection", "never primary research, implementation, design, or review", "consumer-contract work only when auxiliary"],
-		cautions: [LUNA_CAUTION], source: source(),
+		model: "luna-6", capabilityRating: 45, effort: "max", costRating: 5,
+		preferredProvider: "openai", providers: providers("openai", "gpt-6-luna"),
+		guidelines: ["auxiliary tasks only, such as file location, check-result collection, or routine text management such as modifying research logs", "never primary research, implementation, design, or review", "consumer-contract work only when auxiliary"],
+		cautions: [LUNA_CAUTION, "Do not use Luna to handle complex texts."], source: source(),
 	},
 	{
 		model: "claude-sonnet-5", capabilityRating: 40, effort: "high", costRating: 90,
@@ -83,30 +83,25 @@ const SHIPPED_DEFINITIONS: LogicalModelDefinition[] = [
 		guidelines: [], cautions: [SONNET_OPUS_CAUTION], source: source(),
 	},
 	{
-		model: "gpt-5.6-terra", capabilityRating: 50, effort: "max", costRating: 55,
-		preferredProvider: "openai", providers: providers("openai", "gpt-5.6-terra"),
-		guidelines: ["prefer for implementing and reviewing user-facing prose", "prefer for routine text management, including organizing research logs"], cautions: [], source: source(),
-	},
-	{
-		model: "gpt-5.6-sol", capabilityRating: 58, effort: "high", costRating: 40,
-		preferredProvider: "openai", providers: providers("openai", "gpt-5.6-sol"),
-		guidelines: ["default thread choice", "prefer for changes that amend governing rules expressed in prose", "this Sol governing-rule preference overrides the general Flash preference", "the Astra preference for design and code reviewers of focus areas that trigger high-level design overrides this Sol governing-rule preference", "Sol should remain available when Gemini produces weak evidence, misses a requirement, or when a different approach could help.", "Switching models should have a concrete reason."], cautions: [SOL_CAUTION], source: source(),
+		model: "sol-6", capabilityRating: 58, effort: "high", costRating: 20,
+		preferredProvider: "openai", providers: providers("openai", "gpt-6-sol"),
+		guidelines: ["default thread choice"], cautions: [SOL_CAUTION], source: source(),
 	},
 	{
 		model: "gemini-3.8-flash", capabilityRating: 55, effort: "medium", costRating: 30,
 		preferredProvider: "google-vertex", providers: providers("google-vertex", "gemini-3.8-flash"),
-		guidelines: ["default thread choice", "generally prefer over Sol and Luna when available", "a more specific active guideline overrides this general Flash preference", "concurrency work", "data-loss work", "performance work"],
+		guidelines: ["default thread choice", "generally prefer over Luna when available", "a more specific active guideline overrides this general Flash preference"],
 		cautions: [FLASH_CAUTION], source: source(),
 	},
 	{
-		model: "claude-opus-5", capabilityRating: 72, effort: "high", costRating: 80,
-		preferredProvider: "anthropic", providers: providers("anthropic", "claude-opus-5"),
-		guidelines: ["concurrency work", "data-loss work", "performance work"], cautions: [SONNET_OPUS_CAUTION], source: source(),
+		model: "claude-opus-5.5", capabilityRating: 90, effort: "high", costRating: 65,
+		preferredProvider: "anthropic", providers: providers("anthropic", "claude-opus-5-5"),
+		guidelines: ["concurrency work", "data-loss work", "performance work", "prefer over Astra for code reviews of focus areas that require high-level design, except non-local logic", "Do not select Opus 5.5 as the default implementer. If a lower-capability model repeatedly fails at implementation, first ask Opus 5.5 to investigate and provide detailed repair instructions. Let the implementer try those instructions. Use Opus 5.5 as the implementer only if that guided attempt also fails. Treat that use as an exception. Select another suitable model for later implementation work. Existing approval requirements and repair limits still apply."], cautions: [SONNET_OPUS_CAUTION], source: source(),
 	},
 	{
 		model: "gpt-6-astra", capabilityRating: 86, effort: "medium", costRating: 60,
 		preferredProvider: "openai", providers: providers("openai", "gpt-6-astra"),
-		guidelines: ["prefer when available for design and code reviewers of focus areas that trigger high-level design", "this Astra preference overrides the Sol governing-rule preference", "security work", "performance work", "Do not select Astra as the default implementer. Use Astra for review only when assigned to a specific focus area. Use Astra for research when appropriate. If a lower-capability model repeatedly fails at implementation, first ask Astra to investigate and provide detailed repair instructions. Let the implementer try those instructions. Use Astra as the implementer only if that guided attempt also fails. Treat that use as an exception. Select another suitable model for later implementation work. Existing approval requirements and repair limits still apply."],
+		guidelines: ["prefer when available for design reviews of all focus areas that require high-level design", "prefer for code reviews of non-local logic defects", "security work", "performance work", "Do not select Astra as the default implementer. Use Astra for review only when assigned to a specific focus area. Use Astra for research when appropriate."],
 		cautions: [], source: source(),
 	},
 ];

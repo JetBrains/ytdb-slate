@@ -1,4 +1,4 @@
-const TEST_ROUTE = { model: "gpt-5.6-luna", reason: "test fixture" } as const;
+const TEST_ROUTE = { model: "luna-6", reason: "test fixture" } as const;
 
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -100,7 +100,7 @@ test("session scope gives distinct workers one shared key and throttle", { timeo
     inspect() { return { models: 0, timestamps: 0, waiters: 0 }; },
   };
   const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
-  const runtime = createLogicalRuntime({ trusted: true, projectConfig: { router: { models: { replace: [{ model: "gpt-5.6-luna", preferredProvider: "test", providers: { test: "worker" } }] } } } });
+  const runtime = createLogicalRuntime({ trusted: true, projectConfig: { router: { models: { replace: [{ model: "luna-6", preferredProvider: "test", providers: { test: "worker" } }] } } } });
   const manager = new ThreadManager(store, {}, undefined, runtime, undefined, {
     promptCacheKey: "slate-session-shared",
     requestThrottle: throttle,
@@ -162,7 +162,7 @@ test("the cache key and request pacing are two independent switches", { timeout:
       new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI),
       config,
       undefined,
-      createLogicalRuntime({ trusted: true, projectConfig: { router: { models: { replace: [{ model: "gpt-5.6-luna", preferredProvider: "test", providers: { test: "worker" } }] } } } }),
+      createLogicalRuntime({ trusted: true, projectConfig: { router: { models: { replace: [{ model: "luna-6", preferredProvider: "test", providers: { test: "worker" } }] } } } }),
       undefined,
       scope,
     );
@@ -240,7 +240,7 @@ test("each completed action opens and disposes a distinct real worker session", 
   const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
   const runtime = createLogicalRuntime({
     trusted: true,
-    projectConfig: { router: { models: { replace: [{ model: "gpt-5.6-luna", preferredProvider: "test", providers: { test: "worker" } }] } } },
+    projectConfig: { router: { models: { replace: [{ model: "luna-6", preferredProvider: "test", providers: { test: "worker" } }] } } },
   });
   const manager = new ThreadManager(store, { cacheKeyEnabled: false }, undefined, runtime, { enabled: true, maxRetries: 0, baseDelayMs: 0 });
   const ctx = {

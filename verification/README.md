@@ -631,35 +631,35 @@ exact current production renders are:
 
 | fixture | paths | portable characters | lines |
 | --- | ---: | ---: | ---: |
-| shipped logical section | 0 | 4,353 | 12 |
-| trusted shipped-default doctrine | 5 | 9,155 | 85 |
+| shipped logical section | 0 | 3,892 | 11 |
+| trusted shipped-default doctrine | 5 | 8,694 | 84 |
 | untrusted doctrine | 4 | 2,705 | 43 |
-| draft pull requests, shipped policy | 6 | 9,331 | 87 |
-| capped workers, shipped policy | 5 | 10,502 | 95 |
-| draft plus capped workers | 6 | 10,678 | 97 |
-| deferred issues plus capped workers | 5 | 10,576 | 96 |
-| routing recommendations plus capped workers | 5 | 10,599 | 96 |
-| draft plus deferred issues and capped workers | 6 | 10,752 | 98 |
-| draft plus routing recommendations and capped workers | 6 | 10,626 | 96 |
-| deferred issues plus routing recommendations and capped workers | 5 | 10,673 | 97 |
-| canonical maximal baseline with all workflow options | 6 | 10,700 | 97 |
-| dogfood config and extension roster | 6 | 9,825 | 96 |
+| draft pull requests, shipped policy | 6 | 8,870 | 86 |
+| capped workers, shipped policy | 5 | 10,041 | 94 |
+| draft plus capped workers | 6 | 10,217 | 96 |
+| deferred issues plus capped workers | 5 | 10,115 | 95 |
+| routing recommendations plus capped workers | 5 | 10,138 | 95 |
+| draft plus deferred issues and capped workers | 6 | 10,291 | 97 |
+| draft plus routing recommendations and capped workers | 6 | 10,165 | 95 |
+| deferred issues plus routing recommendations and capped workers | 5 | 10,212 | 96 |
+| canonical maximal baseline with all workflow options | 6 | 10,239 | 96 |
+| dogfood config and extension roster | 6 | 9,364 | 95 |
 | 19,400-character policy plus draft and capped workers | 6 | 25,725 | 97 |
 | same policy plus draft and deferred issues, with routing off | 6 | 25,799 | 98 |
 | same policy plus routing recommendations and capped workers | 5 | 25,646 | 96 |
 | same policy plus deferred issues and routing recommendations, without drafts | 5 | 25,720 | 97 |
 | same policy plus draft, routing recommendations, and capped workers | 6 | 25,673 | 96 |
 | same boundary composition plus deferred issues | 6 | 25,747 | 97 |
-| valid shipped policy plus 88 capped tools | 6 | 28,374 | 180 |
+| valid shipped policy plus 88 capped tools | 6 | 27,913 | 179 |
 
 The capped worker baseline has two units and four tools. Each unit label has 128
 characters. Each tool name has 64 characters. Each description has 140
 characters. The dogfood fixture reads `.pi/slate.json` and represents its two
 configured extension units.
 
-The canonical 10,700-character baseline uses all seven shipped logical models,
+The canonical 10,239-character baseline uses all six shipped logical models,
 all three workflow options, and the capped worker roster. Its required
-five-percent value is 11,235. The unchanged 25,800 whole-doctrine ceiling keeps
+five-percent value is 10,751. The unchanged 25,800 whole-doctrine ceiling keeps
 that reserve. The exact fixtures cover all eight workflow-option combinations.
 
 Runtime rejection controls are separate. A logical section at exactly 19,400
@@ -672,8 +672,8 @@ unchanged whole-doctrine ceiling. The
 margin. These controls are not reserve-bearing canonical baselines.
 
 The over-cap counterfactual keeps the shipped logical policy valid and adds 88
-supported capped worker tools. Its 28,374 portable characters exceed the ceiling by
-2,574 characters.
+supported capped worker tools. Its 27,913 portable characters exceed the ceiling by
+2,113 characters.
 This transformed fixture replaces the retired six-copy physical model-row shape.
 It does not assume an old per-row or per-tool increment. Removing the whole-
 doctrine comparison makes the counterfactual pass and therefore breaks the
