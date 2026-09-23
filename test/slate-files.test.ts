@@ -11,6 +11,7 @@ import {
   isSlateArtifactId,
   isSlateArtifactReference,
   SLATE_ARTIFACT_REFERENCE_MAX_BYTES,
+  defaultArtifactFolder,
   SlateWriteRefused,
   writeSlateArtifact,
 } from "../extension/slate-files.ts";
@@ -46,7 +47,7 @@ function victim(outside: string): string {
 }
 
 function artifactDir(project: string, kind: "episodes" | "observations"): string {
-  return join(project, ".pi", "slate", kind);
+  return join(project, ".pi", "slate", defaultArtifactFolder(), kind);
 }
 
 function observationsDir(project: string): string {
@@ -89,6 +90,20 @@ test("the canonical reference validator enforces the exact UTF-8 boundary", () =
   assert.equal(isSlateArtifactReference(reference, "observations", exact), true);
   assert.equal(isSlateArtifactId(`a${exact}`), false);
   assert.equal(isSlateArtifactReference(`.pi/slate/observations/a${exact}.md`, "observations"), false);
+});
+
+test("scoped references enforce 240 UTF-8 bytes including the folder", () => {
+  withLab(({ project }) => {
+    const prefix = `.pi/slate/${defaultArtifactFolder()}/observations/`;
+    const allowed = `${"a".repeat(SLATE_ARTIFACT_REFERENCE_MAX_BYTES - Buffer.byteLength(prefix) - 6)}.e1`;
+    const written = writeSlateArtifact({ cwd: project, kind: "observations", id: allowed, content: "boundary" });
+    assert.equal(Buffer.byteLength(written.reference), SLATE_ARTIFACT_REFERENCE_MAX_BYTES);
+    assert.equal(readFileSync(written.absolutePath, "utf8"), "boundary");
+    const long = `a${allowed}`;
+    assert.equal(isSlateArtifactId(long), true, "the legacy flat limit is independent");
+    assert.throws(() => writeSlateArtifact({ cwd: project, kind: "observations", id: long, content: "overflow" }), /scoped reference exceeds 240 bytes/);
+    assert.equal(existsSync(join(observationsDir(project), `${long}.md`)), false);
+  });
 });
 
 test("a rejected id writes no file and destroys nothing outside the project", () => {
@@ -143,7 +158,7 @@ test("a symlinked artifact directory is refused and writes nothing outside", () 
   withLab(({ project, outside }) => {
     const decoy = join(outside, "decoy");
     mkdirSync(decoy, { recursive: true });
-    mkdirSync(join(project, ".pi", "slate"), { recursive: true });
+    mkdirSync(join(project, ".pi", "slate", defaultArtifactFolder()), { recursive: true });
     symlinkSync(decoy, observationsDir(project));
 
     assert.throws(
@@ -240,8 +255,8 @@ test("one cwd resolution anchors a write when the cwd symlink changes", (t) => {
       const written = writeSlateArtifact({ cwd: linked, kind: "observations", id: "t1.e1", content: "anchored" });
       assert.equal(cwdCalls, 1);
       assert.equal(readFileSync(written.absolutePath, "utf8"), "anchored");
-      assert.equal(written.absolutePath, join(project, ".pi", "slate", "observations", "t1.e1.md"));
-      assert.equal(existsSync(join(outside, ".pi", "slate", "observations", "t1.e1.md")), false);
+      assert.equal(written.absolutePath, join(observationsDir(project), "t1.e1.md"));
+      assert.equal(existsSync(join(outside, ".pi", "slate", defaultArtifactFolder(), "observations", "t1.e1.md")), false);
     } finally {
       t.mock.restoreAll();
       syncBuiltinESMExports();
@@ -484,7 +499,7 @@ test("two writers for the same id complete with last-writer-wins content", { tim
       parentPort.postMessage("ready");
       Atomics.wait(gate, 0, 0);
       try {
-        writeSlateArtifact({ cwd: workerData.cwd, kind: "observations", id: "t1.e1", content: workerData.content });
+        writeSlateArtifact({ cwd: workerData.cwd, kind: "observations", id: "t1.e1", content: workerData.content, folder: workerData.folder });
         parentPort.postMessage("ok");
       } catch (error) {
         parentPort.postMessage(error instanceof Error ? error.message : String(error));
@@ -501,7 +516,7 @@ test("two writers for the same id complete with last-writer-wins content", { tim
       let resultReject: (error: Error) => void;
       const ready = new Promise<void>((resolve, reject) => { readyResolve = resolve; readyReject = reject; });
       const result = new Promise<string>((resolve, reject) => { resultResolve = resolve; resultReject = reject; });
-      const worker = new Worker(script, { workerData: { moduleUrl, gate, cwd: project, content } });
+      const worker = new Worker(script, { workerData: { moduleUrl, gate, cwd: project, content, folder: defaultArtifactFolder() } });
       workers.push(worker);
       worker.on("message", (message: string) => {
         if (message === "ready") {
@@ -596,7 +611,7 @@ test("a symlink above the project root stays legitimate", () => {
 
     assert.equal(capture.stored, true);
     if (!capture.stored) return;
-    assert.equal(capture.path, ".pi/slate/observations/t1.e1.md");
+    assert.equal(capture.path, `.pi/slate/${defaultArtifactFolder()}/observations/t1.e1.md`);
     assert.equal(readFileSync(join(linked, capture.path), "utf8"), "through a linked root\n");
   });
 });
@@ -614,7 +629,7 @@ test("both artifact kinds share one writer and one refusal rule", () => {
     assert.equal(readFileSync(target, "utf8"), "ORIGINAL VICTIM CONTENT\n");
 
     const written = writeSlateArtifact({ cwd: project, kind: "episodes", id: "t2.e1", content: "# Episode\n" });
-    assert.equal(written.reference, ".pi/slate/episodes/t2.e1.md");
+    assert.equal(written.reference, `.pi/slate/${defaultArtifactFolder()}/episodes/t2.e1.md`);
     assert.equal(written.absolutePath, join(artifactDir(project, "episodes"), "t2.e1.md"));
     assert.equal(readFileSync(written.absolutePath, "utf8"), "# Episode\n");
   });

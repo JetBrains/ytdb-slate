@@ -301,7 +301,7 @@ function buildKickoff(cwd: string, trusted: boolean, brief: string, focus?: stri
 			: [
 					"Slate orchestrator handoff (context hygiene; the previous orchestrator exceeded its context budget).",
 					"NOTE: this project is untrusted, so slate did NOT auto-restore the previous session's threads/episodes.",
-					`Run /slate on if needed, then reconstruct context from the episode files under ${CONFIG_DIR_NAME}/slate/episodes/ and continue the work.`,
+					`Run /slate on if needed, then reconstruct context from the episode files under ${CONFIG_DIR_NAME}/slate/<runtime folder>/episodes/ (or the legacy ${CONFIG_DIR_NAME}/slate/episodes/) and continue the work.`,
 				].join("\n");
 	}
 	const parts = [base];
@@ -359,7 +359,7 @@ export function registerSlateHandoff(
 			"If preparation fails or is incomplete, report that fact instead of claiming that the state was saved.",
 			"Reply with a concise HANDOFF BRIEF — overall goal, per-thread state with episode ids, immediate next actions.",
 			"Then instruct the user to run /slate handoff [optional focus] to continue in a fresh session where all threads and episodes are restored automatically.",
-			`Alternatively, start a new pi session manually, run /slate on, and have the new orchestrator read the episode files under ${CONFIG_DIR_NAME}/slate/episodes/.`,
+			`Alternatively, start a new pi session manually, run /slate on, and have the new orchestrator read the episode files under ${CONFIG_DIR_NAME}/slate/<runtime folder>/episodes/ (or the legacy ${CONFIG_DIR_NAME}/slate/episodes/).`,
 		].join("\n");
 
 	const checkBudget = (ctx: ExtensionContext) => {

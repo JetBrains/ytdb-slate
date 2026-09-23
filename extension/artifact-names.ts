@@ -1,5 +1,6 @@
 /** Pure names and references for Slate episode and observation artifacts. */
 
+import { randomBytes } from "node:crypto";
 import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 
 /** Project-local artifact directories under <config dir>/slate/. */
@@ -9,13 +10,26 @@ export type SlateArtifactKind = "episodes" | "observations";
 export const SLATE_ARTIFACT_REFERENCE_MAX_BYTES = 240;
 const CONTROL_OR_PORTABLE_SEPARATOR = /[\u0000-\u001f\u007f-\u009f/\\<>:"|?*]/u;
 const EPISODE_SUFFIX = /\.e(0|[1-9]\d*)$/u;
+/** UTC creation time followed by 128 random bits. No user or Pi identifier enters a path. */
+const RUNTIME_FOLDER = /^runtime-\d{8}T\d{6}Z-[0-9a-f]{32}$/u;
+
+export function isRuntimeStorageFolder(value: unknown): value is string {
+	if (typeof value !== "string" || !RUNTIME_FOLDER.test(value)) return false;
+	const stamp = `${value.slice(8, 12)}-${value.slice(12, 14)}-${value.slice(14, 16)}T${value.slice(17, 19)}:${value.slice(19, 21)}:${value.slice(21, 23)}.000Z`;
+	const parsed = new Date(stamp);
+	return !Number.isNaN(parsed.getTime()) && parsed.toISOString() === stamp;
+}
+
+export function createRuntimeStorageFolder(): string {
+	return `runtime-${new Date().toISOString().replace(/[-:]/gu, "").slice(0, 15)}Z-${randomBytes(16).toString("hex")}`;
+}
 
 function utf8Length(value: string): number {
 	return Buffer.byteLength(value, "utf8");
 }
 
-export function slateArtifactReference(kind: SlateArtifactKind, id: string): string {
-	return `${CONFIG_DIR_NAME}/slate/${kind}/${id}.md`;
+export function slateArtifactReference(kind: SlateArtifactKind, id: string, folder?: string): string {
+	return `${CONFIG_DIR_NAME}/slate/${folder ? `${folder}/` : ""}${kind}/${id}.md`;
 }
 
 /**
@@ -54,9 +68,13 @@ export function isSlateArtifactReference(
 	if (typeof value !== "string" || utf8Length(value) > SLATE_ARTIFACT_REFERENCE_MAX_BYTES) return false;
 	const kinds: readonly SlateArtifactKind[] = kind ? [kind] : ["episodes", "observations"];
 	return kinds.some((candidate) => {
-		const prefix = `${CONFIG_DIR_NAME}/slate/${candidate}/`;
-		if (!value.startsWith(prefix) || !value.endsWith(".md")) return false;
-		const foundId = value.slice(prefix.length, -3);
-		return isSlateArtifactId(foundId) && (id === undefined || foundId === id) && value === slateArtifactReference(candidate, foundId);
+		const root = `${CONFIG_DIR_NAME}/slate/`;
+		if (!value.startsWith(root) || !value.endsWith(".md")) return false;
+		const parts = value.slice(root.length).split("/");
+		const folder = parts.length === 3 && isRuntimeStorageFolder(parts[0]) ? parts[0] : undefined;
+		const foundKind = folder ? parts[1] : parts.length === 2 ? parts[0] : undefined;
+		const foundId = (folder ? parts[2] : parts[1])?.slice(0, -3);
+		return foundKind === candidate && isSlateArtifactId(foundId) &&
+			(id === undefined || foundId === id) && value === slateArtifactReference(candidate, foundId, folder);
 	});
 }

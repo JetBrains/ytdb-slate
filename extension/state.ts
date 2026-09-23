@@ -7,7 +7,7 @@
  * State follows pi's session tree across restart, resume, and fork.
  */
 
-import { realpathSync, statSync } from "node:fs";
+import { lstatSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, relative, sep } from "node:path";
 import { CONFIG_DIR_NAME, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { isLogicalModelName, type LogicalModelEffort } from "./logical-model-definitions.ts";
@@ -18,7 +18,7 @@ import type { ObservationRecord } from "./observations.ts";
 // its own config shape and sanitizer, and this import is erased at load time.
 import type { RequestThrottleConfig, SanitizedRequestThrottle } from "./request-throttle.ts";
 import { sanitizeForNotify } from "./notify.ts";
-import { isSafeThreadId, isSlateArtifactReference, slateEpisodeId } from "./artifact-names.ts";
+import { createRuntimeStorageFolder, isRuntimeStorageFolder, isSafeThreadId, isSlateArtifactReference, slateEpisodeId } from "./artifact-names.ts";
 import { createWritingReminderRuntime, type WritingReminderRuntime } from "./writing-reminder.ts";
 
 /**
@@ -393,15 +393,27 @@ function moneyAmount(value: unknown): number | undefined {
 export function resolveEpisodeFile(cwd: string, value: unknown): string | undefined {
 	if (typeof value !== "string" || value === "") return undefined;
 	try {
-		const expectedRoot = join(realpathSync(cwd), CONFIG_DIR_NAME, "slate", "episodes");
-		const root = realpathSync(expectedRoot);
-		if (root !== expectedRoot || !statSync(root).isDirectory()) return undefined;
+		const project = realpathSync(cwd);
+		const slateRoot = join(project, CONFIG_DIR_NAME, "slate");
+		const relativeFile = relative(slateRoot, value);
+		if (relativeFile === "" || relativeFile === ".." || relativeFile.startsWith(`..${sep}`) || isAbsolute(relativeFile)) return undefined;
+		const parts = relativeFile.split(sep);
+		const folder = parts.length === 3 && isRuntimeStorageFolder(parts[0]) ? parts[0] : undefined;
+		const root = folder ? join(slateRoot, folder, "episodes") : join(slateRoot, "episodes");
+		if (folder && (parts[1] !== "episodes" || !isSlateArtifactReference(`${CONFIG_DIR_NAME}/slate/${relativeFile.split(sep).join("/")}`, "episodes"))) return undefined;
+		if (!folder && parts[0] !== "episodes") return undefined;
+		let chain = project;
+		for (const component of [CONFIG_DIR_NAME, "slate", ...(folder ? [folder] : []), "episodes"]) {
+			chain = join(chain, component);
+			const entry = lstatSync(chain);
+			if (entry.isSymbolicLink() || !entry.isDirectory()) return undefined;
+		}
+		if (realpathSync(root) !== root || !statSync(root).isDirectory()) return undefined;
+		if (folder && lstatSync(value).isSymbolicLink()) return undefined;
 		const file = realpathSync(value);
 		if (!statSync(file).isFile()) return undefined;
 		const inside = relative(root, file);
-		if (inside === "" || inside === ".." || inside.startsWith(`..${sep}`) || isAbsolute(inside)) {
-			return undefined;
-		}
+		if (inside === "" || inside === ".." || inside.startsWith(`..${sep}`) || isAbsolute(inside)) return undefined;
 		return file;
 	} catch {
 		return undefined;
@@ -794,6 +806,9 @@ export class SlateStore {
 	threads = new Map<string, ThreadRecord>();
 	episodes = new Map<string, EpisodeRecord>();
 	private threadSeq = 0;
+	/** New on every session start. This name is not saved with the snapshot. */
+	runtimeFolder = createRuntimeStorageFolder();
+	startRuntime(): void { this.runtimeFolder = createRuntimeStorageFolder(); }
 	orchestratorMode = false;
 	/** When true with orchestratorMode (context budget exceeded), the pi input hook refuses new user prompts. Worker dispatches stay open for the state save. */
 	paused = false;

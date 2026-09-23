@@ -22,11 +22,16 @@ import {
 import { join } from "node:path";
 import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 import {
+	createRuntimeStorageFolder,
+	isRuntimeStorageFolder,
 	isSlateArtifactId,
+	isSlateArtifactReference,
 	slateArtifactReference,
 	type SlateArtifactKind,
 } from "./artifact-names.ts";
 export {
+	createRuntimeStorageFolder,
+	isRuntimeStorageFolder,
 	isSafeThreadId,
 	isSlateArtifactId,
 	isSlateArtifactReference,
@@ -44,6 +49,9 @@ export interface SlateArtifactLocation {
 }
 
 const ARTIFACT_FILE_MODE = 0o666;
+/** Direct helper users share one process-local storage folder. The extension supplies its session folder. */
+const defaultRuntimeFolder = createRuntimeStorageFolder();
+export function defaultArtifactFolder(): string { return defaultRuntimeFolder; }
 // Bound retries under hostile same-name replacement. Sixteen permits ordinary
 // writer races while guaranteeing a deterministic refusal instead of a spin.
 const WRITE_ATTEMPTS = 16;
@@ -72,14 +80,15 @@ function ensureRealDirectory(path: string): void {
 }
 
 /** Create and verify every artifact parent component. */
-function ensureArtifactDirectory(cwd: string, kind: SlateArtifactKind): string {
+export function ensureRuntimeDirectory(cwd: string, folder: string, kind: SlateArtifactKind | "threads"): string {
+	if (!isRuntimeStorageFolder(folder)) refuse("slate refused an invalid runtime storage folder name");
 	const root = realpathSync(cwd);
 	let dir = root;
-	for (const component of [CONFIG_DIR_NAME, "slate", kind]) {
+	for (const component of [CONFIG_DIR_NAME, "slate", folder, kind]) {
 		dir = join(dir, component);
 		ensureRealDirectory(dir);
 	}
-	if (realpathSync(dir) !== dir) refuse(`slate refused an artifact directory because its path changed`);
+	if (realpathSync(dir) !== dir) refuse("slate refused an artifact directory because its path changed");
 	return dir;
 }
 
@@ -163,10 +172,14 @@ export function writeSlateArtifact(opts: {
 	kind: SlateArtifactKind;
 	id: string;
 	content: string | Buffer;
+	folder?: string;
 }): SlateArtifactLocation {
-	if (!isSlateArtifactId(opts.id)) refuse(`slate refused an invalid artifact id`);
-	const reference = slateArtifactReference(opts.kind, opts.id);
-	const dir = ensureArtifactDirectory(opts.cwd, opts.kind);
+	const folder = opts.folder ?? defaultRuntimeFolder;
+	if (!isRuntimeStorageFolder(folder)) refuse("slate refused an invalid runtime storage folder name");
+	if (!isSlateArtifactId(opts.id)) refuse("slate refused an invalid artifact id");
+	const reference = slateArtifactReference(opts.kind, opts.id, folder);
+	if (!isSlateArtifactReference(reference, opts.kind, opts.id)) refuse("slate refused an artifact id because its scoped reference exceeds 240 bytes");
+	const dir = ensureRuntimeDirectory(opts.cwd, folder, opts.kind);
 	const absolutePath = join(dir, `${opts.id}.md`);
 	writeFreshFile(dir, absolutePath, typeof opts.content === "string" ? Buffer.from(opts.content, "utf8") : opts.content);
 	return { absolutePath, reference };

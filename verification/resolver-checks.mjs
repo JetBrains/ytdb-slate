@@ -3823,6 +3823,9 @@ verification of that body. The accounting covers:`),
 				return { out: state.sanitizeEpisodeRecord(raw, repairs), repairs };
 			};
 			const storedObservations = { stored: true, path: ".pi/slate/observations/t1.e1.md", bytes: 17, truncated: false, grammar: "present" };
+			const scopedObservations = { ...storedObservations, path: `.pi/slate/runtime-20260923T120000Z-${"a".repeat(32)}/observations/t1.e1.md` };
+			const scopedRoundTrip = sane({ id: "t1.e1", threadId: "t1", file: "/tmp/e.md", observations: scopedObservations });
+			const badScope = sane({ id: "t1.e1", threadId: "t1", file: "/tmp/e.md", observations: { ...scopedObservations, path: scopedObservations.path.replace("runtime-", "bad-") } });
 			const wellFormed = { id: "t1.e1", threadId: "t1", task: "do", status: "ok", file: "/tmp/e.md", reason: "needed for review", logicalModel: "fixture", requestedModel: "p/requested", requestedEffort: "medium", model: "p/m", effort: "high", observations: storedObservations, createdAt: 5 };
 			const roundTrip = sane(wellFormed);
 			const failed = sane({ ...wellFormed, status: "failed" });
@@ -3922,6 +3925,7 @@ verification of that body. The accounting covers:`),
 			state.noteUnadoptedFields?.("episode", "e", { ...everyField }, { id: "e" }, new Set(), lost);
 			checkAll("state-episode-record", "an episode record is re-validated the same way: a well-formed one round-trips byte-identically, a record with no id, thread or file is dropped, `failed` is the only value that survives as a failure, token quantities require non-negative integers, money allows non-negative fractions, the unmeasured marker needs the boolean and not a truthy string, and request metadata uses its field grammar — and every field it refuses is NOTED by name and type, in the thread sanitizer's own shape (CQ22), while an accepted value and a well-formed record stay silent", [
 				["a well-formed record round-trips byte-identically", JSON.stringify(roundTrip.out) === JSON.stringify(wellFormed), roundTrip.out],
+				["scoped observation survives and malformed folder reports a refusal", scopedRoundTrip.out?.observations?.path === scopedObservations.path && badScope.out?.observations === undefined && badScope.repairs.some((r) => r.includes("ignoring observations")), [scopedRoundTrip, badScope]],
 				["a failed episode keeps its status", failed.out?.status === "failed", failed.out?.status],
 				["every unusable shape is dropped", kept.length === 0, kept],
 				["...silently, because the caller writes that note", noisy.length === 0, noisy],
@@ -4663,9 +4667,9 @@ verification of that body. The accounting covers:`),
 			const dateLine = fields.find((l) => l.startsWith("> date:")) ?? "";
 			const observationLine = (result) => headerOf(result).split("\n").find((l) => l.startsWith("> observations:"));
 			const stored = await compress(ctx, { observations: { stored: true, path: "/tmp/review observations.md", bytes: 65549, truncated: true, grammar: "present" } });
-			const maxReferenceOverhead = Buffer.byteLength(".pi/slate/observations/.md");
+			const maxReferenceOverhead = Buffer.byteLength(`.pi/slate/runtime-20260923T120000Z-${"a".repeat(32)}/observations/.md`);
 			const maxReferenceId = `${"r".repeat(240 - maxReferenceOverhead - 3)}.e1`;
-			const maxReference = `.pi/slate/observations/${maxReferenceId}.md`;
+			const maxReference = `.pi/slate/runtime-20260923T120000Z-${"a".repeat(32)}/observations/${maxReferenceId}.md`;
 			const maxReferenceHeader = await compress(ctx, { observations: { stored: true, path: maxReference, bytes: 1, truncated: false, grammar: "present" } });
 			const hostilePath = await compress(ctx, { observations: { stored: true, path: "/tmp/safe\n> forged: yes|split\u0001tail.md", bytes: 7, truncated: false, grammar: "absent" } });
 			const hostileHeader = headerOf(hostilePath);

@@ -127,6 +127,7 @@ async function runtime(root: string, name: string): Promise<ModelRuntime> {
 }
 
 function context(root: string, registry: ModelRegistry, selected?: Model<Api>, trusted = false): ExtensionContext {
+	mkdirSync(join(root, "project"), { recursive: true });
 	return {
 		cwd: join(root, "project"),
 		hasUI: false,

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
@@ -35,6 +35,7 @@ after(() => {
 });
 
 function context(name: string): ExtensionContext {
+  mkdirSync(join(scratch, name), { recursive: true });
   return {
     cwd: join(scratch, name),
     hasUI: false,

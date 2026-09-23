@@ -209,7 +209,7 @@ function extractBoundedObservation(content: unknown): { content: Buffer; truncat
  * sanitizer, the episode header and the reader rule to say nothing an operator
  * can act on differently.
  */
-export function captureObservation(cwd: string, episodeId: string, content: unknown): ObservationCapture {
+export function captureObservation(cwd: string, episodeId: string, content: unknown, runtimeFolder?: string): ObservationCapture {
 	if (content === undefined) return { stored: false, reason: "no-final-message", grammar: "absent" };
 
 	const bounded = extractBoundedObservation(content);
@@ -221,7 +221,7 @@ export function captureObservation(cwd: string, episodeId: string, content: unkn
 	const grammar = findingsGrammar(boundedText);
 	const zeroFindings = hasZeroFindings(boundedText);
 	try {
-		const written = writeSlateArtifact({ cwd, kind: "observations", id: episodeId, content: bounded.content });
+		const written = writeSlateArtifact({ cwd, kind: "observations", id: episodeId, content: bounded.content, folder: runtimeFolder });
 		return {
 			stored: true,
 			path: written.reference,
@@ -230,7 +230,8 @@ export function captureObservation(cwd: string, episodeId: string, content: unkn
 			grammar,
 			zeroFindings,
 		};
-	} catch {
+	} catch (error) {
+		const detail = sanitizeForNotify(error instanceof Error ? error.message : String(error), 200);
 		return {
 			stored: false,
 			reason: "write-failed",
@@ -238,7 +239,7 @@ export function captureObservation(cwd: string, episodeId: string, content: unkn
 			zeroFindings,
 			// SE1: the id reaches a user-visible warning, so it goes through the same
 			// notification sanitizer every other display string in this repo uses.
-			warning: `slate: could not store observations for episode ${sanitizeForNotify(episodeId, 80)}. The episode will continue without them.`,
+			warning: `slate: could not store observations for episode ${sanitizeForNotify(episodeId, 80)}: ${detail}. The episode will continue without them.`,
 		};
 	}
 }

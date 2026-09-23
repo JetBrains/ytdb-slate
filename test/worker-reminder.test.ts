@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -141,6 +141,7 @@ test("worker reminder message predicate rejects malformed and hostile values", (
 
 test("worker loader reports component loading errors with an empty allowlist", { timeout: 5000 }, async () => {
 	const scratch = mkdtempSync(join(tmpdir(), "slate-worker-reminder-loader-test-"));
+	mkdirSync(join(scratch, "project"));
 	const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
 	const previousOffline = process.env.PI_OFFLINE;
 	const originalGetExtensions = DefaultResourceLoader.prototype.getExtensions;

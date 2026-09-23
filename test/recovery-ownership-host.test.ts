@@ -894,7 +894,7 @@ export default function (pi: ExtensionAPI) {
 			}
 			assert.ok(rejectedError instanceof Error, "the no-fact cancellation must reject the caller");
 			await manager.disposeAll();
-			const episodeDir = join(project, ".pi", "slate", "episodes");
+			const episodeDir = join(project, ".pi", "slate", store.runtimeFolder, "episodes");
 			const episodeFileCount = existsSync(episodeDir)
 				? readdirSync(episodeDir).filter((name) => name.endsWith(".md")).length
 				: 0;
@@ -902,7 +902,7 @@ export default function (pi: ExtensionAPI) {
 			const durableSnapshot = snapshots.at(-1);
 			assert.ok(durableSnapshot, `${scenario}: a final durable snapshot exists`);
 			restored.adoptSnapshot(durableSnapshot as Parameters<SlateStore["adoptSnapshot"]>[0], ctx);
-			const transcriptDir = join(project, ".pi", "slate", "threads");
+			const transcriptDir = join(project, ".pi", "slate", store.runtimeFolder, "threads");
 			const transcript = readdirSync(transcriptDir)
 				.filter((name) => name.endsWith(".jsonl"))
 				.map((name) => readFileSync(join(transcriptDir, name), "utf8"))
@@ -958,7 +958,7 @@ export default function (pi: ExtensionAPI) {
 
 		const episodeBytes = readFileSync(result.episode.file, "utf8");
 		assert.equal(episodeBytes, result.episodeText, `${scenario}: D1 exact episode bytes`);
-		const episodeFileCount = readdirSync(join(project, ".pi", "slate", "episodes")).filter((name) => name.endsWith(".md")).length;
+		const episodeFileCount = readdirSync(join(project, ".pi", "slate", store.runtimeFolder, "episodes")).filter((name) => name.endsWith(".md")).length;
 		const restored = new SlateStore({ appendEntry() {} } as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);
 		const durableSnapshot = snapshots.at(-1);
 		assert.ok(durableSnapshot, `${scenario}: a final durable snapshot exists`);
@@ -980,7 +980,7 @@ export default function (pi: ExtensionAPI) {
 		assert.match(laterPrompt, new RegExp(result.episode.id.replace(".", "\\.")), `${scenario}: D4 later context episode identity`);
 		assert.match(laterPrompt, /later durable consumer/, `${scenario}: D4 later action text`);
 
-		const transcriptDir = join(project, ".pi", "slate", "threads");
+		const transcriptDir = join(project, ".pi", "slate", store.runtimeFolder, "threads");
 		const transcript = readdirSync(transcriptDir)
 			.filter((name) => name.endsWith(".jsonl"))
 			.map((name) => readFileSync(join(transcriptDir, name), "utf8"))

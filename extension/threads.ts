@@ -260,6 +260,8 @@ export class ThreadManager {
 	private compressorRetryPolicy?: CompressorRetryPolicy;
 	/** This session's shared cache key and request throttle, frozen at construction. */
 	private sessionScope: ThreadSessionScope;
+	/** Captured by value so an older dispatch never writes into a replacement session's folder. */
+	private readonly runtimeFolder: string;
 
 	constructor(
 		store: SlateStore,
@@ -272,6 +274,7 @@ export class ThreadManager {
 		sessionScope: ThreadSessionScope = {},
 	) {
 		this.store = store;
+		this.runtimeFolder = store.runtimeFolder;
 		this.config = config;
 		this.resolveExtensions = resolveExtensions;
 		this.logicalRuntime = logicalRuntime;
@@ -427,6 +430,7 @@ export class ThreadManager {
 				session = await openWorkerSession({
 					ctx: args.ctx,
 					sessionFile: undefined,
+					runtimeFolder: this.runtimeFolder,
 					model: args.open.model,
 					tools: args.tools,
 					promptDocs: this.config.workerPromptDocs,
@@ -1144,7 +1148,7 @@ export class ThreadManager {
 			try {
 				failed = writeFailedEpisode({
 					ctx, episodeId, threadId: thread.id, threadName: thread.name, task: opts.task,
-					diagnostics: reason, workerModel: ranModel, workerCostUsd: totalActionCost,
+					diagnostics: reason, workerModel: ranModel, workerCostUsd: totalActionCost, runtimeFolder: this.runtimeFolder,
 				});
 			} catch (error) {
 				const storageCause = error instanceof EpisodePersistenceError ? error.originalError : error;
@@ -1211,7 +1215,7 @@ export class ThreadManager {
 		};
 		try {
 			const finalMessage = lastAssistantMessage(actionMessages);
-			observation = captureObservation(ctx.cwd, episodeId, finalMessage ? (finalMessage.content ?? []) : undefined);
+			observation = captureObservation(ctx.cwd, episodeId, finalMessage ? (finalMessage.content ?? []) : undefined, this.runtimeFolder);
 			const warningsBeforeObservation = warnings.length;
 			if (!observation.stored && observation.reason === "write-failed" && "warning" in observation) routeWarn(observation.warning);
 			const judgementType = isJudgementThreadType(thread.type);
@@ -1263,6 +1267,7 @@ export class ThreadManager {
 		let compressed: Awaited<ReturnType<typeof compressEpisode>>;
 		try {
 			compressed = await compressEpisode({
+				runtimeFolder: this.runtimeFolder,
 				ctx,
 				episodeId,
 				threadId: thread.id,

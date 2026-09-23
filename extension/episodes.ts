@@ -4,7 +4,7 @@
  * An episode is the structured record of ONE completed thread action.
  * Actions with a worker response use one large language model call when a compressor is available.
  * Failed actions without a worker response use a short fixed structure without compression.
- * Episodes are stored at <config dir>/slate/episodes/<id>.md and returned to the orchestrator.
+ * Episodes are stored at <config dir>/slate/<runtime folder>/episodes/<id>.md.
  *
  * Compressor candidates come only from the active logical policy. The original
  * action admission fixes the remembered start and provider order. Pi retries one
@@ -405,6 +405,7 @@ function hasAssistantMessage(messages: unknown[]): boolean {
 
 export interface CompressEpisodeOptions {
 	ctx: ExtensionContext;
+	runtimeFolder?: string;
 	episodeId: string;
 	threadId: string;
 	threadName: string;
@@ -565,6 +566,7 @@ export interface FailedEpisodeOptions {
 	diagnostics: string;
 	workerModel?: { provider: string; id: string };
 	workerCostUsd: number;
+	runtimeFolder?: string;
 }
 
 /** Write the fixed episode for a failed action that produced no worker response. */
@@ -594,7 +596,7 @@ export function writeFailedEpisode(opts: FailedEpisodeOptions): CompressedEpisod
 		"",
 	].join("\n");
 	try {
-		const written = writeSlateArtifact({ cwd: opts.ctx.cwd, kind: "episodes", id: opts.episodeId, content: text });
+		const written = writeSlateArtifact({ cwd: opts.ctx.cwd, kind: "episodes", id: opts.episodeId, content: text, folder: opts.runtimeFolder });
 		return { text, file: written.absolutePath, compressor: "(fixed failed-action episode)" };
 	} catch (error) {
 		throw new EpisodePersistenceError(undefined, error);
@@ -716,7 +718,7 @@ export async function compressEpisode(opts: CompressEpisodeOptions): Promise<Com
 	// Nothing reads it in between, and the write itself keeps its historical
 	// failure policy: a refusal or an fs error throws out of this function.
 	try {
-		const written = writeSlateArtifact({ cwd: ctx.cwd, kind: "episodes", id: opts.episodeId, content: text });
+		const written = writeSlateArtifact({ cwd: ctx.cwd, kind: "episodes", id: opts.episodeId, content: text, folder: opts.runtimeFolder });
 		return {
 			text,
 			file: written.absolutePath,
