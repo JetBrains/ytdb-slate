@@ -26,11 +26,10 @@
  * network install.
  *
  * Worker conversations persist under
- * <config dir>/slate/threads/*.jsonl (CONFIG_DIR_NAME, ".pi" by default)
+ * <config dir>/slate/<runtime folder>/threads/*.jsonl (CONFIG_DIR_NAME, ".pi" by default)
  * and are reopened via SessionManager.open.
  */
 
-import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import {
 	CONFIG_DIR_NAME,
@@ -43,6 +42,7 @@ import {
 	type ModelRegistry,
 	type ModelRuntime,
 } from "@earendil-works/pi-coding-agent";
+import { defaultArtifactFolder, ensureRuntimeDirectory } from "./slate-files.ts";
 import { sanitizeForNotify } from "./notify.ts";
 import { permitsSlateConfig } from "./config.ts";
 import { loadPromptDocs } from "./prompt-docs.ts";
@@ -138,8 +138,8 @@ export function workerPreamble(trusted: boolean, reviewerCharter: boolean): stri
 	return reviewerCharter === true ? `${prose}\n${REVIEWER_CHARTER}` : prose;
 }
 
-export function threadsDir(cwd: string): string {
-	return resolve(cwd, CONFIG_DIR_NAME, "slate", "threads");
+export function threadsDir(cwd: string, runtimeFolder = defaultArtifactFolder()): string {
+	return resolve(cwd, CONFIG_DIR_NAME, "slate", runtimeFolder, "threads");
 }
 
 function installPromptCacheKey(session: WorkerSession, promptCacheKey?: string): void {
@@ -419,7 +419,8 @@ export function inheritHostProviderRegistrations(
 
 export async function openWorkerSession(opts: {
 	ctx: ExtensionContext;
-	sessionFile?: string; // resume when provided, else create new under <config dir>/slate/threads/
+	sessionFile?: string; // resume when provided, else create new under this runtime folder
+	runtimeFolder?: string;
 	// Episode and observation paths do not belong here. Their shared artifact writer owns persistence.
 	model?: string; // "provider/id"
 	tools?: string[];
@@ -436,9 +437,6 @@ export async function openWorkerSession(opts: {
 	deferShutdownOnOpenFailure?: boolean; // ThreadManager persists captured startup facts before shutdown
 }): Promise<WorkerSession> {
 	const { ctx } = opts;
-	const dir = threadsDir(ctx.cwd);
-	mkdirSync(dir, { recursive: true });
-
 	const agentDir = getAgentDir();
 
 	// Trust propagation (mirrors vanilla pi's runtime SettingsManager): when no
@@ -584,9 +582,11 @@ export async function openWorkerSession(opts: {
 
 	const model = opts.model ? resolveModel(ctx, opts.model) : ctx.model;
 
+	// Pi writes the transcript itself. Check its entire parent chain immediately
+	// before passing the folder to Pi, including existing symlinks above threads.
 	const sessionManager = opts.sessionFile
 		? SessionManager.open(opts.sessionFile)
-		: SessionManager.create(ctx.cwd, dir);
+		: SessionManager.create(ctx.cwd, ensureRuntimeDirectory(ctx.cwd, opts.runtimeFolder ?? defaultArtifactFolder(), "threads"));
 
 	// No modelRuntime passed: createAgentSession (pi >= 0.80.8) defaults to a
 	// ModelRuntime replacing the AuthStorage + ModelRegistry setup this code

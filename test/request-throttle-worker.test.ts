@@ -33,6 +33,7 @@ after(() => {
 });
 
 async function worker(name: string, trusted = false): Promise<WorkerSession> {
+  mkdirSync(join(scratch, name), { recursive: true });
   const ctx = {
     cwd: join(scratch, name),
     hasUI: false,

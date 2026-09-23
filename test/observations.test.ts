@@ -396,7 +396,7 @@ test("a failed observations write returns a warning instead of throwing", () => 
     assert.equal(result.reason, "write-failed");
     assert.equal(result.grammar, "absent");
     assert.equal(result.zeroFindings, true);
-    assert.match(result.warning ?? "", /^slate: could not store observations for episode t1\.e1\./);
+    assert.match(result.warning ?? "", /^slate: could not store observations for episode t1\.e1: .*not a directory/);
     assert.equal("zeroFindings" in durableObservation(result), false);
   });
 });
@@ -655,18 +655,41 @@ test("public dispatch gates each grammar warning by outcome and judgement type",
   }
 });
 
+test("an older manager keeps its storage folder after the store starts another runtime", async () => {
+  const root = temporaryRoot();
+  try {
+    let store: SlateStore | undefined;
+    let previous = "";
+    let next = "";
+    const result = await dispatchOnce({
+      root,
+      message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "result" }] },
+      onStore: (value) => { store = value; previous = value.runtimeFolder; },
+      onOpen: () => { store!.startRuntime(); next = store!.runtimeFolder; },
+    });
+    assert.notEqual(previous, next);
+    assert.ok(result.episode.file.includes(`/${previous}/episodes/`));
+    const observation = result.episode.observations as { stored?: boolean; path?: string } | undefined;
+    assert.equal(observation?.stored, true);
+    assert.ok(observation?.path?.includes(`/${previous}/observations/`));
+    assert.equal(existsSync(join(root, ".pi", "slate", next)), false);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("dispatch routes observation and judgement warnings through results and progress", async () => {
   const root = temporaryRoot();
   try {
     const slateDir = join(root, ".pi", "slate");
     mkdirSync(slateDir, { recursive: true });
-    writeFileSync(join(slateDir, "observations"), "not a directory", "utf8");
-
     const progress: DispatchProgress[] = [];
     const result = await dispatchOnce({
       root,
       message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "Review complete." }] },
       onProgress: (update) => progress.push({ ...update, lines: [...update.lines] }),
+      onStore: (store) => {
+        mkdirSync(join(slateDir, store.runtimeFolder), { recursive: true });
+        writeFileSync(join(slateDir, store.runtimeFolder, "observations"), "not a directory", "utf8");
+      },
     });
 
     assert.equal(result.episode.status, "ok");

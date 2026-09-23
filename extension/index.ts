@@ -112,6 +112,7 @@ export default function (pi: ExtensionAPI) {
 		// Invalidate asynchronous recovery before replacing session-owned state.
 		logicalSessionEpoch += 1;
 		await manager.disposeAll();
+		store.startRuntime();
 		logicalRuntime?.resetPreferences();
 		// Select permitted Slate sources without changing pi project trust.
 		const trusted = ctx.isProjectTrusted();

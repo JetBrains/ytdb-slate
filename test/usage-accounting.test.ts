@@ -1196,7 +1196,7 @@ test("overlapping terminal callers convert one fact once, compress once, save on
   assert.equal(session.shutdownCalls, 1, "overlapping owners emit one shutdown");
   assert.equal(session.disposeCalls, 1, "overlapping owners dispose the worker once");
   assert.deepEqual(
-    readdirSync(join(cwd, ".pi", "slate", "episodes")).filter((name) => name.endsWith(".md")),
+    readdirSync(join(cwd, ".pi", "slate", (manager as unknown as { store: InstanceType<typeof SlateStore> }).store.runtimeFolder, "episodes")).filter((name) => name.endsWith(".md")),
     ["t1.e1.md"],
     "one episode write",
   );
@@ -1280,10 +1280,10 @@ test("a disposal failure after durable persistence stays separate from the worke
 
 test("fixed episode write failure leaves a terminal reason and no orphan episode", { timeout: 1000 }, async (t) => {
   const cwd = temporaryProject(t);
-  mkdirSync(join(cwd, ".pi", "slate", "episodes", "t1.e1.md"), { recursive: true });
   const session = fakeSession(async () => { throw new Error("provider stopped before response"); });
   const snapshots: unknown[] = [];
   const manager = managerWithSessions([session], {}, fixtureRuntime(), capturingStore(snapshots));
+  mkdirSync(join(cwd, ".pi", "slate", (manager as unknown as { store: InstanceType<typeof SlateStore> }).store.runtimeFolder, "episodes", "t1.e1.md"), { recursive: true });
   await assert.rejects(
     manager.dispatch({ ...TEST_ROUTE, task: "fail durably", type: "general" }, context(cwd), undefined),
     (error: Error) => {
@@ -1332,7 +1332,7 @@ test("fixed failure reports a thread-record save failure", { timeout: 1000 }, as
   restored.adoptSnapshot(successfulSnapshots.at(-1)!, context(cwd));
   assert.equal(restored.episodes.has("t1.e1"), false, "the last successful snapshot cannot claim unwritten state");
   assert.equal(restored.threads.get("t1")?.episodeId, undefined, "the failed save publishes no durable episode reference");
-  assert.match(readFileSync(join(cwd, ".pi", "slate", "episodes", "t1.e1.md"), "utf8"), /STATUS: FAILED/, "episode bytes may remain after state-save failure");
+  assert.match(readFileSync(join(cwd, ".pi", "slate", internalStore.runtimeFolder, "episodes", "t1.e1.md"), "utf8"), /STATUS: FAILED/, "episode bytes may remain after state-save failure");
 });
 
 test("worker episode usage preserves all quantities and accumulates several turns", { timeout: 1000 }, async (t) => {
@@ -1590,13 +1590,13 @@ test("no-fact cancellation keeps lifecycle reports beside a terminal save failur
 
 test("fact cancellation keeps lifecycle reports beside episode and state persistence failures", { timeout: 1000 }, async (t) => {
   const cwd = temporaryProject(t);
-  mkdirSync(join(cwd, ".pi", "slate", "episodes", "t1.e1.md"), { recursive: true });
   const controller = new AbortController();
   const ran = model("test", "worker");
   const compressor = model("test", "compressor");
   const session = fakeSession(async () => { throw new Error("ordinary prompt must not run"); }, ran);
   piAiCompatStub.complete = async () => completeResponse({ input: 1, output: 1, cost: { total: 0.01 } });
   const sharedStore = store();
+  mkdirSync(join(cwd, ".pi", "slate", sharedStore.runtimeFolder, "episodes", "t1.e1.md"), { recursive: true });
   const originalSave = sharedStore.save.bind(sharedStore);
   sharedStore.save = () => {
     const thread = sharedStore.threads.get("t1");
@@ -1785,7 +1785,7 @@ test("startup failure and cancellation order keeps the observed primary cause", 
         assert.equal(internalStore.threads.get("t1")?.status, "cancelled");
         assert.equal(session.shutdownCalls, 1);
         assert.equal(session.disposeCalls, 1);
-        assert.equal(existsSync(join(cwd, ".pi", "slate", "episodes", "t1.e1.md")), false);
+        assert.equal(existsSync(join(cwd, ".pi", "slate", internalStore.runtimeFolder, "episodes", "t1.e1.md")), false);
         await assertNoEpisodeConsumers(internalStore, cwd, "t1.e1", snapshots.at(-1));
       } else {
         const result = await dispatch;

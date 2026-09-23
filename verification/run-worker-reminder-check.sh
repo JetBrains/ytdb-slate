@@ -151,7 +151,7 @@ walk(process.argv[1]);process.stdout.write(best);' "$AGENT/sessions")"
 WORKER_SESSION="$(node -e '
 const fs=require("node:fs"),path=require("node:path");let files=[];
 function walk(d){let es=[];try{es=fs.readdirSync(d,{withFileTypes:true})}catch{return}for(const e of es){const p=path.join(d,e.name);if(e.isDirectory())walk(p);else if(e.isFile()&&p.endsWith(".jsonl"))files.push(p)}}
-walk(process.argv[1]);if(files.length===1)process.stdout.write(files[0]);' "$PROJECT/.pi/slate/threads")"
+walk(process.argv[1]);if(files.length===1&&/\/runtime-\d{8}T\d{6}Z-[0-9a-f]{32}\/threads\//.test(files[0]))process.stdout.write(files[0]);' "$PROJECT/.pi/slate")"
 
 node - "$STDOUT" "$HOST_SESSION" "$WORKER_SESSION" "$EVIDENCE" "$PROJECT" "$REPO" "$ANALYSIS" <<'NODE'
 const fs = require("node:fs");
@@ -219,7 +219,7 @@ const result={
   silentLossClean:toolResults.length===2&&customEntries.length===1&&Array.isArray(warnings)&&!warnings.some((warning)=>String(warning).includes(MISS_WARNING))&&
     !textOf(threadResult?.content).includes(MISS_WARNING),
   compressorClean:compressorCalls.length===1&&!containsReminder(JSON.stringify(compressorCalls[0].context)),
-  episodeClean:typeof episodeFile==="string"&&episodeFile.startsWith(project+"/.pi/slate/episodes/")&&episodeText.length>0&&
+  episodeClean:typeof episodeFile==="string"&&/^runtime-\d{8}T\d{6}Z-[0-9a-f]{32}\/episodes\/t\d+\.e1\.md$/.test(episodeFile.slice((project+"/.pi/slate/").length))&&episodeFile.startsWith(project+"/.pi/slate/")&&episodeText.length>0&&
     !containsReminder(episodeText),
   configBoundary:Array.isArray(config.workerExtensions)&&config.workerExtensions.length===0&&config.cacheKeyEnabled===false&&
     config.router?.models?.add?.[0]?.model==="worker-reminder-canary"&&config.router?.compressor?.models?.[0]?.model==="claude-sonnet-5"&&

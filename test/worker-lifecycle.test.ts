@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -9,6 +9,7 @@ import { createLogicalRuntime } from "../extension/logical-model-runtime.ts";
 import { SlateStore } from "../extension/state.ts";
 import { ThreadManager } from "../extension/threads.ts";
 import { registerSlateTools } from "../extension/tools.ts";
+import { createRuntimeStorageFolder } from "../extension/artifact-names.ts";
 import { openWorkerSession, type WorkerSession } from "../extension/worker.ts";
 import { createWorkerExtensionResolver } from "../extension/worker-extensions.ts";
 
@@ -56,6 +57,18 @@ async function isolatedWorkerTest(
     rmSync(root, { recursive: true, force: true });
   }
 }
+
+test("Pi worker session creation refuses a symbolic-link runtime parent", { timeout: 10000 }, async (t) => {
+  await isolatedWorkerTest(t, async (root) => {
+    const folder = createRuntimeStorageFolder();
+    const outside = join(root, "outside");
+    mkdirSync(outside);
+    mkdirSync(join(root, ".pi", "slate"), { recursive: true });
+    symlinkSync(outside, join(root, ".pi", "slate", folder));
+    await assert.rejects(openWorkerSession({ ctx: context(root), runtimeFolder: folder }), /artifact directory because that path is a symbolic link/);
+    assert.deepEqual(readdirSync(outside), [], "Pi received no transcript folder outside the project");
+  });
+});
 
 const tool = (name: string, text: string) => `({
   name: ${JSON.stringify(name)}, label: ${JSON.stringify(name)}, description: ${JSON.stringify(text)},
@@ -555,7 +568,7 @@ export default function (pi) {
       assert.equal(store.episodes.size, 0);
 
       const episodeId = "t1.e1";
-      const episodeDir = join(root, ".pi", "slate", "episodes");
+      const episodeDir = join(root, ".pi", "slate", store.runtimeFolder, "episodes");
       const episodeFiles = existsSync(episodeDir)
         ? readdirSync(episodeDir).filter((name) => name.endsWith(".md"))
         : [];
@@ -661,7 +674,7 @@ export default function (pi) {
           assert.equal(state.handlers, scenario.includes("handlers") ? 2 : 0);
           assert.equal(state.shutdowns, scenario.includes("handlers") ? 1 : 0);
           assert.equal(store.episodes.size, 0);
-          const episodeDir = join(root, ".pi", "slate", "episodes");
+          const episodeDir = join(root, ".pi", "slate", store.runtimeFolder, "episodes");
           assert.deepEqual(existsSync(episodeDir) ? readdirSync(episodeDir) : [], []);
           const restored = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
           assert.ok(snapshots.at(-1));

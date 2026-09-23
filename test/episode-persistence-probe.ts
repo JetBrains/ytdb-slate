@@ -20,7 +20,7 @@ const compat = await import("@earendil-works/pi-ai/compat") as unknown as {
 };
 compat.piAiCompatStub.complete = async () => {
   if (observationMode === "removed") {
-    const observations = join(root, ".pi", "slate", "observations");
+    const observations = join(root, ".pi", "slate", store.runtimeFolder, "observations");
     rmSync(observations, { recursive: true, force: true });
     writeFileSync(observations, "compression fixture replaced this directory");
   }
@@ -31,11 +31,12 @@ compat.piAiCompatStub.complete = async () => {
   };
 };
 
-mkdirSync(join(root, ".pi", "slate", "episodes", "t1.e1.md"), { recursive: true });
+// Create the blocked episode target under the chosen runtime folder below.
 const sessionFile = join(root, "worker.jsonl");
 writeFileSync(sessionFile, "session");
 
 const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
+mkdirSync(join(root, ".pi", "slate", store.runtimeFolder, "episodes", "t1.e1.md"), { recursive: true });
 let saves = 0;
 let recoverySaves = 0;
 const originalSave = store.save.bind(store);
@@ -144,14 +145,14 @@ assert.equal(recoverySaves, 1, "episode-persistence recovery is saved exactly on
 assert.equal(store.episodes.size, 0);
 const observationRetained = observationMode === "retained";
 assert.equal(
-  existsSync(join(root, ".pi", "slate", "observations", "t1.e1.md")),
+  existsSync(join(root, ".pi", "slate", store.runtimeFolder, "observations", "t1.e1.md")),
   observationRetained,
   observationRetained
     ? "the observation remains after episode persistence fails"
     : "the external-removal fixture removes the observation",
 
 );
-const observationsParent = lstatSync(join(root, ".pi", "slate", "observations"));
+const observationsParent = lstatSync(join(root, ".pi", "slate", store.runtimeFolder, "observations"));
 assert.equal(observationsParent.isDirectory(), observationRetained, "the selected observation fixture has the expected final shape");
 assert.equal(progress.filter((update) => update.done).length, 1);
 assert.equal(progress.find((update) => update.done)?.status, "failed");
