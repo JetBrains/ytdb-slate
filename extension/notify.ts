@@ -3,7 +3,7 @@
  *
  * Strings that reach ctx.ui.notify / the console can carry user- or
  * extension-supplied content: config values, regex patterns, extension load
- * paths, loader error messages, pending-handoff fields. pi-tui renders
+ * paths, loader error messages, successor handoff entry fields. pi-tui renders
  * control/ANSI codes verbatim, so a raw value could inject terminal escapes —
  * strip control characters and cap the length before display.
  *

@@ -114,7 +114,7 @@ prerequisite makes them report NOT RUN rather than guess:
 | --- | --- |
 | `P9b` | `R7` **and** `R8` in the same run (it compares their two report verbs) |
 | `P10` | `R5a` in the same run (to confirm failure reports still reach stderr) |
-| `R4a`,`R4b`,`R5a`,`R5b`,`R5c`,`G4b`,`P8`,`P9a` | a parent session, which they create on demand — no cross-rung dependency |
+| `R4a`,`R4b`,`R5a`,`R5b`,`R5c`,`G4b`,`P8`,`P9a` | nothing: each seeds its own successor session JSONL and resumes it — no cross-rung dependency |
 | `WK1` | nothing: it launches its own two pi processes and opens its own worker sessions — no cross-rung dependency |
 
 `LAT` is informational: it prints a median wall-clock comparison and never
@@ -193,9 +193,10 @@ Four drive modes, chosen per rung:
    permits the active fake route and the target route. The switch is proven from
    the session record (`model_change` entry), never from a log line. The success
    notice is deliberately UI-only.
-2. **End-to-end handoff adoption** — a seeded
-   `<lab>/work/.pi/slate/pending-handoff.json` whose `parentSession` matches the
-   header `--fork` writes, plus `-a` for project trust.
+2. **End-to-end handoff adoption** — a seeded successor session JSONL with a
+   `slate-handoff` custom entry bound to its header session ID. The harness
+   resumes it with `--session` and checks the saved `slate-state` entry and
+   model switch. The entry needs no shared project file or parent match.
 3. **`probe.ts`** — imports the module under test by absolute path and calls the
    real `withGlobalModelDefaultRestored` with the real `pi` and `ctx` around real
    session setters. The driver temporarily wraps `AgentSession.setModel` and

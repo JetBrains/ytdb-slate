@@ -363,11 +363,11 @@ print("{}/{}:{}".format(d.get("defaultProvider"), d.get("defaultModel"), d.get("
 newest_session() { ls -t "$AGENT/sessions"/*/*.jsonl 2>/dev/null | head -1; }
 # Structural, and deliberately order-independent: asserts the three fields are
 # on one model_change record without assuming pi's key serialisation order.
-switch_seen() { local s; s=$(newest_session); [ -n "$s" ] || return 1
+switch_seen() { local s; s=${3:-$(newest_session)}; [ -n "$s" ] || return 1
 	grep '"type":"model_change"' "$s" | grep "\"provider\":\"$1\"" | grep -q "\"modelId\":\"$2\""; }
 # Positive evidence for the thinking-ONLY paths, where no model_change exists
 # because the equality guard skips the model setter (WH8).
-thinking_change_seen() { local s; s=$(newest_session); [ -n "$s" ] || return 1
+thinking_change_seen() { local s; s=${2:-$(newest_session)}; [ -n "$s" ] || return 1
 	grep '"type":"thinking_level_change"' "$s" | grep -q "\"thinkingLevel\":\"$1\""; }
 
 # ------------------------------------------------- report-matching helpers --
@@ -823,29 +823,28 @@ runfailover() {
 }
 
 # ------------------------------------------------------- handoff-adoption prep
-PARENT=""
-prep_parent() {
-	[ -n "$PARENT" ] && return 0
-	seed "$CANON"
-	piexec timeout 120 pi --no-extensions -p "parent" >/dev/null 2>&1
-	PARENT=$(newest_session)
-}
-seed_pending() { # $1 provider, $2 id, $3 thinkingLevel or "-"
-	mkdir -p "$WORK/.pi/slate" || die "cannot create the pending-handoff dir"
-	python3 - "$PARENT" "$WORK/.pi/slate/pending-handoff.json" "$1" "$2" "$3" <<'PY'
-import json,sys,time
-parent,out,prov,mid,think = sys.argv[1:6]
-p={"parentSession":parent,"createdAt":int(time.time()*1000),"brief":"ladder",
-   "model":{"provider":prov,"id":mid},"logicalModel":"ladder",
-   "snapshot":{"threads":[],"episodes":[],"orchestratorMode":True,"paused":False,"workerCostUsd":0,"carriedCostUsd":0}}
+SUCCESSOR_FILE=""
+seed_successor() { # $1 provider, $2 id, $3 thinkingLevel or "-"
+	SUCCESSOR_FILE=$(python3 - "$OUT" "$WORK" "$1" "$2" "$3" <<'PY'
+import json,sys,uuid,datetime,os
+out,cwd,prov,mid,think = sys.argv[1:6]
+sid=str(uuid.uuid4()); path=os.path.join(out,"successor-"+sid+".jsonl")
+now=datetime.datetime.now(datetime.timezone.utc).isoformat()
+p={"sessionId":sid,"model":{"provider":prov,"id":mid},"logicalModel":"ladder",
+   "snapshot":{"format":"single-action-v1","threads":[],"episodes":[],"orchestratorMode":True,"paused":True,"workerCostUsd":0,"carriedCostUsd":0}}
 if think != "-": p["thinkingLevel"]=think
-open(out,"w").write(json.dumps(p,indent=2)+"\n")
+header={"type":"session","version":3,"id":sid,"timestamp":now,"cwd":cwd}
+entry={"type":"custom","customType":"slate-handoff","data":p,"id":uuid.uuid4().hex[:8],"parentId":None,"timestamp":now}
+with open(path,"x") as f:
+ for item in (header,entry): f.write(json.dumps(item)+"\n")
+print(path)
 PY
+) || die "cannot seed the successor session"
 }
 runadopt() { # $1 label, rest = extra pi args
 	local label="$1"; shift
 	snapshot "$label-before.json"
-	piexec timeout 180 pi --no-extensions -e "$REPO" -a --fork "$PARENT" "$@" -p "adopt" \
+	piexec timeout 180 pi --no-extensions -e "$REPO" -a --session "$SUCCESSOR_FILE" "$@" -p "adopt" \
 		> "$OUT/$label.out" 2> "$OUT/$label.err"
 	snapshot "$label-after.json"
 }
@@ -943,27 +942,25 @@ fi
 
 # R4a handoff adoption, thinking-level key written ALONE (equality guard skips setModel)
 if want R4a; then
-	prep_parent
 	handoffcfg probe-a alpha-1 low
-	seed "$CANON"; seed_pending probe-a alpha-1 low; runadopt R4a-site
-	SITE=$(triple); SITE_THINK=no; thinking_change_seen low && SITE_THINK=yes
+	seed "$CANON"; seed_successor probe-a alpha-1 low; runadopt R4a-site
+	SITE=$(triple); SITE_THINK=no; thinking_change_seen low "$SUCCESSOR_FILE" && SITE_THINK=yes
 	seed "$CANON"; PROBE_SKIP_MODEL=1 PROBE_THINKING=low PROBE_CONFIG='{"preserveGlobalModelDefault":false}' runprobe R4a-off "$REPO/extension/model-default.ts" probe-a/alpha-1 0 none --provider probe-a --model alpha-1
 	OFF=$(triple)
 	seed "$CANON"; PROBE_SKIP_MODEL=1 PROBE_THINKING=low runprobe R4a "$REPO/extension/model-default.ts" probe-a/alpha-1 0 none --provider probe-a --model alpha-1
 	if [ "$SITE_THINK" != yes ]; then fail R4a "the handoff adoption site did not set the thinking level"
 	elif [ "$SITE" != "probe-a/alpha-1:medium" ]; then fail R4a "the handoff thinking setter persisted unexpectedly: $SITE"
 	elif [ "$OFF" != "probe-a/alpha-1:low" ]; then fail R4a "persist:true control did not leak the thinking key alone (got $OFF)"
-	elif [ -f "$WORK/.pi/slate/pending-handoff.json" ]; then fail R4a "pending file not consumed — adoption never ran"
+	elif ! grep -q '"customType":"slate-state"' "$SUCCESSOR_FILE"; then fail R4a "successor has no adopted slate-state entry"
 	elif cmp -s "$OUT/R4a-before.json" "$OUT/R4a-after.json"; then pass R4a "handoff setter wrote zero bytes; explicit thinking-only leak $OFF restored byte-identically"
 	else fail R4a "explicit persisted thinking level was not restored: $(triple)"; fi
 fi
 
 # R4b handoff adoption, model + thinking
 if want R4b; then
-	prep_parent
 	handoffcfg probe-c gamma-1 high
-	seed "$CANON_XHIGH"; seed_pending probe-c gamma-1 high; runadopt R4b-site
-	SITE=$(triple); SITE_SW=no; switch_seen probe-c gamma-1 && SITE_SW=yes
+	seed "$CANON_XHIGH"; seed_successor probe-c gamma-1 high; runadopt R4b-site
+	SITE=$(triple); SITE_SW=no; switch_seen probe-c gamma-1 "$SUCCESSOR_FILE" && SITE_SW=yes
 	seed "$CANON_XHIGH"; PROBE_CONFIG='{"preserveGlobalModelDefault":false}' runprobe R4b-off "$REPO/extension/model-default.ts" probe-c/gamma-1 0 none --provider probe-a --model alpha-1
 	OFF=$(triple)
 	seed "$CANON_XHIGH"; runprobe R4b "$REPO/extension/model-default.ts" probe-c/gamma-1 0 none --provider probe-a --model alpha-1
@@ -979,14 +976,13 @@ seed_empty()   { assert_agent_dir "$AGENT" "truncate the settings fixture"; : > 
 seed_corrupt() { assert_agent_dir "$AGENT" "write the corrupt settings fixture"
 	printf '%s' '{ "defaultProvider": "probe-a", "defaultModel": ' > "$SETTINGS"; }
 untrustworthy() { # $1 id, $2 seeder-fn, $3 cause-class regex (synonyms, not prose)
-	prep_parent
 	local id="$1" seeder="$2" frag="$3"
 	handoffcfg probe-c gamma-1 high
-	$seeder; seed_pending probe-c gamma-1 high; runadopt "$id" --provider probe-a --model alpha-1
+	$seeder; seed_successor probe-c gamma-1 high; runadopt "$id" --provider probe-a --model alpha-1
 	local on_after; on_after=$(sha "$SETTINGS")
 	cp -f "$SETTINGS" "$OUT/$id-on-after.json"
 	handoffcfg probe-c gamma-1 high ', "preserveGlobalModelDefault": false'
-	$seeder; seed_pending probe-c gamma-1 high; runadopt "$id-off" --provider probe-a --model alpha-1
+	$seeder; seed_successor probe-c gamma-1 high; runadopt "$id-off" --provider probe-a --model alpha-1
 	local off_after; off_after=$(sha "$SETTINGS")
 	if [ ! -f "$SETTINGS" ]; then fail "$id" "BLOCKER: settings file deleted"
 	elif ! said_something "$OUT/$id.err"; then fail "$id" "slate emitted no report at all"
@@ -1001,7 +997,6 @@ untrustworthy() { # $1 id, $2 seeder-fn, $3 cause-class regex (synonyms, not pro
 want R5a && untrustworthy R5a 'seed_empty' 'empty|zero.?byte|0 bytes'
 want R5b && untrustworthy R5b 'seed_corrupt' 'cannot read|unreadable|not valid JSON|JSON|pars'
 if want R5c; then
-	prep_parent
 	cat > "$LAB/holdlock.mjs" <<'EOF' || die "cannot write the lock-holder helper"
 import { mkdirSync, utimesSync, rmSync } from "node:fs";
 const t = process.argv[2] + ".lock"; const hold = Number(process.argv[3] ?? 30000);
@@ -1010,7 +1005,7 @@ const iv = setInterval(() => { const n = new Date(); try { utimesSync(t, n, n); 
   if (Date.now() - t0 > hold) { clearInterval(iv); try { rmSync(t, { recursive: true, force: true }); } catch {} process.exit(0); } }, 500);
 EOF
 	runlocked() { # $1 label, $2 knobcfg
-		handoffcfg probe-c gamma-1 high "$2"; seed "$CANON_XHIGH"; seed_pending probe-c gamma-1 high
+		handoffcfg probe-c gamma-1 high "$2"; seed "$CANON_XHIGH"; seed_successor probe-c gamma-1 high
 		assert_agent_dir "$AGENT" "hold the settings lock"
 		rm -rf "$SETTINGS.lock"; node "$LAB/holdlock.mjs" "$SETTINGS" 40000 2>/dev/null & local lp=$!
 		sleep 0.4; runadopt "$1" --provider probe-a --model alpha-1; kill $lp 2>/dev/null; wait $lp 2>/dev/null; rm -rf "$SETTINGS.lock"
@@ -1145,7 +1140,6 @@ fi
 
 # G4b thinking-level key ABSENT beforehand while the pair is present
 if want G4b; then
-	prep_parent
 	NOTHINK='{
   "defaultProvider": "probe-a",
   "defaultModel": "alpha-1",
@@ -1154,9 +1148,9 @@ if want G4b; then
   }
 }'
 	handoffcfg probe-a alpha-1 high
-	seed "$NOTHINK"; seed_pending probe-a alpha-1 high; runadopt G4b-site
+	seed "$NOTHINK"; seed_successor probe-a alpha-1 high; runadopt G4b-site
 	SITE_HAS=$(python3 -c 'import json,sys;print("yes" if "defaultThinkingLevel" in json.load(open(sys.argv[1])) else "no")' "$SETTINGS" 2>/dev/null)
-	SITE_THINK=no; thinking_change_seen high && SITE_THINK=yes
+	SITE_THINK=no; thinking_change_seen high "$SUCCESSOR_FILE" && SITE_THINK=yes
 	seed "$NOTHINK"; PROBE_SKIP_MODEL=1 PROBE_THINKING=high PROBE_CONFIG='{"preserveGlobalModelDefault":false}' runprobe G4b-off "$REPO/extension/model-default.ts" probe-a/alpha-1 0 none --provider probe-a --model alpha-1
 	OFF=$(triple)
 	seed "$NOTHINK"; PROBE_SKIP_MODEL=1 PROBE_THINKING=high runprobe G4b "$REPO/extension/model-default.ts" probe-a/alpha-1 0 none --provider probe-a --model alpha-1
@@ -1274,7 +1268,6 @@ fi
 
 # P8 sanitised reporting: raw escape bytes next to a syntax error
 if want P8; then
-	prep_parent
 	# Fixture: raw ESC/BEL bytes as a BARE token (outside any string literal), which
 	# is what makes V8 embed a raw snippet of the file in its parse error. Path via
 	# argv, never interpolated into the program text.
@@ -1288,7 +1281,7 @@ const {readFileSync}=require("fs");
 try{JSON.parse(readFileSync(process.argv[1],"utf8"));console.log("no-parse-error")}
 catch(e){console.log(e.message.includes("\u001b")||e.message.includes("\u0007")?"raw-escapes-in-parse-error":"no-escapes-in-parse-error")}' "$SETTINGS")
 	handoffcfg probe-c gamma-1 high
-	seed_pending probe-c gamma-1 high; runadopt P8 --provider probe-a --model alpha-1
+	seed_successor probe-c gamma-1 high; runadopt P8 --provider probe-a --model alpha-1
 	ESC=$(python3 -c 'import sys
 lines = open(sys.argv[1], "rb").read().split(b"\n")
 mine = [l for l in lines if l.startswith(b"slate:")]
@@ -1308,18 +1301,18 @@ fi
 
 # P9 no false claims when nothing was switched / when divergence is unknown
 if want P9a; then
-	prep_parent
 	handoffcfg probe-a alpha-1 xhigh
-	seed "$CANON_XHIGH"; seed_pending probe-a alpha-1 -     # route and fixed effort already live => no setter call
+	seed "$CANON_XHIGH"; seed_successor probe-a alpha-1 -     # route and fixed effort already live => no setter call
 	assert_agent_dir "$AGENT" "hold the settings lock"
 	rm -rf "$SETTINGS.lock"; node "$LAB/holdlock.mjs" "$SETTINGS" 40000 2>/dev/null & LP=$!
 	sleep 0.4; runadopt P9a --provider probe-a --model alpha-1 --thinking xhigh; kill $LP 2>/dev/null; wait $LP 2>/dev/null; rm -rf "$SETTINGS.lock"
 	# The no-op assertion targets the compatibility wrapper. The prompt sent by
 	# runadopt can independently fail on the dead provider and main recovery must
 	# remain free to report that real outcome.
-	if said "$OUT/P9a.err" "$RX_STOOD_DOWN|$RX_TRIED_RESTORE|$RX_ONLY_CHECKED"; then fail P9a "the compatibility wrapper spoke even though no Pi setter ran: $(slate_lines "$OUT/P9a.err" | grep -E "$RX_STOOD_DOWN|$RX_TRIED_RESTORE|$RX_ONLY_CHECKED" | head -1)"
+	if ! grep -q '"customType":"slate-state"' "$SUCCESSOR_FILE"; then fail P9a "successor has no adopted slate-state entry — no-op assertion would be vacuous"
+	elif said "$OUT/P9a.err" "$RX_STOOD_DOWN|$RX_TRIED_RESTORE|$RX_ONLY_CHECKED"; then fail P9a "the compatibility wrapper spoke even though no Pi setter ran: $(slate_lines "$OUT/P9a.err" | grep -E "$RX_STOOD_DOWN|$RX_TRIED_RESTORE|$RX_ONLY_CHECKED" | head -1)"
 	elif ! cmp -s "$OUT/P9a-before.json" "$OUT/P9a-after.json"; then fail P9a "settings changed"
-	else pass P9a "the exact route and fixed effort no-op called no setter, skipped compatibility post-reads under the held lock, and left settings untouched"; fi
+	else pass P9a "the successor saved adopted state; the exact route and fixed effort no-op called no setter, skipped compatibility post-reads under the held lock, and left settings untouched"; fi
 fi
 if want P9b; then
 	# Mutual exclusion of the two report verbs is the assertion; the surrounding
