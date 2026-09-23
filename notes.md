@@ -1,6 +1,6 @@
 # ytdb-slate 0.11.0
 
-This release changes how Slate selects models, how it runs worker threads, and how the workflow decides which gates and reviews a change needs. Several configuration keys changed. Read the breaking changes before you upgrade.
+This release changes how Slate selects models, how it runs worker threads, and how the workflow decides which gates and reviews a change needs. Several configuration keys changed. Read the breaking changes below before you upgrade.
 
 ## Highlights
 
