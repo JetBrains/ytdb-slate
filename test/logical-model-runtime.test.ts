@@ -19,7 +19,7 @@ function policyWithSharedRoute() {
 			models: {
 				add: [{
 					model: "shared-alias", capabilityRating: 45, effort: "max", costRating: 11,
-					preferredProvider: "openai", providers: { openai: "gpt-5.6-luna" },
+					preferredProvider: "openai", providers: { openai: "gpt-6-luna" },
 					guidelines: [], cautions: [],
 				}],
 			},
@@ -27,13 +27,13 @@ function policyWithSharedRoute() {
 	};
 }
 
-function route(logicalModel = "gpt-5.6-luna", effort = "max" as const) {
-	return { kind: "ordinary" as const, logicalModel, effort, provider: "openai", model: "gpt-5.6-luna" };
+function route(logicalModel = "luna-6", effort = "max" as const) {
+	return { kind: "ordinary" as const, logicalModel, effort, provider: "openai", model: "gpt-6-luna" };
 }
 
 function fakeModel(overrides: Partial<Model<any>> = {}): Model<any> {
 	return {
-		id: "gpt-5.6-luna", name: "Luna", provider: "openai", api: "openai-responses",
+		id: "gpt-6-luna", name: "Luna", provider: "openai", api: "openai-responses",
 		baseUrl: "https://invalid.example", reasoning: true,
 		input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 		contextWindow: 1000, maxTokens: 100, thinkingLevelMap: { max: "max" }, ...overrides,
@@ -56,8 +56,8 @@ test("runtime freezes one usable policy and keeps prompt, effective view, and de
 	assert.ok(Object.isFrozen(runtime));
 	assert.ok(Object.isFrozen(runtime.policy));
 	assert.deepEqual(runtime.criticalErrors, []);
-	assert.equal(runtime.policy?.ordinary.length, 7);
-	assert.equal(runtime.definition("gpt-5.6-sol")?.capabilityRating, 58);
+	assert.equal(runtime.policy?.ordinary.length, 6);
+	assert.equal(runtime.definition("sol-6")?.capabilityRating, 58);
 	assert.equal(runtime.effortFor("claude-sonnet-5"), "high");
 	assert.match(runtime.promptText() ?? "", /gpt-6-astra/);
 	assert.match(runtime.effectiveText(), /fixedEffort=max/);
@@ -68,14 +68,14 @@ test("runtime freezes one usable policy and keeps prompt, effective view, and de
 test("untrusted configuration cannot alter policy or inject warnings", () => {
 	const runtime = createLogicalRuntime({ trusted: false, projectConfig: { router: { models: { include: [] } }, episodeModel: "bad" } });
 	assert.deepEqual(runtime.criticalErrors, []);
-	assert.equal(runtime.policy?.ordinary.length, 7);
+	assert.equal(runtime.policy?.ordinary.length, 6);
 	assert.deepEqual(runtime.warnings, []);
 });
 
 test("prompt overflow blocks every operational policy surface without truncation", () => {
 	const runtime = createLogicalRuntime({
 		trusted: true,
-		projectConfig: { router: { models: { replace: [{ model: "gpt-5.6-luna", cautions: ["x".repeat(20_000)] }] } } },
+		projectConfig: { router: { models: { replace: [{ model: "luna-6", cautions: ["x".repeat(20_000)] }] } } },
 	});
 	assert.equal(runtime.policy, undefined);
 	assert.equal(runtime.promptText(), undefined);
@@ -87,40 +87,40 @@ test("prompt overflow blocks every operational policy surface without truncation
 test("routes use remembered, preferred, then declared providers and publish only admitted values", () => {
 	const runtime = createLogicalRuntime({
 		trusted: true,
-		projectConfig: { router: { models: { replace: [{ model: "gpt-5.6-luna", preferredProvider: "openai", providers: { openai: "gpt-5.6-luna", second: "luna-2" } }] } } },
+		projectConfig: { router: { models: { replace: [{ model: "luna-6", preferredProvider: "openai", providers: { openai: "gpt-6-luna", second: "luna-2" } }] } } },
 	});
 	const first = runtime.admit();
 	assert.ok(first);
-	assert.equal(runtime.startRoute("gpt-5.6-luna", first.snapshot)?.provider, "openai");
+	assert.equal(runtime.startRoute("luna-6", first.snapshot)?.provider, "openai");
 	assert.deepEqual({ ...runtime.rememberedSelections().providers }, {});
-	assert.equal(runtime.publishProvider(first, "gpt-5.6-luna", "second"), true);
+	assert.equal(runtime.publishProvider(first, "luna-6", "second"), true);
 	const second = runtime.admit();
 	assert.ok(second);
-	assert.equal(runtime.startRoute("gpt-5.6-luna", second.snapshot)?.provider, "second");
-	assert.deepEqual({ ...runtime.rememberedSelections().providers }, { "gpt-5.6-luna": "second" });
+	assert.equal(runtime.startRoute("luna-6", second.snapshot)?.provider, "second");
+	assert.deepEqual({ ...runtime.rememberedSelections().providers }, { "luna-6": "second" });
 	assert.match(runtime.effectiveText(runtime.rememberedSelections()), /preferredProvider=openai; rememberedProvider=second/);
-	assert.equal(runtime.publishProvider(second, "gpt-5.6-luna", "invented"), false);
+	assert.equal(runtime.publishProvider(second, "luna-6", "invented"), false);
 	assert.equal(runtime.startRoute("not-present", second.snapshot), undefined);
 
 	const manyProviders = Object.fromEntries(Array.from({ length: 12_000 }, (_, index) => [`p${index}`, `model-${index}`]));
 	const large = createLogicalRuntime({
 		trusted: true,
-		projectConfig: { router: { models: { replace: [{ model: "gpt-5.6-luna", preferredProvider: "p1", providers: manyProviders }] } } },
+		projectConfig: { router: { models: { replace: [{ model: "luna-6", preferredProvider: "p1", providers: manyProviders }] } } },
 	});
-	assert.equal(large.startRoute("gpt-5.6-luna", { providers: { "gpt-5.6-luna": "p11999" }, compressorIndex: 0, resetEpoch: 0 })?.provider, "p11999");
+	assert.equal(large.startRoute("luna-6", { providers: { "luna-6": "p11999" }, compressorIndex: 0, resetEpoch: 0 })?.provider, "p11999");
 });
 
 test("reverse mapping reports zero, one, and many and accepts only a matching trusted identity", () => {
 	const ordinary = createLogicalRuntime({ trusted: true });
 	assert.deepEqual(ordinary.reverseMap({ provider: "absent", model: "none" }), { kind: "none" });
-	assert.deepEqual(ordinary.reverseMap({ provider: "openai", model: "gpt-5.6-sol" }), {
-		kind: "one", logicalModel: "gpt-5.6-sol", source: "exact-route",
+	assert.deepEqual(ordinary.reverseMap({ provider: "openai", model: "gpt-6-sol" }), {
+		kind: "one", logicalModel: "sol-6", source: "exact-route",
 	});
 	const shared = createLogicalRuntime({ trusted: true, projectConfig: policyWithSharedRoute() });
-	const ambiguous = shared.reverseMap({ provider: "openai", model: "gpt-5.6-luna" });
-	assert.deepEqual(ambiguous, { kind: "several", logicalModels: ["gpt-5.6-luna", "shared-alias"] });
-	assert.equal(shared.reverseMap({ provider: "openai", model: "gpt-5.6-luna" }, "not-a-match").kind, "several");
-	assert.deepEqual(shared.reverseMap({ provider: "openai", model: "gpt-5.6-luna" }, "shared-alias"), {
+	const ambiguous = shared.reverseMap({ provider: "openai", model: "gpt-6-luna" });
+	assert.deepEqual(ambiguous, { kind: "several", logicalModels: ["luna-6", "shared-alias"] });
+	assert.equal(shared.reverseMap({ provider: "openai", model: "gpt-6-luna" }, "not-a-match").kind, "several");
+	assert.deepEqual(shared.reverseMap({ provider: "openai", model: "gpt-6-luna" }, "shared-alias"), {
 		kind: "one", logicalModel: "shared-alias", source: "trusted-identity",
 	});
 });
@@ -151,7 +151,7 @@ test("replacement runtimes share active saved-default ownership but reset prefer
 	const first = createLogicalRuntime({ trusted: true, ownership: new RecoveryOwnership(scope) });
 	const admission = first.admit();
 	assert.ok(admission);
-	assert.equal(first.publishProvider(admission, "gpt-5.6-luna", "openai"), true);
+	assert.equal(first.publishProvider(admission, "luna-6", "openai"), true);
 	const held = first.ownership.acquire("old-session", "saved-default");
 	assert.equal(held.kind, "acquired");
 	first.resetPreferences();
@@ -169,11 +169,11 @@ test("preference resets invalidate snapshots but never force-release an active o
 	const runtime = createLogicalRuntime({ trusted: true });
 	const before = runtime.admit();
 	assert.ok(before);
-	assert.equal(runtime.publishProvider(before, "gpt-5.6-luna", "openai"), true);
+	assert.equal(runtime.publishProvider(before, "luna-6", "openai"), true);
 	const acquired = runtime.ownership.acquire("session", "defaults");
 	assert.equal(acquired.kind, "acquired");
 	runtime.resetPreferences();
-	assert.equal(runtime.publishProvider(before, "gpt-5.6-luna", "openai"), false);
+	assert.equal(runtime.publishProvider(before, "luna-6", "openai"), false);
 	assert.deepEqual(runtime.ownership.acquire("session", "defaults"), { kind: "busy", resource: "execution-session", key: "session" });
 	if (acquired.kind === "acquired") acquired.lease.release();
 	assert.equal(runtime.ownership.acquire("session", "defaults").kind, "acquired");
@@ -216,9 +216,9 @@ test("session normalization fails closed and covers every keep and switch decisi
 test("blocked runtime surfaces remain inert and remember no compressor", () => {
 	const runtime = createLogicalRuntime({ trusted: true, projectConfig: { router: { compressor: { models: [] } } } });
 	assert.deepEqual(runtime.rememberedSelections(), {});
-	assert.deepEqual(runtime.planOrdinary("gpt-5.6-luna", { providers: {}, compressorIndex: 0, resetEpoch: 0 }), []);
+	assert.deepEqual(runtime.planOrdinary("luna-6", { providers: {}, compressorIndex: 0, resetEpoch: 0 }), []);
 	assert.deepEqual(runtime.planCompressor({ providers: {}, compressorIndex: 0, resetEpoch: 0 }), []);
-	assert.equal(runtime.publishProvider({ sequence: 1, resetEpoch: 0, snapshot: { providers: {}, compressorIndex: 0, resetEpoch: 0 } } as never, "gpt-5.6-luna", "openai"), false);
+	assert.equal(runtime.publishProvider({ sequence: 1, resetEpoch: 0, snapshot: { providers: {}, compressorIndex: 0, resetEpoch: 0 } } as never, "luna-6", "openai"), false);
 	assert.equal(runtime.publishCompressor({} as never, 0), false);
 	runtime.resetPreferences();
 });
@@ -232,8 +232,8 @@ test("logical action history preserves every resolver-accepted name and rejects 
 	assert.equal(longRuntime.definition(longName)?.model, longName, "the resolver accepts the 201-character name");
 	const physical = {
 		id: "t1.e1", threadId: "t1", task: "work", status: "ok", file: "/tmp/e.md",
-		logicalModel: longName, requestedModel: "openai/gpt-5.6-sol", requestedEffort: "high",
-		model: "openai/gpt-5.6-sol", effort: "high", createdAt: 1,
+		logicalModel: longName, requestedModel: "openai/gpt-6-sol", requestedEffort: "high",
+		model: "openai/gpt-6-sol", effort: "high", createdAt: 1,
 	};
 	const repairs: string[] = [];
 	assert.deepEqual(sanitizeEpisodeRecord(physical, repairs), physical);

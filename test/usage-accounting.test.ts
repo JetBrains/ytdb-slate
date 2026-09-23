@@ -2085,9 +2085,9 @@ test("logical compressor uses production retries, moves forward, attributes usag
     projectConfig: { router: {
       models: { replace: [
         { model: "claude-sonnet-5", preferredProvider: "first", providers: { first: "compress-1", backup: "compress-1b" } },
-        { model: "gpt-5.6-luna", preferredProvider: "second", providers: { second: "compress-2", "second-backup": "compress-2b" } },
+        { model: "luna-6", preferredProvider: "second", providers: { second: "compress-2", "second-backup": "compress-2b" } },
       ] },
-      compressor: { models: [{ model: "claude-sonnet-5", effort: "medium" }, { model: "gpt-5.6-luna", effort: "low" }] },
+      compressor: { models: [{ model: "claude-sonnet-5", effort: "medium" }, { model: "luna-6", effort: "low" }] },
     } },
   });
   const admission = runtime.admit();

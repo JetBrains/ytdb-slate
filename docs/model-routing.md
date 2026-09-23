@@ -68,21 +68,21 @@ forecasts. Membership changes do not rescale them.
 
 | logical model | ordinary effort | capability | cost | preferred provider | exact initial permission | guidance | cautions |
 | --- | --- | ---: | ---: | --- | --- | --- | --- |
-| `gpt-5.6-luna` | `max` | 45 | 10 | `openai` | `openai/gpt-5.6-luna` | Auxiliary tasks only, such as file location or check-result collection. Never primary research, implementation, design, or review. Consumer-contract work only when auxiliary. | scope caution below |
+| `luna-6` | `max` | 45 | 5 | `openai` | `openai/gpt-6-luna` | Auxiliary tasks only, such as file location, check-result collection, or routine text management such as modifying research logs. Never primary research, implementation, design, or review. Consumer-contract work only when auxiliary. | scope and complex-text cautions below |
 | `claude-sonnet-5` | `high` | 40 | 90 | `anthropic` | `anthropic/claude-sonnet-5` | none | scope caution below |
-| `gpt-5.6-terra` | `max` | 50 | 55 | `openai` | `openai/gpt-5.6-terra` | Prefer for implementing and reviewing user-facing prose. Prefer for routine text management, including organizing research logs. | none |
-| `gpt-5.6-sol` | `high` | 58 | 40 | `openai` | `openai/gpt-5.6-sol` | Default thread choice. Prefer for changes that amend governing rules expressed in prose. This Sol governing-rule preference overrides the general Flash preference. The Astra preference for design and code reviewers of focus areas that trigger high-level design overrides this Sol governing-rule preference. Sol should remain available when Gemini produces weak evidence, misses a requirement, or when a different approach could help. Switching models should have a concrete reason. | blocked-action caution below |
-| `gemini-3.8-flash` | `medium` | 55 | 30 | `google-vertex` | `google-vertex/gemini-3.8-flash` | Default thread choice. Generally prefer over Sol and Luna when available. A more specific active guideline overrides this general Flash preference. Concurrency, data-loss, performance. | reviewer and evidence caution below |
-| `claude-opus-5` | `high` | 72 | 80 | `anthropic` | `anthropic/claude-opus-5` | concurrency, data-loss, performance | scope caution below |
-| `gpt-6-astra` | `medium` | 86 | 60 | `openai` | `openai/gpt-6-astra` | Prefer when available for design and code reviewers of focus areas that trigger high-level design. This Astra preference overrides the Sol governing-rule preference. Security and performance work. Do not select Astra as the default implementer. Use Astra for review only when assigned to a specific focus area. Use Astra for research when appropriate. If a lower-capability model repeatedly fails at implementation, first ask Astra to investigate and provide detailed repair instructions. Let the implementer try those instructions. Use Astra as the implementer only if that guided attempt also fails. Treat that use as an exception. Select another suitable model for later implementation work. Existing approval requirements and repair limits still apply. | none |
+| `sol-6` | `high` | 58 | 20 | `openai` | `openai/gpt-6-sol` | Default thread choice. | blocked-action caution below |
+| `gemini-3.8-flash` | `medium` | 55 | 30 | `google-vertex` | `google-vertex/gemini-3.8-flash` | Default thread choice. Generally prefer over Luna when available. A more specific active guideline overrides this general Flash preference. | reviewer and evidence caution below |
+| `claude-opus-5.5` | `high` | 90 | 65 | `anthropic` | `anthropic/claude-opus-5-5` | Concurrency, data-loss, and performance work. Prefer over Astra for code reviews of focus areas that require high-level design, except non-local logic. Do not select Opus 5.5 as the default implementer. If a lower-capability model repeatedly fails at implementation, first ask Opus 5.5 to investigate and provide detailed repair instructions. Let the implementer try those instructions. Use Opus 5.5 as the implementer only if that guided attempt also fails. Treat that use as an exception. Select another suitable model for later implementation work. Existing approval requirements and repair limits still apply. | scope caution below |
+| `gpt-6-astra` | `medium` | 86 | 60 | `openai` | `openai/gpt-6-astra` | Prefer when available for design reviews of all focus areas that require high-level design. Prefer for code reviews of non-local logic defects. Security and performance work. Do not select Astra as the default implementer. Use Astra for review only when assigned to a specific focus area. Use Astra for research when appropriate. | none |
 
 Sonnet and Opus use this caution: `May exceed explicit scope or infer permission
 from earlier requests. Check changes against stated exclusions and approval
 requirements.` Sol uses this caution: `When blocked, may substitute unapproved
 resources or perform destructive cleanup. Require permission before either
-action.` Luna uses this caution: `May treat supplied repair context as
+action.` Luna uses these cautions: `May treat supplied repair context as
 permission to implement despite explicit task limits. Restrict write access for
-record-only work and verify the changed files.` Flash uses this caution: `Do not
+record-only work and verify the changed files.` and `Do not use Luna to handle
+complex texts.` Flash uses this caution: `Do not
 use as a reviewer. It relies too much on passing tests and exact-size assertions.
 Verify source citations and distinguish proposed behavior from existing
 behavior.` Fable is not active because it has no complete
@@ -121,7 +121,7 @@ new session.
 {
   "router": {
     "models": {
-      "include": ["gpt-5.6-luna", "claude-sonnet-5", "gpt-6-astra"],
+      "include": ["luna-6", "claude-sonnet-5", "gpt-6-astra"],
       "add": [],
       "replace": [],
       "exclude": []
@@ -133,7 +133,7 @@ new session.
 }
 ```
 
-Omitted `include` starts with all seven shipped ordinary definitions. An explicit
+Omitted `include` starts with all six shipped ordinary definitions. An explicit
 empty `include` starts with an empty ordinary pool. `exclude` applies last and
 wins.
 
@@ -198,12 +198,12 @@ Complete `replace` example:
     "models": {
       "replace": [
         {
-          "model": "gpt-5.6-sol",
+          "model": "sol-6",
           "effort": "max",
           "capabilityRating": 58,
-          "costRating": 40,
+          "costRating": 20,
           "preferredProvider": "gateway",
-          "providers": { "gateway": "openai/gpt-5.6-sol" },
+          "providers": { "gateway": "openai/gpt-6-sol" },
           "guidelines": ["repository-wide implementation"],
           "cautions": []
         }
@@ -225,6 +225,15 @@ block logical work before dispatch. Slate reports each critical error. Legacy
 `modelFailover`, `episodeModel`, array-form `router.models`,
 `router.allowUnmeasuredEffort`, and `router.showWarnings` values are named and
 ignored. Slate performs no automatic migration.
+
+The shipped names `gpt-5.6-luna`, `gpt-5.6-sol`, `gpt-5.6-terra`, and
+`claude-opus-5` are withdrawn. Use `luna-6`, `sol-6`, and
+`claude-opus-5.5` in `include`, `replace`, `exclude`, and compressor entries.
+Terra has no replacement. Slate provides no automatic alias. A withdrawn name
+in one of those reference positions produces that position's explicit unknown-model
+error and blocks routing. A project can still define a withdrawn spelling as a
+new custom model through a complete `add` entry. That entry follows the ordinary
+custom-model rules and does not restore the former shipped definition.
 
 `/slate effective` separates configured preferred providers from remembered
 successful providers. It shows ordinary membership, definitions, fixed efforts,

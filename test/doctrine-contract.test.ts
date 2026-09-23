@@ -96,10 +96,11 @@ test("logical doctrine uses the cached static runtime policy without physical ro
   assert.match(doctrine, /Every `thread` call must name logical `model` and a short `reason`/);
   assert.match(doctrine, /Effort is fixed by policy/);
   assert.match(doctrine, /Model routing policy:/);
-  assert.match(doctrine, /\| gpt-5\.6-terra \| 50 \| 55 \| prefer for implementing and reviewing user-facing prose \/ prefer for routine text management, including organizing research logs \| none \|/);
-  assert.match(doctrine, /\| gpt-5\.6-sol \| 58 \| 40 \| default thread choice \/ prefer for changes that amend governing rules expressed in prose \/ this Sol governing-rule preference overrides the general Flash preference \/ the Astra preference[^|]+overrides this Sol governing-rule preference/);
+  assert.match(doctrine, /\| luna-6 \| 45 \| 5 \| auxiliary tasks only,[^|]+routine text management such as modifying research logs[^|]+\|[^|]+Do not use Luna to handle complex texts\. \|/);
+  assert.match(doctrine, /\| sol-6 \| 58 \| 20 \| default thread choice \|/);
   assert.match(doctrine, /Apply a more specific active guideline when it states an exception to a general preference\./);
-  assert.match(doctrine, /\| gpt-6-astra \| 86 \| 60 \| prefer when available for design and code reviewers of focus areas that trigger high-level design \/ this Astra preference overrides the Sol governing-rule preference \/ security work \/ performance work \/ Do not select Astra as the default implementer\. Use Astra for review only when assigned to a specific focus area\. Use Astra for research when appropriate\. If a lower-capability model repeatedly fails at implementation, first ask Astra to investigate and provide detailed repair instructions\. Let the implementer try those instructions\. Use Astra as the implementer only if that guided attempt also fails\. Treat that use as an exception\. Select another suitable model for later implementation work\. Existing approval requirements and repair limits still apply\. \| none \|/);
+  assert.match(doctrine, /\| claude-opus-5\.5 \| 90 \| 65 \| concurrency work \/ data-loss work \/ performance work \/ prefer over Astra for code reviews of focus areas that require high-level design, except non-local logic \/ Do not select Opus 5\.5 as the default implementer\.[^|]+first ask Opus 5\.5 to investigate[^|]+guided attempt also fails[^|]+Existing approval requirements and repair limits still apply\. \|/);
+  assert.match(doctrine, /\| gpt-6-astra \| 86 \| 60 \| prefer when available for design reviews of all focus areas that require high-level design \/ prefer for code reviews of non-local logic defects \/ security work \/ performance work \/ Do not select Astra as the default implementer\. Use Astra for review only when assigned to a specific focus area\. Use Astra for research when appropriate\. \| none \|/);
   assert.doesNotMatch(doctrine, /preferredProvider|permission openai\/|registry prices|context window|`effort`/);
   assert.match(doctrine, /orchestrator selects the model for a no-area track under the same ordinary guidance/);
 });
@@ -112,10 +113,10 @@ test("logical doctrine production renders match published portable measurements"
     { path: "/fixture/b", source: "y".repeat(128), isDirectory: true, tools: [{ name: "c".repeat(64), description: "f".repeat(140) }, { name: "d".repeat(64), description: "g".repeat(140) }] },
   ], paths: [], toolNames: [] };
   const metric = (text: string) => ({ portable: text.split(docsDirectory).join("").length, lines: text.split("\n").length, paths: text.split(docsDirectory).length - 1 });
-  assert.deepEqual(metric(runtime.promptText()!), { portable: 4353, lines: 12, paths: 0 });
-  assert.deepEqual(metric(await renderDoctrine(runtime)), { portable: 9155, lines: 85, paths: 5 });
+  assert.deepEqual(metric(runtime.promptText()!), { portable: 3892, lines: 11, paths: 0 });
+  assert.deepEqual(metric(await renderDoctrine(runtime)), { portable: 8694, lines: 84, paths: 5 });
   assert.deepEqual(metric(await renderDoctrine(runtime, {}, false)), { portable: 2705, lines: 43, paths: 4 });
-  assert.deepEqual(metric(await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped)), { portable: 10700, lines: 97, paths: 6 });
+  assert.deepEqual(metric(await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped)), { portable: 10239, lines: 96, paths: 6 });
 });
 
 test("blocked logical policy renders a visible doctrine refusal", { timeout: 5000 }, async () => {
@@ -131,11 +132,11 @@ test("effective command reads current preferences without policy or provider wor
   const store = new SlateStore(api as unknown as ExtensionAPI);
   const runtime = createLogicalRuntime({
     trusted: true,
-    projectConfig: { router: { models: { replace: [{ model: "gpt-5.6-luna", preferredProvider: "openai", providers: { openai: "gpt-5.6-luna", second: "luna-2" } }] } } },
+    projectConfig: { router: { models: { replace: [{ model: "luna-6", preferredProvider: "openai", providers: { openai: "gpt-6-luna", second: "luna-2" } }] } } },
   });
   const admission = runtime.admit();
   assert.ok(admission);
-  assert.equal(runtime.publishProvider(admission, "gpt-5.6-luna", "second"), true);
+  assert.equal(runtime.publishProvider(admission, "luna-6", "second"), true);
   registerSlateMode(
     api as unknown as ExtensionAPI,
     store,
@@ -152,13 +153,13 @@ test("effective command reads current preferences without policy or provider wor
   assert.match(notices[0]!, /Remembered compressor selection: none/);
 });
 
-test("project startup settings merge causally and select Astra at medium when unscoped", { timeout: 5000 }, async () => {
+test("project startup settings merge causally and select Opus 5.5 at high when unscoped", { timeout: 5000 }, async () => {
   const settingsPath = join(process.cwd(), ".pi", "settings.json");
   const projectSettings = JSON.parse(readFileSync(settingsPath, "utf8"));
   assert.deepEqual(projectSettings, {
-    defaultProvider: "openai",
-    defaultModel: "gpt-6-astra",
-    defaultThinkingLevel: "medium",
+    defaultProvider: "anthropic",
+    defaultModel: "claude-opus-5-5",
+    defaultThinkingLevel: "high",
     packages: ["../../main", "npm:pi-smart-fetch@0.3.17", "npm:pi-web-search@1.6.0"],
   });
   const agentDir = join(scratch, "startup-agent");
@@ -173,17 +174,17 @@ test("project startup settings merge causally and select Astra at medium when un
   const settingsModule = await import(join(packageRoot, "settings-manager.js"));
   const resolverModule = await import(join(packageRoot, "model-resolver.js"));
   const manager = settingsModule.SettingsManager.create(process.cwd(), agentDir, { projectTrusted: true });
-  assert.equal(manager.getDefaultProvider(), "openai");
-  assert.equal(manager.getDefaultModel(), "gpt-6-astra");
-  assert.equal(manager.getDefaultThinkingLevel(), "medium");
+  assert.equal(manager.getDefaultProvider(), "anthropic");
+  assert.equal(manager.getDefaultModel(), "claude-opus-5-5");
+  assert.equal(manager.getDefaultThinkingLevel(), "high");
   assert.deepEqual(manager.getProjectSettings().packages, projectSettings.packages);
-  const astra = { provider: "openai", id: "gpt-6-astra" };
-  const other = { provider: "anthropic", id: "scoped" };
+  const opus = { provider: "anthropic", id: "claude-opus-5-5" };
+  const other = { provider: "openai", id: "scoped" };
   const runtime = {
-    getModel: (provider: string, id: string) => provider === astra.provider && id === astra.id ? astra
+    getModel: (provider: string, id: string) => provider === opus.provider && id === opus.id ? opus
       : provider === other.provider && id === other.id ? other : undefined,
     hasConfiguredAuth: () => true,
-    getModels: () => [astra, other],
+    getModels: () => [opus, other],
     getAvailable: async () => [other],
   };
   const selected = await resolverModule.findInitialModel({
@@ -191,8 +192,8 @@ test("project startup settings merge causally and select Astra at medium when un
     defaultProvider: manager.getDefaultProvider(), defaultModelId: manager.getDefaultModel(),
     defaultThinkingLevel: manager.getDefaultThinkingLevel(), modelRuntime: runtime,
   });
-  assert.strictEqual(selected.model, astra);
-  assert.equal(selected.thinkingLevel, "medium");
+  assert.strictEqual(selected.model, opus);
+  assert.equal(selected.thinkingLevel, "high");
   const scoped = await resolverModule.findInitialModel({
     scopedModels: [{ model: other, thinkingLevel: "low" }], isContinuing: false,
     defaultProvider: manager.getDefaultProvider(), defaultModelId: manager.getDefaultModel(),
@@ -206,7 +207,7 @@ test("project startup settings merge causally and select Astra at medium when un
     defaultThinkingLevel: manager.getDefaultThinkingLevel(), modelRuntime: runtime,
   });
   assert.strictEqual(explicit.model, other, "an explicit command-line model must outrank the project default");
-  const restored = await resolverModule.restoreModelFromSession(other.provider, other.id, astra, false, runtime);
+  const restored = await resolverModule.restoreModelFromSession(other.provider, other.id, opus, false, runtime);
   assert.strictEqual(restored.model, other, "a usable restored model must replace the startup default");
   const untrusted = settingsModule.SettingsManager.create(process.cwd(), agentDir, { projectTrusted: false });
   assert.equal(untrusted.getDefaultProvider(), "anthropic");
@@ -214,7 +215,7 @@ test("project startup settings merge causally and select Astra at medium when un
   assert.deepEqual(untrusted.getProjectSettings(), {});
 });
 
-test("real Pi startup prefers Astra anywhere in the scoped model set", { timeout: 15000 }, () => {
+test("real Pi startup prefers Opus 5.5 anywhere in the scoped model set", { timeout: 15000 }, () => {
   const trackedSettings = JSON.parse(readFileSync(join(process.cwd(), ".pi", "settings.json"), "utf8"));
   const trackedDefaults = {
     defaultProvider: trackedSettings.defaultProvider,
@@ -222,9 +223,9 @@ test("real Pi startup prefers Astra anywhere in the scoped model set", { timeout
     defaultThinkingLevel: trackedSettings.defaultThinkingLevel,
   };
   assert.deepEqual(trackedDefaults, {
-    defaultProvider: "openai",
-    defaultModel: "gpt-6-astra",
-    defaultThinkingLevel: "medium",
+    defaultProvider: "anthropic",
+    defaultModel: "claude-opus-5-5",
+    defaultThinkingLevel: "high",
   });
   const cliScratch = mkdtempSync(join(tmpdir(), "slate-startup-cli-"));
   const projectDir = join(cliScratch, "project");
@@ -239,11 +240,11 @@ test("real Pi startup prefers Astra anywhere in the scoped model set", { timeout
     writeFileSync(join(projectDir, ".pi", "settings.json"), JSON.stringify(trackedDefaults));
     writeFileSync(join(agentDir, "models.json"), JSON.stringify({
       providers: {
-        openai: {
+        anthropic: {
           baseUrl: "http://127.0.0.1:9/v1",
           apiKey: "literal-offline-startup-key",
-          api: "openai-completions",
-          models: ["gpt-5.6-luna", "gpt-6-astra"].map((id) => ({
+          api: "anthropic-messages",
+          models: ["claude-opus-5-5"].map((id) => ({
             id,
             name: id,
             reasoning: true,
@@ -265,7 +266,7 @@ test("real Pi startup prefers Astra anywhere in the scoped model set", { timeout
       "--mode", "rpc",
       "-a",
       "--no-session",
-      "--models", "openai/gpt-5.6-luna:high,openai/gpt-6-astra",
+      "--models", "anthropic/claude-opus-5-5",
     ], {
       cwd: projectDir,
       env: {
@@ -296,9 +297,9 @@ test("real Pi startup prefers Astra anywhere in the scoped model set", { timeout
       .find((entry) => entry.id === "state");
     assert.ok(response, `missing get_state response: ${result.stdout.slice(0, 4096)}`);
     assert.equal(response.success, true);
-    assert.equal(response.data?.model?.provider, "openai");
-    assert.equal(response.data?.model?.id, "gpt-6-astra");
-    assert.equal(response.data?.thinkingLevel, "medium");
+    assert.equal(response.data?.model?.provider, "anthropic");
+    assert.equal(response.data?.model?.id, "claude-opus-5-5");
+    assert.equal(response.data?.thinkingLevel, "high");
   } finally {
     rmSync(cliScratch, { recursive: true, force: true });
   }
@@ -599,12 +600,15 @@ test("session startup accepts mapped and ambiguous physical routes without a fal
   for (const ambiguous of [false, true]) {
     const cwd = join(scratch, `startup-reverse-${ambiguous}`);
     mkdirSync(join(cwd, ".pi"), { recursive: true });
-    if (ambiguous) writeFileSync(join(cwd, ".pi", "slate.json"), JSON.stringify({ router: { models: { add: [{ model: "alias", capabilityRating: 40, costRating: 40, effort: "max", preferredProvider: "openai", providers: { openai: "gpt-5.6-luna" }, guidelines: [], cautions: [] }] } } }));
+    writeFileSync(join(cwd, ".pi", "slate.json"), JSON.stringify({ router: { models: {
+      include: ["luna-6"],
+      ...(ambiguous ? { add: [{ model: "alias", capabilityRating: 40, costRating: 40, effort: "max", preferredProvider: "openai", providers: { openai: "gpt-6-luna" }, guidelines: [], cautions: [] }] } : {}),
+    } } }));
     const api = new FakeExtensionApi();
     slateExtension(api as unknown as ExtensionAPI);
     const warnings: string[] = [];
     const ctx = extensionContext(cwd, warnings);
-    ctx.model = { provider: "openai", id: "gpt-5.6-luna" } as never;
+    ctx.model = { provider: "openai", id: "gpt-6-luna" } as never;
     await api.emit("session_start", {}, ctx);
     assert.deepEqual(warnings, [], `startup route ambiguous=${ambiguous} must not invent a failure`);
   }
@@ -627,7 +631,10 @@ test("entry configuration reports either ignored writing key through the shared 
   const run = async (name: string, writing: Record<string, unknown> | undefined): Promise<string[]> => {
     const cwd = join(scratch, name);
     mkdirSync(join(cwd, ".pi"), { recursive: true });
-    writeFileSync(join(cwd, ".pi", "slate.json"), JSON.stringify(writing === undefined ? {} : { writing }));
+    writeFileSync(join(cwd, ".pi", "slate.json"), JSON.stringify({
+      ...(writing === undefined ? {} : { writing }),
+      router: { models: { include: ["luna-6"] } },
+    }));
     const api = new FakeExtensionApi();
     slateExtension(api as unknown as ExtensionAPI);
     const warnings: string[] = [];
@@ -645,7 +652,10 @@ test("entry configuration validates request pacing and reports the removed shard
   const run = async (name: string, config: unknown): Promise<string[]> => {
     const cwd = join(scratch, name);
     mkdirSync(join(cwd, ".pi"), { recursive: true });
-    writeFileSync(join(cwd, ".pi", "slate.json"), JSON.stringify(config));
+    writeFileSync(join(cwd, ".pi", "slate.json"), JSON.stringify({
+      ...(config as Record<string, unknown>),
+      router: { models: { include: ["luna-6"] } },
+    }));
     const api = new FakeExtensionApi();
     slateExtension(api as unknown as ExtensionAPI);
     const warnings: string[] = [];

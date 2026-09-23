@@ -68,7 +68,7 @@ test("real Slate factory keeps recovery ownership across Pi session replacement"
 		router: {
 			models: {
 				replace: [{
-					model: "gpt-5.6-luna",
+					model: "luna-6",
 					preferredProvider: "ownership-primary",
 					providers: { "ownership-primary": "primary", "ownership-fallback": "fallback" },
 				}],

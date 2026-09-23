@@ -180,10 +180,10 @@ test("registered main hooks refuse busy overlap and recover only after proved ex
 	} as unknown as ExtensionAPI;
 	const runtime = createLogicalRuntime({
 		trusted: true,
-		projectConfig: { router: { models: { replace: [{ model: "gpt-5.6-luna", preferredProvider: "p1", providers: { p1: "m1", p2: "m2" } }] } } },
+		projectConfig: { router: { models: { replace: [{ model: "luna-6", preferredProvider: "p1", providers: { p1: "m1", p2: "m2" } }] } } },
 	});
 	const base = createBaseModelTracker({ warn: (message) => warnings.push(message) });
-	base.seed(primary, "max"); base.adoptLogicalIdentity("gpt-5.6-luna");
+	base.seed(primary, "max"); base.adoptLogicalIdentity("luna-6");
 	registerOrchestratorFailover(pi, () => ({ preserveGlobalModelDefault: false }), () => base, () => runtime, () => ({ enabled: true, maxRetries: 0, baseDelayMs: 0 }));
 	const turn = handlers.get("turn_end")!;
 	const settle = handlers.get("agent_settled")!;
@@ -206,7 +206,7 @@ test("registered main hooks refuse busy overlap and recover only after proved ex
 	await turn({ message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "recovered" }] } }, ctx);
 	await settle({}, ctx);
 	assert.equal(runtime.ownership.acquire("other", SAVED_DEFAULT_RESOURCE_KEY).kind, "acquired");
-	assert.equal(base.currentLogicalIdentity(), "gpt-5.6-luna");
+	assert.equal(base.currentLogicalIdentity(), "luna-6");
 	assert.equal(warnings.some((message) => message.includes("main recovery stopped")), false);
 });
 
@@ -237,11 +237,11 @@ test("main success publication preserves an external route or effort choice", { 
 		} as unknown as ExtensionAPI;
 		const runtime = createLogicalRuntime({
 			trusted: true,
-			projectConfig: { router: { models: { replace: [{ model: "gpt-5.6-luna", preferredProvider: "p1", providers: { p1: "m1", p2: "m2" } }] } } },
+			projectConfig: { router: { models: { replace: [{ model: "luna-6", preferredProvider: "p1", providers: { p1: "m1", p2: "m2" } }] } } },
 		});
 		const base = createBaseModelTracker({ warn: (message) => warnings.push(message) });
 		base.seed(primary, "max");
-		base.adoptLogicalIdentity("gpt-5.6-luna");
+		base.adoptLogicalIdentity("luna-6");
 		registerOrchestratorFailover(pi, () => ({ preserveGlobalModelDefault: false }), () => base, () => runtime, () => ({ enabled: true, maxRetries: 0, baseDelayMs: 0 }));
 		const turn = handlers.get("turn_end")!;
 		const settle = handlers.get("agent_settled")!;
@@ -302,7 +302,7 @@ test("main transition guard retains ownership across overlapped settles and stal
 	const original = createLogicalRuntime({
 		trusted: true,
 		ownership: new RecoveryOwnership(ownershipScope),
-		projectConfig: { router: { models: { replace: [{ model: "gpt-5.6-luna", preferredProvider: "p1", providers: { p1: "m1", p2: "m2" } }] } } },
+		projectConfig: { router: { models: { replace: [{ model: "luna-6", preferredProvider: "p1", providers: { p1: "m1", p2: "m2" } }] } } },
 	});
 	const guarded = {
 		...original,
@@ -316,7 +316,7 @@ test("main transition guard retains ownership across overlapped settles and stal
 	let epoch = 1;
 	let base = createBaseModelTracker({ warn() {} });
 	base.seed(primary, "max");
-	base.adoptLogicalIdentity("gpt-5.6-luna");
+	base.adoptLogicalIdentity("luna-6");
 	registerOrchestratorFailover(
 		pi, () => ({ preserveGlobalModelDefault: false }), () => base, () => runtime,
 		() => ({ enabled: true, maxRetries: 0, baseDelayMs: 0 }), () => epoch,
@@ -343,9 +343,9 @@ test("main transition guard retains ownership across overlapped settles and stal
 	setter.resolve();
 	await first;
 	assert.equal(sent.length, 0, "a stale switch cannot deliver a continuation");
-	assert.equal(base.currentLogicalIdentity(), "gpt-5.6-luna", "the obsolete callback cannot alter its prior identity");
+	assert.equal(base.currentLogicalIdentity(), "luna-6", "the obsolete callback cannot alter its prior identity");
 	assert.equal(replacementBase.currentLogicalIdentity(), undefined, "a stale completion cannot adopt identity in the replacement tracker");
-	assert.equal(original.admit()?.snapshot.providers["gpt-5.6-luna"], undefined, "a stale completion cannot publish a provider preference");
+	assert.equal(original.admit()?.snapshot.providers["luna-6"], undefined, "a stale completion cannot publish a provider preference");
 	const after = replacement.ownership.acquire("handoff", SAVED_DEFAULT_RESOURCE_KEY);
 	assert.equal(after.kind, "acquired", "only the completed original transition releases ownership");
 	if (after.kind === "acquired") after.lease.release();
@@ -368,8 +368,8 @@ test("main recovery releases ownership after a thrown model switch", { timeout: 
 		on(event: string, handler: any) { handlers.set(event, handler); }, getThinkingLevel: () => "max",
 		setModel: async () => { throw new Error("setter fixture failure"); }, setThinkingLevel() {},
 	} as unknown as ExtensionAPI;
-	const runtime = createLogicalRuntime({ trusted: true, projectConfig: { router: { models: { replace: [{ model: "gpt-5.6-luna", preferredProvider: "p1", providers: { p1: "m1", p2: "m2" } }] } } } });
-	const base = createBaseModelTracker({ warn() {} }); base.seed(primary, "max"); base.adoptLogicalIdentity("gpt-5.6-luna");
+	const runtime = createLogicalRuntime({ trusted: true, projectConfig: { router: { models: { replace: [{ model: "luna-6", preferredProvider: "p1", providers: { p1: "m1", p2: "m2" } }] } } } });
+	const base = createBaseModelTracker({ warn() {} }); base.seed(primary, "max"); base.adoptLogicalIdentity("luna-6");
 	registerOrchestratorFailover(pi, () => ({ preserveGlobalModelDefault: false }), () => base, () => runtime, () => ({ enabled: true, maxRetries: 0, baseDelayMs: 0 }));
 	await handlers.get("turn_end")!({ message: { role: "assistant", stopReason: "error", errorMessage: "temporary timeout" } }, ctx);
 	await handlers.get("agent_settled")!({}, ctx);
@@ -403,11 +403,11 @@ test("registered main recovery enters a duplicated physical pair only once", { t
 	const runtime = createLogicalRuntime({
 		trusted: true,
 		projectConfig: { router: { models: {
-			replace: [{ model: "gpt-5.6-luna", preferredProvider: "p1", providers: { p1: "start", p2: "duplicate" } }],
+			replace: [{ model: "luna-6", preferredProvider: "p1", providers: { p1: "start", p2: "duplicate" } }],
 			add: [{ model: "duplicate-alias", capabilityRating: 45, costRating: 99, effort: "max", preferredProvider: "p2", providers: { p2: "duplicate", p3: "final" }, guidelines: [], cautions: [] }],
 		} } },
 	});
-	const base = createBaseModelTracker({ warn() {} }); base.seed(models[0], "max"); base.adoptLogicalIdentity("gpt-5.6-luna");
+	const base = createBaseModelTracker({ warn() {} }); base.seed(models[0], "max"); base.adoptLogicalIdentity("luna-6");
 	registerOrchestratorFailover(pi, () => ({ preserveGlobalModelDefault: false }), () => base, () => runtime, () => ({ enabled: true, maxRetries: 0, baseDelayMs: 0 }));
 	const turn = handlers.get("turn_end")!;
 	const settle = handlers.get("agent_settled")!;
@@ -422,10 +422,10 @@ test("registered main hooks stop on unmapped and ambiguous physical identity", {
 	for (const kind of ["none", "several"] as const) {
 		const handlers = new Map<string, (event: any, ctx: ExtensionContext) => Promise<unknown>>();
 		let switches = 0;
-		const model = { provider: "openai", id: kind === "none" ? "not-allowed" : "gpt-5.6-luna", contextWindow: 10_000 };
+		const model = { provider: "openai", id: kind === "none" ? "not-allowed" : "gpt-6-luna", contextWindow: 10_000 };
 		const ctx = { model, cwd: "/tmp", hasUI: false, modelRegistry: {} } as unknown as ExtensionContext;
 		const pi = { on(event: string, handler: any) { handlers.set(event, handler); }, getThinkingLevel: () => "max", setModel: async () => { switches++; return true; } } as unknown as ExtensionAPI;
-		const runtime = createLogicalRuntime({ trusted: true, projectConfig: kind === "several" ? { router: { models: { add: [{ model: "alias", capabilityRating: 45, costRating: 11, effort: "max", preferredProvider: "openai", providers: { openai: "gpt-5.6-luna" }, guidelines: [], cautions: [] }] } } } : undefined });
+		const runtime = createLogicalRuntime({ trusted: true, projectConfig: kind === "several" ? { router: { models: { add: [{ model: "alias", capabilityRating: 45, costRating: 11, effort: "max", preferredProvider: "openai", providers: { openai: "gpt-6-luna" }, guidelines: [], cautions: [] }] } } } : undefined });
 		const base = createBaseModelTracker({ warn() {} }); base.seed(model, "max");
 		registerOrchestratorFailover(pi, () => ({ preserveGlobalModelDefault: false }), () => base, () => runtime, () => ({ enabled: true, maxRetries: 0, baseDelayMs: 0 }));
 		await handlers.get("turn_end")!({ message: { role: "assistant", stopReason: "error", errorMessage: "temporary timeout" } }, ctx);
@@ -468,7 +468,7 @@ test("registered main recovery reports each refusal and terminal operation outco
 			setThinkingLevel(level: string) { if (mode !== "clamp") thinking = level; },
 			sendMessage() { if (mode === "send-throw") throw new Error("send failed"); },
 		} as unknown as ExtensionAPI;
-		const original = createLogicalRuntime({ trusted: true, projectConfig: { router: { models: { replace: [{ model: "gpt-5.6-luna", preferredProvider: "p1", providers: { p1: "m1", p2: "m2" } }] } } } });
+		const original = createLogicalRuntime({ trusted: true, projectConfig: { router: { models: { replace: [{ model: "luna-6", preferredProvider: "p1", providers: { p1: "m1", p2: "m2" } }] } } } });
 		let runtime: Readonly<LogicalRuntime> | undefined = original;
 		if (mode === "blocked") runtime = undefined;
 		if (mode === "critical") runtime = createLogicalRuntime({ trusted: true, projectConfig: { router: { compressor: { models: [] } } } });
@@ -476,7 +476,7 @@ test("registered main recovery reports each refusal and terminal operation outco
 		if (mode === "unavailable") runtime = { ...original, validateRoute: async () => ({ ok: false, kind: "unavailable", reason: "credential unavailable" }) } as Readonly<LogicalRuntime>;
 		if (mode === "empty-plan") runtime = { ...original, planOrdinary: () => [] } as Readonly<LogicalRuntime>;
 		if (mode === "validation-throw") runtime = { ...original, validateRoute: async () => { throw new Error("validation failed"); } } as Readonly<LogicalRuntime>;
-		const base = createBaseModelTracker({ warn() {} }); base.seed(primary, "max"); base.adoptLogicalIdentity("gpt-5.6-luna");
+		const base = createBaseModelTracker({ warn() {} }); base.seed(primary, "max"); base.adoptLogicalIdentity("luna-6");
 		registerOrchestratorFailover(pi, () => ({ preserveGlobalModelDefault: false }), () => base, () => runtime, () => ({ enabled: true, maxRetries: 0, baseDelayMs: 0 }), () => epoch);
 		const turn = handlers.get("turn_end")!;
 		const settle = handlers.get("agent_settled")!;

@@ -1,4 +1,4 @@
-const TEST_ROUTE = { model: "gpt-5.6-luna", reason: "test fixture" } as const;
+const TEST_ROUTE = { model: "luna-6", reason: "test fixture" } as const;
 
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -114,7 +114,7 @@ test("public dispatch enforces maxConcurrent across different threads", { timeou
     const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
     const runtime = createLogicalRuntime({
       trusted: true,
-      projectConfig: { router: { models: { replace: [{ model: "gpt-5.6-luna", preferredProvider: "test", providers: { test: "worker" } }] } } },
+      projectConfig: { router: { models: { replace: [{ model: "luna-6", preferredProvider: "test", providers: { test: "worker" } }] } } },
     });
     const manager = new ThreadManager(store, { maxConcurrent: 1 }, undefined, runtime);
     const live = (manager as unknown as { live: Map<string, unknown> }).live;

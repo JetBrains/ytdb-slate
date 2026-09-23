@@ -114,7 +114,7 @@ test("every invalid permitted source warns by path and blocks routing after merg
     const other = file === f.home ? f.project : f.home;
     for (const kind of ["json", "null", "array", "scalar", "directory", "dangling", "loop"]) {
       rmSync(file, { recursive: true, force: true });
-      f.put(other, { router: { models: { include: ["gpt-5.6-sol"] } } });
+      f.put(other, { router: { models: { include: ["sol-6"] } } });
       if (kind === "directory") mkdirSync(file);
       else if (kind === "dangling") symlinkSync(join(f.root, "missing"), file);
       else if (kind === "loop") symlinkSync(file, file);
@@ -145,7 +145,7 @@ test("an inaccessible source path warns and blocks even in an untrusted session"
 
 test("untrusted project bytes are ignored even when unreadable or malformed", (t) => {
   const f = fixture(t);
-  f.put(f.home, { router: { models: { include: ["gpt-5.6-sol"] } }, writing: { remindTurns: 2 } });
+  f.put(f.home, { router: { models: { include: ["sol-6"] } }, writing: { remindTurns: 2 } });
   for (const kind of ["valid", "broken", "loop"]) {
     rmSync(f.project, { force: true });
     if (kind === "loop") symlinkSync(f.project, f.project);
@@ -154,7 +154,7 @@ test("untrusted project bytes are ignored even when unreadable or malformed", (t
     assert.equal(config.writing?.remindTurns, 2);
     const runtime = createLogicalRuntime({ trusted: permitsSlateConfig(config, false), projectConfig: config });
     assert.deepEqual(runtime.criticalErrors, []);
-    assert.deepEqual(runtime.policy?.ordinary.map((model) => model.model), ["gpt-5.6-sol"]);
+    assert.deepEqual(runtime.policy?.ordinary.map((model) => model.model), ["sol-6"]);
     assert.deepEqual(f.warnings, []);
   }
 });
@@ -211,7 +211,7 @@ test("invalid object settings warn and complete real entry startup through eithe
           assert.equal(sanitizeCacheKeyEnabled(loaded.cacheKeyEnabled, () => {}), true);
           assert.deepEqual(sanitizeRequestThrottle(loaded.requestThrottle, () => {}), REQUEST_THROTTLE_DEFAULTS);
           await api.commands.get("slate").handler("effective", ctx);
-          assert.match(f.warnings.at(-1)!, /gpt-5\.6-sol/);
+          assert.match(f.warnings.at(-1)!, /sol-6/);
           assert.doesNotMatch(f.warnings.at(-1)!, /Status: blocked|No parent-session runtime/);
         } finally { await api.emit("session_shutdown", {}, ctx); }
       });
@@ -247,7 +247,7 @@ test("empty home enables the trusted default doctrine in an untrusted session", 
   const metrics = (text: string) => ({ portable: text.split(docsDirectory).join("").length,
     paths: text.split(docsDirectory).length - 1, lines: text.split("\n").length });
   assert.deepEqual(metrics(withoutHome), { portable: 2705, paths: 4, lines: 43 });
-  assert.deepEqual(metrics(homeEnabled), { portable: 9155, paths: 5, lines: 85 });
+  assert.deepEqual(metrics(homeEnabled), { portable: 8694, paths: 5, lines: 84 });
 });
 
 test("real entry shares home routing, doctrine, writing cadence and startup settings in untrusted sessions", { timeout: 10000 }, async (t) => {
@@ -257,7 +257,7 @@ test("real entry shares home routing, doctrine, writing cadence and startup sett
   f.put(f.home, {
     orchestratorModeDefault: true, orchestratorPromptDocs: ["role.md"], doctrineExtraPath: "extra.md", reviewPerspectivesPath: "role.md",
     writing: { remindTurns: 1 }, workflow: { followUpIssues: true },
-    router: { models: { include: ["gpt-5.6-sol"] } },
+    router: { models: { include: ["sol-6"] } },
   });
   writeFileSync(f.project, "{ malformed untrusted project");
   const api = new Api();
@@ -276,7 +276,7 @@ test("real entry shares home routing, doctrine, writing cadence and startup sett
   assert.match(doctrine, /which deferred items become tracked issues/);
   assert.match(doctrine, /Check user-facing prose before delivery/);
   await api.commands.get("slate").handler("effective", ctx);
-  assert.match(f.warnings.at(-1)!, /gpt-5\.6-sol/);
+  assert.match(f.warnings.at(-1)!, /sol-6/);
   assert.doesNotMatch(f.warnings.at(-1)!, /Status: blocked/);
   const message = { role: "assistant", content: [{ type: "text", text: "Read the file." }], stopReason: "stop" };
   await api.emit("message_end", { message }, ctx);
@@ -293,14 +293,14 @@ test("real entry shares home routing, doctrine, writing cadence and startup sett
   assert.doesNotMatch(JSON.stringify(await api.emit("before_agent_start", { systemPrompt: "BASE" }, ctx)), /HOME ROLE CONTENT/);
   // Trusted project values override the same home view before validation.
   writeFileSync(join(f.cwd, "role.md"), "PROJECT ROLE CONTENT");
-  f.put(f.home, { orchestratorModeDefault: true, writing: { remindTurns: 1, findings: false }, router: { models: { include: ["gpt-5.6-sol"] } } });
-  f.put(f.project, { orchestratorPromptDocs: ["role.md"], writing: { remindTurns: 2 }, router: { models: { include: ["gpt-5.6-luna"] } } });
+  f.put(f.home, { orchestratorModeDefault: true, writing: { remindTurns: 1, findings: false }, router: { models: { include: ["sol-6"] } } });
+  f.put(f.project, { orchestratorPromptDocs: ["role.md"], writing: { remindTurns: 2 }, router: { models: { include: ["luna-6"] } } });
   ctx.isProjectTrusted = () => true;
   await api.emit("session_start", {}, ctx);
   const projectDoctrine = JSON.stringify(await api.emit("before_agent_start", { systemPrompt: "BASE" }, ctx));
   assert.match(projectDoctrine, /PROJECT ROLE CONTENT/);
-  assert.match(projectDoctrine, /gpt-5\.6-luna/);
-  assert.doesNotMatch(projectDoctrine, /gpt-5\.6-sol/);
+  assert.match(projectDoctrine, /\| luna-6 \|/);
+  assert.doesNotMatch(projectDoctrine, /\| sol-6 \|/);
   api.messages.length = 0;
   for (let turn = 1; turn <= 2; turn++) {
     await api.emit("message_end", { message }, ctx);

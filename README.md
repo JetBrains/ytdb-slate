@@ -108,7 +108,7 @@ This summary provides orientation only. The [shipped workflow documents](#shippe
 
 Every `thread` call names a provider-free logical `model` and a short `reason`. The active policy fixes effort, exact physical routes, capability and cost ratings, guidance, cautions, and bounded recovery order. Slate resolves one immutable policy when the parent session starts. Dispatch, compression, main-session recovery, doctrine, and `/slate effective` share it.
 
-The shipped ordinary pool has seven definitions. A trusted project can replace membership, add complete definitions, replace selected fields, and exclude members. The independent compressor list defaults to Sonnet at `medium`. Untrusted projects use home preferences over the shipped policy and consume no project router data. Critical errors block logical work. Legacy physical-router keys produce named warnings and receive no automatic migration.
+The shipped ordinary pool has six definitions. A trusted project can replace membership, add complete definitions, replace selected fields, and exclude members. The independent compressor list defaults to Sonnet at `medium`. Untrusted projects use home preferences over the shipped policy and consume no project router data. Critical errors block logical work. Legacy physical-router keys produce named warnings and receive no automatic migration.
 
 Pi retries the active physical route first. Slate advances only after Pi reports known retry exhaustion. Recovery tries another permitted provider for the same logical model before it moves through the ordinary or compressor order. Unknown outcomes and cancellation stop recovery. One operation owns recovery. An overlapping operation receives a visible busy refusal. Slate does not queue or replay it.
 
@@ -202,7 +202,7 @@ The project must be trusted before Slate reads this file. Start a new session af
 | `writing.findings` | boolean | `true` | Include the latest model-visible writing findings in the hidden reminder. An invalid value warns and falls back to `true`. Measurement and the status line continue when this value is `false`. |
 | `doctrineExtraPath` | string | — | Markdown whose **content** is appended to the orchestrator doctrine (project-specific workflow additions). |
 | `reviewPerspectivesPath` | string | — | Review charters, each declaring its own finding-ID prefix. The doctrine references this **path**; the orchestrator reads the file alongside the shipped review rules. |
-| `router.models` | object | shipped seven-model pool | Ordinary membership and definitions. `include` replaces the starting membership, including with an empty list. `add` accepts complete new definitions. `replace` changes selected fields. `exclude` applies last. Within each model definition, lists and provider maps replace shipped fields. The home and project configuration files merge first. |
+| `router.models` | object | shipped six-model pool | Ordinary membership and definitions. `include` replaces the starting membership, including with an empty list. `add` accepts complete new definitions. `replace` changes selected fields. `exclude` applies last. Within each model definition, lists and provider maps replace shipped fields. The home and project configuration files merge first. |
 | `router.compressor.models` | array of `{ model, effort }` | `[{"model":"claude-sonnet-5","effort":"medium"}]` | Independent ordered compressor list. An explicit empty list blocks work. |
 
 ### Extended example
@@ -222,7 +222,7 @@ The `docs/agents/...` values below are placeholders. Point them at Markdown file
   "doctrineExtraPath": "docs/agents/workflow-additions.md",
   "reviewPerspectivesPath": "docs/agents/review-perspectives.md",
   "router": {
-    "models": { "include": ["gpt-5.6-luna", "claude-opus-5"] },
+    "models": { "include": ["luna-6", "claude-opus-5.5"] },
     "compressor": { "models": [{ "model": "claude-sonnet-5", "effort": "medium" }] }
   }
 }
