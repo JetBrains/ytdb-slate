@@ -108,7 +108,7 @@ This summary provides orientation only. The [shipped workflow documents](#shippe
 
 Every `thread` call names a provider-free logical `model` and a short `reason`. The active policy fixes effort, exact physical routes, capability and cost ratings, guidance, cautions, and bounded recovery order. Slate resolves one immutable policy when the parent session starts. Dispatch, compression, main-session recovery, doctrine, and `/slate effective` share it.
 
-The shipped ordinary pool has seven definitions. A trusted project can replace membership, add complete definitions, replace selected fields, and exclude members. The independent compressor list defaults to Sonnet at `medium`. Untrusted projects use home preferences over the shipped policy and consume no project router data. Critical errors block logical work. Legacy physical-router keys produce named warnings and receive no automatic migration.
+The shipped ordinary pool has six definitions. A trusted project can replace membership, add complete definitions, replace selected fields, and exclude members. The independent compressor list defaults to Sonnet at `medium`. Untrusted projects use home preferences over the shipped policy and consume no project router data. Critical errors block logical work. Legacy physical-router keys produce named warnings and receive no automatic migration.
 
 Pi retries the active physical route first. Slate advances only after Pi reports known retry exhaustion. Recovery tries another permitted provider for the same logical model before it moves through the ordinary or compressor order. Unknown outcomes and cancellation stop recovery. One operation owns recovery. An overlapping operation receives a visible busy refusal. Slate does not queue or replay it.
 
