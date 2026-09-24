@@ -38,7 +38,7 @@ Add input validation to the account settings endpoint. First research the releva
 
 Slate asks for required decisions before editing code. It delegates work after workflow gates allow it. Slate shows a short workflow summary when orchestrator mode is on at interactive startup or when you turn it on. A saved `startupSummary: false` choice stops automatic display. The summary disappears when you send your first prompt to the model.
 
-Run `/slate off` to stop Slate's delegation and remove the summary. `/slate summary off` also removes it. Toggling orchestrator mode off with `/slate` removes it too. Other slash commands leave it visible. Run `/slate summary` to show it at any time. See [Commands](#commands).
+Run `/slate off` to stop Slate's delegation and remove the summary. `/slate summary off` also removes it. Toggling orchestrator mode off with `/slate` removes it too. Other slash commands leave it visible unless they reload or replace the session. `/reload`, `/new`, `/resume`, and `/fork` clear the panel when they reload or replace the session. Slate then shows it only when orchestrator mode is on and the saved choice allows automatic display. Run `/slate summary` to show it at any time. See [Commands](#commands).
 
 ## How Slate works
 
