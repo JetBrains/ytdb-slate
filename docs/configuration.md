@@ -1,5 +1,7 @@
 # Configuration
 
+The [How Slate works](../README.md#how-slate-works) section defines orchestrator mode, worker thread, and main session.
+
 ## Configuration files and merging
 
 Slate reads two optional configuration files at session start:

@@ -1,5 +1,7 @@
 # Safety and trust
 
+The [How Slate works](../README.md#how-slate-works) section defines orchestrator mode, worker thread, and main session.
+
 ## Worker extensions (`workerExtensions`)
 
 By default worker threads load no project or discovered extensions. Slate supplies one internal reminder component to every worker session. After tool results reach its handler, the component tells the worker to issue independent tool calls in one turn. It sends the reminder once for each such turn. The reminder persists in the worker transcript and stays hidden from the user in the normal terminal interface. The component is not gated on project trust.

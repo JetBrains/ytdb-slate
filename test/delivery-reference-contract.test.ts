@@ -82,11 +82,11 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
     await check("duplicated context", { "README.md": readme.replace(readmeReference, `${readmeReference}\n${readmeReference}`) });
     await check("count-preserving document move", {
       "README.md": readme.replace(readmeReference, ""),
-      "docs/new/moved.md": `# ytdb-slate: Agent orchestration for the pi coding agent\n\n## Shipped docs\n\n${readmeReference}\n`,
+      "docs/new/moved.md": `# ytdb-slate: multi-agent orchestration for the pi coding agent\n\n## Shipped docs\n\n${readmeReference}\n`,
     });
     await check("count-preserving heading move", { "README.md": readme.replace(readmeReference, "") + `\n## Early reads\n\n${readmeReference}\n` });
     await check("duplicated owning heading", { "README.md": `${readme}\n## Shipped docs\n\nUnrelated text.\n` });
-    await check("changed parent heading", { "README.md": readme.replace("# ytdb-slate: Agent orchestration for the pi coding agent\n", "# Other title\n") });
+    await check("changed parent heading", { "README.md": readme.replace("# ytdb-slate: multi-agent orchestration for the pi coding agent\n", "# Other title\n") });
     const notes = readFileSync(join(fixture, "docs/user-notes.md"), "utf8");
     const combinedPackage = notes.match(/A single-track change uses the combined package[\s\S]*?(?=\n\n)/)?.[0];
     assert.ok(combinedPackage);
@@ -99,7 +99,7 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
       await check(`missing ${marker}`, { [workflowFile]: workflow.replace(marker, "") });
       await check(`duplicate ${marker}`, { [workflowFile]: `${workflow}\n${marker}\n` });
     }
-    await check("unrelated prose edit", { "README.md": readme.replace("Slate is a thread-weaving", "Slate is an orchestration-focused, thread-weaving") }, true);
+    await check("unrelated prose edit", { "README.md": readme.replace("Slate sends bounded actions", "Slate sends small, bounded actions") }, true);
     await check("new unreferenced nested document", { "docs/new/nested/unrelated.md": "# Notes\n\nThis document contains an unrelated note.\n" }, true);
     await check("harmless wrapping in reviewed list and loading paragraph", {
       "README.md": readme.replace(readmeReference, readmeReference.replace(" — the compact", " —\n  the compact")),

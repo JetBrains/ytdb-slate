@@ -3459,7 +3459,7 @@ an old change folder.`),
 			];
 			const reviewedReference = (file, headings, text) => ({ file, headings, text: normalizeText(text), uniqueOwner: true });
 			const expectedPackageReferenceContexts = [
-				reviewedReference("README.md", ["# ytdb-slate: Agent orchestration for the pi coding agent", "## Shipped docs"], "- [`docs/delivery-packages.md`](docs/delivery-packages.md) — the compact track and change package format, read only before package preparation"),
+				reviewedReference("README.md", ["# ytdb-slate: multi-agent orchestration for the pi coding agent", "## Shipped docs"], "- [`docs/delivery-packages.md`](docs/delivery-packages.md) — the compact track and change package format, read only before package preparation"),
 				reviewedReference("docs/model-routing.md", ["# Logical-model routing and recovery", "## Completion recommendations"], `The advice is advisory and ready to copy. When the feature is enabled, the
 change package always includes its routing field. Weak evidence produces no
 invented recommendation. It produces the exact no-change statement required by

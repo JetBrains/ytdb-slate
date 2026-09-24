@@ -20,6 +20,7 @@ export const WRITING_CHECKER_URL = pathToFileURL(WRITING_CHECKER).href;
 export const TRACK_WORKFLOW_DOC = join(DOCS_DIR, "track-workflow.md");
 export const PR_PUBLISHING_DOC = join(DOCS_DIR, "pr-publishing.md");
 export const REVIEW_RULES_DOC = join(DOCS_DIR, "review-rules.md");
+export const ROADMAP_DOC = join(DOCS_DIR, "roadmap.md");
 export const SAFETY_AND_TRUST_DOC = join(DOCS_DIR, "safety-and-trust.md");
 export const DESIGN_PRINCIPLES_DOC = join(DOCS_DIR, "design-principles.md");
 export const MODEL_ROUTING_DOC = join(DOCS_DIR, "model-routing.md");
