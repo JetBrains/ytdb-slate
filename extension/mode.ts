@@ -73,6 +73,7 @@ import {
 	type WritingChecker,
 } from "./writing.ts";
 import type { WorkerExtensionSet, WorkerExtensionUnit } from "./worker-extensions.ts";
+import { preferencePath, readStartupSummary, renderStartupSummary, saveStartupSummary, SUMMARY_WIDGET_KEY } from "./startup-summary.ts";
 
 const ORCHESTRATOR_TOOLS = ["read", "grep", "find", "ls", "thread", "threads", "episode", "slate_change"];
 
@@ -430,6 +431,7 @@ export function registerSlateMode(
 	// Injected only by the pure harness so it can exercise both dynamic-import
 	// failure and checker failure through the real turn hook.
 	loadWritingChecker: () => Promise<WritingChecker> = loadWritingCheckerModule,
+	saveSummary: typeof saveStartupSummary = saveStartupSummary,
 ): void {
 	let savedTools: string[] | undefined;
 	let uiCtx: ExtensionContext | undefined;
@@ -439,6 +441,7 @@ export function registerSlateMode(
 	let latestTurnHasFinding = false;
 	let pendingErrorTurn = false;
 	let previousTurnHadTools = false;
+	let summaryVisible = false;
 
 	const writingIsActive = (ctx: ExtensionContext): boolean => store.orchestratorMode && permitsSlateConfig(getConfig(), ctx.isProjectTrusted());
 	const writingIsVisible = (ctx: ExtensionContext): boolean => ctx.hasUI && writingIsActive(ctx);
@@ -533,6 +536,36 @@ export function registerSlateMode(
 	// Widget refresh whenever slate state changes (dispatch start/end, new threads).
 	store.onDidChange = updateWidget;
 
+	const warnSummary = (ctx: ExtensionContext, message: string) => {
+		try {
+			if (ctx.hasUI) { ctx.ui.notify(message, "warning"); return; }
+		} catch { /* stale UI: use the console */ }
+		console.warn(message);
+	};
+	const showSummary = (ctx: ExtensionContext) => {
+		const lines = renderStartupSummary();
+		if (ctx.mode === "tui") {
+			ctx.ui.setWidget(SUMMARY_WIDGET_KEY, lines);
+			summaryVisible = true;
+		} else if (ctx.hasUI) ctx.ui.notify(lines.join("\n"), "info");
+		else console.log(lines.join("\n"));
+	};
+	const displaySummary = (ctx: ExtensionContext) => {
+		try { showSummary(ctx); }
+		catch (error) { warnSummary(ctx, `slate: could not show the workflow summary: ${String(error)}`); }
+	};
+	const clearSummary = (ctx: ExtensionContext) => {
+		if (ctx.mode !== "tui") return;
+		try { ctx.ui.setWidget(SUMMARY_WIDGET_KEY, undefined); summaryVisible = false; }
+		catch (error) { warnSummary(ctx, `slate: could not clear the workflow summary: ${String(error)}`); }
+	};
+	const showAutomaticSummary = (ctx: ExtensionContext) => {
+		if (ctx.mode !== "tui") return;
+		const choice = readStartupSummary();
+		if (choice.warning) warnSummary(ctx, choice.warning);
+		if (store.orchestratorMode && choice.enabled) displaySummary(ctx);
+	};
+
 	// pi runs a REGISTERED extension command before it emits the input event: in
 	// the pinned pi 0.83.0, AgentSession.prompt() calls
 	// _tryExecuteExtensionCommand(text) first and returns when a command claims
@@ -541,19 +574,58 @@ export function registerSlateMode(
 	// handler, so it needs no command exemption. Text that only LOOKS like a
 	// command — a different letter case, or a sendUserMessage() call, which skips
 	// command handling — is ordinary user input and is refused like any other.
-	pi.on("input", async (_event, ctx) => {
-		if (!store.orchestratorMode || !store.paused) return { action: "continue" };
-		reportPausedInput(ctx);
-		return { action: "handled" };
+	pi.on("input", async (event, ctx) => {
+		if (store.orchestratorMode && store.paused) {
+			reportPausedInput(ctx);
+			return { action: "handled" };
+		}
+		// Registered slash commands return before pi emits input. Extension and
+		// RPC messages are not prompts submitted in this terminal session.
+		if (summaryVisible && ctx.mode === "tui" && event.source === "interactive") {
+			try {
+				ctx.ui.setWidget(SUMMARY_WIDGET_KEY, undefined);
+				summaryVisible = false;
+			} catch (error) {
+				try { warnSummary(ctx, `slate: could not clear the workflow summary: ${String(error)}`); }
+				catch { /* A warning failure must not block the prompt. */ }
+			}
+		}
+		return { action: "continue" };
 	});
 
 	pi.registerCommand("slate", {
-		description: "Slate orchestrator mode: on | off | handoff [focus] | resume | effective (no arg toggles)",
+		description: "Slate orchestrator mode: on | off | summary [on | off] | handoff [focus] | resume | effective (no arg toggles)",
 		handler: async (args, ctx) => {
 			uiCtx = ctx;
 			const trimmed = args?.trim() ?? "";
 			const [verb, ...rest] = trimmed.split(/\s+/);
 			const arg = verb?.toLowerCase();
+			if (arg === "summary") {
+				const choice = rest[0]?.toLowerCase();
+				if (rest.length === 0) { displaySummary(ctx); return; }
+				if (rest.length !== 1 || (choice !== "on" && choice !== "off")) {
+					warnSummary(ctx, "Usage: /slate summary [on | off].");
+					return;
+				}
+				let result;
+				try { result = saveSummary(choice === "on"); }
+				catch (error) {
+					warnSummary(ctx, `slate: could not save the startup summary in ${preferencePath()}: ${String(error)}`);
+					return;
+				}
+				if (result.durabilityWarning) warnSummary(ctx, result.durabilityWarning);
+				if (choice === "off" && ctx.mode === "tui") {
+					try { ctx.ui.setWidget(SUMMARY_WIDGET_KEY, undefined); summaryVisible = false; }
+					catch (error) { warnSummary(ctx, `slate: saved in ${result.path}, but could not update the summary: ${String(error)}`); return; }
+				}
+				if (result.durabilityWarning) return;
+				const reply = `Startup summary is ${choice}. Saved in ${result.path}. Run /slate summary ${choice === "on" ? "off to hide" : "on to allow"} automatic display.`;
+				try {
+					if (ctx.hasUI) ctx.ui.notify(reply, "info");
+					else console.log(reply);
+				} catch (error) { warnSummary(ctx, `slate: saved in ${result.path}, but could not show the reply: ${String(error)}`); }
+				return;
+			}
 			if (arg === "handoff") {
 				if (!store.orchestratorMode) {
 					if (ctx.hasUI) ctx.ui.notify("slate: orchestrator mode is not active — nothing to hand off.", "warning");
@@ -585,6 +657,8 @@ export function registerSlateMode(
 					"info",
 				);
 			}
+			if (target) showAutomaticSummary(ctx);
+			else clearSummary(ctx);
 		},
 	});
 
@@ -790,5 +864,12 @@ export function registerSlateMode(
 			pi.setActiveTools(ORCHESTRATOR_TOOLS);
 		}
 		updateWidget();
+		// Restore, handoff adoption, and mode seeding run before the display choice.
+		summaryVisible = false;
+		if (ctx.mode !== "tui") return;
+		try {
+			ctx.ui.setWidget(SUMMARY_WIDGET_KEY, undefined);
+			showAutomaticSummary(ctx);
+		} catch (error) { warnSummary(ctx, `slate: could not show the workflow summary: ${String(error)}`); }
 	});
 }
