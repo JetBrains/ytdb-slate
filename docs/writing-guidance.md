@@ -10,6 +10,24 @@ the command line and the caps. The doctrine rule states the convention
 in a few lines and cites this file for everything else.
 A session pays for the detail only when it reads this file.
 
+## Current-state documentation rule
+
+Describe only the current state in new or changed text in the root `README.md`,
+`docs/`, code comments and this project's agent instruction file, `AGENTS.md`.
+Do not describe removed features or past behavior in those places. Existing
+historical sentences are pre-existing debt and need no rewrite for this rule.
+Support for a deprecated key that still exists is current state and may be
+documented.
+
+Change records may describe removals and past behavior. Pull request
+descriptions, delivery commit bodies, release notes and issues are change
+records. The other writing requirements still apply to change records.
+
+This rule is separate from the ten writing requirements and seven design
+requirements below. It applies to `AGENTS.md` even though that file is excluded
+from the other writing requirements. The prose checker cannot decide whether
+a feature still exists, so it does not enforce this rule.
+
 ## What the checker is, and what it is not
 
 `extension/writing-check.mjs` is a dependency-free Node command. It
@@ -95,8 +113,8 @@ Sessions with permitted Slate settings receive four writing and design surfaces:
 2. **The design doctrine rule.** A final numbered rule requires the
    simplest-solution requirement, outcome-focused user-approved scope, and
    self-contained design updates.
-3. **The worker preamble sentence.** Every worker with permitted settings receives one
-   extra sentence of writing guidance in its preamble.
+3. **The worker preamble guidance.** Every worker with permitted settings receives
+   writing guidance and a separate current-state documentation rule in its preamble.
 4. **The turn status line.** In an interactive session, the Slate status line
    gains `writing <n> fail, <m> style / <w> turns`. The default window is ten
    measured prose turns. The configured range is 3 through 100. Both counts
@@ -146,11 +164,12 @@ The reminder then includes this exact scope guard:
 
 `Exclude research logs, worker task text, and the project's own agent instruction file.`
 
-This guard is a coarse summary wherever Slate renders it, including the
-doctrine rule and the reminder. The summary names research logs as excluded.
-A high-level design remains governed even while it lives inside a research
-log. This document is the authority on the
-precise scope of every rendering.
+This guard summarizes the ten writing requirements and the design requirements
+wherever Slate renders it, including the doctrine rule and the reminder. It
+does not exclude `AGENTS.md` from the separate current-state documentation rule.
+The summary names research logs as excluded from the other requirements. A
+high-level design remains governed even while it lives inside a research log.
+This document defines the precise scope of every rendering.
 
 These requirements are not mechanical checker findings. The shipped checker
 has no rule for the reader's first language, vocabulary, idioms or
@@ -471,10 +490,11 @@ These are settled decisions. Read them as scope, not as a backlog.
   severity, and a reviewer owns the judgement.
 - **Not a gate.** The checker hook is diagnostic. It cannot fail a turn. The
   reminder carries selected findings as guidance, not as a checker verdict.
-- **Not universal.** The convention covers prose written for people:
-  documents, README text, pull request and commit text, issues,
+- **Not universal.** The ten writing requirements cover prose written for
+  people: documents, README text, pull request and commit text, issues,
   review comments, release notes and messages to the user. Research
   logs, worker task text and this repository's own agent instruction
-  file are excluded, because a dense exact register serves them
-  better. A high-level design is governed prose even while it lives
-  inside an otherwise excluded research log.
+  file are excluded from those requirements, because a dense exact register
+  serves them better. A high-level design is governed prose even while it lives
+  inside an otherwise excluded research log. The separate current-state
+  documentation rule covers the agent instruction file as stated above.

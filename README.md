@@ -98,9 +98,9 @@ The workflow follows these steps:
 1. **Plan and confirm.** The orchestrator proposes all eleven focus lines. The user alone approves or rejects each `NAMED` proof.
 2. **Design.** A proved `DESIGN-TRIGGERING` area requires a high-level design. The user validates it before focus reconfirmation and one adversarial design review per proved `DESIGN-TRIGGERING` area. Final design approval follows.
 3. **Implement tracks.** Each track is one coherent, independently mergeable unit with its own focus set. About 400 added plus removed lines is a planning guideline. The orchestrator estimates before splitting work. The implementer estimates during work and stops at a coherent boundary near the guideline. A small overrun may finish the nearest coherent unit and must include its reason. Lockfiles, migration files, and generated output do not count.
-4. **Review and deliver.** When a track has a proved area, one Reviewer I and every required area specialist inspect it in separate review actions. A zero-area track reports routine implementation review as `NOT REQUIRED`. Tracks with a proved `DESIGN-TRIGGERING` area require blocking user acceptance. Other tracks do not. Where a marker applies, it follows required machine gates, the packet, and resolution of blocking user notes. Per-track mode uses the user-merged commit instead. Final change acceptance is always blocking.
+4. **Review and deliver.** When a track has a proved area, one Reviewer I and every required area specialist inspect it in separate review actions. A zero-area track reports routine implementation review as `NOT REQUIRED`. Tracks with a proved `DESIGN-TRIGGERING` area require blocking user acceptance. Other tracks do not. For multi-track changes, a marker follows required machine gates, the packet, and resolution of blocking user notes. Final change acceptance is always blocking.
 
-Draft pull request publishing activates only when `workflow.draftPRs` is `true`. The orchestrator then asks once whether every track gets its own pull request. A yes answer requires user merges in sequence and a fresh branch from updated `main` for each next track. A no answer keeps one umbrella draft pull request.
+Draft pull request publishing activates only when `workflow.draftPRs` is `true`. The orchestrator creates one umbrella draft pull request for the whole change. Only the user merges it.
 
 This summary provides orientation only. The [shipped workflow documents](#shipped-docs) are normative.
 
@@ -118,13 +118,13 @@ A remembered later compressor starts later actions at that entry and does not mo
 
 ### Writing guidance
 
-Writing guidance and checker findings are active in orchestrator mode when the project is trusted or a home configuration file exists. Slate adds one doctrine rule for writing and another for design discipline. It also adds a status value such as `writing 2 fail, 3 style / 10 turns` in interactive sessions. The value reports model-visible findings in the latest ten measured prose turns. Each worker with permitted Slate settings gets a shorter reminder about reader understanding, semicolons, and contractions.
+Writing guidance and checker findings are active in orchestrator mode when the project is trusted or a home configuration file exists. Slate adds one doctrine rule for writing and another for design discipline. It also adds a status value such as `writing 2 fail, 3 style / 10 turns` in interactive sessions. The value reports model-visible findings in the latest ten measured prose turns. Each worker with permitted Slate settings gets guidance on reader understanding, semicolons and contractions. Worker guidance also says to describe only the current state in the README, docs, code comments and the project agent instruction file. Change records may describe removals.
 
 The guidance has prompt cost. Each orchestrator system prompt contains both doctrine rules. You pay for this text on every turn. Each worker with permitted Slate settings also gets the preamble addition.
 
 The shipped command checks plain files, JSON Lines records, and unified diffs. See [`docs/writing-guidance.md`](docs/writing-guidance.md) for its rules, limits, output, and command examples.
 
-Slate sends hidden reminders after completed turns. The default cadence is four completed turns. A model-visible finding can trigger an immediate reminder when that option is enabled. The reminder carries the writing and conversation title, three retained style rules, ten writing requirements, and seven design requirements. A findings section appears only when the latest measured turn carries a model-visible finding. The requirements exclude research logs, worker task text, and this project's agent instruction file.
+Slate sends hidden reminders after completed turns. The default cadence is four completed turns. A model-visible finding can trigger an immediate reminder when that option is enabled. The reminder carries the writing and conversation title, three retained style rules, ten writing requirements, and seven design requirements. A findings section appears only when the latest measured turn carries a model-visible finding. The ten writing requirements exclude research logs, worker task text and this project's agent instruction file. The separate current-state documentation rule covers the agent instruction file.
 
 ## Everyday commands
 
@@ -189,7 +189,7 @@ The project must be trusted before Slate reads this file. Start a new session af
 | `contextBudget` | number \| object | `256000` (Anthropic models: `400000`) | Absolute orchestrator context budget (tokens) at which Slate auto-pauses and prepares a fresh-session handoff — semantics, defaults, per-model overrides, and rationale in [`docs/context-budget.md`](docs/context-budget.md). |
 | `orchestratorPromptDocs` | string[] | `[]` | Markdown files whose paths follow the source rules above and whose **contents** are appended to the orchestrator system prompt. |
 | `workerPromptDocs` | string[] | `[]` | Markdown files whose **contents** are appended to every worker-thread system prompt. |
-| `workflow.draftPRs` | boolean | `false` | Enable draft-PR publishing. Before implementation, ask once whether each track gets its own pull request or all tracks share one umbrella pull request. |
+| `workflow.draftPRs` | boolean | `false` | Enable one umbrella draft pull request for the whole change before implementation. |
 | `workflow.followUpIssues` | boolean | `false` | When true, the orchestrator asks which deferred items become tracked issues. Deferred items are always reported whatever the value. |
 | `workflow.routingRecommendations` | boolean | `false` | Before final acceptance, add an evidence-bounded model-routing field for logical models dispatched during the current change. The enabled field always appears. It reports when no change is recommended and never edits routing files. |
 | `writing.check` | boolean | ignored | This ignored writing key remains accepted for compatibility. Remove it from `slate.json`. Guidance is automatic during orchestrator mode when the project is trusted or a home file exists. See [`docs/writing-guidance.md`](docs/writing-guidance.md). |
@@ -292,7 +292,7 @@ The embedded paths make the block size depend on your install location. [`docs/c
 - [`docs/delivery-packages.md`](docs/delivery-packages.md) — the compact track and change package format, read only before package preparation
 - [`docs/design-principles.md`](docs/design-principles.md) gives Slate's design rationale.
 - [`docs/model-routing.md`](docs/model-routing.md) defines the logical-model policy, exact defaults, configuration, common recovery, history, and accepted limitations. The doctrine cites its absolute path for trusted sessions.
-- [`docs/pr-publishing.md`](docs/pr-publishing.md) defines per-track and umbrella draft pull request publishing. The doctrine cites it only when `workflow.draftPRs` is `true`.
+- [`docs/pr-publishing.md`](docs/pr-publishing.md) defines one umbrella draft pull request for the whole change. The doctrine cites it only when `workflow.draftPRs` is `true`.
 - [`docs/review-rules.md`](docs/review-rules.md) defines reviewer composition, the combined test-quality role, evidence standards, findings, and fix gates.
 - [`docs/track-workflow.md`](docs/track-workflow.md) defines the focus-area lifecycle for research, design, implementation, review, and delivery.
 - [`docs/user-notes.md`](docs/user-notes.md) defines how Slate records, classifies, and resolves user notes during development.

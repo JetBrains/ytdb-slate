@@ -25,15 +25,13 @@ accounting. The package references that record and the diff.
 The track package states which acceptance rule applies. User acceptance of a
 track is blocking when that track proves at least one DESIGN-TRIGGERING area.
 Where a marker applies, it waits for required track acceptance and every
-requested fix. In per-track mode, the user's merge supplies acceptance and the
-boundary before the next track starts. A track with only REVIEWER-ONLY areas,
-or no proved area, has no mandatory track-acceptance gate. Its package reports
-progress and every requested decision. Without mandatory track acceptance, an
+requested fix. A track with only REVIEWER-ONLY areas, or no proved area, has
+no mandatory track-acceptance gate. Its package reports progress and every
+requested decision. Without mandatory track acceptance, an
 applicable marker waits for completed machine gates, the package, and resolved
-blocking user notes. In per-track mode, pull-request readiness waits for the
-same steps, and the user's merge supplies the boundary before the next track
-starts. In a single-track change, any blocking track acceptance and final
-change acceptance are one event. Final change acceptance is always blocking.
+blocking user notes. In a single-track change, any blocking track acceptance
+and final change acceptance are one event. Final change acceptance is always
+blocking.
 
 
 ## Receiving and routing a user note

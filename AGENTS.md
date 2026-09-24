@@ -390,7 +390,9 @@ These ten requirements are project-authored:
 9. Do not explain an idea with a metaphor.
 10. Do not invent a term when the project already has one.
 
-Research logs and worker-thread task text are excluded. A high-level design is always governed, even inside a research log. The project's own agent instruction file, `AGENTS.md`, is also excluded. Its rules need a dense, exact register. The requirements govern `docs/`, but every checker finding there remains advisory. `verification/README.md` remains a precision-first mechanism reference and is excluded.
+Research logs and worker-thread task text are excluded. A high-level design is always governed, even inside a research log. The project's own agent instruction file, `AGENTS.md`, is also excluded from these ten requirements and the style convention. Its rules need a dense, exact register. The requirements govern `docs/`, but every checker finding there remains advisory. `verification/README.md` remains a precision-first mechanism reference and is excluded.
+
+The separate current-state documentation rule governs new or changed text in the root `README.md`, `docs/`, code comments and `AGENTS.md` itself. Describe only current state, not removed features or past behavior. Existing historical sentences are pre-existing debt and need no rewrite now. Pull request descriptions, delivery commit bodies, release notes and issues may describe removals as change records. Support for a deprecated key that still exists is current state and may be documented. See `docs/writing-guidance.md` § Current-state documentation rule.
 
 The writing checker is diagnostic everywhere and authoritative nowhere. A match directs reviewer attention, and the reviewer decides whether the text has a defect. Changed convention-governed text should carry no fail-level findings. Findings in unchanged text are pre-existing debt, not an unrelated blocker. Every checker class is advisory in excluded files because mechanical findings can conflict with required precision. ASD-STE100 inspires only, Slate claims no conformance, and contributors must copy no standard material or examples.
 
