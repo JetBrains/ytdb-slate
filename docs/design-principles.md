@@ -224,7 +224,7 @@ track with no proved focus area uses the same ordinary selection rule.
 Repo-local note (not from the report): the P7 guard was originally
 absolute — workers loaded no extensions, so Slate's `thread` tool simply
 never existed for them. The optional `workerExtensions` key (`slate.json`,
-home or trusted project settings — see the README config reference) relaxes that: it
+home or trusted project settings — see the [configuration reference](configuration.md)) relaxes that: it
 whitelists extensions the host session has ALREADY loaded and loads them
 into every worker. The guard therefore no longer rests on "workers load
 nothing" but on a narrower, more precise invariant: no worker can ever
