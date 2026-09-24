@@ -4,7 +4,7 @@ This document describes planned work, not current Slate features.
 
 ## Design that readers can verify
 
-The goal is to let you guide a change through its design without reading the code. Planned design documents will state exact guarantees and explain why the design keeps them. The [focus-area definitions](blast-radius.md#focus-areas-and-their-gates) name risks that can trigger a design. Those five areas are data loss, concurrency defect, security weakness, performance degradation, and non-local logic defect. A focus area is a named risk that adds a review gate after you approve its proof.
+The goal is to let you guide a change through its design without reading the code. Planned design documents will state exact guarantees and explain why the design keeps them. Design documents will cover several levels, from system goals to component details. They will stay updated while work continues. The [focus-area definitions](blast-radius.md#focus-areas-and-their-gates) name risks that can trigger a design. Those five areas are data loss, concurrency defect, security weakness, performance degradation, and non-local logic defect. A focus area is a named risk that adds a review gate after you approve its proof.
 
 A verifiable design guarantee will have six parts:
 
@@ -25,7 +25,7 @@ Planned recursive decomposition will split large, long-running changes into smal
 
 ## Developer experience
 
-Planned asynchronous threads will let the main session continue while worker sessions run. A detailed cost breakdown will show where resources go. A read-only view will show the order of actions in a worker thread without changing its execution.
+Planned asynchronous threads will let the main session continue while worker sessions run. Clear, accurate usage and cost reports will give a detailed breakdown of where resources go. A read-only view will show the order of actions in a worker thread without changing its execution. A redesigned terminal interface will let you follow and control running worker threads.
 
 ## Remote development
 
