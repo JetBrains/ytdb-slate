@@ -57,7 +57,15 @@ jobs:
           old=
           if git ls-remote --exit-code --heads origin "$STATE_BRANCH" >/dev/null 2>&1; then
             git fetch origin "$STATE_BRANCH"; old=$(git rev-parse "origin/$STATE_BRANCH")
-            git show "origin/$STATE_BRANCH:state.json" >"$root/old-state.json"
+            git show "$old:state.json" >"$root/old-state.json"
+            node --input-type=module - "$old" "$identity" <<'NODE'
+          import {execFileSync} from 'node:child_process';
+          import {assertNoEndedIdentity} from './verification/release-control.mjs';
+          const [head,identity]=process.argv.slice(2);
+          const git=(...args)=>execFileSync('git',args,{encoding:'utf8',maxBuffer:64*1024*1024});
+          const commits=git('rev-list',head).trim().split('\n');
+          assertNoEndedIdentity(commits.map(sha=>JSON.parse(git('show',`${sha}:state.json`))),identity);
+          NODE
             status=$(node -p 'require(process.argv[1]).status' "$root/old-state.json")
             old_identity=$(node -p 'require(process.argv[1]).identity' "$root/old-state.json")
             if test "$old_identity" = "$identity" && test "$status" != prepared; then echo 'This authorization is terminal. Start a new prepare dispatch.' >&2; exit 2; fi
@@ -66,6 +74,9 @@ jobs:
             else
               node --input-type=module -e 'import {TERMINAL} from "./verification/release-control.mjs"; import {readFileSync} from "node:fs"; const s=JSON.parse(readFileSync(process.argv[1],"utf8"));if(!TERMINAL.includes(s.status))throw Error(`unfinished release ${s.version} already owns the lane`)' "$root/old-state.json"
             fi
+          else
+            probe_status=$?
+            if test "$probe_status" -ne 2; then echo 'The release-state branch could not be read.' >&2; exit 2; fi
           fi
           if ! test -f "$root/old-state.json" || test "$(node -p 'require(process.argv[1]).identity' "$root/old-state.json")" != "$identity"; then
             node verification/release-control.mjs state-init --request "$root/request.json" --out "$root/state.json"
@@ -75,7 +86,12 @@ jobs:
             git push origin "$commit:refs/heads/$STATE_BRANCH" ${old:+--force-with-lease="refs/heads/$STATE_BRANCH:$old"}
           fi
           branch="release/v$VERSION-${identity:0:12}"
-          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then echo "Prepared branch already exists: $branch"; exit 0; fi
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+            echo "Prepared branch already exists: $branch"; exit 0
+          else
+            probe_status=$?
+            if test "$probe_status" -ne 2; then echo 'The prepared branch could not be read.' >&2; exit 2; fi
+          fi
           mkdir -p "release/requests/$VERSION"; cp "$root/notes.md" "release/requests/$VERSION/notes.md"; cp "$root/request.json" "release/requests/$VERSION/request.json"
           node -e 'const fs=require("fs"),r=require(process.argv[1]);fs.writeFileSync(process.argv[2],JSON.stringify({schema:r.schema,parentPolicy:r.coverageDisposition.parentPolicy,allowedPaths:r.coverageDisposition.allowedPaths,verdict:"WARN"},null,2)+"\n")' "$root/request.json" "release/requests/$VERSION/coverage.json"
           if test "$current" != "$VERSION"; then
@@ -115,6 +131,9 @@ jobs:
       - if: steps.candidate.outputs.release_sha != ''
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { ref: release-state, path: durable }
+      - if: steps.candidate.outputs.release_sha != ''
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { ref: '${{ steps.candidate.outputs.release_sha }}', path: release-code }
       - id: find
         if: steps.candidate.outputs.release_sha != ''
         env:
@@ -127,14 +146,15 @@ jobs:
           set -euo pipefail
           tmp=$(mktemp -d)
           git show "$RELEASE_SHA:$REQUEST" >"$tmp/request.json"; git show "$RELEASE_SHA:release/requests/$VERSION/notes.md" >"$tmp/notes.md"; git show "$RELEASE_SHA:release/requests/$VERSION/coverage.json" >"$tmp/coverage.json"; git show "$RELEASE_SHA:package.json" >"$tmp/package.json"
-          git diff-tree --no-commit-id --name-only -r "$RELEASE_SHA" >"$tmp/paths"
+          git diff-tree --no-commit-id --no-renames --name-only -z -r "$RELEASE_SHA" >"$tmp/paths"
           prs=$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_SHA/pulls")
           request_base=$(node -p 'require(process.argv[1]).baseSha' "$tmp/request.json"); git merge-base --is-ancestor "$request_base" "$PARENT_SHA"
           result=$(node --input-type=module - "$tmp" "$RELEASE_SHA" "$PARENT_SHA" "$prs" <<'NODE'
-          import fs from 'node:fs'; import {verifyReleaseIdentity} from './verification/release-control.mjs';
+          import fs from 'node:fs'; import {verifyReleaseIdentity} from './release-code/verification/release-control.mjs';
           const [d,sha,parent,raw]=process.argv.slice(2),request=JSON.parse(fs.readFileSync(`${d}/request.json`)),durableRequest=JSON.parse(fs.readFileSync('durable/request.json')),version=request.version;
+          const pathBytes=fs.readFileSync(`${d}/paths`),changedPaths=pathBytes.length?pathBytes.toString('utf8').split('\0').slice(0,-1):[];
           const associatedPullRequests=JSON.parse(raw).map(p=>({number:p.number,merged:p.merged_at!==null,mergeCommitSha:p.merge_commit_sha,baseRefName:p.base.ref}));
-          const x=verifyReleaseIdentity({request,durableRequest,coverageRecord:JSON.parse(fs.readFileSync(`${d}/coverage.json`)),notes:fs.readFileSync(`${d}/notes.md`,'utf8'),releaseSha:sha,parentSha:parent,changedPaths:fs.readFileSync(`${d}/paths`,'utf8').trim().split('\n'),manifestVersion:JSON.parse(fs.readFileSync(`${d}/package.json`)).version,associatedPullRequests});
+          const x=verifyReleaseIdentity({request,durableRequest,coverageRecord:JSON.parse(fs.readFileSync(`${d}/coverage.json`)),notes:fs.readFileSync(`${d}/notes.md`,'utf8'),releaseSha:sha,parentSha:parent,changedPaths,manifestVersion:JSON.parse(fs.readFileSync(`${d}/package.json`)).version,associatedPullRequests});
           process.stdout.write(JSON.stringify(x));
           NODE
           )
@@ -151,9 +171,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { ref: '${{ needs.identify.outputs.release_sha }}', path: control }
       - name: Claim exact identity idempotently
+        env:
+          LAUNCH_IDENTITY: ${{ needs.identify.outputs.identity }}
         run: |
           set -euo pipefail; old=$(git -C state rev-parse HEAD)
-          node control/verification/release-control.mjs claim --state state/state.json --request state/request.json --sha '${{ needs.identify.outputs.release_sha }}' --parent '${{ needs.identify.outputs.parent_sha }}' --pr '${{ needs.identify.outputs.pull_request }}' --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --out state/next.json
+          durable_identity=$(node -p 'require("./state/state.json").identity')
+          if test -z "$LAUNCH_IDENTITY" || test "$durable_identity" != "$LAUNCH_IDENTITY"; then echo 'Launch identity does not match the durable owner. Claim refused.' >&2; exit 2; fi
+          node control/verification/release-control.mjs claim --state state/state.json --request state/request.json --sha '${{ needs.identify.outputs.release_sha }}' --parent '${{ needs.identify.outputs.parent_sha }}' --pr '${{ needs.identify.outputs.pull_request }}' --identity "$LAUNCH_IDENTITY" --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --out state/next.json
           if cmp -s state/state.json state/next.json; then exit 0; fi
           mv state/next.json state/state.json; git -C state config user.name github-actions[bot]; git -C state config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git -C state add state.json; git -C state commit -m 'Claim release identity ${{ needs.identify.outputs.identity }}'; git -C state push origin HEAD:release-state --force-with-lease="refs/heads/release-state:$old"
@@ -460,7 +484,7 @@ jobs:
   retire:
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'retire' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    permissions: { contents: write, actions: read }
+    permissions: { contents: write, actions: read, pull-requests: read }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { ref: release-state, fetch-depth: 0 }
@@ -470,7 +494,19 @@ jobs:
         run: |
           set -euo pipefail; old=$(git rev-parse HEAD); test "$(node -p 'require("./state.json").version')" = "$VERSION"; test "$(node -p 'require("./state.json").identity')" = "$IDENTITY"; status=$(node -p 'require("./state.json").status'); if test "$status" = retired; then echo 'Authorization is already retired.'; exit 0; fi
           sha=$(node -p 'require("./state.json").releaseSha'); parent=$(node -p 'require("./state.json").releaseParent')
-          if test "$status" = upload-unknown; then
+          if test "$status" = prepared; then
+            root=$(mktemp -d "$RUNNER_TEMP/retire.XXXXXX")
+            branch="release/v$VERSION-${IDENTITY:0:12}"
+            owner=${GITHUB_REPOSITORY%%/*}
+            gh api --paginate "repos/$GITHUB_REPOSITORY/pulls?state=all&head=$owner:$branch&per_page=100" --jq 'tojson' >"$root/prs.jsonl" || { echo 'Cannot read prepared retirement pull requests.' >&2; exit 2; }
+            node --input-type=module - "$root/prs.jsonl" "$GITHUB_REPOSITORY" "$branch" <<'NODE'
+          import {readFileSync} from 'node:fs';
+          import {preparedMergeProof} from './current-control/verification/release-control.mjs';
+          preparedMergeProof(readFileSync(process.argv[2],'utf8'),{repository:process.argv[3],branch:process.argv[4]});
+          NODE
+            node current-control/verification/release-control.mjs retire --state state.json --identity "$IDENTITY" --version "$VERSION" --sha "$sha" --parent "$parent" --merged-proof true --out next.json
+            message='Retire merged prepared authorization'
+          elif test "$status" = upload-unknown; then
             root=$(mktemp -d "$RUNNER_TEMP/retire.XXXXXX")
             execution=$(node -p 'require("./state.json").uploadExecution')
             run=${execution%:*}; attempt=${execution#*:}

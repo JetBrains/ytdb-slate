@@ -25,11 +25,11 @@ Repository collaborators who may merge remain the trusted set. Existing collabor
 3. Enter one unused semantic version and the Markdown release notes.
 4. Run the workflow once. Leave the authorization identity input empty for preparation.
 
-Each preparation dispatch creates a new authorization generation. A rerun of that same workflow run keeps the generation. A later preparation creates a new request identity even when the version, notes, and base are unchanged.
+Each preparation dispatch creates a new authorization generation. A rerun of that same workflow run keeps the generation. Preparation checks the full release-state history at the commit named by its write lease. It refuses any identity that has ended, including one from an earlier run. A history read failure also stops preparation. A later dispatch creates a new request identity even when the version, notes, and base are unchanged.
 
 Preparation first claims the single release lane on the `release-state` branch. It then creates a branch named from the version and request identity. The workflow prints a compare link. Use that link to create the pull request.
 
-Review the exact metadata-only diff. A first request normally changes `package.json`, `package-lock.json`, and three files under `release/requests/<version>/`. A corrected request may change only the three request files when `main` already names the same unused version. No executable-code path receives a coverage exception.
+Review the exact metadata-only diff. A first request normally changes `package.json`, `package-lock.json`, and three files under `release/requests/<version>/`. A corrected request may change a subset of the three request files when `main` already names the same unused version. It must change `request.json`. The other request files must still match the reviewed request content. A request that changes the version must change both manifests and `request.json`. No executable-code path receives a coverage exception.
 
 Use the repository's enabled squash merge or merge queue. The workflow examines every commit in the resulting `main` push. It selects the exact release commit, its own parent and diff, and its associated merged pull request. An unrelated commit in the same grouped push does not become the release identity.
 
@@ -39,9 +39,9 @@ The merge authorizes publication. Do not edit the durable request or notes after
 
 The workflow performs these actions in order:
 
-1. It claims the exact request identity. A repeated claim for the same merge is safe.
+1. It claims the exact request identity only while the durable owner matches the identity found at launch. A repeated claim for the same merge is safe. A claim after retirement or new preparation is refused.
 2. It runs every executable release check in `verification/release-checks.sh` against the exact commit and parent. A failure, refusal, unsupported result, missing verdict, or `NOT RUN` stops publication.
-3. It accepts a coverage `WARN` only when the changed paths equal the request's reviewed path set. It records the request identity, parent, and head with that disposition.
+3. It accepts a coverage `WARN` only when the changed paths follow the reviewed request path rule. The paths must be a subset of the permitted set and include `request.json`. A version-changing request must also change both manifests. It records the request identity, parent, and head with that disposition.
 4. It packs and fingerprints one archive without repository-write or npm authority.
 5. It saves the archive and a unique workflow run and run-attempt pair before upload. The saved state becomes unknown before the upload command.
 6. The protected upload job publishes that archive once under the internal `slate-candidate` npm distribution tag. It uses OpenID Connect. It runs no install, package test, lifecycle script, or extension code.
@@ -61,7 +61,9 @@ Read the failed job and the `release-state` history before acting. Download reta
 
 A branch-creation retry for the exact same prepared request is idempotent. Copy the exact request identity from the active `release-state` record into the workflow authorization identity input. Choose `abandon` only for an unmerged prepared request with no upload attempt. The workflow checks all matching pull requests, closes an open one, tolerates a missing branch, and records abandonment. Do not close or delete the branch first.
 
-After a merged authorization fails before upload, correct the cause in normal development. Re-run the failed workflow jobs when that is enough. If the authorization must be revoked, enter its exact version and request identity, then choose `retire`. For an authorization with no upload attempt, retirement requires the exact merged identity and no active publisher. It preserves history and permanently revokes that identity.
+After a merged authorization fails before upload, correct the cause in normal development. Re-run the failed workflow jobs when that is enough. If the authorization must be revoked, enter its exact version and request identity, then choose `retire`. A prepared request needs exactly one merged pull request into `main` from this repository and its identity-bound branch. A failed or malformed GitHub read leaves the state unchanged. An unmerged prepared request can only be abandoned. Retirement also accepts an exact claimed authorization with no upload attempt. Retirement uses the current control code for a prepared request. It keeps empty claim fields, preserves history, and permanently revokes that identity.
+
+Do not retire while a preparation or claim run that started before pull request #439 merged is still active. Do not rerun a preparation or claim run that started before pull request #439 merged. GitHub permits reruns for 30 days.
 
 Preparation refuses a version found in either npm's version list or its publication-time map. A package-not-found response or a failed registry read also stops preparation. A corrected request may reuse the same unused npm version without reverting or writing `main` first.
 
