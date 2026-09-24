@@ -9,7 +9,7 @@ The goal is to let you guide a change through its design without reading the cod
 A verifiable design guarantee will have six parts:
 
 1. **Exact result.** State a claim a reader can test. “Reads are consistent” is too broad. “All values returned by one logical read belong to the same committed state” names an exact result.
-2. **Boundary.** Identify one logical read and the state it covers. State which failures and overlapping operations the claim permits. Name the guarantees supplied by dependencies.
+2. **Boundary.** Define one operation and the state it covers. State which failures and overlapping operations the claim permits. Name the guarantees supplied by dependencies. For a read guarantee, define one logical read and the committed state it covers.
 3. **Mechanism.** Explain who owns state, how state changes, and in what order operations happen. The design does not need function names or source file paths.
 4. **Argument for difficult cases.** Show why overlapping operations, failures, and retries cannot produce a result that the claim forbids. One successful example does not establish the claim.
 5. **Suitable evidence.** Use a short logical argument for a simple rule. Use an abstract model check for a complex protocol. For a performance claim, measure a stated workload.
