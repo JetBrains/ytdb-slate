@@ -26,9 +26,14 @@ run resolver bash verification/run-resolver-checks.sh --repo . --strict
 run tests npm test -- --base "$base"
 grep -Eq '^RUN VERDICT: (PASS|WARN) —' "$evidence/tests.log" || fail 'test roster has no final coverage verdict'
 if grep -q '^RUN VERDICT: WARN —' "$evidence/tests.log"; then
-  changed=$(git diff --name-only "$base..HEAD" | sort)
-  expected=$(node -e 'const r=require(process.argv[1]);for(const p of r.coverageDisposition.allowedPaths)console.log(p)' "$request" | sort)
-  [ "$changed" = "$expected" ] || fail 'coverage WARN paths differ from the reviewed request'
+  git diff --no-renames --name-only -z "$base..HEAD" | node --input-type=module -e '
+    import { readFileSync } from "node:fs";
+    import { releasePathsAllowed } from "./verification/release-control.mjs";
+    const request=JSON.parse(readFileSync(process.argv[1],"utf8"));
+    const raw=readFileSync(0,"utf8");
+    const paths=raw ? raw.split("\0").slice(0,-1) : [];
+    if(!releasePathsAllowed(request,paths))process.exitCode=1;
+  ' "$request" || fail 'coverage WARN paths violate the reviewed request path rule'
   printf 'WARN exact-parent=%s exact-head=%s request-identity=%s\n' "$base" "$(git rev-parse HEAD)" "$(node -p 'require(process.argv[1]).identity' "$request")" >"$evidence/coverage-disposition.txt"
 fi
 ladder_home=$(mktemp -d "${TMPDIR:-/tmp}/slate-release-ladder-home.XXXXXX"); load_home=

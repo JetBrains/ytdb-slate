@@ -115,6 +115,9 @@ jobs:
       - if: steps.candidate.outputs.release_sha != ''
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { ref: release-state, path: durable }
+      - if: steps.candidate.outputs.release_sha != ''
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { ref: '${{ steps.candidate.outputs.release_sha }}', path: release-code }
       - id: find
         if: steps.candidate.outputs.release_sha != ''
         env:
@@ -127,14 +130,15 @@ jobs:
           set -euo pipefail
           tmp=$(mktemp -d)
           git show "$RELEASE_SHA:$REQUEST" >"$tmp/request.json"; git show "$RELEASE_SHA:release/requests/$VERSION/notes.md" >"$tmp/notes.md"; git show "$RELEASE_SHA:release/requests/$VERSION/coverage.json" >"$tmp/coverage.json"; git show "$RELEASE_SHA:package.json" >"$tmp/package.json"
-          git diff-tree --no-commit-id --name-only -r "$RELEASE_SHA" >"$tmp/paths"
+          git diff-tree --no-commit-id --no-renames --name-only -z -r "$RELEASE_SHA" >"$tmp/paths"
           prs=$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_SHA/pulls")
           request_base=$(node -p 'require(process.argv[1]).baseSha' "$tmp/request.json"); git merge-base --is-ancestor "$request_base" "$PARENT_SHA"
           result=$(node --input-type=module - "$tmp" "$RELEASE_SHA" "$PARENT_SHA" "$prs" <<'NODE'
-          import fs from 'node:fs'; import {verifyReleaseIdentity} from './verification/release-control.mjs';
+          import fs from 'node:fs'; import {verifyReleaseIdentity} from './release-code/verification/release-control.mjs';
           const [d,sha,parent,raw]=process.argv.slice(2),request=JSON.parse(fs.readFileSync(`${d}/request.json`)),durableRequest=JSON.parse(fs.readFileSync('durable/request.json')),version=request.version;
+          const pathBytes=fs.readFileSync(`${d}/paths`),changedPaths=pathBytes.length?pathBytes.toString('utf8').split('\0').slice(0,-1):[];
           const associatedPullRequests=JSON.parse(raw).map(p=>({number:p.number,merged:p.merged_at!==null,mergeCommitSha:p.merge_commit_sha,baseRefName:p.base.ref}));
-          const x=verifyReleaseIdentity({request,durableRequest,coverageRecord:JSON.parse(fs.readFileSync(`${d}/coverage.json`)),notes:fs.readFileSync(`${d}/notes.md`,'utf8'),releaseSha:sha,parentSha:parent,changedPaths:fs.readFileSync(`${d}/paths`,'utf8').trim().split('\n'),manifestVersion:JSON.parse(fs.readFileSync(`${d}/package.json`)).version,associatedPullRequests});
+          const x=verifyReleaseIdentity({request,durableRequest,coverageRecord:JSON.parse(fs.readFileSync(`${d}/coverage.json`)),notes:fs.readFileSync(`${d}/notes.md`,'utf8'),releaseSha:sha,parentSha:parent,changedPaths,manifestVersion:JSON.parse(fs.readFileSync(`${d}/package.json`)).version,associatedPullRequests});
           process.stdout.write(JSON.stringify(x));
           NODE
           )
