@@ -71,6 +71,7 @@ test("start, close, resume, reload and handoff preserve one visible change witho
   assert.match(result.content[0]!.text, new RegExp(name));
   const log = join(f.project, "slate-changes", name, "research-log.md");
   assert.equal(readFileSync(log, "utf8"), "# Research log\n");
+  assert.match(await f.doctrine(), new RegExp(`Current research log: slate-changes/${name}/research-log.md`));
   assert.match(await f.doctrine(), new RegExp(`slate-changes/${name}/track-<number>-implementer-report.md`));
   await assert.rejects(f.action("start"), /close the current change/);
   for (const reason of ["resume", "reload", "startup"]) {
@@ -85,7 +86,7 @@ test("start, close, resume, reload and handoff preserve one visible change witho
   assert.equal(snapshot().currentChange, undefined);
   assert.equal(existsSync(log), true, "close deletes nothing");
   await f.start("resume");
-  assert.equal((await f.doctrine()).includes(`current research log: slate-changes/${name}`), false);
+  assert.equal((await f.doctrine()).includes(`Current research log: slate-changes/${name}`), false);
 });
 
 test("real session_start fork creates a new folder with a read-only source entry and inherited history", { timeout: 10000 }, async (t) => {
@@ -127,7 +128,7 @@ test("hostile snapshot and fork source names are refused, reported, and never us
   assert.ok(f.warnings.some((s) => s.includes("invalid currentChange")));
   assert.ok(f.warnings.some((s) => s.includes("earlier change folder")));
   assert.equal(f.entries.length, 0, "invalid fork source creates no new save");
-  assert.match(await f.doctrine(), /No change is open/);
+  assert.match(await f.doctrine(), /No change open\. Use slate_change start/);
   assert.equal(existsSync(join(f.project, "slate-changes")), false);
 });
 
@@ -188,7 +189,7 @@ test("legacy root research log is only named as read-only earlier input", { time
   const state: SlateSnapshot = { format: "single-action-v1", threads: [], episodes: [], orchestratorMode: true, paused: false, workerCostUsd: 0, carriedCostUsd: 0 };
   f.branchTo(state);
   await f.start("resume");
-  assert.match(await f.doctrine(), /Read-only earlier log: research-log.md \(legacy root file\)/);
+  assert.match(await f.doctrine(), /Read-only legacy root log: research-log.md/);
   await f.action("start");
   assert.equal(readFileSync(join(f.project, "research-log.md"), "utf8"), "legacy bytes");
 });

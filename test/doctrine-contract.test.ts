@@ -362,7 +362,7 @@ test("doctrine states research-log, packet, and reviewer rules", { timeout: 5000
 
 test("rule 8 renders exact feature-off and enabled publishing tails", { timeout: 5000 }, async () => {
   const local = (await renderDoctrine()).replace(/\s+/g, " ");
-  assert.ok(local.includes("Durable workflow records belong in the current change folder. Follow the workflow doc."));
+  assert.ok(local.includes("Keep workflow records in the change folder."));
   assert.doesNotMatch(local, /repo-root workflow log/);
   assert.equal(local.includes(PR_PUBLISHING_DOC), false);
   assert.doesNotMatch(local, /Publish one umbrella draft PR/);
@@ -384,7 +384,7 @@ test("routing-recommendation doctrine is trusted, opt-in, and feature-off inert"
   const enabled = await renderDoctrine(undefined, { workflow: { routingRecommendations: true } });
   assert.equal(disabled, absent);
   assert.ok(enabled.includes(pointer));
-  assert.ok(enabled.replace(/\s+/g, " ").includes("Durable workflow records anchor in the retained repo-root research log"));
+  assert.ok(enabled.replace(/\s+/g, " ").includes("Keep workflow records in the change folder"));
 
   const untrustedAbsent = await renderDoctrine(undefined, {}, false);
   const untrustedEnabled = await renderDoctrine(undefined, { workflow: { routingRecommendations: true } }, false);

@@ -276,8 +276,7 @@ function buildDoctrine(
    Only users merge. Follow ${PR_PUBLISHING_DOC}.`
 				: `Publish one umbrella draft PR for the change. Keep tracks mergeable.
    Only users merge. Mechanics: ${PR_PUBLISHING_DOC}.`
-			: `Durable workflow records belong in the current change folder. Follow
-   the workflow doc.`;
+			: `Keep workflow records in the change folder.`;
 	const routingRecommendationTail = routingRecommendations
 		? "\n   At change completion, follow Lifecycle's routing-recommendation rule before final acceptance."
 		: "";
@@ -291,7 +290,11 @@ function buildDoctrine(
    Project-specific review perspectives are defined in ${perspectives} —
    load them alongside the review rules when composing reviewers.`
 			: "";
-	const changePaths = `\n\nWorkflow documents: ${currentChange ? `current research log: slate-changes/${currentChange}/research-log.md; implementer reports: slate-changes/${currentChange}/track-<number>-implementer-report.md.` : "No change is open. Use slate_change start before workflow work."}${earlierChanges.map((name) => `\nRead-only earlier log: slate-changes/${name}/research-log.md.`).join("")}${legacyLog ? "\nRead-only earlier log: research-log.md (legacy root file)." : ""}`;
+	const changePaths = currentChange
+		? `\n\nCurrent research log: slate-changes/${currentChange}/research-log.md\nImplementer report: slate-changes/${currentChange}/track-<number>-implementer-report.md.`
+		: "\n\nNo change open. Use slate_change start.";
+	const earlierLogs = earlierChanges.map((name) => `\nRead-only earlier log: slate-changes/${name}/research-log.md.`).join("");
+	const legacyPath = legacyLog ? "\nRead-only legacy root log: research-log.md." : "";
 	return `
 
 # Slate orchestrator mode
@@ -333,7 +336,7 @@ You orchestrate thread weaving. You strategize; workers execute. Rules:
    already in your context.${rule9Tail}${followUpTail}
 10. Design rationale: ${DESIGN_PRINCIPLES_DOC}. Read it only to explain or change
    slate, or for an unusual routing or compaction decision.
-   Never read it for routine dispatching. Skip the read if it is already in your context.${changePaths}${numberedTail([
+   Never read it for routine dispatching. Skip the read if it is already in your context.${changePaths}${earlierLogs}${legacyPath}${numberedTail([
 		(n) => buildWorkerExtensionsRule(extensions, n),
 		(n) => (trusted ? buildLogicalModelRule(runtime, n) : ""),
 		// Append-only conditional tail. Writing guidance is active for every trusted

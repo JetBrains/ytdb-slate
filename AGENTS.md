@@ -243,7 +243,7 @@ Doctrine size uses portable characters. The check removes each installed
 `docs/` directory prefix and keeps each filename. Canonical measured baselines
 must retain five-percent reserve. The separate runtime controls accept exactly
 19,400 characters and 105 lines, reject 19,401 and 106, and use the measured
-26,000 whole-doctrine ceiling. A valid logical policy with an enlarged supported
+25,800 whole-doctrine ceiling. A valid logical policy with an enlarged supported
 worker-tool roster supplies the over-cap counterfactual.
 
 The suite loads the six active `logical-model-*` modules, `mode.ts`, `paths.ts`,
