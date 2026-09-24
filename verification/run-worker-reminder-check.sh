@@ -207,7 +207,7 @@ const result={
   rpcBad:rpc.bad,hostBad:host.bad,workerBad:worker.bad,
   extensionErrors:rpc.values.filter((o)=>o?.type==="extension_error"),
   workingTree:typeof slatePath==="string"&&(slatePath===repo||slatePath.startsWith(repo+"/")),slatePath,
-  providerRoute:evidence?.registrations?.host===1&&evidence?.registrations?.runtime>=1&&evidence?.registrations?.legacy===1&&calls.length===5&&calls.every((call)=>call.kind!=="unknown"),
+  providerRoute:evidence?.registrations?.host===1&&evidence?.registrations?.runtime>=1&&calls.length===5&&calls.every((call)=>call.kind!=="unknown"),
   oneDispatch:hostToolResults.length===1&&threadResult?.details?.status==="ok"&&textOf(threadResult?.content).includes("STATUS: OK"),
   workerRequests:workerCalls.length===2&&firstToolCalls.length===2&&firstToolCalls[0]?.name==="read"&&firstToolCalls[1]?.name==="read"&&
     textOf(assistantEntries.at(-1)?.message?.content)==="WORKER_REMINDER_CONTINUATION_OK_51c824",
@@ -243,7 +243,7 @@ if [ "$PI_RC" = 0 ];then report pi-exit PASS "real pi session exited 0 before ti
 if [ "$ANALYZE_RC" = 0 ]&&[ -f "$ANALYSIS" ]&&[ "$(value rpcBad)" = '[]' ]&&[ "$(value hostBad)" = '[]' ]&&[ "$(value workerBad)" = '[]' ];then report json-lines PASS "rpc, host, and worker JSON Lines parse completely";else report json-lines FAIL "missing or unparseable evidence (rpc=$(value rpcBad), host=$(value hostBad), worker=$(value workerBad))";fi
 if [ "$ANALYZE_RC" = 0 ]&&[ "$(value extensionErrors)" = '[]' ];then report extension-errors PASS "pi emitted no extension_error event";else report extension-errors FAIL "extension errors: $(value extensionErrors)";fi
 if truev workingTree;then report working-tree PASS "/slate command is attributed inside the checkout under test";else report working-tree FAIL "/slate source path is outside the checkout: $(value slatePath)";fi
-if truev providerRoute;then report provider-route PASS "the module-global custom API handled orchestrator, worker, and compressor calls offline";else report provider-route FAIL "the custom API registration or call classification is wrong";fi
+if truev providerRoute;then report provider-route PASS "Pi's registered provider handled orchestrator, worker, and compressor calls offline";else report provider-route FAIL "the custom API registration or call classification is wrong";fi
 if truev oneDispatch;then report one-dispatch PASS "one real thread dispatch completed with status ok";else report one-dispatch FAIL "the real thread result is missing, duplicated, or failed";fi
 if truev workerRequests;then report worker-requests PASS "the worker made one two-read request and one fixed-marker continuation request";else report worker-requests FAIL "the worker request sequence or fixed success marker is wrong";fi
 if truev toolResultsClean;then report tool-results PASS "both built-in read results persisted unchanged";else report tool-results FAIL "a built-in read result differs from its exact persisted shape";fi

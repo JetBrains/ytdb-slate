@@ -21,8 +21,7 @@
  * line or a same-line field (SE1/SE2/SE3, CQ44).
  */
 
-import { isRetryableAssistantError, retryAssistantCall, type AssistantMessage, type ProviderHeaders } from "@earendil-works/pi-ai";
-import { completeSimple } from "@earendil-works/pi-ai/compat";
+import { isRetryableAssistantError, retryAssistantCall, type AssistantMessage } from "@earendil-works/pi-ai";
 import {
 	convertToLlm,
 	serializeConversation,
@@ -297,13 +296,6 @@ Transcript:
 ${transcript}`;
 }
 
-/** What a compression call needs to run: whatever the registry resolved, nothing added. */
-interface UsableAuth {
-	apiKey?: string;
-	headers?: ProviderHeaders;
-	env?: Record<string, string>;
-}
-
 /**
  * THE usability rule (BG42), and the ONLY place it is expressed: the registry's
  * own verdict, `auth.ok === true`.
@@ -330,13 +322,11 @@ interface UsableAuth {
  * Never throws: an unusable answer and a throwing registry are the same thing to a
  * caller that just wants the next rung.
  */
-async function resolveUsableAuth(ctx: ExtensionContext, model: CompressorModel): Promise<UsableAuth | undefined> {
+async function resolveUsableAuth(ctx: ExtensionContext, model: CompressorModel): Promise<boolean> {
 	try {
-		const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
-		if (auth?.ok !== true) return undefined;
-		return { apiKey: auth.apiKey, headers: auth.headers, env: auth.env };
+		return (await ctx.modelRegistry.getApiKeyAndHeaders(model))?.ok === true;
 	} catch {
-		return undefined;
+		return false;
 	}
 }
 
@@ -511,20 +501,18 @@ async function attemptCompression(
 ) {
 	const model = findModel(ctx, { provider: candidate.provider, id: candidate.model });
 	if (!model) return { kind: "unknown" as const, reason: "The validated compressor route disappeared from Pi's registry." };
-	const auth = await resolveUsableAuth(ctx, model);
-	if (!auth) return { kind: "unknown" as const, reason: "The validated compressor credentials disappeared before execution." };
+	if (!await resolveUsableAuth(ctx, model)) return { kind: "unknown" as const, reason: "The validated compressor credentials disappeared before execution." };
 	const evidence = new CompressorRetryEvidence();
 	let final: unknown;
 	let threw = false;
 	try {
 		final = await retryAssistantCall(
 			async () => {
-				const response = await completeSimple(model, {
+				const response = await ctx.modelRegistry.streamSimple(model, {
 					messages: [{ role: "user", content: [{ type: "text", text: promptText }], timestamp: Date.now() }],
 				}, {
-					...(auth.apiKey === undefined ? {} : { apiKey: auth.apiKey }), headers: auth.headers, env: auth.env,
 					maxTokens: COMPRESSOR_MAX_TOKENS, ...(candidate.effort === "off" ? {} : { reasoning: candidate.effort }), signal,
-				});
+				}).result();
 				onMeasured(response);
 				return evidence.response(response);
 			},

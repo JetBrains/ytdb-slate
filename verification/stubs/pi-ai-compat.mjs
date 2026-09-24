@@ -1,5 +1,5 @@
-// Provides completeSimple for extension/episodes.ts. Tests can replace
-// piAiCompatStub.complete to script compression success or failure.
+// Compat API fixture mapped by the optional verification/test-resolve-hooks.mjs loader.
+// Tests that import compat can replace piAiCompatStub.complete.
 export const piAiCompatStub = {
   async complete() {
     return {

@@ -4506,12 +4506,9 @@ verification of that body. The accounting covers:`),
 	// =========================================================================
 	// Episode compression (extension/episodes.ts) — loaded through STUBBED pi packages
 	// =========================================================================
-	// This module could not be checked here at all until now: it imports
-	// @earendil-works/pi-ai, a peer dependency this repo does not install, so the
-	// driver's jiti cannot resolve it. A SECOND jiti instance with an `alias` map
-	// pointing each pi package at a local stub loads the REAL module — pin, auth rule,
-	// version comparison, diagnostics and header assembly all genuine — with only the
-	// SDK boundary faked.
+	// A separate jiti instance aliases Pi packages to isolated SDK stubs while
+	// loading the real episode module. This exercises its routing and header code
+	// without a live Pi session.
 	//
 	// WHAT IS REAL AND WHAT IS STUBBED, stated plainly because a stub-backed check can
 	// otherwise degenerate into proving the stubs consistent with themselves:
@@ -4522,14 +4519,14 @@ verification of that body. The accounting covers:`),
 	//   code in those files.
 	//
 	//   STUBBED, and why each stub is faithful to the real semantics:
-	//     · `complete()` (pi-ai/compat) records the call and returns a fixed
-	//       assistant message. The properties under test are WHICH model was chosen and
-	//       WHAT auth was handed to the call; the provider's own behaviour is a separate
-	//       mechanism (attempt classification, AF7/AF11) that these checks do not claim.
+	//     · `modelRegistry.streamSimple().result()` records the call and returns a
+	//       fixed assistant message. The properties under test are WHICH model was
+	//       chosen and whether the runtime owns request auth; the provider's own
+	//       behaviour is a separate mechanism (attempt classification, AF7/AF11).
 	//     · `isContextOverflow` / `isRetryableAssistantError` (pi-ai) return false, which
 	//       is the shipped behaviour for a non-error message — only the retry
 	//       classification reads them, and no check here asserts a retry decision beyond
-	//       "the mapped model was consulted with the same auth rule".
+	//       "the mapped model was consulted after the same eligibility rule".
 	//     · `CONFIG_DIR_NAME` = ".pi" is pi's own constant value; `convertToLlm` /
 	//       `serializeConversation` are identity/JSON, and only feed the transcript text
 	//       that no check inspects.
@@ -4545,21 +4542,6 @@ verification of that body. The accounting covers:`),
 	const episodeStubs = () => {
 		// Written into the work dir the wrapper owns and removes.
 		const ai = file("stubs/pi-ai.mjs", "export const isContextOverflow = () => false;\nexport const isRetryableAssistantError = () => false;\n");
-		const compat = file(
-			"stubs/pi-ai-compat.mjs",
-			[
-				"export const calls = [];",
-				"export let failFirst = false;",
-				"export let responseCost = 0;",
-				"export function setFailFirst(v) { failFirst = v; }",
-				"export function setResponseCost(v) { responseCost = v; }",
-				"export async function complete(model, ctx, options) {",
-				"  calls.push({ model: `${model.provider}/${model.id}`, options });",
-				"  if (failFirst && calls.length === 1) return { stopReason: 'error', errorMessage: 'stub failure', content: [], usage: { cost: { total: responseCost } } };",
-				"  return { stopReason: 'stop', content: [{ type: 'text', text: '## Intent\\nstub body' }], usage: { cost: { total: responseCost } } };",
-				"}",
-			].join("\n"),
-		);
 		const agent = file(
 			"stubs/pi-coding-agent.mjs",
 			[
@@ -4570,23 +4552,20 @@ verification of that body. The accounting covers:`),
 				"export class SettingsManager { static create() { return {}; } static fromStorage() { return {}; } }",
 			].join("\n"),
 		);
-		return { ai, compat, agent };
+		return { ai, agent };
 	};
 
 	let episodes;
-	let compatStub;
 	let episodeLoadError;
 	try {
 		const stubs = episodeStubs();
 		const aliasedJiti = createJiti(import.meta.url, {
 			alias: {
 				"@earendil-works/pi-ai": stubs.ai,
-				"@earendil-works/pi-ai/compat": stubs.compat,
 				"@earendil-works/pi-coding-agent": stubs.agent,
 			},
 		});
 		episodes = await aliasedJiti.import(`${REPO}/extension/episodes.ts`);
-		compatStub = await import(pathToFileURL(stubs.compat).href);
 		if (typeof episodes?.compressEpisode !== "function") throw new Error("compressEpisode is not exported");
 	} catch (error) {
 		episodeLoadError = error;
@@ -4599,7 +4578,7 @@ verification of that body. The accounting covers:`),
 		episodeLoadError?.message,
 	);
 
-	if (!episodes || !compatStub) {
+	if (!episodes) {
 		for (const id of EPISODE_IDS) skip(id, "extension/episodes.ts could not be loaded through the aliased loader");
 	} else {
 		/** A model as pi's registry hands it over. */
@@ -4613,6 +4592,7 @@ verification of that body. The accounting covers:`),
 		 * module reports through the host channel (hasUI false ⇒ console.warn, which is
 		 * captured around each run).
 		 */
+		const calls = [];
 		const ectx = ({ models = {}, available = [], auth = () => ({ ok: true, apiKey: "k" }), find } = {}) => ({
 			cwd: WORK,
 			hasUI: false,
@@ -4621,13 +4601,17 @@ verification of that body. The accounting covers:`),
 				find: find ?? ((p, id) => models[`${p}/${id}`]),
 				getAvailable: async () => available,
 				getApiKeyAndHeaders: async (m) => auth(m),
+				streamSimple(model, _context, options) {
+					calls.push({ model: `${model.provider}/${model.id}`, options });
+					return { result: async () => ({ stopReason: "stop", content: [{ type: "text", text: "## Intent\nstub body" }], usage: { cost: { total: 0 } } }) };
+				},
 			},
 		});
 		let episodeSeq = 0;
 		const notices = [];
 		/** Run ONE compression, capturing the compressor's own diagnostics and LLM calls. */
 		const compress = async (ctx, opts = {}) => {
-			compatStub.calls.length = 0;
+			calls.length = 0;
 			const realWarn = console.warn;
 			console.warn = (m) => notices.push(String(m));
 			try {
@@ -4645,7 +4629,7 @@ verification of that body. The accounting covers:`),
 					observations: { stored: false, reason: "no-final-message", grammar: "absent" },
 					...opts,
 				});
-				return { ...result, calls: [...compatStub.calls] };
+				return { ...result, calls: [...calls] };
 			} finally {
 				console.warn = realWarn;
 			}

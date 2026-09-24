@@ -7,7 +7,6 @@ import {
 	type SimpleStreamOptions,
 	createAssistantMessageEventStream,
 } from "@earendil-works/pi-ai";
-import { registerApiProvider } from "@earendil-works/pi-ai/compat";
 import { ModelRuntime, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 const API = "slate-worker-reminder-test-api";
@@ -36,7 +35,7 @@ None.
 ## Open Issues
 None.`;
 
-const evidence: { calls: Array<{ kind: string; ordinal: number; context: ReturnType<typeof snapshot> }>; registrations: { host: number; runtime: number; legacy: number }; expected: Record<string, string> } = { calls: [], registrations: { host: 0, runtime: 0, legacy: 0 }, expected: { API, PROVIDER, MODEL, WORKER_TASK, WORKER_SUCCESS, HOST_SUCCESS, REMINDER_TYPE, REMINDER_TEXT, COMPRESSED_EPISODE } };
+const evidence: { calls: Array<{ kind: string; ordinal: number; context: ReturnType<typeof snapshot> }>; registrations: { host: number; runtime: number }; expected: Record<string, string> } = { calls: [], registrations: { host: 0, runtime: 0 }, expected: { API, PROVIDER, MODEL, WORKER_TASK, WORKER_SUCCESS, HOST_SUCCESS, REMINDER_TYPE, REMINDER_TEXT, COMPRESSED_EPISODE } };
 
 function textOf(content: unknown): string {
 	if (typeof content === "string") return content;
@@ -142,10 +141,6 @@ function fakeStream(model: Model<any>, context: TranscriptContext, _options?: Si
 		], "toolUse", 200));
 	}
 	if (kind === "worker" && prior === 1) {
-		// The worker uses its own native ModelRuntime registration. Register the
-		// legacy API only after that path completed, just before episode compression.
-		// This keeps the native and legacy counterfactuals independent.
-		if (evidence.registrations.legacy === 0) registerLegacyApi();
 		return completedStream(message(model, [{ type: "text", text: WORKER_SUCCESS }], "stop", 220));
 	}
 	if (kind === "compressor" && prior === 0) {
@@ -155,12 +150,6 @@ function fakeStream(model: Model<any>, context: TranscriptContext, _options?: Si
 		return completedStream(message(model, [{ type: "text", text: HOST_SUCCESS }], "stop", 400));
 	}
 	return completedStream(message(model, [{ type: "text", text: `UNEXPECTED_${kind.toUpperCase()}_CALL_${prior + 1}` }], "stop", 500));
-}
-
-function registerLegacyApi() {
-	registerApiProvider({ api: API, stream: fakeStream, streamSimple: fakeStream }, "slate-worker-reminder-canary");
-	evidence.registrations.legacy += 1;
-	persist();
 }
 
 const originalCreate = ModelRuntime.create;
