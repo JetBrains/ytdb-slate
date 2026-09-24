@@ -25,7 +25,7 @@ Repository collaborators who may merge remain the trusted set. Existing collabor
 3. Enter one unused semantic version and the Markdown release notes.
 4. Run the workflow once. Leave the authorization identity input empty for preparation.
 
-Each preparation dispatch creates a new authorization generation. A rerun of that same workflow run keeps the generation. A later preparation creates a new request identity even when the version, notes, and base are unchanged.
+Each preparation dispatch creates a new authorization generation. A rerun of that same workflow run keeps the generation. Preparation checks the full release-state history at the commit named by its write lease. It refuses any identity that has ended, including one from an earlier run. A history read failure also stops preparation. A later dispatch creates a new request identity even when the version, notes, and base are unchanged.
 
 Preparation first claims the single release lane on the `release-state` branch. It then creates a branch named from the version and request identity. The workflow prints a compare link. Use that link to create the pull request.
 
@@ -39,7 +39,7 @@ The merge authorizes publication. Do not edit the durable request or notes after
 
 The workflow performs these actions in order:
 
-1. It claims the exact request identity. A repeated claim for the same merge is safe.
+1. It claims the exact request identity only while the durable owner matches the identity found at launch. A repeated claim for the same merge is safe. A claim after retirement or new preparation is refused.
 2. It runs every executable release check in `verification/release-checks.sh` against the exact commit and parent. A failure, refusal, unsupported result, missing verdict, or `NOT RUN` stops publication.
 3. It accepts a coverage `WARN` only when the changed paths follow the reviewed request path rule. The paths must be a subset of the permitted set and include `request.json`. A version-changing request must also change both manifests. It records the request identity, parent, and head with that disposition.
 4. It packs and fingerprints one archive without repository-write or npm authority.
@@ -61,7 +61,9 @@ Read the failed job and the `release-state` history before acting. Download reta
 
 A branch-creation retry for the exact same prepared request is idempotent. Copy the exact request identity from the active `release-state` record into the workflow authorization identity input. Choose `abandon` only for an unmerged prepared request with no upload attempt. The workflow checks all matching pull requests, closes an open one, tolerates a missing branch, and records abandonment. Do not close or delete the branch first.
 
-After a merged authorization fails before upload, correct the cause in normal development. Re-run the failed workflow jobs when that is enough. If the authorization must be revoked, enter its exact version and request identity, then choose `retire`. For an authorization with no upload attempt, retirement requires the exact merged identity and no active publisher. It preserves history and permanently revokes that identity.
+After a merged authorization fails before upload, correct the cause in normal development. Re-run the failed workflow jobs when that is enough. If the authorization must be revoked, enter its exact version and request identity, then choose `retire`. A prepared request needs exactly one merged pull request into `main` from this repository and its identity-bound branch. A failed or malformed GitHub read leaves the state unchanged. An unmerged prepared request can only be abandoned. Retirement also accepts an exact claimed authorization with no upload attempt. Retirement uses the current control code for a prepared request. It keeps empty claim fields, preserves history, and permanently revokes that identity.
+
+Do not retire while a preparation or claim run that started before pull request #439 merged is still active. Do not rerun a preparation or claim run that started before pull request #439 merged. GitHub permits reruns for 30 days.
 
 Preparation refuses a version found in either npm's version list or its publication-time map. A package-not-found response or a failed registry read also stops preparation. A corrected request may reuse the same unused npm version without reverting or writing `main` first.
 
