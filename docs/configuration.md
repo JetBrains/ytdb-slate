@@ -19,6 +19,14 @@ Paths in `orchestratorPromptDocs`, `workerPromptDocs`, `doctrineExtraPath`, and 
 
 Pi can refresh a prompt cache by sending background requests. Slate disables those requests in every worker because they bypass its request limits. This does not disable prompt caching for ordinary worker requests. The main session and saved pi settings stay unchanged.
 
+## Startup workflow summary
+
+Slate shows a short workflow summary at the start of an interactive terminal session when orchestrator mode is on. Slate also shows it each time you turn orchestrator mode on. A saved `startupSummary: false` choice stops both automatic displays. The summary explains the workflow steps. It disappears when you send your first prompt to the model.
+
+`/slate off` and `/slate summary off` remove a visible summary. Toggling orchestrator mode off with `/slate` also removes it. Other slash commands leave it visible. Run `/slate summary` to show it on demand in any mode, even when automatic display is off. Run `/slate summary off` to stop automatic display. Run `/slate summary on` to allow automatic display again.
+
+Slate stores this choice as the boolean `startupSummary` key in `<getAgentDir()>/slate-preferences.json`. Pi uses `PI_CODING_AGENT_DIR` when that environment variable sets the agent directory. A missing file or key means the summary is on. This file does not grant home configuration permission in untrusted projects. A `startupSummary` key in either `slate.json` has no effect.
+
 ## Common starting point
 
 Create `.pi/slate.json` when you want new interactive sessions to start in orchestrator mode:

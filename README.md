@@ -36,7 +36,9 @@ Try a request with a clear outcome:
 Add input validation to the account settings endpoint. First research the relevant code and tests. Show me the proposed plan and risks before implementation.
 ```
 
-Slate asks for required decisions before editing code. It delegates work after workflow gates allow it. Run `/slate off` to stop Slate's delegation. See [Commands](#commands).
+Slate asks for required decisions before editing code. It delegates work after workflow gates allow it. Slate shows a short workflow summary when orchestrator mode is on at interactive startup or when you turn it on. A saved `startupSummary: false` choice stops automatic display. The summary disappears when you send your first prompt to the model.
+
+Run `/slate off` to stop Slate's delegation and remove the summary. `/slate summary off` also removes it. Toggling orchestrator mode off with `/slate` removes it too. Other slash commands leave it visible. Run `/slate summary` to show it at any time. See [Commands](#commands).
 
 ## How Slate works
 
@@ -64,6 +66,9 @@ The orchestrator records risks for the change and each track. You approve or rej
 | `/slate on` | Turn on orchestrator mode. Slate removes tactical tools from the main session and expects delegation through worker threads. |
 | `/slate off` | Turn off orchestrator mode and restore the earlier tool set. |
 | `/slate` | Toggle orchestrator mode. |
+| `/slate summary` | Show the workflow summary in any mode, even when automatic display is off. |
+| `/slate summary off` | Stop automatic display and remove a visible summary. |
+| `/slate summary on` | Allow automatic display when orchestrator mode is on. |
 | `/slate effective` | Show the effective logical-model policy and remembered route selections. |
 | `/slate handoff [focus]` | Prepare a new-session handoff, with an optional focus. |
 | `/slate resume` | Clear a context-budget pause and accept user prompts again. |
