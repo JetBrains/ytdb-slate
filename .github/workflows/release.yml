@@ -255,6 +255,7 @@ jobs:
     needs: [identify, seal-upload, upload]
     if: always() && needs.seal-upload.result == 'success'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions: { contents: read }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -265,9 +266,33 @@ jobs:
         with: { node-version: '24.18.0' }
       - run: |
           set -euo pipefail; mkdir registry
-          for wait in 0 2 5 10; do sleep "$wait"; if npm view 'ytdb-slate@${{ needs.identify.outputs.version }}' version dist.integrity --json --registry "$REGISTRY" >registry/metadata.json && npm pack 'ytdb-slate@${{ needs.identify.outputs.version }}' --ignore-scripts --pack-destination registry --registry "$REGISTRY"; then break; fi; done
+          complete=0; start=$SECONDS; attempt=0
+          for wait in 0 5 10 20 30 60 60 60 60; do
+            sleep "$wait"; attempt=$((attempt+1))
+            rm -f registry/metadata.json registry/*.tgz
+            outcome=metadata-failed
+            if npm view 'ytdb-slate@${{ needs.identify.outputs.version }}' version dist.integrity --json --registry "$REGISTRY" >registry/metadata.json; then
+              outcome=invalid-metadata
+              if node --input-type=module -e '
+                import fs from "node:fs";
+                try {
+                  const metadata=JSON.parse(fs.readFileSync("registry/metadata.json","utf8"));
+                  const integrity=metadata?.integrity??metadata?.["dist.integrity"]??metadata?.dist?.integrity;
+                  if(metadata?.version!==process.argv[1]||typeof integrity!=="string"||!integrity)process.exitCode=1;
+                } catch { process.exitCode=1; }
+              ' '${{ needs.identify.outputs.version }}'; then
+                outcome=download-failed
+                if npm pack 'ytdb-slate@${{ needs.identify.outputs.version }}' --ignore-scripts --pack-destination registry --registry "$REGISTRY" && test -n "$(find registry -maxdepth 1 -name '*.tgz' -type f -print -quit)"; then
+                  complete=1; outcome=complete
+                fi
+              fi
+            fi
+            echo "registry proof attempt=$attempt wait=${wait}s elapsed=$((SECONDS-start))s outcome=$outcome"
+            if test "$complete" -eq 1; then break; fi
+          done
+          export REGISTRY_COMPLETE="$complete"
           node --input-type=module - <<'NODE'
-          import fs from 'node:fs'; import {classifyRegistry} from './control/verification/release-control.mjs'; const state=JSON.parse(fs.readFileSync('state/state.json')); const local=fs.readFileSync(fs.readdirSync('state/archive').find(x=>x.endsWith('.tgz'))&&`state/archive/${fs.readdirSync('state/archive').find(x=>x.endsWith('.tgz'))}`); const file=fs.readdirSync('registry').find(x=>x.endsWith('.tgz')); const expected={identity:'${{ needs.identify.outputs.identity }}',version:'${{ needs.identify.outputs.version }}',releaseSha:'${{ needs.identify.outputs.release_sha }}',releaseParent:'${{ needs.identify.outputs.parent_sha }}'}; const result=classifyRegistry(state,local,file?fs.readFileSync(`registry/${file}`):Buffer.alloc(0),JSON.parse(fs.readFileSync('registry/metadata.json','utf8')),expected); fs.writeFileSync('registry/result.json',JSON.stringify(result,null,2)+'\n'); if(result.result==='inconclusive')process.exitCode=1;
+          import fs from 'node:fs'; import {classifyRegistry} from './control/verification/release-control.mjs'; const state=JSON.parse(fs.readFileSync('state/state.json')); const local=fs.readFileSync(fs.readdirSync('state/archive').find(x=>x.endsWith('.tgz'))&&`state/archive/${fs.readdirSync('state/archive').find(x=>x.endsWith('.tgz'))}`); const complete=process.env.REGISTRY_COMPLETE==='1'; const file=complete?fs.readdirSync('registry').find(x=>x.endsWith('.tgz')):undefined; const metadata=complete?JSON.parse(fs.readFileSync('registry/metadata.json','utf8')):null; const expected={identity:'${{ needs.identify.outputs.identity }}',version:'${{ needs.identify.outputs.version }}',releaseSha:'${{ needs.identify.outputs.release_sha }}',releaseParent:'${{ needs.identify.outputs.parent_sha }}'}; const result=classifyRegistry(state,local,file?fs.readFileSync(`registry/${file}`):Buffer.alloc(0),metadata,expected); fs.writeFileSync('registry/result.json',JSON.stringify(result,null,2)+'\n'); if(result.result==='inconclusive')process.exitCode=1;
           NODE
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         if: always()

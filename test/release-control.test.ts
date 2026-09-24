@@ -109,6 +109,56 @@ function workflowStepRunBlock(job:string,id:string){const lines=workflowJobBlock
 function renderWorkflowBlock(source:string,values:Record<string,string>={}){return source.replace(/\$\{\{\s*([^}]+?)\s*\}\}/g,(_all,key:string)=>{const value=values[key.trim()];if(value===undefined)throw new Error(`unknown workflow expression ${key}`);return value;});}
 function workflowFixture(t:any,state:any){const root=mkdtempSync(join(tmpdir(),"slate-workflow-")),bin=join(root,"bin"),effectLog=join(root,"effects.log"),temp=join(root,"tmp");t.after(()=>rmSync(root,{recursive:true,force:true}));mkdirSync(bin);mkdirSync(temp);mkdirSync(join(root,"verification"));mkdirSync(join(root,"control/verification"),{recursive:true});mkdirSync(join(root,"state/archive"),{recursive:true});mkdirSync(join(root,"current-control/verification"),{recursive:true});mkdirSync(join(root,"runner"));for(const dir of["verification","control/verification","current-control/verification"])for(const file of["release-control.mjs","release-job.mjs"])cpSync(new URL(`../verification/${file}`,import.meta.url),join(root,dir,file));writeFileSync(join(root,"state.json"),JSON.stringify(state,null,2)+"\n");writeFileSync(join(root,"state/state.json"),JSON.stringify(state,null,2)+"\n");writeFileSync(join(root,"state/archive/package.tgz"),"archive");writeFileSync(effectLog,"");writeFileSync(join(bin,"git"),`#!/bin/sh\nprintf 'git\\t%s\\n' "$*" >>"$EFFECT_LOG"\ncase "$*" in *"rev-parse HEAD"*) printf '${C}\\n';; esac\nexit 0\n`);writeFileSync(join(bin,"gh"),`#!/bin/sh\nprintf 'gh\\t%s\\n' "$*" >>"$EFFECT_LOG"\ncase "$*" in *"/pulls?"*) test "${'${GH_FAIL_PRS:-0}'}" = 0 || exit 1; test -f "$GH_PRS" || exit 1; cat "$GH_PRS";; *"/jobs?"*) test "${'${GH_FAIL_JOBS:-0}'}" = 1 && exit 1; test -f "$GH_JOBS" || exit 1; cat "$GH_JOBS"; test "${'${GH_FAIL_JOBS:-0}'}" = 0 || exit 1;; *"/attempts/"*) test "${'${GH_FAIL_RUN:-0}'}" = 1 && exit 1; test -f "$GH_RUN" || exit 1; cat "$GH_RUN"; test "${'${GH_FAIL_RUN:-0}'}" = 0 || exit 1;; esac\nexit 0\n`);writeFileSync(join(bin,"npm"),`#!/bin/sh\nprintf 'npm\\t%s\\n' "$*" >>"$EFFECT_LOG"\ncase "$*" in *"versions time"*) test "${'${NPM_FAIL:-0}'}" = 0 || { if test "${'${NPM_FAIL:-0}'}" = 4; then cat "$NPM_DOC"; exit 1; fi; echo 'E404 or network failure' >&2; exit 1; }; test -f "$NPM_DOC" && { cat "$NPM_DOC"; exit 0; }; exit 1;; *"dist-tags.latest"*) printf '0.10.0\\n';; esac\nexit 0\n`);writeFileSync(join(bin,"pi"),`#!/bin/sh\nprintf 'pi\\t%s\\n' "$*" >>"$EFFECT_LOG"\ncase "$*" in *"--mode rpc"*) if test "${'${PI_SUCCESS:-0}'}" = 1; then printf '{"type":"response","command":"get_commands","data":{"commands":[{"name":"slate","sourceInfo":{"source":"npm:ytdb-slate@0.10.1"}}]}}\\n'; else printf '{"type":"response","command":"get_commands","data":{"commands":[]}}\\n'; fi;; esac\nexit 0\n`);for(const name of["git","gh","npm","pi"])chmodSync(join(bin,name),0o755);const env={PATH:`${bin}:${dirname(process.execPath)}:/usr/bin:/bin`,PI_BIN:join(bin,"pi"),HOME:root,TMPDIR:temp,RUNNER_TEMP:join(root,"runner"),REGISTRY:"https://registry.invalid/",GH_RUN:join(root,"run.json"),GH_JOBS:join(root,"jobs.json"),GH_PRS:join(root,"prs.jsonl"),NPM_DOC:join(root,"package.json"),GIT_CONFIG_NOSYSTEM:"1",GIT_CONFIG_GLOBAL:"/dev/null",EFFECT_LOG:effectLog,GITHUB_RUN_ID:"900",GITHUB_RUN_ATTEMPT:"2",GITHUB_REPOSITORY:"JetBrains/ytdb-slate",GITHUB_OUTPUT:join(root,"output")};return{root,effectLog,env};}
 function runWorkflowBlock(f:any,script:string,more:Record<string,string>={}){return spawnSync("/bin/bash",["-c",script],{cwd:f.root,env:{...f.env,...more},encoding:"utf8",timeout:10000});}
+function registryProofFixture(t:any,state:any,scenario:string){
+  const f=workflowFixture(t,state),attempts=join(f.root,"npm-attempts");
+  writeFileSync(attempts,"0\n");
+  writeFileSync(join(f.root,"bin/sleep"),`#!/bin/sh\nprintf 'sleep\\t%s\\n' "$*" >>"$EFFECT_LOG"\nif test "$SCENARIO" = delayed && test "$1" = 5; then /bin/sleep 1.2; fi\n`);
+  writeFileSync(join(f.root,"bin/npm"),`#!/bin/sh
+printf 'npm\\t%s\\n' "$*" >>"$EFFECT_LOG"
+test "$2" = "ytdb-slate@$NPM_VERSION" || exit 7
+case "$1" in
+  view)
+    test "$3" = version && test "$4" = dist.integrity || exit 7
+    n=$(($(cat "$NPM_ATTEMPTS")+1)); printf '%s\\n' "$n" >"$NPM_ATTEMPTS"
+    case "$SCENARIO:$n" in
+      delayed:1) printf '{"error":{"code":"E404"}}\\n'; exit 1 ;;
+      delayed:2) printf '{bad\\n'; exit 0 ;;
+      delayed:3) printf '{"version":"0.10.2","dist.integrity":"%s"}\\n' "$NPM_INTEGRITY"; exit 0 ;;
+      delayed:4) printf '{"version":"%s"}\\n' "$NPM_VERSION"; exit 0 ;;
+    esac
+    printf '{"version":"%s","dist.integrity":"%s"}\\n' "$NPM_VERSION" "$NPM_INTEGRITY" ;;
+  pack)
+    case "$SCENARIO" in
+      download-fail) exit 1 ;;
+      partial-pack) cp state/archive/package.tgz "registry/ytdb-slate-$NPM_VERSION.tgz"; exit 1 ;;
+      stale-archive) if test "$(cat "$NPM_ATTEMPTS")" = 1; then cp state/archive/package.tgz "registry/ytdb-slate-$NPM_VERSION.tgz"; exit 1; fi; exit 0 ;;
+      no-archive) exit 0 ;;
+      wrong-bytes) printf 'wrong bytes' >"registry/ytdb-slate-$NPM_VERSION.tgz" ;;
+      *) cp state/archive/package.tgz "registry/ytdb-slate-$NPM_VERSION.tgz" ;;
+    esac
+    printf 'ytdb-slate-%s.tgz\\n' "$NPM_VERSION" ;;
+  *) exit 7 ;;
+esac
+`);
+  chmodSync(join(f.root,"bin/sleep"),0o755);
+  return {...f,env:{...f.env,NPM_ATTEMPTS:attempts,NPM_VERSION:state.version,NPM_INTEGRITY:hashBytes(Buffer.from("archive")).integrity,SCENARIO:scenario},attempts};
+}
+function assertRegistryProofLog(run:any,f:any,waits:number[],outcomes:string[],minElapsedAtAttempt=0){
+  const lines=run.stdout.trim().split("\n"),pattern=/^registry proof attempt=(\d+) wait=(\d+)s elapsed=(\d+)s outcome=([a-z-]+)$/;
+  const matches=lines.filter((line:string)=>line.startsWith("registry proof attempt=")).map((line:string)=>pattern.exec(line));
+  assert.ok(matches.every((match:RegExpExecArray|null)=>match!==null),run.stdout);
+  assert.deepEqual(matches.map((match:RegExpExecArray|null)=>Number(match?.[1])),waits.map((_wait,i)=>i+1));
+  assert.deepEqual(matches.map((match:RegExpExecArray|null)=>Number(match?.[2])),waits);
+  assert.deepEqual(matches.map((match:RegExpExecArray|null)=>match?.[4]),outcomes);
+  const elapsed=matches.map((match:RegExpExecArray|null)=>Number(match?.[3]));
+  assert.ok(elapsed.every((value:number,i:number)=>Number.isFinite(value)&&value>=0&&(i===0||value>=elapsed[i-1]!)));
+  if(minElapsedAtAttempt)assert.ok(elapsed[minElapsedAtAttempt-1]!>=1,`attempt ${minElapsedAtAttempt} must record at least one elapsed second`);
+  const effects=readFileSync(f.effectLog,"utf8").trim().split("\n");
+  assert.deepEqual(effects.filter((line:string)=>line.startsWith("sleep\t")),waits.map(wait=>`sleep\t${wait}`));
+  assert.equal(effects.filter((line:string)=>line.startsWith("npm\tview ")).length,waits.length);
+  assert.equal(readFileSync(f.attempts,"utf8").trim(),String(waits.length));
+  return effects.filter((line:string)=>line.startsWith("npm\tpack "));
+}
 
 const workflowValues=(state:any)=>({"needs.identify.outputs.identity":state.identity,"needs.identify.outputs.version":state.version,"needs.identify.outputs.release_sha":state.releaseSha,"needs.identify.outputs.parent_sha":state.releaseParent});
 function outputValues(path:string){return Object.fromEntries(readFileSync(path,"utf8").trim().split("\n").filter(Boolean).map(line=>{const at=line.indexOf("=");return[line.slice(0,at),line.slice(at+1)];}));}
@@ -180,6 +230,59 @@ test("identify preserves a leading-space foreign path in the release diff",t=>{
 test("identify fails closed for a candidate without durable state and its guards reject mutations",t=>{const missing=createIdentifyFixture(t,"candidate",false),failed=runIdentifyGate(missing);assert.equal(failed.candidate.status,0,failed.candidate.stderr);assert.notEqual(failed.checkout?.status,0);assert.equal(failed.validation,null);const ordinary=createIdentifyFixture(t,"ordinary",false),unguarded=runIdentifyGate(ordinary,workflowStepRunBlock("identify","candidate"),"always()");assert.notEqual(unguarded.checkout?.status,0);const real=createIdentifyFixture(t,"candidate",true),source=workflowStepRunBlock("identify","candidate"),mutant=source.replace("^release/requests/.*/request.json$","^never-a-release-request$");assert.notEqual(mutant,source);const missed=runIdentifyGate(real,mutant);assert.equal(missed.values.release_sha,undefined);assert.equal(missed.validation,null);});
 
 test("record-registry condition requires an identified release and a completed proof outcome",()=>{const condition=registryCondition();for(const releaseSha of["",B])for(const result of["success","failure","skipped","cancelled"])assert.equal(registryEligible(condition,releaseSha,result),releaseSha!==""&&(result==="success"||result==="failure"),`${releaseSha||"empty"}/${result}`);const mutant=condition.replace(" || needs.registry-proof.result == 'failure'","");assert.notEqual(mutant,condition);assert.throws(()=>registryEligible(mutant,B,"failure"));});
+
+test("real registry-proof workflow block retries invalid metadata and stops at the first complete attempt",{timeout:15000},t=>{
+  const state=uploaded(),source=renderWorkflowBlock(workflowRunBlock("registry-proof"),workflowValues(state)),f=registryProofFixture(t,state,"delayed");
+  assert.ok(workflowJobBlock("registry-proof").includes("    timeout-minutes: 15"));
+  const run=runWorkflowBlock(f,source);
+  assert.equal(run.status,0,run.stderr);
+  const packs=assertRegistryProofLog(run,f,[0,5,10,20,30],["metadata-failed","invalid-metadata","invalid-metadata","invalid-metadata","complete"],2);
+  assert.match(run.stdout,/ytdb-slate-0\.10\.1\.tgz/);
+  assert.deepEqual(packs,[`npm\tpack ytdb-slate@${state.version} --ignore-scripts --pack-destination registry --registry https://registry.invalid/`]);
+  const result=JSON.parse(readFileSync(join(f.root,"registry/result.json"),"utf8"));
+  assert.equal(result.result,"verified");assert.equal(result.identity,state.identity);assert.equal(result.execution,state.uploadExecution);
+  assert.equal(JSON.parse(readFileSync(join(f.root,"state/state.json"),"utf8")).status,"upload-unknown");
+});
+
+test("real registry-proof workflow block leaves failed downloads and partial pack writes inconclusive",{timeout:30000},t=>{
+  const state=uploaded(),source=renderWorkflowBlock(workflowRunBlock("registry-proof"),workflowValues(state));
+  for(const scenario of ["download-fail","partial-pack"]){
+    const f=registryProofFixture(t,state,scenario),run=runWorkflowBlock(f,source);
+    assert.equal(run.status,1,`${scenario}: ${run.stderr}`);
+    const packs=assertRegistryProofLog(run,f,[0,5,10,20,30,60,60,60,60],Array(9).fill("download-failed"));
+    assert.equal(packs.length,9,scenario);
+    const result=JSON.parse(readFileSync(join(f.root,"registry/result.json"),"utf8"));
+    assert.equal(result.result,"inconclusive",scenario);assert.equal(result.upload,"unknown",scenario);
+    assert.equal(JSON.parse(readFileSync(join(f.root,"state/state.json"),"utf8")).status,"upload-unknown");
+    if(scenario==="partial-pack")assert.equal(readFileSync(join(f.root,`registry/ytdb-slate-${state.version}.tgz`),"utf8"),"archive");
+  }
+});
+
+test("real registry-proof workflow block clears a failed pack's archive before a later empty pack",{timeout:15000},t=>{
+  const state=uploaded(),source=renderWorkflowBlock(workflowRunBlock("registry-proof"),workflowValues(state)),f=registryProofFixture(t,state,"stale-archive"),run=runWorkflowBlock(f,source);
+  assert.equal(run.status,1,run.stderr);
+  const packs=assertRegistryProofLog(run,f,[0,5,10,20,30,60,60,60,60],Array(9).fill("download-failed"));
+  assert.equal(packs.length,9);
+  assert.equal(JSON.parse(readFileSync(join(f.root,"registry/result.json"),"utf8")).result,"inconclusive");
+  assert.equal(JSON.parse(readFileSync(join(f.root,"state/state.json"),"utf8")).status,"upload-unknown");
+  assert.equal(readFileSync(join(f.root,"registry/metadata.json"),"utf8").includes(state.version),true);
+});
+
+test("real registry-proof workflow block rejects a successful pack with no archive",{timeout:15000},t=>{
+  const state=uploaded(),source=renderWorkflowBlock(workflowRunBlock("registry-proof"),workflowValues(state)),f=registryProofFixture(t,state,"no-archive"),run=runWorkflowBlock(f,source);
+  assert.equal(run.status,1,run.stderr);
+  const packs=assertRegistryProofLog(run,f,[0,5,10,20,30,60,60,60,60],Array(9).fill("download-failed"));
+  assert.equal(packs.length,9);
+  assert.equal(JSON.parse(readFileSync(join(f.root,"registry/result.json"),"utf8")).result,"inconclusive");
+  assert.equal(JSON.parse(readFileSync(join(f.root,"state/state.json"),"utf8")).status,"upload-unknown");
+});
+
+test("real registry-proof workflow block classifies a complete wrong-byte observation as mismatch",{timeout:15000},t=>{
+  const state=uploaded(),source=renderWorkflowBlock(workflowRunBlock("registry-proof"),workflowValues(state)),f=registryProofFixture(t,state,"wrong-bytes"),run=runWorkflowBlock(f,source);
+  assert.equal(run.status,0,run.stderr);
+  assert.equal(assertRegistryProofLog(run,f,[0],["complete"]).length,1);
+  assert.equal(JSON.parse(readFileSync(join(f.root,"registry/result.json"),"utf8")).result,"mismatch");
+});
 
 test("real record-registry workflow block records results and reports absent failure evidence",t=>{const state=uploaded(),values=workflowValues(state),source=renderWorkflowBlock(workflowRunBlock("record-registry"),values),bytes=Buffer.from("archive"),result=classifyRegistry(state,bytes,bytes,{version:state.version,integrity:hashBytes(bytes).integrity},owner(state)),success=workflowFixture(t,state);mkdirSync(join(success.root,"registry"));writeFileSync(join(success.root,"registry/result.json"),JSON.stringify(result));const recorded=runWorkflowBlock(success,source);assert.equal(recorded.status,0,recorded.stderr);assert.equal(JSON.parse(readFileSync(join(success.root,"state.json"),"utf8")).status,"published");const absent=workflowFixture(t,state),failed=runWorkflowBlock(absent,source);assert.notEqual(failed.status,0);assert.match(failed.stdout,/Registry observation is inconclusive\. Upload remains unknown\./);assert.equal(JSON.parse(readFileSync(join(absent.root,"state.json"),"utf8")).status,"upload-unknown");});
 
