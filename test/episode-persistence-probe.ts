@@ -15,10 +15,7 @@ if (!root) throw new Error("SLATE_PROBE_ROOT is required");
 if (observationMode !== "retained" && observationMode !== "removed") throw new Error("SLATE_OBSERVATION_MODE must be retained or removed");
 mkdirSync(root, { recursive: true });
 
-const compat = await import("@earendil-works/pi-ai/compat") as unknown as {
-  piAiCompatStub: { complete: () => Promise<unknown> };
-};
-compat.piAiCompatStub.complete = async () => {
+const complete = async () => {
   if (observationMode === "removed") {
     const observations = join(root, ".pi", "slate", store.runtimeFolder, "observations");
     rmSync(observations, { recursive: true, force: true });
@@ -114,6 +111,7 @@ const ctx = {
     hasConfiguredAuth: () => true,
     getAvailable: async () => [model],
     getApiKeyAndHeaders: async () => ({ ok: true }),
+    streamSimple: () => ({ result: complete }),
   },
 } as unknown as ExtensionContext;
 

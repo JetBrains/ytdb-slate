@@ -19,9 +19,9 @@ const { SlateStore, sanitizeEpisodeRecord } = await load<typeof import("../exten
 const { registerSlateTools } = await load<typeof import("../extension/tools.ts")>("../extension/tools.ts");
 const { NO_SESSION_BASELINE } = await load<typeof import("../extension/logical-model-runtime.ts")>("../extension/logical-model-runtime.ts");
 const { OBSERVATIONS_MAX_BYTES } = await load<typeof import("../extension/observations.ts")>("../extension/observations.ts");
-const { piAiCompatStub } = await load<{
-  piAiCompatStub: { complete: (...args: unknown[]) => Promise<unknown> };
-}>("../verification/stubs/pi-ai-compat.mjs");
+const compressorStub: { complete: (...args: unknown[]) => Promise<unknown> } = {
+  async complete() { return completeResponse({}); },
+};
 
 interface TokenUsage {
   input?: number;
@@ -154,6 +154,23 @@ function context(cwd: string, models: FakeModel[] = [], headers?: Record<string,
       },
       hasConfiguredAuth() {
         return true;
+      },
+      streamSimple(...args: unknown[]) {
+        return { result: async () => {
+          try {
+            return await compressorStub.complete(...args);
+          } catch (error) {
+            // Pi's lazy registry stream resolves provider setup throws as zero-usage errors.
+            const selected = args[0] as FakeModel;
+            return {
+              role: "assistant", api: "fixture", provider: selected.provider, model: selected.id,
+              content: [], stopReason: "error", timestamp: Date.now(),
+              errorMessage: error instanceof Error ? error.message : String(error),
+              usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
+                cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+            };
+          }
+        } };
       },
     },
   } as unknown as ExtensionContext;
@@ -324,10 +341,10 @@ async function assertNoEpisodeConsumers(
   assert.equal(restored.threads.size, before, `${episodeId}: later context rejection allocates no thread`);
 }
 
-function completeResponse(usage: TokenUsage, stopReason = "stop") {
+function completeResponse(usage: TokenUsage, stopReason = "stop", errorMessage = "transient provider failure") {
   return {
     stopReason,
-    errorMessage: stopReason === "error" ? "transient provider failure" : undefined,
+    errorMessage: stopReason === "error" ? errorMessage : undefined,
     content: stopReason === "error" ? [] : [{ type: "text", text: "## Intent\ncompressed" }],
     usage: { ...usage },
   };
@@ -399,7 +416,7 @@ test("failed actions compress a worker response into one failed episode", { time
     current.emit({ type: "message_end", message });
   }, ran);
   let compressionCalls = 0;
-  piAiCompatStub.complete = async (...args: unknown[]) => {
+  compressorStub.complete = async (...args: unknown[]) => {
     compressionCalls++;
     assert.match(JSON.stringify(args[1]), /partial work to preserve/);
     return completeResponse({ input: 3, output: 1, cost: { total: 0.01 } });
@@ -457,7 +474,7 @@ test("a successful action keeps its format and reaches every durable consumer", 
   const compressor = model("test", "compressor");
   const session = fakeSession(successfulPrompt([{ input: 3, output: 5, cost: { total: 0.05 } }]), ran);
   let compressionCalls = 0;
-  piAiCompatStub.complete = async () => {
+  compressorStub.complete = async () => {
     compressionCalls++;
     return completeResponse({ input: 2, output: 1, cost: { total: 0.02 } });
   };
@@ -501,7 +518,7 @@ test("a throwing progress callback stays separate from a successful action", { t
   const compressor = model("test", "compressor");
   const session = fakeSession(successfulPrompt([{ input: 1, output: 1, cost: { total: 0 } }]), ran);
   session.workerReminderHandledToolResult = () => true;
-  piAiCompatStub.complete = async () => completeResponse({ input: 1, output: 1, cost: { total: 0.01 } });
+  compressorStub.complete = async () => completeResponse({ input: 1, output: 1, cost: { total: 0.01 } });
   let progressCalls = 0;
   const manager = managerWithSessions([session]);
   const result = await manager.dispatch(
@@ -532,7 +549,7 @@ test("failed actions without a worker response write one fixed episode without c
     throw new Error("provider stopped before response");
   }, ran);
   let compressionCalls = 0;
-  piAiCompatStub.complete = async () => {
+  compressorStub.complete = async () => {
     compressionCalls++;
     throw new Error("the no-response path must not call compression");
   };
@@ -574,7 +591,7 @@ test("an empty output block does not trigger paid failure compression", { timeou
     throw new Error("provider stopped after opening an empty block");
   });
   let compressionCalls = 0;
-  piAiCompatStub.complete = async () => {
+  compressorStub.complete = async () => {
     compressionCalls++;
     return completeResponse({});
   };
@@ -600,7 +617,7 @@ test("a recorded zero cost triggers failure compression for empty output", { tim
     current.emit({ type: "message_end", message });
   });
   let compressionCalls = 0;
-  piAiCompatStub.complete = async () => {
+  compressorStub.complete = async () => {
     compressionCalls++;
     return completeResponse({ cost: { total: 0 } });
   };
@@ -631,7 +648,7 @@ test("partial streaming text does not become a completed fact after history rewr
     throw new Error("host rewrote the transcript");
   }, ran);
   let compressionCalls = 0;
-  piAiCompatStub.complete = async () => {
+  compressorStub.complete = async () => {
     compressionCalls++;
     return completeResponse({ input: 1, output: 1, cost: { total: 0.01 } });
   };
@@ -663,7 +680,7 @@ test("a partial stream with recorded billing evidence compresses without any com
   }, ran);
   let compressionCalls = 0;
   let compressorPrompt = "";
-  piAiCompatStub.complete = async (...args: unknown[]) => {
+  compressorStub.complete = async (...args: unknown[]) => {
     compressionCalls++;
     compressorPrompt = promptTextOf(args[1]);
     return completeResponse({ input: 1, output: 1, cost: { total: 0.01 } });
@@ -727,7 +744,7 @@ test("finalized response evidence survives a rewritten worker message list", { t
     throw new Error("host rewrote the transcript");
   }, ran);
   let compressionCalls = 0;
-  piAiCompatStub.complete = async (...args: unknown[]) => {
+  compressorStub.complete = async (...args: unknown[]) => {
     compressionCalls++;
     assert.match(JSON.stringify(args[1]), /FINALIZED WORK BEFORE REWRITE/);
     return completeResponse({ input: 1, output: 1, cost: { total: 0.01 } });
@@ -886,10 +903,10 @@ test("ThreadManager bounds multi-block assistant event and observation capture b
   }, ran);
   const snapshots: unknown[] = [];
   const manager = managerWithSessions([session], {}, fixtureRuntime(), capturingStore(snapshots));
-  const originalComplete = piAiCompatStub.complete;
+  const originalComplete = compressorStub.complete;
   const originalJoin = Array.prototype.join;
   let attemptedOversizedJoin = false;
-  piAiCompatStub.complete = async () => { throw new Error("compressor unavailable"); };
+  compressorStub.complete = async () => { throw new Error("compressor unavailable"); };
   Object.defineProperty(Array.prototype, "join", {
     configurable: true,
     writable: true,
@@ -956,7 +973,7 @@ test("ThreadManager bounds multi-block assistant event and observation capture b
     });
     assert.ok(laterPrompt.includes(expectedFact), "D4 carries the exact event-capture suffix");
   } finally {
-    piAiCompatStub.complete = originalComplete;
+    compressorStub.complete = originalComplete;
     Object.defineProperty(Array.prototype, "join", {
       configurable: true,
       writable: true,
@@ -1040,7 +1057,7 @@ test("an omitted bounded fallback persists exact bytes and reaches every durable
     }
     throw new Error("host stopped the worker");
   }, ran);
-  piAiCompatStub.complete = async () => { throw new Error("compressor unavailable"); };
+  compressorStub.complete = async () => { throw new Error("compressor unavailable"); };
   const snapshots: unknown[] = [];
   const result = await managerWithSessions([session], {}, fixtureRuntime(), capturingStore(snapshots)).dispatch(
     { ...TEST_ROUTE, task: "retain the newest suffix", type: "general" },
@@ -1115,7 +1132,7 @@ test("overlapping terminal callers convert one fact once, compress once, save on
   }, ran);
   let compressorCalls = 0;
   let compressorPrompt = "";
-  piAiCompatStub.complete = async (...args: unknown[]) => {
+  compressorStub.complete = async (...args: unknown[]) => {
     compressorCalls++;
     compressorPrompt = promptTextOf(args[1]);
     return completeResponse({ input: 1, output: 1, cost: { total: 0.02 } });
@@ -1226,7 +1243,7 @@ test("a disposal failure after durable persistence stays separate from the worke
   const ran = model("test", "worker");
   const compressor = model("test", "compressor");
   const session = fakeSession(successfulPrompt([{ input: 1, output: 1, cost: { total: 0 } }]), ran);
-  piAiCompatStub.complete = async () => completeResponse({ input: 1, output: 1, cost: { total: 0.01 } });
+  compressorStub.complete = async () => completeResponse({ input: 1, output: 1, cost: { total: 0.01 } });
   const snapshots: unknown[] = [];
   const sharedStore = capturingStore(snapshots);
   const manager = new ThreadManager(sharedStore, {}, undefined, fixtureRuntime(), { enabled: true, maxRetries: 1, baseDelayMs: 0 });
@@ -1391,7 +1408,7 @@ test("compressor usage persists all quantities across a Pi-owned same-route retr
     completeResponse({ input: 11, output: 13, cacheRead: 17, cacheWrite: 19, cost: { total: 0.2 } }),
   ];
   const calls: Array<{ model: unknown; options: unknown }> = [];
-  piAiCompatStub.complete = async (...args: unknown[]) => {
+  compressorStub.complete = async (...args: unknown[]) => {
     calls.push({ model: args[0], options: args[2] });
     const response = responses.shift();
     assert.ok(response, "compression must make only the scripted calls");
@@ -1408,8 +1425,8 @@ test("compressor usage persists all quantities across a Pi-owned same-route retr
   assert.deepEqual(
     calls.map((call) => call.options),
     [
-      { apiKey: "test-key", headers, env: undefined, maxTokens: 4096, reasoning: "medium", signal: controller.signal },
-      { apiKey: "test-key", headers, env: undefined, maxTokens: 4096, reasoning: "medium", signal: controller.signal },
+      { maxTokens: 4096, reasoning: "medium", signal: controller.signal },
+      { maxTokens: 4096, reasoning: "medium", signal: controller.signal },
     ],
   );
   assert.deepEqual(result.episode.compressorUsage, {
@@ -1425,7 +1442,7 @@ test("compressor usage persists all quantities across a Pi-owned same-route retr
 test("compressor usage is absent when no quantity was reported", { timeout: 1000 }, async (t) => {
   const cwd = temporaryProject(t);
   const compressor = model("test", "compressor");
-  piAiCompatStub.complete = async () => completeResponse({ cost: { total: 0 } });
+  compressorStub.complete = async () => completeResponse({ cost: { total: 0 } });
   const session = fakeSession(successfulPrompt([{ input: 1, output: 1, cost: { total: 0 } }]));
   const result = await managerWithSessions([session]).dispatch(
     { ...TEST_ROUTE, task: "compress without usage", type: "general" },
@@ -1441,7 +1458,7 @@ test("compressor usage is absent when no quantity was reported", { timeout: 1000
 test("compressor cost stays absent when the call reports usage without dollars", { timeout: 1000 }, async (t) => {
   const cwd = temporaryProject(t);
   const compressor = model("test", "compressor");
-  piAiCompatStub.complete = async () => completeResponse({ input: 3, output: 2 });
+  compressorStub.complete = async () => completeResponse({ input: 3, output: 2 });
   const session = fakeSession(successfulPrompt([{ input: 1, output: 1, cost: { total: 0 } }]));
   const result = await managerWithSessions([session]).dispatch(
     { ...TEST_ROUTE, task: "compress without reported dollars", type: "general" },
@@ -1594,7 +1611,7 @@ test("fact cancellation keeps lifecycle reports beside episode and state persist
   const ran = model("test", "worker");
   const compressor = model("test", "compressor");
   const session = fakeSession(async () => { throw new Error("ordinary prompt must not run"); }, ran);
-  piAiCompatStub.complete = async () => completeResponse({ input: 1, output: 1, cost: { total: 0.01 } });
+  compressorStub.complete = async () => completeResponse({ input: 1, output: 1, cost: { total: 0.01 } });
   const sharedStore = store();
   mkdirSync(join(cwd, ".pi", "slate", sharedStore.runtimeFolder, "episodes", "t1.e1.md"), { recursive: true });
   const originalSave = sharedStore.save.bind(sharedStore);
@@ -1912,7 +1929,7 @@ test("worker failover preserves requested metadata when the fallback succeeds or
   const primary = model("test", "primary");
   const fallback = model("anthropic", "claude-sonnet-5");
   const compressor = model("test", "compressor");
-  piAiCompatStub.complete = async () => completeResponse({});
+  compressorStub.complete = async () => completeResponse({});
   for (const secondAttempt of ["success", "failure"] as const) {
     let prompts = 0;
     const session = fakeSession((current) => {
@@ -1976,7 +1993,7 @@ test("request metadata stays out of first, reused-context, and compressor prompt
       return successfulPrompt([{ input: 1, output: 1 }])(current, prompt);
     }, requested),
   ];
-  piAiCompatStub.complete = async (...args: unknown[]) => {
+  compressorStub.complete = async (...args: unknown[]) => {
     compressorPrompts.push(JSON.stringify(args[1]));
     return completeResponse({});
   };
@@ -2103,7 +2120,7 @@ test("logical compressor uses production retries, moves forward, attributes usag
     completeResponse({ input: 3, output: 1, cost: { total: 0.2 } }, "error"),
     completeResponse({ input: 5, output: 2, cost: { total: 0.25 } }),
   ];
-  piAiCompatStub.complete = async (selected: unknown) => { calls.push(selected); return responses.shift()!; };
+  compressorStub.complete = async (selected: unknown) => { calls.push(selected); return responses.shift()!; };
   const result = await compressEpisode({
     ctx: context(cwd, [first, backup, second, secondBackup]), episodeId: "t1.e1", threadId: "t1", threadName: "logical",
     task: "retain this result", status: "ok", messages: [assistant({}, "RAW COMPLETED RESULT")],
@@ -2119,7 +2136,7 @@ test("logical compressor uses production retries, moves forward, attributes usag
   assert.equal(runtime.planCompressor(next.snapshot)[0]?.compressorIndex, 1);
   assert.equal(runtime.planCompressor(next.snapshot)[0]?.provider, "second-backup");
   const tailCalls: unknown[] = [];
-  piAiCompatStub.complete = async (selected: unknown) => { tailCalls.push(selected); return completeResponse({ input: 1 }, "error"); };
+  compressorStub.complete = async (selected: unknown) => { tailCalls.push(selected); return completeResponse({ input: 1 }, "error"); };
   const rememberedTail = await compressEpisode({
     ctx: context(cwd, [first, backup, second, secondBackup]), episodeId: "t2.e1", threadId: "t2", threadName: "tail",
     task: "do not wrap", status: "ok", messages: [assistant({}, "TAIL RAW")],
@@ -2141,7 +2158,7 @@ test("logical compressor production pipeline succeeds after Pi retries the same 
   const compressor = { ...model("retry", "compress"), reasoning: true, thinkingLevelMap: { medium: "medium" } };
   const responses = [completeResponse({ input: 2, cost: { total: 0.1 } }, "error"), completeResponse({ input: 3, output: 1, cost: { total: 0.2 } })];
   let calls = 0;
-  piAiCompatStub.complete = async () => { calls++; return responses.shift()!; };
+  compressorStub.complete = async () => { calls++; return responses.shift()!; };
   const result = await compressEpisode({
     ctx: context(cwd, [compressor]), episodeId: "t1.e1", threadId: "t1", threadName: "retry", task: "retry once",
     status: "ok", messages: [assistant({}, "RAW")], observations: { stored: false, reason: "no-final-message", grammar: "absent" },
@@ -2167,7 +2184,7 @@ test("logical compressor retains bounded completed output for disabled, cancelle
   ];
   for (const scenario of scenarios) {
     const admission = runtime.admit(); assert.ok(admission);
-    piAiCompatStub.complete = async () => scenario.response;
+    compressorStub.complete = async () => scenario.response;
     const result = await compressEpisode({
       ctx: context(cwd, [compressor]), episodeId: `t${scenario.id}.e1`, threadId: `t${scenario.id}`, threadName: "raw",
       task: "keep raw", status: "ok", messages: [assistant({}, "R".repeat(9000))],
@@ -2179,13 +2196,17 @@ test("logical compressor retains bounded completed output for disabled, cancelle
     assert.equal(Math.max(...(result.text.match(/R+/g) ?? []).map((run) => run.length)), 8000);
   }
   const admission = runtime.admit(); assert.ok(admission);
-  piAiCompatStub.complete = async () => { throw new Error("SDK path failed"); };
+  let thrownCalls = 0;
+  compressorStub.complete = async () => { thrownCalls++; throw new Error("SDK path failed"); };
   const thrown = await compressEpisode({
     ctx: context(cwd, [compressor]), episodeId: "t4.e1", threadId: "t4", threadName: "raw", task: "keep throw",
     status: "ok", messages: [assistant({}, "THROWN RAW")], observations: { stored: false, reason: "no-final-message", grammar: "absent" },
     logicalRuntime: runtime, admission, retryPolicy: { enabled: true, maxRetries: 1, baseDelayMs: 0 },
   });
-  assert.match(thrown.text, /threw without cancellation evidence/i);
+  assert.equal(thrownCalls, 1, "an SDK-normalized terminal provider error does not retry");
+  assert.match(thrown.text, /terminal provider error/i);
+  assert.equal(thrown.costUsd, 0);
+  assert.deepEqual(thrown.compressorUsage, { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
   assert.match(thrown.text, /THROWN RAW/);
 
   const stableRecorder = createCompletedFactRecorder();
@@ -2204,7 +2225,7 @@ test("logical compressor retains bounded completed output for disabled, cancelle
   const stableAdmission = runtime.admit(); assert.ok(stableAdmission);
   const hostileMessages = new Proxy([] as unknown[], { get() { throw new Error("mutable history was inspected"); } });
   let exactCompressorInput = "";
-  piAiCompatStub.complete = async (...args: unknown[]) => {
+  compressorStub.complete = async (...args: unknown[]) => {
     exactCompressorInput = promptTextOf(args[1]);
     return completeResponse({ input: 1 }, "error");
   };
@@ -2235,7 +2256,7 @@ test("logical compressor retains bounded completed output for disabled, cancelle
 
   const prepFailureAdmission = runtime.admit(); assert.ok(prepFailureAdmission);
   const unconvertibleHistory = new Proxy([] as unknown[], { get() { throw new Error("input preparation exploded"); } });
-  piAiCompatStub.complete = async () => { throw new Error("compressor must not run after input preparation fails"); };
+  compressorStub.complete = async () => { throw new Error("compressor must not run after input preparation fails"); };
   const prepFailure = await compressEpisode({
     ctx: context(cwd, [compressor]), episodeId: "t6.e1", threadId: "t6", threadName: "prep", task: "retain prepared bound",
     status: "failed", diagnostics: "worker failed", messages: unconvertibleHistory, completedText: "BOUNDED INPUT PREPARATION FALLBACK",

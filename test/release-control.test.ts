@@ -215,10 +215,10 @@ test("real claim block binds the identified identity before any state write and 
 });
 
 test("claim shell refuses a replacement owner even when selected release control ignores launch identity",t=>{
-  const old=spawnSync("git",["show","4ee2134790f5da08cf02e821e34b18ddcfc4520a:verification/release-control.mjs"],{encoding:"utf8",timeout:10000});assert.equal(old.status,0,old.stderr);
-  assert.doesNotMatch(old.stdout,/launchIdentity/);
+  const old=readFileSync(new URL("./fixtures/release-control-no-launch-identity.mjs",import.meta.url),"utf8");
+  assert.doesNotMatch(old,/launchIdentity/);
   const launch=req(),replacement=req("0.10.0",notes,"102"),state=initialState(replacement,NOW),script=workflowRunBlock("claim"),values={...workflowValues(claimed(launch)),"needs.identify.outputs.pull_request":"9"};
-  const run=(source:string)=>{const f=workflowFixture(t,state),before=readFileSync(join(f.root,"state/state.json"),"utf8");writeFileSync(join(f.root,"state/request.json"),JSON.stringify(replacement));writeFileSync(join(f.root,"control/verification/release-control.mjs"),old.stdout);const result=runWorkflowBlock(f,renderWorkflowBlock(source,values),{LAUNCH_IDENTITY:launch.identity});return{f,before,result,effects:readFileSync(f.effectLog,"utf8")};};
+  const run=(source:string)=>{const f=workflowFixture(t,state),before=readFileSync(join(f.root,"state/state.json"),"utf8");writeFileSync(join(f.root,"state/request.json"),JSON.stringify(replacement));writeFileSync(join(f.root,"control/verification/release-control.mjs"),old);const result=runWorkflowBlock(f,renderWorkflowBlock(source,values),{LAUNCH_IDENTITY:launch.identity});return{f,before,result,effects:readFileSync(f.effectLog,"utf8")};};
   const guarded=run(script);assert.equal(guarded.result.status,2,guarded.result.stderr);assert.match(guarded.result.stderr,/Launch identity does not match the durable owner/);assert.equal(readFileSync(join(guarded.f.root,"state/state.json"),"utf8"),guarded.before);assert.doesNotMatch(guarded.effects,/git\t.*(?:add|commit|push)/);
   const mutant=script.split("\n").filter(line=>!line.startsWith("durable_identity=")&&!line.includes("Claim refused.")).join("\n");assert.notEqual(mutant,script);const unguarded=run(mutant);assert.equal(unguarded.result.status,0,unguarded.result.stderr);assert.equal(JSON.parse(readFileSync(join(unguarded.f.root,"state/state.json"),"utf8")).status,"claimed");assert.match(unguarded.effects,/git\t.*push origin HEAD:release-state/);
 });

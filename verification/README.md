@@ -851,11 +851,10 @@ on its continuation request, returns a fixed marker and produces an episode.
 The scratch config keeps `workerExtensions` empty and sets `cacheKeyEnabled` to
 `false`. The TypeScript canary loads through the same jiti module aliases as
 Slate. It registers the native provider on the host and on every test-created
-`ModelRuntime`. It delays the legacy compatibility registration until the
-worker finishes, just before compression. This ordering makes missing native
-worker registration and missing legacy compressor registration independent
-failures. The canary restores its `ModelRuntime.create` wrapper during session
-shutdown when it still owns that method.
+`ModelRuntime`. The same native provider serves the worker and the compressor
+through Pi's model registry. The harness checks each request path separately.
+The canary restores its `ModelRuntime.create` wrapper during session shutdown
+when it still owns that method.
 
 On the reference machine, the run takes about five seconds. The hard bound is
 GNU `timeout`: TERM after 60 seconds and KILL five seconds later. Exit **0** means
@@ -869,7 +868,7 @@ The 18 result lines assert these properties:
 2. The RPC, host-session and worker-session JSON Lines parse completely.
 3. Pi emits no `extension_error` event.
 4. The `/slate` command comes from the checkout under test.
-5. The module-global custom API handles orchestrator, worker and compressor calls offline.
+5. The Pi-registered provider handles orchestrator, worker and compressor calls offline.
 6. One real thread dispatch completes with status `ok`.
 7. The worker makes one two-read request and one fixed-marker continuation request.
 8. Both built-in read results persist in their exact unchanged shape.
