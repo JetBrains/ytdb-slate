@@ -395,6 +395,7 @@ Research logs and worker-thread task text are excluded. A high-level design is a
 The separate current-state documentation rule governs new or changed text in the root `README.md`, `docs/`, code comments and `AGENTS.md` itself. Describe only current state, not removed features or past behavior. Existing historical sentences are pre-existing debt and need no rewrite now. Pull request descriptions, delivery commit bodies, release notes and issues may describe removals as change records. Support for a deprecated key that still exists is current state and may be documented. See `docs/writing-guidance.md` § Current-state documentation rule.
 
 The writing checker is diagnostic everywhere and authoritative nowhere. A match directs reviewer attention, and the reviewer decides whether the text has a defect. Changed convention-governed text should carry no fail-level findings. Findings in unchanged text are pre-existing debt, not an unrelated blocker. Every checker class is advisory in excluded files because mechanical findings can conflict with required precision. ASD-STE100 inspires only, Slate claims no conformance, and contributors must copy no standard material or examples.
+Before you edit `README.md`, read `README-GUIDELINES.md`.
 
 ## Packaging rules
 
