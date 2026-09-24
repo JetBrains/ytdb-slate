@@ -64,7 +64,7 @@ jobs:
             if test "$status" = prepared && test "$old_identity" = "$identity"; then
               echo 'Preparation already owns this exact request. Continuing idempotently.'
             else
-              node -e 'const s=require(process.argv[1]);if(!["complete","abandoned","retired","mismatch","closed-unpromoted"].includes(s.status))throw Error(`unfinished release ${s.version} already owns the lane`)' "$root/old-state.json"
+              node --input-type=module -e 'import {TERMINAL} from "./verification/release-control.mjs"; import {readFileSync} from "node:fs"; const s=JSON.parse(readFileSync(process.argv[1],"utf8"));if(!TERMINAL.includes(s.status))throw Error(`unfinished release ${s.version} already owns the lane`)' "$root/old-state.json"
             fi
           fi
           if ! test -f "$root/old-state.json" || test "$(node -p 'require(process.argv[1]).identity' "$root/old-state.json")" != "$identity"; then
