@@ -196,8 +196,10 @@ export interface SlateSnapshot {
 	threadSeq?: number;
 	/** Current visible workflow folder, if a change is open. */
 	currentChange?: string;
-	/** Read-only source folders inherited through forks. */
-	earlierChanges?: string[];
+	/** Session that may write to the current change. */
+	changeOwnerSessionId?: string;
+	/** Direct read-only source folder. Its own first log entry links to its source. */
+	sourceChange?: string;
 	orchestratorMode: boolean;
 	paused: boolean;
 	workerCostUsd: number;
@@ -476,7 +478,8 @@ export const ADOPTED_SNAPSHOT_FIELDS = {
 	episodes: true,
 	threadSeq: true,
 	currentChange: true,
-	earlierChanges: true,
+	changeOwnerSessionId: true,
+	sourceChange: true,
 	orchestratorMode: true,
 	paused: true,
 	workerCostUsd: true,
@@ -824,7 +827,8 @@ export class SlateStore {
 	episodes = new Map<string, EpisodeRecord>();
 	private threadSeq = 0;
 	currentChange?: string;
-	earlierChanges: string[] = [];
+	changeOwnerSessionId?: string;
+	sourceChange?: string;
 	/** New on every session start. This name is not saved with the snapshot. */
 	runtimeFolder = createRuntimeStorageFolder();
 	startRuntime(): void { this.runtimeFolder = createRuntimeStorageFolder(); }
@@ -871,7 +875,7 @@ export class SlateStore {
 			threads: [...this.threads.values()],
 			episodes: [...this.episodes.values()],
 			threadSeq: this.threadSeq,
-			...(this.currentChange ? { currentChange: this.currentChange, earlierChanges: [...this.earlierChanges] } : {}),
+			...(this.currentChange ? { currentChange: this.currentChange, changeOwnerSessionId: this.changeOwnerSessionId, sourceChange: this.sourceChange } : {}),
 			orchestratorMode: this.orchestratorMode,
 			paused: this.paused,
 			workerCostUsd: this.workerCostUsd,
@@ -920,7 +924,8 @@ export class SlateStore {
 		this.episodes.clear();
 		this.threadSeq = 0;
 		this.currentChange = undefined;
-		this.earlierChanges = [];
+		this.changeOwnerSessionId = undefined;
+		this.sourceChange = undefined;
 		this.orchestratorMode = false;
 		this.paused = false;
 		this.workerCostUsd = 0;
@@ -938,14 +943,19 @@ export class SlateStore {
 			if (isChangeFolder(latest.currentChange)) this.currentChange = latest.currentChange;
 			else dropped.push("change: ignoring invalid currentChange folder name");
 		}
-		if (latest.earlierChanges !== undefined) {
-			if (!Array.isArray(latest.earlierChanges)) dropped.push("change: ignoring invalid earlierChanges list");
-			else for (const source of latest.earlierChanges) {
-				if (isChangeFolder(source) && source !== this.currentChange && !this.earlierChanges.includes(source)) this.earlierChanges.push(source);
-				else dropped.push("change: ignoring invalid or duplicate earlier change folder name");
-			}
+		if (latest.sourceChange !== undefined) {
+			if (isChangeFolder(latest.sourceChange) && latest.sourceChange !== this.currentChange) this.sourceChange = latest.sourceChange;
+			else dropped.push("change: ignoring invalid sourceChange folder name");
 		}
-		if (!this.currentChange) this.earlierChanges = [];
+		if (latest.changeOwnerSessionId !== undefined) {
+			if (typeof latest.changeOwnerSessionId === "string" && latest.changeOwnerSessionId.length > 0) this.changeOwnerSessionId = latest.changeOwnerSessionId;
+			else dropped.push("change: ignoring invalid changeOwnerSessionId");
+		}
+		if (!this.currentChange) {
+			if (this.sourceChange) dropped.push("change: ignoring sourceChange without a current change");
+			this.sourceChange = undefined;
+			this.changeOwnerSessionId = undefined;
+		}
 		// EVERY record is validated field by field on the way in (BG26) — see
 		// sanitizeThreadRecord. Nothing downstream re-checks these types, so a snapshot
 		// that has been hand-edited, truncated or written by another version must be made
@@ -993,8 +1003,10 @@ export class SlateStore {
 				dropped.push(`thread ${thread.id}: its episode did not survive restoration`);
 			}
 		}
-		if (dropped.length > 0 && ctx.hasUI) {
-			ctx.ui.notify(`slate: dropped or repaired stale records:\n${dropped.join("\n")}`, "warning");
+		if (dropped.length > 0) {
+			const message = `slate: dropped or repaired stale records:\n${dropped.join("\n")}`;
+			if (ctx.hasUI) ctx.ui.notify(message, "warning");
+			else console.warn(message);
 		}
 		this.onDidChange?.();
 	}

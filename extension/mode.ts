@@ -261,7 +261,7 @@ function buildDoctrine(
 	extensions: WorkerExtensionSet,
 	runtime: Readonly<LogicalRuntime> | undefined,
 	currentChange?: string,
-	earlierChanges: readonly string[] = [],
+	sourceChange?: string,
 	legacyLog = false,
 ): string {
 	// Rule 8 tail: draft publishing creates one umbrella pull request.
@@ -293,7 +293,7 @@ function buildDoctrine(
 	const changePaths = currentChange
 		? `\n\nCurrent research log: slate-changes/${currentChange}/research-log.md\nImplementer report: slate-changes/${currentChange}/track-<number>-implementer-report.md.`
 		: "\n\nNo change open. Use slate_change start.";
-	const earlierLogs = earlierChanges.map((name) => `\nRead-only earlier log: slate-changes/${name}/research-log.md.`).join("");
+	const earlierLogs = sourceChange ? `\nRead-only source log: slate-changes/${sourceChange}/research-log.md. Follow each log's first entry to read the full source chain and accounting.` : "";
 	const legacyPath = legacyLog ? "\nRead-only legacy root log: research-log.md." : "";
 	return `
 
@@ -488,12 +488,15 @@ export function registerSlateMode(
 			if (params.action === "close") {
 				if (!store.currentChange) throw new Error("slate: no change is open");
 				const old = store.currentChange;
-				const earlier = store.earlierChanges;
+				const source = store.sourceChange;
+				const owner = store.changeOwnerSessionId;
 				store.currentChange = undefined;
-				store.earlierChanges = [];
+				store.sourceChange = undefined;
+				store.changeOwnerSessionId = undefined;
 				try { store.save(); } catch (error) {
 					store.currentChange = old;
-					store.earlierChanges = earlier;
+					store.sourceChange = source;
+					store.changeOwnerSessionId = owner;
 					throw error;
 				}
 				return { content: [{ type: "text" as const, text: `Closed ${old}. Files remain on disk.` }], details: { folder: old, action: "close" } };
@@ -502,9 +505,11 @@ export function registerSlateMode(
 			const folder = createChangeFolder();
 			createChangeDirectory(ctx.cwd, folder);
 			store.currentChange = folder;
-			store.earlierChanges = [];
+			store.sourceChange = undefined;
+			store.changeOwnerSessionId = ctx.sessionManager.getSessionId();
 			try { store.save(); } catch (error) {
 				store.currentChange = undefined;
+				store.changeOwnerSessionId = undefined;
 				throw error;
 			}
 			return { content: [{ type: "text" as const, text: `Started change. Research log: slate-changes/${folder}/research-log.md` }], details: { folder, action: "start" } };
@@ -596,7 +601,7 @@ export function registerSlateMode(
 		// addendum goes LAST so the pause directive is the final word in the
 		// prompt, undiluted by the role guidelines.
 		const parts = [
-			buildDoctrine(ctx.cwd, config, trusted, getExtensions(), getRuntime(), store.currentChange, store.earlierChanges, (() => {
+			buildDoctrine(ctx.cwd, config, trusted, getExtensions(), getRuntime(), store.currentChange, store.sourceChange, (() => {
 				try { const entry = lstatSync(join(ctx.cwd, "research-log.md")); return entry.isFile() && !entry.isSymbolicLink(); }
 				catch { return false; }
 			})()),

@@ -138,13 +138,17 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 				});
 			};
 
+			const reportTask = params.type === "implementer" && store.currentChange
+				? `${params.task}\n\nImplementer report: slate-changes/${store.currentChange}/track-${params.trackNumber}-implementer-report.md. Create without following a symbolic link.` +
+					(store.sourceChange
+						? ` This new folder's report continues the earlier read-only report. Its first entry must name slate-changes/${store.sourceChange}/track-${params.trackNumber}-implementer-report.md as read-only. Do not edit the earlier report.`
+						: "")
+				: params.task;
 			const result = await getManager().dispatch(
 				{
 					name: params.name,
 					type,
-					task: params.type === "implementer" && store.currentChange
-						? `${params.task}\n\nImplementer report: slate-changes/${store.currentChange}/track-${params.trackNumber}-implementer-report.md. Create without following a symbolic link.`
-						: params.task,
+					task: reportTask,
 					contextEpisodeIds: params.context,
 					model: params.model,
 					reason: params.reason,

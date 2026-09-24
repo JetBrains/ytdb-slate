@@ -130,8 +130,9 @@ recommendations** immediately before **Decision** when that field is enabled.
 
 ## Durable accounting
 
-The current change folder's research log holds the complete working evidence behind each package. The
-final delivery record holds the conclusions that must remain after local
+The current change folder's research log and each read-only earlier log reached
+through its source chain hold the complete working evidence behind each package.
+The final delivery record holds the conclusions that must remain after local
 cleanup. It retains all check results and limits, the separate routine-review
 and user-requested-fix verdicts, every finding and disposition, user-note
 accounting, the ignored-finding index, tracked issues, overrides, escalations,
@@ -141,25 +142,31 @@ The delivery record uses existing publication and Git artifacts. It is not a
 new artifact. When draft publishing is enabled, the current pull-request
 description is the reachable delivery record before merge. The resulting
 default-branch commit body is the final delivery record. Before each package,
-copy the required accounting from the research log into the description.
+copy the required accounting from the current log and its source chain into the
+description.
 
 <!-- publishing-disabled-accounting:begin -->
 When draft publishing is disabled, the final Git record does not exist before
 final acceptance. Use this sequence:
 
 1. Before every intermediate track package in a multi-track change, confirm
-   that the retained research log contains all required accounting to date.
-   The package references the exact range and the retained research log as the
-   current accounting source. Do not claim that the final commit exists.
+   that the current research log and its source chain contain all required
+   accounting to date. The package references the exact range and the current
+   research log as the current accounting source. Do not claim that the final
+   commit exists.
 2. Before a single-track combined package or the final change package in a
-   multi-track change, complete the accounting in the retained research log.
-   Keep the log and every implementer report through final acceptance.
+   multi-track change, complete the accounting across the current research log
+   and its source chain. Keep the log and every implementer report through
+   final acceptance.
 3. After final acceptance, create the final squashed delivery commit. Copy all
-   required accounting from the research log into the commit body as part of
-   that commit creation.
+   required accounting from the current log and its source chain into the
+   commit body as part of that commit creation.
 4. Verify that the commit body contains the required accounting. Only then
    close the current change with `slate_change close`. Keep its research log and
    every implementer report. Only the user deletes the change folder.
+
+Abandonment at any stage ends with `slate_change close`. No delivery artifact is
+needed for abandonment, and the close deletes nothing.
 
 A publishing-disabled single-track change starts at step 2. A
 publishing-disabled multi-track change repeats step 1 for each track, then runs

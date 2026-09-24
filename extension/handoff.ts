@@ -476,6 +476,9 @@ export function registerSlateHandoff(
 				return;
 			}
 			store.adoptSnapshot(pending.snapshot, ctx);
+			// The successor owns the adopted change. A later restore in this same
+			// Pi session continues it instead of allocating another folder.
+			if (store.currentChange) store.changeOwnerSessionId = sessionId;
 			store.writingReminder.forceNext = true;
 			store.writingReminder.adoptedThisSessionStart = true;
 			// State is durable before model adoption. Keep the replacement paused

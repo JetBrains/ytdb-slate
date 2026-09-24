@@ -410,10 +410,13 @@ implementation body.
 
 For each track, the implementer creates
 `track-<number>-implementer-report.md` in the current change folder when the track
-starts. The dispatch gives the exact path. The report is untracked working material. It has four required
+starts. The dispatch gives the exact path. The report is untracked working
+material. After a session with a different identifier takes ownership, create
+a report in the new change folder. Its first entry names the earlier report as
+read-only. Continue the work in the new report. The report has four required
 sections: changes to the high-level design with the reason for each, the
 low-level design, diagrams where they help, and checks run with their results.
-Later fix rounds append to the same report.
+Later fix rounds append to that report in the current change folder.
 
 Tracks are contiguous and execute through one sequential writer. Independent
 research and reviews may run in parallel. File-writing implementation does not.
@@ -423,10 +426,11 @@ A later track builds on the accepted boundary before it.
 
 Start a change with `slate_change start` before the first implementation
 dispatch. Slate creates `slate-changes/<change>/research-log.md` without waiting
-for a retained trigger. It records the generated folder name in saved state.
-Each track creates its implementer report there at track start. Append a retained
-entry immediately when any trigger below fires. `slate_change close` clears the
-current change after delivery or abandonment. It deletes no files.
+for a retained trigger. It records the generated folder name and owning Pi
+session identifier in saved state. Each track creates its implementer report
+there at track start. Append a retained entry immediately when any trigger
+below fires. `slate_change close` clears the current change after delivery or
+abandonment. It deletes no files.
 
 - a second non-obvious decision.
 - a surprise about repository behaviour.
@@ -456,11 +460,17 @@ Slate checks the folder chain when it creates the change. Slate cannot enforce
 the safe-write rule for each file that Pi's file tools write. Keep the log and
 every implementer report untracked and visible in repository status. Do not add
 them to an ignore file. Never overwrite either from a stale in-memory copy.
-An implementer report never enters a pull request. A fork with an open change
-starts a new folder. Its log first names the source folder as a read-only earlier
-log. The source remains in place without copying. Resume, reload, /tree, and
-handoff continue the current folder. A legacy root `research-log.md` remains
-read-only. Only the user deletes a delivered or abandoned change folder.
+An implementer report never enters a pull request. When a session adopts a
+change owned by a different Pi session identifier, Slate starts a new folder.
+Its log first names the direct source folder as a read-only earlier log. Each
+source log's first entry links to its own source. Follow those links to read the
+full history. The source remains in place without copying. A resume or reload
+with the same identifier continues the current folder. A /tree move to parent
+history with a different owner creates a new folder on reload. A handoff makes
+the successor the owner of the current folder. If folder allocation fails,
+Slate saves no open change and reports the failure. If that save fails, Slate
+reports it too. A legacy root `research-log.md` remains read-only. Only the user
+deletes a delivered or abandoned change folder.
 
 Before a session handoff, append a state summary. It names the proved focus
 areas and risk-record location, current track, current implementer
@@ -630,20 +640,23 @@ Numbers are never reused.
 
 With draft publishing, delivery is the user's final accepted merge of the
 umbrella pull request into the default development branch. When publishing is
-disabled, the final package asks for acceptance while the research log and every
-implementer report remain retained.
-After acceptance, copy the required accounting from the log into the final
-squashed commit body as part of creating that commit. Verify the body before
-calling the commit delivery. This sequence applies to single-track and
+disabled, the final package asks for acceptance while the current research log,
+its source chain, and every implementer report remain retained. After acceptance,
+copy the required accounting from the current log and its source chain into the
+final squashed commit body as part of creating that commit. Verify the body
+before calling the commit delivery. This sequence applies to single-track and
 multi-track changes. Intermediate multi-track packages continue to use the
-retained research log as their current accounting source. Explicit abandonment
-is the other delivery outcome. Resolve or hand every open question to the user.
+current research log and its source chain as their accounting source. Explicit
+abandonment is the other delivery outcome. Resolve or hand every open question
+to the user.
 Follow [user-notes.md](user-notes.md) for feedback and note accounting. Follow
 [delivery-packages.md](delivery-packages.md) for the final user-facing package
 and the complete accounting sequence. Close the change only after the whole
 change reaches delivery and the required accounting is verified in its final
-record. Closing deletes nothing. The untracked-retention rule in § Session
-handoff and the research log keeps the local files out of the pull request.
+record. Abandonment at any stage ends with `slate_change close`, even when no
+delivery artifact exists. Closing deletes nothing. The untracked-retention rule
+in § Session handoff and the research log keeps the local files out of the pull
+request.
 On abandonment, offer their content for archival first. Only the user deletes
 an old change folder.
 

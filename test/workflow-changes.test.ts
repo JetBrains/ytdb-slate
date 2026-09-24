@@ -23,6 +23,10 @@ function harness(t: import("node:test").TestContext) {
   let active = ["read", "thread", "slate_change"];
   let branch: Array<{ type: "custom"; customType: string; data: SlateSnapshot }> = [];
   const entries: typeof branch = [];
+  let sessionId = "successor";
+  let failSave = false;
+  let failNextSave = false;
+  let hasUI = true;
   const pi = {
     on(name: string, handler: (event: any, ctx: ExtensionContext) => unknown) { events.set(name, [...(events.get(name) ?? []), handler]); },
     registerCommand() {}, registerTool(tool: Tool & { name: string }) { tools.set(tool.name, tool); },
@@ -31,14 +35,15 @@ function harness(t: import("node:test").TestContext) {
     getAllTools: () => [...tools.keys()].map((name) => ({ name })),
     getThinkingLevel: () => undefined, sendMessage() {},
     appendEntry(name: string, data: SlateSnapshot) {
+      if (failSave || failNextSave) { failNextSave = false; throw new Error("injected save failure"); }
       const entry = { type: "custom" as const, customType: name, data: structuredClone(data) };
       entries.push(entry); branch.push(entry);
     },
   };
   const ctx = {
-    cwd: project, mode: "rpc", hasUI: true, model: undefined, modelRegistry: {},
+    cwd: project, mode: "rpc", get hasUI() { return hasUI; }, model: undefined, modelRegistry: {},
     isProjectTrusted: () => true,
-    sessionManager: { getBranch: () => branch, getEntries: () => entries, getSessionId: () => "successor" },
+    sessionManager: { getBranch: () => branch, getEntries: () => entries, getSessionId: () => sessionId },
     ui: { notify: (message: string) => warnings.push(message), setWidget() {}, setStatus() {} },
   } as unknown as ExtensionContext;
   extension(pi as unknown as ExtensionAPI);
@@ -49,6 +54,10 @@ function harness(t: import("node:test").TestContext) {
     async action(action: "start" | "close") { return tools.get("slate_change")!.execute("id", { action }, undefined, undefined, ctx); },
     saved() { return entries.at(-1)!.data; },
     branchTo(snapshot: SlateSnapshot) { branch = [{ type: "custom", customType: "slate-state", data: snapshot }]; },
+    session(id: string) { sessionId = id; },
+    failSaves(value: boolean) { failSave = value; },
+    failNextSave() { failNextSave = true; },
+    headless() { hasUI = false; },
     handoff(snapshot: SlateSnapshot) {
       branch = [{ type: "custom", customType: "slate-handoff", data: { sessionId: "successor", snapshot } as unknown as SlateSnapshot }];
     },
@@ -68,6 +77,7 @@ test("start, close, resume, reload and handoff preserve one visible change witho
   const result = await f.action("start");
   const name = snapshot().currentChange!;
   assert.ok(isChangeFolder(name));
+  assert.equal(snapshot().changeOwnerSessionId, "successor");
   assert.match(result.content[0]!.text, new RegExp(name));
   const log = join(f.project, "slate-changes", name, "research-log.md");
   assert.equal(readFileSync(log, "utf8"), "# Research log\n");
@@ -89,23 +99,114 @@ test("start, close, resume, reload and handoff preserve one visible change witho
   assert.equal((await f.doctrine()).includes(`Current research log: slate-changes/${name}`), false);
 });
 
-test("real session_start fork creates a new folder with a read-only source entry and inherited history", { timeout: 10000 }, async (t) => {
+test("session ownership isolates forks and copied parent history after tree movement", { timeout: 10000 }, async (t) => {
   const f = harness(t);
   const first = createChangeFolder();
   createChangeDirectory(f.project, first);
-  const base: SlateSnapshot = { format: "single-action-v1", threads: [], episodes: [], currentChange: first, orchestratorMode: true, paused: false, workerCostUsd: 0, carriedCostUsd: 0 };
+  const base: SlateSnapshot = { format: "single-action-v1", threads: [], episodes: [], currentChange: first, changeOwnerSessionId: "parent", orchestratorMode: true, paused: false, workerCostUsd: 0, carriedCostUsd: 0 };
   f.branchTo(base);
   await f.start("fork");
   const second = f.saved().currentChange!;
   assert.notEqual(second, first);
+  assert.equal(f.saved().changeOwnerSessionId, "successor");
   assert.equal(readFileSync(join(f.project, "slate-changes", second, "research-log.md"), "utf8"), `Read-only earlier log: slate-changes/${first}/research-log.md\n`);
-  assert.deepEqual(f.saved().earlierChanges, [first]);
+  assert.equal(f.saved().sourceChange, first);
+  f.branchTo(base); // /tree selects inherited history before the fork's own state entry.
+  await f.start("reload");
+  const third = f.saved().currentChange!;
+  assert.notEqual(third, first);
+  assert.notEqual(third, second, "tree reload creates its own folder");
+  assert.equal(f.entries.length, 2, "tree reload persists the new ownership");
+  assert.match(await f.doctrine(), new RegExp(`Current research log: slate-changes/${third}/research-log.md`));
+  assert.equal(f.saved().sourceChange, first);
+  f.session("later-fork");
+  f.branchTo(f.saved());
   await f.start("fork");
-  assert.notEqual(f.saved().currentChange, second);
-  assert.deepEqual(f.saved().earlierChanges, [first, second]);
+  assert.equal(f.saved().sourceChange, third);
+  assert.equal(readFileSync(join(f.project, "slate-changes", f.saved().currentChange!, "research-log.md"), "utf8"), `Read-only earlier log: slate-changes/${third}/research-log.md\n`);
   const doctrine = await f.doctrine();
-  for (const name of [first, second]) assert.match(doctrine, new RegExp(`Read-only earlier log: slate-changes/${name}/research-log.md`));
+  assert.match(doctrine, new RegExp(`Read-only source log: slate-changes/${third}/research-log.md`));
+  assert.doesNotMatch(doctrine, new RegExp(`Read-only source log: slate-changes/${first}/research-log.md`));
   assert.equal(readFileSync(join(f.project, "slate-changes", first, "research-log.md"), "utf8"), "# Research log\n");
+});
+
+test("failed ownership allocation persists no open change across reload", { timeout: 10000 }, async (t) => {
+  const f = harness(t);
+  const source = createChangeFolder();
+  const base: SlateSnapshot = { format: "single-action-v1", threads: [], episodes: [], currentChange: source,
+    changeOwnerSessionId: "parent", orchestratorMode: true, paused: false, workerCostUsd: 0, carriedCostUsd: 0 };
+  f.branchTo(base);
+  writeFileSync(join(f.project, "slate-changes"), "blocked");
+  await f.start("fork");
+  assert.equal(f.saved().currentChange, undefined, "failure saves closed state");
+  assert.match(f.warnings.join("\n"), /No change is open/);
+  rmSync(join(f.project, "slate-changes"));
+  await f.start("reload");
+  assert.match(await f.doctrine(), /No change open/);
+  assert.equal(f.saved().currentChange, undefined, "reload cannot reopen the source");
+  assert.equal(existsSync(join(f.project, "slate-changes", source)), false);
+});
+
+test("failed first ownership save persists the closed state", { timeout: 10000 }, async (t) => {
+  const f = harness(t);
+  const source = createChangeFolder();
+  createChangeDirectory(f.project, source);
+  f.branchTo({ format: "single-action-v1", threads: [], episodes: [], currentChange: source,
+    changeOwnerSessionId: "parent", orchestratorMode: true, paused: false, workerCostUsd: 0, carriedCostUsd: 0 });
+  f.failNextSave();
+  await f.start("fork");
+  assert.equal(f.saved().currentChange, undefined);
+  assert.match(f.warnings.join("\n"), /injected save failure/);
+  await f.start("reload");
+  assert.match(await f.doctrine(), /No change open/);
+});
+
+test("failed cleanup save reports a second warning", { timeout: 10000 }, async (t) => {
+  const f = harness(t);
+  const source = createChangeFolder();
+  f.branchTo({ format: "single-action-v1", threads: [], episodes: [], currentChange: source,
+    changeOwnerSessionId: "parent", orchestratorMode: true, paused: false, workerCostUsd: 0, carriedCostUsd: 0 });
+  writeFileSync(join(f.project, "slate-changes"), "blocked");
+  f.failSaves(true);
+  await f.start("fork");
+  assert.match(f.warnings.join("\n"), /could not persist the closed change/);
+  assert.match(await f.doctrine(), /No change open/);
+});
+
+test("same session id continues a change and missing or invalid owners allocate", { timeout: 10000 }, async (t) => {
+  const f = harness(t);
+  const first = createChangeFolder();
+  createChangeDirectory(f.project, first);
+  const base: SlateSnapshot = { format: "single-action-v1", threads: [], episodes: [], currentChange: first,
+    changeOwnerSessionId: "successor", orchestratorMode: true, paused: false, workerCostUsd: 0, carriedCostUsd: 0 };
+  f.branchTo(base);
+  for (const reason of ["resume", "reload", "startup"]) {
+    await f.start(reason);
+    assert.equal((await f.doctrine()).includes(`Current research log: slate-changes/${first}/`), true);
+    assert.equal(f.entries.length, 0, "matching owner does not allocate or save");
+  }
+  for (const owner of [undefined, "", 12] as unknown[]) {
+    f.branchTo({ ...base, changeOwnerSessionId: owner as string });
+    await f.start("reload");
+    assert.notEqual(f.saved().currentChange, first);
+    assert.equal(f.saved().sourceChange, first);
+    assert.equal(f.saved().changeOwnerSessionId, "successor");
+  }
+});
+
+test("headless invalid names and owner have a diagnostic", { timeout: 10000 }, async (t) => {
+  const f = harness(t);
+  f.headless();
+  f.branchTo({ format: "single-action-v1", threads: [], episodes: [], currentChange: "../bad",
+    sourceChange: "../also-bad", changeOwnerSessionId: "", orchestratorMode: true,
+    paused: false, workerCostUsd: 0, carriedCostUsd: 0 });
+  const messages: string[] = [];
+  const warn = console.warn;
+  console.warn = (message: string) => { messages.push(message); };
+  try { await f.start("reload"); } finally { console.warn = warn; }
+  assert.match(messages.join("\n"), /invalid currentChange/);
+  assert.match(messages.join("\n"), /invalid sourceChange/);
+  assert.match(messages.join("\n"), /invalid changeOwnerSessionId/);
 });
 
 test("real handoff session_start adopts and saves the same current change", { timeout: 10000 }, async (t) => {
@@ -116,17 +217,20 @@ test("real handoff session_start adopts and saves the same current change", { ti
     orchestratorMode: true, paused: false, workerCostUsd: 0, carriedCostUsd: 0 });
   await f.start("startup");
   assert.equal(f.saved().currentChange, folder);
+  assert.equal(f.saved().changeOwnerSessionId, "successor");
   assert.equal(f.saved().paused, true);
+  await f.start("reload");
+  assert.equal(f.saved().currentChange, folder, "handoff successor continues the folder");
   assert.equal(readFileSync(join(f.project, "slate-changes", folder, "research-log.md"), "utf8"), "# Research log\n");
 });
 
 test("hostile snapshot and fork source names are refused, reported, and never used", { timeout: 10000 }, async (t) => {
   const f = harness(t);
-  const bad: SlateSnapshot = { format: "single-action-v1", threads: [], episodes: [], currentChange: "../outside", earlierChanges: ["change-20260230T000000Z-" + "0".repeat(32)], orchestratorMode: true, paused: false, workerCostUsd: 0, carriedCostUsd: 0 };
+  const bad: SlateSnapshot = { format: "single-action-v1", threads: [], episodes: [], currentChange: "../outside", sourceChange: "change-20260230T000000Z-" + "0".repeat(32), orchestratorMode: true, paused: false, workerCostUsd: 0, carriedCostUsd: 0 };
   f.branchTo(bad);
   await f.start("fork");
   assert.ok(f.warnings.some((s) => s.includes("invalid currentChange")));
-  assert.ok(f.warnings.some((s) => s.includes("earlier change folder")));
+  assert.ok(f.warnings.some((s) => s.includes("sourceChange")));
   assert.equal(f.entries.length, 0, "invalid fork source creates no new save");
   assert.match(await f.doctrine(), /No change open\. Use slate_change start/);
   assert.equal(existsSync(join(f.project, "slate-changes")), false);
@@ -158,7 +262,7 @@ test("folder grammar rejects malformed, calendar-invalid, traversal and runtime 
   assert.equal(isChangeFolder(generated), true);
   for (const candidate of ["../other", "change-20260230T123456Z-" + "a".repeat(32), "change-20260101T123456Z-" + "G".repeat(32), "runtime-20260101T123456Z-" + "a".repeat(32), generated + "/log"])
     assert.equal(isChangeFolder(candidate), false, candidate);
-  assert.deepEqual(Object.keys(ADOPTED_SNAPSHOT_FIELDS), ["format", "threads", "episodes", "threadSeq", "currentChange", "earlierChanges", "orchestratorMode", "paused", "workerCostUsd", "carriedCostUsd"]);
+  assert.deepEqual(Object.keys(ADOPTED_SNAPSHOT_FIELDS), ["format", "threads", "episodes", "threadSeq", "currentChange", "changeOwnerSessionId", "sourceChange", "orchestratorMode", "paused", "workerCostUsd", "carriedCostUsd"]);
 });
 
 test("implementer receives its exact report name in the dispatch text", async () => {
@@ -181,6 +285,9 @@ test("implementer receives its exact report name in the dispatch text", async ()
   await thread.execute("id", { ...call, trackNumber: 3 }, undefined, undefined, {});
   assert.match(task!, new RegExp(`slate-changes/${store.currentChange}/track-3-implementer-report.md`));
   assert.equal(task!.includes("<number>"), false);
+  store.sourceChange = createChangeFolder();
+  await thread.execute("id", { ...call, trackNumber: 3 }, undefined, undefined, {});
+  assert.match(task!, new RegExp(`Its first entry must name slate-changes/${store.sourceChange}/track-3-implementer-report.md as read-only`));
 });
 
 test("legacy root research log is only named as read-only earlier input", { timeout: 10000 }, async (t) => {
