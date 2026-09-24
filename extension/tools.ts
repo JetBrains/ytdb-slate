@@ -141,7 +141,7 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 			const reportTask = params.type === "implementer" && store.currentChange
 				? `${params.task}\n\nImplementer report: slate-changes/${store.currentChange}/track-${params.trackNumber}-implementer-report.md. Create without following a symbolic link.` +
 					(store.sourceChange
-						? ` This new folder's report continues the earlier read-only report. Its first entry must name slate-changes/${store.sourceChange}/track-${params.trackNumber}-implementer-report.md as read-only. Do not edit the earlier report.`
+						? ` If the source folder has this track's report, continue it in this new report and name slate-changes/${store.sourceChange}/track-${params.trackNumber}-implementer-report.md as read-only in the new report's first entry. Do not edit the source report.`
 						: "")
 				: params.task;
 			const result = await getManager().dispatch(

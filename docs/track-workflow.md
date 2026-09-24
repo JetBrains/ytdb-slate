@@ -412,8 +412,9 @@ For each track, the implementer creates
 `track-<number>-implementer-report.md` in the current change folder when the track
 starts. The dispatch gives the exact path. The report is untracked working
 material. After a session with a different identifier takes ownership, create
-a report in the new change folder. Its first entry names the earlier report as
-read-only. Continue the work in the new report. The report has four required
+a report in the new change folder. If the source folder has this track's report,
+name it as read-only in the new report's first entry. Continue the work in the
+new report. The report has four required
 sections: changes to the high-level design with the reason for each, the
 low-level design, diagrams where they help, and checks run with their results.
 Later fix rounds append to that report in the current change folder.

@@ -287,7 +287,7 @@ test("implementer receives its exact report name in the dispatch text", async ()
   assert.equal(task!.includes("<number>"), false);
   store.sourceChange = createChangeFolder();
   await thread.execute("id", { ...call, trackNumber: 3 }, undefined, undefined, {});
-  assert.match(task!, new RegExp(`Its first entry must name slate-changes/${store.sourceChange}/track-3-implementer-report.md as read-only`));
+  assert.equal(task!, `Make the fix\n\nImplementer report: slate-changes/${store.currentChange}/track-3-implementer-report.md. Create without following a symbolic link. If the source folder has this track's report, continue it in this new report and name slate-changes/${store.sourceChange}/track-3-implementer-report.md as read-only in the new report's first entry. Do not edit the source report.`);
 });
 
 test("legacy root research log is only named as read-only earlier input", { timeout: 10000 }, async (t) => {
