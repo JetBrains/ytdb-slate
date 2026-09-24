@@ -635,52 +635,52 @@ exact current production renders are:
 | shipped logical section | 0 | 3,892 | 11 |
 | trusted shipped-default doctrine | 5 | 8,683 | 85 |
 | untrusted doctrine | 4 | 2,694 | 44 |
-| draft pull requests, shipped policy | 6 | 8,911 | 88 |
+| draft pull requests, shipped policy | 6 | 8,758 | 86 |
 | capped workers, shipped policy | 5 | 10,030 | 95 |
-| draft plus capped workers | 6 | 10,258 | 98 |
+| draft plus capped workers | 6 | 10,105 | 96 |
 | deferred issues plus capped workers | 5 | 10,104 | 96 |
 | routing recommendations plus capped workers | 5 | 10,127 | 96 |
-| draft plus deferred issues and capped workers | 6 | 10,332 | 99 |
-| draft plus routing recommendations and capped workers | 6 | 10,206 | 97 |
+| draft plus deferred issues and capped workers | 6 | 10,179 | 97 |
+| draft plus routing recommendations and capped workers | 6 | 10,198 | 97 |
 | deferred issues plus routing recommendations and capped workers | 5 | 10,201 | 97 |
-| canonical maximal baseline with all workflow options | 6 | 10,280 | 98 |
-| maximal baseline with an open change | 6 | 10,478 | 99 |
-| maximal baseline with source and legacy root log | 6 | 10,708 | 101 |
-| dogfood config and extension roster | 6 | 9,405 | 97 |
-| 19,400-character policy plus draft, source and legacy log | 6 | 26,194 | 102 |
-| same policy plus draft and deferred issues, source and legacy log | 6 | 26,268 | 103 |
+| canonical maximal baseline with all workflow options | 6 | 10,272 | 98 |
+| maximal baseline with an open change | 6 | 10,470 | 99 |
+| maximal baseline with source and legacy root log | 6 | 10,700 | 101 |
+| dogfood config and extension roster | 6 | 9,397 | 97 |
+| 19,400-character policy plus draft, source and legacy log | 6 | 26,041 | 100 |
+| same policy plus draft and deferred issues, source and legacy log | 6 | 26,115 | 101 |
 | same policy plus routing recommendations, source and legacy log | 5 | 26,063 | 100 |
 | same policy plus deferred issues and routing recommendations, source and legacy log | 5 | 26,137 | 101 |
-| same policy plus draft and routing recommendations, source and legacy log | 6 | 26,142 | 101 |
-| same boundary composition plus deferred issues | 6 | 26,216 | 102 |
-| valid shipped policy plus 88 capped tools, source and legacy log | 6 | 28,382 | 184 |
+| same policy plus draft and routing recommendations, source and legacy log | 6 | 26,134 | 101 |
+| same boundary composition plus deferred issues | 6 | 26,208 | 102 |
+| valid shipped policy plus 88 capped tools, source and legacy log | 6 | 28,374 | 184 |
 
 The capped worker baseline has two units and four tools. Each unit label has 128
 characters. Each tool name has 64 characters. Each description has 140
 characters. The dogfood fixture reads `.pi/slate.json` and represents its two
 configured extension units.
 
-The canonical 10,280-character baseline uses all six shipped logical models,
+The canonical 10,272-character baseline uses all six shipped logical models,
 all three workflow options, and the capped worker roster. With an open change,
-a direct source folder, and a legacy root log, it measures 10,708 characters.
-Its required five-percent value is 11,244. The 26,300 whole-doctrine ceiling
+a direct source folder, and a legacy root log, it measures 10,700 characters.
+Its required five-percent value is 11,235. The 26,300 whole-doctrine ceiling
 keeps that reserve. The exact fixtures cover all eight workflow-option
 combinations.
 
 Runtime rejection controls are separate. A logical section at exactly 19,400
 portable characters or 105 lines is valid. A section at 19,401 characters or
 106 lines is rejected before work. The four routing-enabled boundary
-compositions and the 26,194-character and 26,268-character feature-off
+compositions and the 26,041-character and 26,115-character feature-off
 compatibility controls include the current change, direct source, and legacy
 root log. They prove that an exact-boundary policy fits the 26,300-character
-whole-doctrine ceiling. The 26,268-character control has the smallest margin.
-A valid third worker unit with a 26-character label measures 26,300.
-A 27-character label measures 26,301 and fails the ceiling. These controls are
+whole-doctrine ceiling. The 26,208-character control has the smallest margin.
+A valid third worker unit with an 86-character label and all three workflow
+options measures 26,300. An 87-character label measures 26,301 and fails. These controls are
 not reserve-bearing canonical baselines.
 
 The over-cap counterfactual keeps the shipped logical policy valid and adds 88
 supported capped worker tools. With an open change, source, and legacy log, its
-28,382 portable characters exceed the ceiling by 2,082 characters.
+28,374 portable characters exceed the ceiling by 2,074 characters.
 This transformed fixture replaces the retired six-copy physical model-row shape.
 It does not assume an old per-row or per-tool increment. Removing the whole-
 doctrine comparison makes the counterfactual pass and therefore breaks the
@@ -690,14 +690,14 @@ Exact literals are maintenance tripwires. Any doctrine-size change requires a
 fresh production render and matching updates in `docs/context-budget.md`, this
 file, `verification/resolver-checks.mjs`, and `test/doctrine-contract.test.ts`.
 The logical limits remain 19,400 characters and 105 lines. The all-tail limit
-remains 24,600 characters. The new whole-doctrine ceiling is 26,300 characters.
+remains 24,600 characters. The whole-doctrine ceiling is 26,300 characters.
 
 ## Re-run triggers
 
 Re-run the strict suite after changes to active logical-model modules,
 `mode.ts`, `paths.ts`, worker-extension doctrine, state sanitizers, base-model
 tracking, episode headers, writing or reminder modules, worker prompt wiring, or
-any workflow contract read by the harness. Track-size or publishing-mode rule
+any workflow contract read by the harness. Track-size or draft-publishing rule
 changes require the strict suite because mutation checks pin those policy units.
 A model-switch or handoff change can
 also require the full ladder. The package and writing checks remain separate

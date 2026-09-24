@@ -208,6 +208,7 @@ function writingStatusFixture({ writing = true, writingConfig, trusted = true, o
 	const pi = {
 		on: (event, handler) => { (handlers[event] ??= []).push(handler); },
 		registerCommand: () => {},
+		registerTool: () => {},
 		getActiveTools: () => [],
 		setActiveTools: () => {},
 		getAllTools: () => [],
@@ -295,6 +296,7 @@ async function doctrine(extSet, getRouter, trusted = false, config = {}, change 
 	const pi = {
 		on: (e, h) => (handlers[e] = h),
 		registerCommand: () => {},
+		registerTool: () => {},
 		getActiveTools: () => [],
 		setActiveTools: () => {},
 		getAllTools: () => [],
@@ -1281,7 +1283,7 @@ try {
 			const handoffHandlers = {};
 			const handoffPi = {
 				on: (event, handler) => { (handoffHandlers[event] ??= []).push(handler); },
-				sendMessage() {}, registerCommand() {}, getActiveTools: () => [], setActiveTools() {}, getAllTools: () => [],
+				sendMessage() {}, registerCommand() {}, registerTool() {}, getActiveTools: () => [], setActiveTools() {}, getAllTools: () => [],
 			};
 			const realHooks = handoff.registerSlateHandoff(handoffPi, adoptedStore, () => ({ writing: { check: true, remind: true } }), () => ({}));
 			mode.registerSlateMode(handoffPi, adoptedStore, realHooks, () => ({ writing: { check: true, remind: true } }), () => ({ units: [] }));
@@ -1377,13 +1379,13 @@ try {
 		};
 		const exact = {
 			prompt: { portable: 3892, lines: 11, paths: 0 }, trusted: { portable: 8683, lines: 85, paths: 5 },
-			untrusted: { portable: 2694, lines: 44, paths: 4 }, draft: { portable: 8911, lines: 88, paths: 6 },
-			extensions: { portable: 10030, lines: 95, paths: 5 }, allTails: { portable: 10258, lines: 98, paths: 6 },
+			untrusted: { portable: 2694, lines: 44, paths: 4 }, draft: { portable: 8758, lines: 86, paths: 6 },
+			extensions: { portable: 10030, lines: 95, paths: 5 }, allTails: { portable: 10105, lines: 96, paths: 6 },
 			followUp: { portable: 10104, lines: 96, paths: 5 }, routing: { portable: 10127, lines: 96, paths: 5 },
-			draftFollowUp: { portable: 10332, lines: 99, paths: 6 }, draftRouting: { portable: 10206, lines: 97, paths: 6 },
-			followUpRouting: { portable: 10201, lines: 97, paths: 5 }, maximal: { portable: 10280, lines: 98, paths: 6 },
-			maximalOpen: { portable: 10478, lines: 99, paths: 6 }, maximalLinked: { portable: 10708, lines: 101, paths: 6 },
-			dogfood: { portable: 9405, lines: 97, paths: 6 },
+			draftFollowUp: { portable: 10179, lines: 97, paths: 6 }, draftRouting: { portable: 10198, lines: 97, paths: 6 },
+			followUpRouting: { portable: 10201, lines: 97, paths: 5 }, maximal: { portable: 10272, lines: 98, paths: 6 },
+			maximalOpen: { portable: 10470, lines: 99, paths: 6 }, maximalLinked: { portable: 10700, lines: 101, paths: 6 },
+			dogfood: { portable: 9397, lines: 97, paths: 6 },
 		};
 		const doctrineBaselines = Object.values(rendered);
 		checkAll("doctrine-budget", "exact production renders match published portable baselines and every current baseline keeps five-percent reserve", [
@@ -1417,16 +1419,16 @@ try {
 		const overExtensions = { units: [{ path: "/fixture/over", source: "z".repeat(128), isDirectory: true, tools: Array.from({ length: 88 }, (_, i) => ({ name: (`t${i}`).padEnd(64, "x"), description: "q".repeat(140) })) }], paths: [], toolNames: [] };
 		const over = await doctrine(overExtensions, () => activeRuntime, true, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, change);
 		const portable = (text) => text.split(docsDirectory).join("").length;
-		const wholeAt = await doctrine({ ...capped, units: [...capped.units, { path: "/fixture/c", source: "c".repeat(26), isDirectory: true, tools: [] }] }, () => atChars, true, { workflow: { draftPRs: true, followUpIssues: true } }, change);
-		const wholeAbove = await doctrine({ ...capped, units: [...capped.units, { path: "/fixture/c", source: "c".repeat(27), isDirectory: true, tools: [] }] }, () => atChars, true, { workflow: { draftPRs: true, followUpIssues: true } }, change);
+		const wholeAt = await doctrine({ ...capped, units: [...capped.units, { path: "/fixture/c", source: "c".repeat(86), isDirectory: true, tools: [] }] }, () => atChars, true, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, change);
+		const wholeAbove = await doctrine({ ...capped, units: [...capped.units, { path: "/fixture/c", source: "c".repeat(87), isDirectory: true, tools: [] }] }, () => atChars, true, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, change);
 		checkAll("doctrine-budget-boundaries", "runtime equality, first-over-limit rejection, maximum composition, and valid-router doctrine growth remain discriminatory", [
 			["19,400 accepted", atChars.promptText().length === 19400 && atChars.criticalErrors.length === 0, { length: atChars.promptText()?.length, errors: atChars.criticalErrors }],
 			["19,401 rejected", aboveChars.promptText() === undefined && aboveChars.criticalErrors.some((x) => /19401 portable characters/.test(x)), aboveChars.criticalErrors],
 			["105 lines accepted", atLines.promptText()?.split("\n").length === 105, atLines.criticalErrors],
 			["106 lines rejected", aboveLines.promptText() === undefined && aboveLines.criticalErrors.some((x) => /106 lines/.test(x)), aboveLines.criticalErrors],
 			["whole-doctrine equality is accepted and first-over-limit is rejected", portable(wholeAt) === DOCTRINE_LIMITS.maximalChars && portable(wholeAbove) === DOCTRINE_LIMITS.maximalChars + 1, { at: portable(wholeAt), above: portable(wholeAbove), ceiling: DOCTRINE_LIMITS.maximalChars }],
-			["boundary compositions stay exact and below whole-doctrine cap", portable(featureOffDraft) === 26194 && portable(featureOffTight) === 26268 && portable(routingWithoutDrafts) === 26063 && portable(routingWithFollowUp) === 26137 && portable(routing) === 26142 && portable(deferred) === 26216 && [featureOffDraft, featureOffTight, routingWithoutDrafts, routingWithFollowUp, routing, deferred].every((text) => portable(text) <= DOCTRINE_LIMITS.maximalChars), { featureOffDraft: portable(featureOffDraft), featureOffTight: portable(featureOffTight), routingWithoutDrafts: portable(routingWithoutDrafts), routingWithFollowUp: portable(routingWithFollowUp), routing: portable(routing), deferred: portable(deferred) }],
-			["fresh valid-router over-cap control reaches whole-doctrine guard", portable(over) === 28382 && portable(over) > DOCTRINE_LIMITS.maximalChars, portable(over)],
+			["boundary compositions stay exact and below whole-doctrine cap", portable(featureOffDraft) === 26041 && portable(featureOffTight) === 26115 && portable(routingWithoutDrafts) === 26063 && portable(routingWithFollowUp) === 26137 && portable(routing) === 26134 && portable(deferred) === 26208 && [featureOffDraft, featureOffTight, routingWithoutDrafts, routingWithFollowUp, routing, deferred].every((text) => portable(text) <= DOCTRINE_LIMITS.maximalChars), { featureOffDraft: portable(featureOffDraft), featureOffTight: portable(featureOffTight), routingWithoutDrafts: portable(routingWithoutDrafts), routingWithFollowUp: portable(routingWithFollowUp), routing: portable(routing), deferred: portable(deferred) }],
+			["fresh valid-router over-cap control reaches whole-doctrine guard", portable(over) === 28374 && portable(over) > DOCTRINE_LIMITS.maximalChars, portable(over)],
 		]);
 	});
 
@@ -2434,7 +2436,7 @@ adversarial review is required, validation and final approval form one gate.`);
 				};
 			};
 			const expectedP11Source = `- **P11 — Proportional process.** *(Repo-local note, not from the report.)*
-  The research log is the sole permitted unconditional-artifact exception for
+  The current change folder's research log is the sole permitted unconditional-artifact exception for
   authors of future rules. Every other future rule that adds process cost names
   the condition that engages it. The condition is a proved focus area, an
   artifact whose own existence a proved focus area decides, or specific
@@ -2448,7 +2450,8 @@ evidence appears in every track, in which case the rule is unconditional.
 Prompt text and output quality floors are not process steps, and a published
 size budget governs them instead. P11 constrains the authors of future rules.
 It does not remove or condition current required artifacts, including the
-per-track implementer report.
+per-track implementer report. Closing a change keeps its folder and records.
+Only the user deletes that folder.
 
 P11 also governs user interaction. Questions follow unresolved decisions, not
 the number of workflow steps, records, or tracks. Applicable evidence and prior
@@ -2459,7 +2462,7 @@ required reviews, ordered gates, user authority, or final acceptance.`;
 			const p11 = p11Resolution.text;
 			const p11Mutations = [
 				p11.replace("a proved focus area, an artifact whose own existence a proved focus area decides", "the size grade, a proved focus area, an artifact whose own existence either decides"),
-				p11.replace("The research log is the sole permitted unconditional-artifact exception", "The research log and implementer report are permitted unconditional-artifact exceptions"),
+				p11.replace("The current change folder's research log is the sole permitted unconditional-artifact exception", "The research log and implementer report are permitted unconditional-artifact exceptions"),
 				p11.replace("or specific evidence that does not appear in every track", "or any available evidence"),
 				p11.replace("It does not remove or condition current required artifacts", "It may condition current required artifacts"),
 				p11.replace("Questions follow unresolved decisions", "Questions follow workflow steps"),
@@ -2987,14 +2990,14 @@ before investigation starts.
 
 Record the trigger, proposed scope, user corrections, approved scope, findings,
 evidence, limits, holistic solution, verification plan, and decision as typed
-entries in \`research-log.md\`. The investigation must distinguish a symptom
+entries in the current change's \`research-log.md\`. The investigation must distinguish a symptom
 repair from closure of the full approved requirement. After investigation,
 present a holistic solution for the full requirement and wait for a separate
 user approval before implementation resumes. Existing repair caps, the
 stuck-fix consultation and its budget, reviewer input restrictions, focus gates,
 required reviews, and verification remain unchanged. This route adds no repair
 round, resets no cap, creates no new reviewer or separate artifact beyond the
-existing research-log record, narrows no requirement, and does not require
+existing change research-log record, narrows no requirement, and does not require
 verbatim retention of every tool result.`);
 			const investigationWorkflow = markedUnit("requirement-investigation-workflow")(workflow);
 			const investigationUserRowExpected = normalizeText("| The two-round fix cap is exhausted with the same approved requirement still incomplete. | At the end of round two, before any further repair. | Correct or approve the investigation scope, then approve or reject the holistic solution separately. Redesign, waive, or split remain available. |");

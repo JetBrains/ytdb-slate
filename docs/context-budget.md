@@ -199,25 +199,25 @@ characters. Tool names use 64 characters. Descriptions use 140 characters.
 | shipped logical section | 0 | 3,892 | 11 |
 | trusted shipped-default doctrine | 5 | 8,683 | 85 |
 | untrusted doctrine without a home configuration file | 4 | 2,694 | 44 |
-| draft pull requests, shipped policy | 6 | 8,911 | 88 |
+| draft pull requests, shipped policy | 6 | 8,758 | 86 |
 | capped workers, shipped policy | 5 | 10,030 | 95 |
-| draft plus capped workers | 6 | 10,258 | 98 |
+| draft plus capped workers | 6 | 10,105 | 96 |
 | deferred issues plus capped workers | 5 | 10,104 | 96 |
 | routing recommendations plus capped workers | 5 | 10,127 | 96 |
-| draft plus deferred issues and capped workers | 6 | 10,332 | 99 |
-| draft plus routing recommendations and capped workers | 6 | 10,206 | 97 |
+| draft plus deferred issues and capped workers | 6 | 10,179 | 97 |
+| draft plus routing recommendations and capped workers | 6 | 10,198 | 97 |
 | deferred issues plus routing recommendations and capped workers | 5 | 10,201 | 97 |
-| canonical maximal baseline with all workflow options | 6 | 10,280 | 98 |
-| maximal baseline with an open change | 6 | 10,478 | 99 |
-| maximal baseline with source and legacy root log | 6 | 10,708 | 101 |
-| dogfood `.pi/slate.json` and its two extension units | 6 | 9,405 | 97 |
-| runtime boundary plus draft and capped workers, source and legacy log | 6 | 26,194 | 102 |
-| runtime boundary plus draft and deferred issues, source and legacy log | 6 | 26,268 | 103 |
+| canonical maximal baseline with all workflow options | 6 | 10,272 | 98 |
+| maximal baseline with an open change | 6 | 10,470 | 99 |
+| maximal baseline with source and legacy root log | 6 | 10,700 | 101 |
+| dogfood `.pi/slate.json` and its two extension units | 6 | 9,397 | 97 |
+| runtime boundary plus draft and capped workers, source and legacy log | 6 | 26,041 | 100 |
+| runtime boundary plus draft and deferred issues, source and legacy log | 6 | 26,115 | 101 |
 | runtime boundary plus routing recommendations, source and legacy log | 5 | 26,063 | 100 |
 | runtime boundary plus deferred issues and routing recommendations, source and legacy log | 5 | 26,137 | 101 |
-| runtime boundary plus draft and routing recommendations, source and legacy log | 6 | 26,142 | 101 |
-| same boundary composition plus deferred issues | 6 | 26,216 | 102 |
-| valid shipped policy plus 88 capped worker tools, source and legacy log | 6 | 28,382 | 184 |
+| runtime boundary plus draft and routing recommendations, source and legacy log | 6 | 26,134 | 101 |
+| same boundary composition plus deferred issues | 6 | 26,208 | 102 |
+| valid shipped policy plus 88 capped worker tools, source and legacy log | 6 | 28,374 | 184 |
 
 An untrusted session with an empty home `slate.json` receives the same doctrine
 as the trusted shipped-default fixture above. It includes routing and writing
@@ -228,24 +228,25 @@ project preferences can.
 The canonical maximal baseline uses all six shipped logical definitions, all
 three workflow options, and the fixed capped worker roster. Its largest variant
 has an open change, one direct source folder, and a legacy root log. Its
-five-percent requirement is `ceil(10,708 × 1.05) = 11,244`.
+five-percent requirement is `ceil(10,700 × 1.05) = 11,235`.
 The 26,300 whole-doctrine ceiling exceeds it. The table pins all eight
 combinations of the three workflow options with the capped worker roster. The
 dogfood row reads the actual project configuration. A change to `.pi/slate.json` requires a fresh render.
 
-The four routing-enabled rows from 26,063 through 26,216 are
-boundary-composition controls. The 26,194 and 26,268 rows keep the
-routing-recommendation feature off as compatibility controls. The 26,268 row
-pins the largest supported composition. It has 32 characters of headroom.
+The four routing-enabled rows from 26,063 through 26,208 are
+boundary-composition controls. The 26,041 and 26,115 rows keep the
+routing-recommendation feature off as compatibility controls. The 26,208 row
+pins the largest supported composition. It has 92 characters of headroom.
 Each row combines a valid logical section padded to exactly 19,400 characters with supported doctrine tails. The rows do not define reserve-bearing
 baselines. Every row remains below the 26,300 portable-character ceiling.
-A valid third worker unit with a 26-character label reaches 26,300 exactly.
-A 27-character label reaches 26,301, the first value beyond the ceiling.
+A valid third worker unit with an 86-character label reaches 26,300 exactly
+when all three workflow options are on. An 87-character label reaches 26,301,
+the first value beyond the ceiling.
 
 The over-cap counterfactual uses a valid shipped logical policy and one supported
 worker-extension unit with 88 capped tools. It also includes an open change,
-its source, and the legacy root log. Its 28,382 portable characters exceed
-the whole-doctrine ceiling by 2,082. The check therefore detects whole-doctrine
+its source, and the legacy root log. Its 28,374 portable characters exceed
+the whole-doctrine ceiling by 2,074. The check therefore detects whole-doctrine
 growth without using a retired model-row shape or an assumed per-tool increment.
 Worker-extension doctrine has no runtime size cap, so the fixture reaches the
 whole-doctrine guard rather than failing logical-policy validation first.
@@ -254,8 +255,7 @@ Exact literals fail on any fixture size change. Coarse ceilings stop cumulative
 growth. A changed fixture requires fresh production rendering and matching updates
 to this table, `verification/README.md`, resolver checks, and doctrine contract
 tests. The logical-section limits remain 19,400 characters and 105 lines. The
-all-tail limit remains 24,600 characters. The new whole-doctrine ceiling is
-26,300 characters.
+all-tail limit remains 24,600 characters. The whole-doctrine ceiling is 26,300 characters.
 
 ### Worker writing preamble
 
@@ -266,15 +266,15 @@ per-turn doctrine.
 | Worker preamble form | UTF-8 bytes | Increase from base |
 | --- | ---: | ---: |
 | Base | 544 | — |
-| Base + writing guidance | 796 | 252 |
+| Base + writing guidance | 1,097 | 553 |
 | Base + reviewer charter | 2,699 | 2,155 |
-| Base + writing guidance + reviewer charter | 2,951 | 2,407 |
+| Base + writing guidance + reviewer charter | 3,252 | 2,708 |
 
 The preamble explains that the harness runs calls issued in one turn at the
 same time. It also explains that cumulative token cost grows with the square of
 the number of turns because each turn resends the conversation history.
 
-The writing guidance is 251 bytes. The reviewer charter constant is 2,154 bytes.
+The writing guidance is 552 bytes. The reviewer charter constant is 2,154 bytes.
 The writing addendum needs one separating space. The reviewer charter addendum
 needs one separating newline. The current text uses UTF-8 punctuation, so byte
 and character counts can differ.
