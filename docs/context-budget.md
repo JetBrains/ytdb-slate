@@ -45,7 +45,7 @@ Set `contextBudget` in home `<getAgentDir()>/slate.json` or project
 `.pi/slate.json`. Project values apply only when the project is trusted.
 Objects merge recursively before budget validation. Arrays, scalar values,
 and explicit `null` replace the home value. Untrusted projects use home
-preferences over the built-in defaults. The [README](../README.md#configuration)
+preferences over the built-in defaults. The [configuration reference](configuration.md)
 defines file locations and error handling.
 
 The setting accepts a bare positive integer, shorthand for `{"tokens": N}`,

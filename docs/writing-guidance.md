@@ -104,7 +104,7 @@ Nested writing settings merge, with project values taking precedence.
 The doctrine, worker preamble, status, and reminders use that same permitted
 configuration. Untrusted projects cannot supply writing settings.
 Without a home file, untrusted projects receive no writing guidance.
-The [README](../README.md#configuration) defines the file and merge rules.
+The [configuration reference](configuration.md) defines the file and merge rules.
 
 Sessions with permitted Slate settings receive four writing and design surfaces:
 
