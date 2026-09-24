@@ -17,8 +17,9 @@ required gates, as defined in track-workflow.md § Delivery and termination.
 
 Draft publishing does not remove or move planning, design, focus approval,
 review, track-packet, user-note, blocking track-acceptance, final-acceptance,
-or finding-disposition requirements. Retain `research-log.md` and every
-implementer report until the whole change reaches delivery.
+or finding-disposition requirements. Retain the current change folder's
+research log and every implementer report through and after delivery. Only
+the user may delete the change folder.
 <!-- umbrella-publishing-policy:end -->
 
 ## Creation
@@ -203,9 +204,9 @@ supplies final change acceptance.
 
 ## After the merge
 
-After the user merges the umbrella pull request, complete the research-log
-delivery cleanup defined by track-workflow.md § Session handoff and the research
-log.
+After the user merges the umbrella pull request, complete the change's
+delivery accounting. Then close the change under track-workflow.md § Session
+handoff and the research log. Keep its folder and reports.
 
 Any cleanup a layered peer-review process requires, such as closing its review
 pull requests or deleting its pinned branches, is an agent duty. Execute it when

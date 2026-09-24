@@ -148,9 +148,10 @@ reminder fires. Later requests resend it with the rest of the conversation.
 ## What always-loaded tool definitions cost the budget
 
 The registered `thread` tool description is 973 UTF-8 bytes. Its serialized
-parameter schema is 1,158 bytes from `JSON.stringify(parameters)`. The schema
-requires logical `model` and `reason`. It includes the bounded `context` list and
-the 200-character reason limit. The two values total 2,131 bytes before provider
+parameter schema is 1,324 bytes from `JSON.stringify(parameters)`. The schema
+requires logical `model` and `reason`. It includes the bounded `context` list,
+the optional implementer `trackNumber`, and the 200-character reason limit.
+The two values total 2,297 bytes before provider
 framing. The figure excludes the tool name, prompt text, and outer serialization.
 
 ## Compaction policy
@@ -196,25 +197,25 @@ characters. Tool names use 64 characters. Descriptions use 140 characters.
 | fixture | paths | portable characters | lines |
 | --- | ---: | ---: | ---: |
 | shipped logical section | 0 | 3,892 | 11 |
-| trusted shipped-default doctrine | 5 | 8,694 | 84 |
-| untrusted doctrine without a home configuration file | 4 | 2,705 | 43 |
-| draft pull requests, shipped policy | 6 | 8,717 | 84 |
-| capped workers, shipped policy | 5 | 10,041 | 94 |
-| draft plus capped workers | 6 | 10,064 | 94 |
-| deferred issues plus capped workers | 5 | 10,115 | 95 |
-| routing recommendations plus capped workers | 5 | 10,138 | 95 |
-| draft plus deferred issues and capped workers | 6 | 10,138 | 95 |
-| draft plus routing recommendations and capped workers | 6 | 10,157 | 95 |
-| deferred issues plus routing recommendations and capped workers | 5 | 10,212 | 96 |
-| canonical maximal baseline with all workflow options | 6 | 10,231 | 96 |
-| dogfood `.pi/slate.json` and its two extension units | 6 | 9,356 | 95 |
-| runtime boundary plus draft and capped workers | 6 | 25,572 | 95 |
-| runtime boundary plus draft and deferred issues, with routing off | 6 | 25,646 | 96 |
-| runtime boundary plus routing recommendations and capped workers | 5 | 25,646 | 96 |
-| runtime boundary plus deferred issues and routing recommendations, without drafts | 5 | 25,720 | 97 |
-| runtime boundary plus draft, routing recommendations, and capped workers | 6 | 25,665 | 96 |
-| same boundary composition plus deferred issues | 6 | 25,739 | 97 |
-| valid shipped policy plus 88 capped worker tools | 6 | 27,905 | 179 |
+| trusted shipped-default doctrine | 5 | 8,773 | 86 |
+| untrusted doctrine without a home configuration file | 4 | 2,784 | 45 |
+| draft pull requests, shipped policy | 6 | 8,955 | 88 |
+| capped workers, shipped policy | 5 | 10,120 | 96 |
+| draft plus capped workers | 6 | 10,302 | 98 |
+| deferred issues plus capped workers | 5 | 10,194 | 97 |
+| routing recommendations plus capped workers | 5 | 10,217 | 97 |
+| draft plus deferred issues and capped workers | 6 | 10,376 | 99 |
+| draft plus routing recommendations and capped workers | 6 | 10,250 | 97 |
+| deferred issues plus routing recommendations and capped workers | 5 | 10,291 | 98 |
+| canonical maximal baseline with all workflow options | 6 | 10,324 | 98 |
+| dogfood `.pi/slate.json` and its two extension units | 6 | 9,449 | 97 |
+| runtime boundary plus draft and capped workers | 6 | 25,810 | 99 |
+| runtime boundary plus draft and deferred issues, with routing off | 6 | 25,884 | 100 |
+| runtime boundary plus routing recommendations and capped workers | 5 | 25,725 | 98 |
+| runtime boundary plus deferred issues and routing recommendations, without drafts | 5 | 25,799 | 99 |
+| runtime boundary plus draft, routing recommendations, and capped workers | 6 | 25,758 | 98 |
+| same boundary composition plus deferred issues | 6 | 25,832 | 99 |
+| valid shipped policy plus 88 capped worker tools | 6 | 27,998 | 181 |
 
 An untrusted session with an empty home `slate.json` receives the same doctrine
 as the trusted shipped-default fixture above. It includes routing and writing
@@ -224,23 +225,22 @@ project preferences can.
 
 The canonical maximal baseline uses all six shipped logical definitions, all
 three workflow options, and the fixed capped worker roster. Its five-percent
-requirement is `ceil(10,231 × 1.05) = 10,743`. The unchanged 25,800 whole-doctrine
+requirement is `ceil(10,324 × 1.05) = 10,841`. The 26,000 whole-doctrine
 ceiling exceeds it. The table pins all eight combinations of the three workflow
 options with the capped worker roster. The dogfood row reads the actual project
 configuration. A change to `.pi/slate.json` requires a fresh render.
 
-The four routing-enabled rows from 25,646 through 25,739 are
-boundary-composition controls. The 25,572 and 25,646 rows keep the
-routing-recommendation feature off as compatibility controls. The 25,739 row
+The four routing-enabled rows from 25,725 through 25,832 are
+boundary-composition controls. The 25,810 and 25,884 rows keep the
+routing-recommendation feature off as compatibility controls. The 25,884 row
 pins the supported composition with the smallest margin below the whole-doctrine
 ceiling. Each row combines a valid logical section padded to exactly 19,400
 characters with supported doctrine tails. The rows do not define reserve-bearing
-baselines. Every row remains below the unchanged 25,800 portable-character
-ceiling.
+baselines. Every row remains below the 26,000 portable-character ceiling.
 
 The over-cap counterfactual uses a valid shipped logical policy and one supported
-worker-extension unit with 88 capped tools. Its 27,905 portable characters exceed
-the whole-doctrine ceiling by 2,105. The check therefore detects whole-doctrine
+worker-extension unit with 88 capped tools. Its 27,998 portable characters exceed
+the whole-doctrine ceiling by 1,998. The check therefore detects whole-doctrine
 growth without using a retired model-row shape or an assumed per-tool increment.
 Worker-extension doctrine has no runtime size cap, so the fixture reaches the
 whole-doctrine guard rather than failing logical-policy validation first.
@@ -248,8 +248,8 @@ whole-doctrine guard rather than failing logical-policy validation first.
 Exact literals fail on any fixture size change. Coarse ceilings stop cumulative
 growth. A changed fixture requires fresh production rendering and matching updates
 to this table, `verification/README.md`, resolver checks, and doctrine contract
-tests. The unchanged verification limits are 19,400 logical-section characters,
-105 logical-section lines, 24,600 all-tail characters, and 25,800 whole-doctrine
+tests. The verified limits are 19,400 logical-section characters,
+105 logical-section lines, 24,600 all-tail characters, and 26,000 whole-doctrine
 characters.
 
 ### Worker writing preamble
@@ -261,15 +261,15 @@ per-turn doctrine.
 | Worker preamble form | UTF-8 bytes | Increase from base |
 | --- | ---: | ---: |
 | Base | 544 | — |
-| Base + writing guidance | 1,097 | 553 |
+| Base + writing guidance | 796 | 252 |
 | Base + reviewer charter | 2,699 | 2,155 |
-| Base + writing guidance + reviewer charter | 3,252 | 2,708 |
+| Base + writing guidance + reviewer charter | 2,951 | 2,407 |
 
 The preamble explains that the harness runs calls issued in one turn at the
 same time. It also explains that cumulative token cost grows with the square of
 the number of turns because each turn resends the conversation history.
 
-The writing guidance is 552 bytes. The reviewer charter constant is 2,154 bytes.
+The writing guidance is 251 bytes. The reviewer charter constant is 2,154 bytes.
 The writing addendum needs one separating space. The reviewer charter addendum
 needs one separating newline. The current text uses UTF-8 punctuation, so byte
 and character counts can differ.
@@ -314,7 +314,7 @@ level-four heading and ends immediately before the next named reviewer heading.
 
 | bounded block | exact UTF-8 bytes |
 | --- | ---: |
-| implementation-dispatch focused-context reference | 192 |
+| implementation-dispatch focused-context reference | 351 |
 | non-local logic defect reviewer charter | 1,245 |
 | consumer contract break reviewer charter | 1,547 |
 | governing-rule defect reviewer charter | 1,568 |

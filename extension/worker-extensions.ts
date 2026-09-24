@@ -120,7 +120,7 @@ export const EMPTY_WORKER_EXTENSION_SET: WorkerExtensionSet = Object.freeze({
 }) as unknown as WorkerExtensionSet;
 
 /** Slate's own model-facing tools — a unit registering any of these is withheld (AD44/RG2). */
-export const SLATE_TOOL_NAMES = ["thread", "threads", "episode"];
+export const SLATE_TOOL_NAMES = ["thread", "threads", "episode", "slate_change"];
 
 /** pi's built-in tools — a unit registering any of these would overwrite a worker's own (AD44/RG2). */
 export const PI_BUILTIN_TOOL_NAMES = ["read", "bash", "edit", "write", "grep", "find", "ls"];

@@ -121,6 +121,7 @@ test("mode refresh publishes all stored thread widget lines", async () => {
   const handlers = new Map<string, (event: unknown, ctx: ExtensionContext) => unknown>();
   const pi = {
     registerCommand() {},
+    registerTool() {},
     on(name: string, handler: (event: unknown, ctx: ExtensionContext) => unknown) {
       handlers.set(name, handler);
     },

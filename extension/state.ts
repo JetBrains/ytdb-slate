@@ -18,7 +18,7 @@ import type { ObservationRecord } from "./observations.ts";
 // its own config shape and sanitizer, and this import is erased at load time.
 import type { RequestThrottleConfig, SanitizedRequestThrottle } from "./request-throttle.ts";
 import { sanitizeForNotify } from "./notify.ts";
-import { createRuntimeStorageFolder, isRuntimeStorageFolder, isSafeThreadId, isSlateArtifactReference, slateEpisodeId } from "./artifact-names.ts";
+import { createRuntimeStorageFolder, isRuntimeStorageFolder, isChangeFolder, isSafeThreadId, isSlateArtifactReference, slateEpisodeId } from "./artifact-names.ts";
 import { createWritingReminderRuntime, type WritingReminderRuntime } from "./writing-reminder.ts";
 
 /**
@@ -194,6 +194,10 @@ export interface SlateSnapshot {
 	episodes: EpisodeRecord[];
 	/** Highest allocated generated thread ordinal. Absent snapshots derive it from records. */
 	threadSeq?: number;
+	/** Current visible workflow folder, if a change is open. */
+	currentChange?: string;
+	/** Read-only source folders inherited through forks. */
+	earlierChanges?: string[];
 	orchestratorMode: boolean;
 	paused: boolean;
 	workerCostUsd: number;
@@ -466,6 +470,19 @@ function observationRecord(value: unknown, episodeId: string): ObservationRecord
  * and every key here must come back, which is the same claim from the outside and needs
  * no type checker at all.
  */
+export const ADOPTED_SNAPSHOT_FIELDS = {
+	format: true,
+	threads: true,
+	episodes: true,
+	threadSeq: true,
+	currentChange: true,
+	earlierChanges: true,
+	orchestratorMode: true,
+	paused: true,
+	workerCostUsd: true,
+	carriedCostUsd: true,
+} satisfies Record<keyof Required<SlateSnapshot>, true>;
+
 export const ADOPTED_THREAD_FIELDS = {
 	id: true,
 	name: true,
@@ -806,6 +823,8 @@ export class SlateStore {
 	threads = new Map<string, ThreadRecord>();
 	episodes = new Map<string, EpisodeRecord>();
 	private threadSeq = 0;
+	currentChange?: string;
+	earlierChanges: string[] = [];
 	/** New on every session start. This name is not saved with the snapshot. */
 	runtimeFolder = createRuntimeStorageFolder();
 	startRuntime(): void { this.runtimeFolder = createRuntimeStorageFolder(); }
@@ -852,6 +871,7 @@ export class SlateStore {
 			threads: [...this.threads.values()],
 			episodes: [...this.episodes.values()],
 			threadSeq: this.threadSeq,
+			...(this.currentChange ? { currentChange: this.currentChange, earlierChanges: [...this.earlierChanges] } : {}),
 			orchestratorMode: this.orchestratorMode,
 			paused: this.paused,
 			workerCostUsd: this.workerCostUsd,
@@ -899,6 +919,8 @@ export class SlateStore {
 		this.threads.clear();
 		this.episodes.clear();
 		this.threadSeq = 0;
+		this.currentChange = undefined;
+		this.earlierChanges = [];
 		this.orchestratorMode = false;
 		this.paused = false;
 		this.workerCostUsd = 0;
@@ -912,6 +934,18 @@ export class SlateStore {
 		this.carriedCostUsd = latest.carriedCostUsd ?? 0;
 		this.threadSeq = counter(latest.threadSeq) ?? 0;
 		const dropped: string[] = [];
+		if (latest.currentChange !== undefined) {
+			if (isChangeFolder(latest.currentChange)) this.currentChange = latest.currentChange;
+			else dropped.push("change: ignoring invalid currentChange folder name");
+		}
+		if (latest.earlierChanges !== undefined) {
+			if (!Array.isArray(latest.earlierChanges)) dropped.push("change: ignoring invalid earlierChanges list");
+			else for (const source of latest.earlierChanges) {
+				if (isChangeFolder(source) && source !== this.currentChange && !this.earlierChanges.includes(source)) this.earlierChanges.push(source);
+				else dropped.push("change: ignoring invalid or duplicate earlier change folder name");
+			}
+		}
+		if (!this.currentChange) this.earlierChanges = [];
 		// EVERY record is validated field by field on the way in (BG26) — see
 		// sanitizeThreadRecord. Nothing downstream re-checks these types, so a snapshot
 		// that has been hand-edited, truncated or written by another version must be made

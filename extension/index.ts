@@ -34,6 +34,8 @@
  */
 
 import { join } from "node:path";
+import { createChangeFolder } from "./artifact-names.ts";
+import { createChangeDirectory } from "./slate-files.ts";
 import { getAgentDir, SettingsManager, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { loadConfig, permitsSlateConfig } from "./config.ts";
 import type { CompressorRetryPolicy } from "./logical-model-adapters.ts";
@@ -195,6 +197,26 @@ export default function (pi: ExtensionAPI) {
 	// between the restore handler above and registerSlateMode below.
 	// getConfig reads the CURRENT `manager` (reassigned on session_start).
 	const handoff = registerSlateHandoff(pi, store, () => manager.getConfig(), () => baseModel, () => logicalRuntime);
+
+	// Only Pi fork and clone create a new session identifier. Reload and /tree
+	// continue the saved change. This runs after restoration and handoff adoption.
+	pi.on("session_start", (event, ctx) => {
+		if (event.reason !== "fork" || !store.currentChange) return;
+		const source = store.currentChange; // already validated at the adoption boundary
+		try {
+			const next = createChangeFolder();
+			createChangeDirectory(ctx.cwd, next, source);
+			store.earlierChanges = [...store.earlierChanges, source];
+			store.currentChange = next;
+			store.save();
+		} catch (error) {
+			store.currentChange = undefined;
+			store.earlierChanges = [];
+			const message = `slate: fork could not create a change folder — ${error instanceof Error ? error.message : String(error)}. No change is open.`;
+			if (ctx.hasUI) ctx.ui.notify(message, "warning");
+			else console.warn(message);
+		}
+	});
 
 	// Orchestrator model failover (turn_end/agent_settled/input) — not
 	// order-critical relative to the handlers above (different trigger events).

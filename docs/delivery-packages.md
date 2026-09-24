@@ -130,7 +130,7 @@ recommendations** immediately before **Decision** when that field is enabled.
 
 ## Durable accounting
 
-The research log holds the complete working evidence behind each package. The
+The current change folder's research log holds the complete working evidence behind each package. The
 final delivery record holds the conclusions that must remain after local
 cleanup. It retains all check results and limits, the separate routine-review
 and user-requested-fix verdicts, every finding and disposition, user-note
@@ -158,7 +158,8 @@ final acceptance. Use this sequence:
    required accounting from the research log into the commit body as part of
    that commit creation.
 4. Verify that the commit body contains the required accounting. Only then
-   delete the research log and every implementer report.
+   close the current change with `slate_change close`. Keep its research log and
+   every implementer report. Only the user deletes the change folder.
 
 A publishing-disabled single-track change starts at step 2. A
 publishing-disabled multi-track change repeats step 1 for each track, then runs

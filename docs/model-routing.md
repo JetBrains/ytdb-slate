@@ -247,7 +247,7 @@ header, formatting, and every ordinary row after sanitation. Slate rejects a
 policy above 19,400 portable characters or 105 lines. Equality is accepted.
 Nothing is truncated. The error identifies a responsible model or field.
 Portable measurement removes each installed documentation-directory prefix and
-keeps each filename. The whole-doctrine verification ceiling of 25,800 portable
+keeps each filename. The whole-doctrine verification ceiling of 26,000 portable
 characters is separate. [context-budget.md](context-budget.md) publishes the
 current measured fixtures.
 

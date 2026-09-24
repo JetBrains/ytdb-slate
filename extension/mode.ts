@@ -15,8 +15,11 @@
  * machinery in handoff.ts (context budget → paused → fresh-session handoff).
  */
 
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, lstatSync, readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { Type } from "typebox";
+import { createChangeFolder } from "./artifact-names.ts";
+import { createChangeDirectory } from "./slate-files.ts";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { SlateHandoffHooks } from "./handoff.ts";
 import type { LogicalRuntime } from "./logical-model-runtime.ts";
@@ -71,7 +74,7 @@ import {
 } from "./writing.ts";
 import type { WorkerExtensionSet, WorkerExtensionUnit } from "./worker-extensions.ts";
 
-const ORCHESTRATOR_TOOLS = ["read", "grep", "find", "ls", "thread", "threads", "episode"];
+const ORCHESTRATOR_TOOLS = ["read", "grep", "find", "ls", "thread", "threads", "episode", "slate_change"];
 
 /**
  * Build the orchestrator doctrine. Rules 8–10 reference the package-shipped
@@ -257,6 +260,9 @@ function buildDoctrine(
 	trusted: boolean,
 	extensions: WorkerExtensionSet,
 	runtime: Readonly<LogicalRuntime> | undefined,
+	currentChange?: string,
+	earlierChanges: readonly string[] = [],
+	legacyLog = false,
 ): string {
 	// Rule 8 tail: draft publishing creates one umbrella pull request.
 	// Otherwise durable records live in the research log. The completion
@@ -270,8 +276,8 @@ function buildDoctrine(
    Only users merge. Follow ${PR_PUBLISHING_DOC}.`
 				: `Publish one umbrella draft PR for the change. Keep tracks mergeable.
    Only users merge. Mechanics: ${PR_PUBLISHING_DOC}.`
-			: `Durable workflow records anchor in the retained repo-root research
-   log per the workflow doc.`;
+			: `Durable workflow records belong in the current change folder. Follow
+   the workflow doc.`;
 	const routingRecommendationTail = routingRecommendations
 		? "\n   At change completion, follow Lifecycle's routing-recommendation rule before final acceptance."
 		: "";
@@ -285,6 +291,7 @@ function buildDoctrine(
    Project-specific review perspectives are defined in ${perspectives} —
    load them alongside the review rules when composing reviewers.`
 			: "";
+	const changePaths = `\n\nWorkflow documents: ${currentChange ? `current research log: slate-changes/${currentChange}/research-log.md; implementer reports: slate-changes/${currentChange}/track-<number>-implementer-report.md.` : "No change is open. Use slate_change start before workflow work."}${earlierChanges.map((name) => `\nRead-only earlier log: slate-changes/${name}/research-log.md.`).join("")}${legacyLog ? "\nRead-only earlier log: research-log.md (legacy root file)." : ""}`;
 	return `
 
 # Slate orchestrator mode
@@ -326,7 +333,7 @@ You orchestrate thread weaving. You strategize; workers execute. Rules:
    already in your context.${rule9Tail}${followUpTail}
 10. Design rationale: ${DESIGN_PRINCIPLES_DOC}. Read it only to explain or change
    slate, or for an unusual routing or compaction decision.
-   Never read it for routine dispatching. Skip the read if it is already in your context.${numberedTail([
+   Never read it for routine dispatching. Skip the read if it is already in your context.${changePaths}${numberedTail([
 		(n) => buildWorkerExtensionsRule(extensions, n),
 		(n) => (trusted ? buildLogicalModelRule(runtime, n) : ""),
 		// Append-only conditional tail. Writing guidance is active for every trusted
@@ -468,12 +475,45 @@ export function registerSlateMode(
 		uiCtx.ui.setWidget("slate", lines);
 	};
 
+	pi.registerTool({
+		name: "slate_change",
+		label: "Slate change",
+		description: "Start or close the current workflow change. Slate generates the folder name. Close deletes nothing. Orchestrator mode only.",
+		parameters: Type.Object({ action: Type.Union([Type.Literal("start"), Type.Literal("close")]) }),
+		async execute(_id, params, _signal, _update, ctx) {
+			if (!store.orchestratorMode) throw new Error("slate: change action requires orchestrator mode");
+			if (params.action === "close") {
+				if (!store.currentChange) throw new Error("slate: no change is open");
+				const old = store.currentChange;
+				const earlier = store.earlierChanges;
+				store.currentChange = undefined;
+				store.earlierChanges = [];
+				try { store.save(); } catch (error) {
+					store.currentChange = old;
+					store.earlierChanges = earlier;
+					throw error;
+				}
+				return { content: [{ type: "text" as const, text: `Closed ${old}. Files remain on disk.` }], details: { folder: old, action: "close" } };
+			}
+			if (store.currentChange) throw new Error("slate: close the current change before starting another");
+			const folder = createChangeFolder();
+			createChangeDirectory(ctx.cwd, folder);
+			store.currentChange = folder;
+			store.earlierChanges = [];
+			try { store.save(); } catch (error) {
+				store.currentChange = undefined;
+				throw error;
+			}
+			return { content: [{ type: "text" as const, text: `Started change. Research log: slate-changes/${folder}/research-log.md` }], details: { folder, action: "start" } };
+		},
+	});
+
 	const setMode = (on: boolean, persist: boolean) => {
 		if (on && !store.orchestratorMode) {
 			savedTools = pi.getActiveTools();
 			pi.setActiveTools(ORCHESTRATOR_TOOLS);
 		} else if (!on && store.orchestratorMode) {
-			pi.setActiveTools(savedTools ?? [...pi.getAllTools().map((t) => t.name)]);
+			pi.setActiveTools((savedTools ?? [...pi.getAllTools().map((t) => t.name)]).filter((name) => name !== "slate_change"));
 			savedTools = undefined;
 		}
 		if (!on) store.paused = false; // a pause is meaningless outside orchestrator mode
@@ -553,7 +593,10 @@ export function registerSlateMode(
 		// addendum goes LAST so the pause directive is the final word in the
 		// prompt, undiluted by the role guidelines.
 		const parts = [
-			buildDoctrine(ctx.cwd, config, trusted, getExtensions(), getRuntime()),
+			buildDoctrine(ctx.cwd, config, trusted, getExtensions(), getRuntime(), store.currentChange, store.earlierChanges, (() => {
+				try { const entry = lstatSync(join(ctx.cwd, "research-log.md")); return entry.isFile() && !entry.isSymbolicLink(); }
+				catch { return false; }
+			})()),
 			...loadDoctrineExtra(ctx.cwd, config, trusted).map((d) => `\n\n${d}`),
 			...docs.map((d) => `\n\n${d}`),
 		];
@@ -724,6 +767,10 @@ export function registerSlateMode(
 				return e.type === "message" || (e.type === "custom" && e.customType === "slate-state");
 			});
 			if (fresh) store.orchestratorMode = true;
+		}
+		if (!store.orchestratorMode) {
+			const active = pi.getActiveTools();
+			if (active.includes("slate_change")) pi.setActiveTools(active.filter((name) => name !== "slate_change"));
 		}
 		if (store.orchestratorMode) {
 			const active = pi.getActiveTools();

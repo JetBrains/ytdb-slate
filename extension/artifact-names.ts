@@ -11,18 +11,23 @@ export const SLATE_ARTIFACT_REFERENCE_MAX_BYTES = 240;
 const CONTROL_OR_PORTABLE_SEPARATOR = /[\u0000-\u001f\u007f-\u009f/\\<>:"|?*]/u;
 const EPISODE_SUFFIX = /\.e(0|[1-9]\d*)$/u;
 /** UTC creation time followed by 128 random bits. No user or Pi identifier enters a path. */
-const RUNTIME_FOLDER = /^runtime-\d{8}T\d{6}Z-[0-9a-f]{32}$/u;
+const STORAGE_FOLDER = /^(?:runtime|change)-\d{8}T\d{6}Z-[0-9a-f]{32}$/u;
 
-export function isRuntimeStorageFolder(value: unknown): value is string {
-	if (typeof value !== "string" || !RUNTIME_FOLDER.test(value)) return false;
-	const stamp = `${value.slice(8, 12)}-${value.slice(12, 14)}-${value.slice(14, 16)}T${value.slice(17, 19)}:${value.slice(19, 21)}:${value.slice(21, 23)}.000Z`;
+function isStorageFolder(value: unknown, prefix: "runtime" | "change"): value is string {
+	if (typeof value !== "string" || !STORAGE_FOLDER.test(value) || !value.startsWith(`${prefix}-`)) return false;
+	const stamp = `${value.slice(prefix.length + 1, prefix.length + 5)}-${value.slice(prefix.length + 5, prefix.length + 7)}-${value.slice(prefix.length + 7, prefix.length + 9)}T${value.slice(prefix.length + 10, prefix.length + 12)}:${value.slice(prefix.length + 12, prefix.length + 14)}:${value.slice(prefix.length + 14, prefix.length + 16)}.000Z`;
 	const parsed = new Date(stamp);
 	return !Number.isNaN(parsed.getTime()) && parsed.toISOString() === stamp;
 }
 
-export function createRuntimeStorageFolder(): string {
-	return `runtime-${new Date().toISOString().replace(/[-:]/gu, "").slice(0, 15)}Z-${randomBytes(16).toString("hex")}`;
+export function isRuntimeStorageFolder(value: unknown): value is string { return isStorageFolder(value, "runtime"); }
+export function isChangeFolder(value: unknown): value is string { return isStorageFolder(value, "change"); }
+
+function createStorageFolder(prefix: "runtime" | "change"): string {
+	return `${prefix}-${new Date().toISOString().replace(/[-:]/gu, "").slice(0, 15)}Z-${randomBytes(16).toString("hex")}`;
 }
+export function createRuntimeStorageFolder(): string { return createStorageFolder("runtime"); }
+export function createChangeFolder(): string { return createStorageFolder("change"); }
 
 function utf8Length(value: string): number {
 	return Buffer.byteLength(value, "utf8");

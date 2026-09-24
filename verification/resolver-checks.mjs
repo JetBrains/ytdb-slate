@@ -2594,15 +2594,16 @@ required gates, as defined in track-workflow.md § Delivery and termination.
 
 Draft publishing does not remove or move planning, design, focus approval,
 review, track-packet, user-note, blocking track-acceptance, final-acceptance,
-or finding-disposition requirements. Retain \`research-log.md\` and every
-implementer report until the whole change reaches delivery.`),
+or finding-disposition requirements. Retain the current change folder's
+research log and every implementer report through and after delivery. Only
+the user may delete the change folder.`),
 				},
 				{
 					id: "publishing-after-merge",
 					extract: regionUnit(/^## After the merge\n\n([\s\S]*?)(?=^Any cleanup)/gm),
-					expected: normalizeText(`After the user merges the umbrella pull request, complete the research-log
-delivery cleanup defined by track-workflow.md § Session handoff and the research
-log.`),
+					expected: normalizeText(`After the user merges the umbrella pull request, complete the change's
+delivery accounting. Then close the change under track-workflow.md § Session
+handoff and the research log. Keep its folder and reports.`),
 				},
 			];
 			const resolveTrackSizePublishing = (workflowSource = workflow, publishingSource = publishing) => [
@@ -2637,7 +2638,7 @@ log.`),
 				[workflow, publishing.replace("Each multi-track boundary uses a marker commit", "Each multi-track boundary uses a merged commit")],
 				[workflow, publishing.replace("After the user merges the umbrella pull request", "Before the user merges the umbrella pull request")],
 				[workflow, publishing.replace("Draft publishing does not remove or move planning", "Draft publishing may remove or move planning")],
-				[workflow, publishing.replace("Retain \`research-log.md\` and every\nimplementer report", "Delete \`research-log.md\` and every\nimplementer report")],
+				[workflow, publishing.replace("Retain the current change folder's\nresearch log and every implementer report", "Delete the current change folder's\nresearch log and every implementer report")],
 			].map(([workflowSource, publishingSource]) => ({
 				changed: workflowSource !== workflow || publishingSource !== publishing,
 				accepted: resolveTrackSizePublishing(workflowSource, publishingSource).every((unit) => unit.count === 1 && unit.text === unit.expected),
