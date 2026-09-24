@@ -65,11 +65,15 @@ function extensionContext(cwd: string, warnings: string[] = [], trusted = true):
   } as unknown as ExtensionContext;
 }
 
-async function renderDoctrine(runtime: Readonly<LogicalRuntime> | null = createLogicalRuntime({ trusted: true }), config: SlateConfig = {}, trusted = true, paused = false, model?: { provider: string; id: string }, extensions = EMPTY_WORKER_EXTENSION_SET): Promise<string> {
+async function renderDoctrine(runtime: Readonly<LogicalRuntime> | null = createLogicalRuntime({ trusted: true }), config: SlateConfig = {}, trusted = true, paused = false, model?: { provider: string; id: string }, extensions = EMPTY_WORKER_EXTENSION_SET, change?: { current: string; source: string; legacy: boolean }): Promise<string> {
   const api = new FakeExtensionApi();
   const store = new SlateStore(api as unknown as ExtensionAPI);
   store.orchestratorMode = true;
   store.paused = paused;
+  if (change) {
+    store.currentChange = change.current;
+    store.sourceChange = change.source;
+  }
   registerSlateMode(
     api as unknown as ExtensionAPI,
     store,
@@ -83,7 +87,12 @@ async function renderDoctrine(runtime: Readonly<LogicalRuntime> | null = createL
   );
   const handler = api.handlers.get("before_agent_start")?.[0];
   assert.ok(handler);
-  const context = extensionContext(scratch, [], trusted);
+  const cwd = change?.legacy ? join(scratch, "legacy-case") : scratch;
+  if (change?.legacy) {
+    mkdirSync(cwd, { recursive: true });
+    writeFileSync(join(cwd, "research-log.md"), "read-only legacy input");
+  }
+  const context = extensionContext(cwd, [], trusted);
   context.model = model as never;
   const result = await handler({ systemPrompt: "BASE" }, context) as { systemPrompt: string };
   assert.ok(result.systemPrompt.startsWith("BASE"));
@@ -114,9 +123,15 @@ test("logical doctrine production renders match published portable measurements"
   ], paths: [], toolNames: [] };
   const metric = (text: string) => ({ portable: text.split(docsDirectory).join("").length, lines: text.split("\n").length, paths: text.split(docsDirectory).length - 1 });
   assert.deepEqual(metric(runtime.promptText()!), { portable: 3892, lines: 11, paths: 0 });
-  assert.deepEqual(metric(await renderDoctrine(runtime)), { portable: 8694, lines: 84, paths: 5 });
-  assert.deepEqual(metric(await renderDoctrine(runtime, {}, false)), { portable: 2705, lines: 43, paths: 4 });
-  assert.deepEqual(metric(await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped)), { portable: 10231, lines: 96, paths: 6 });
+  assert.deepEqual(metric(await renderDoctrine(runtime)), { portable: 8683, lines: 85, paths: 5 });
+  assert.deepEqual(metric(await renderDoctrine(runtime, {}, false)), { portable: 2694, lines: 44, paths: 4 });
+  assert.deepEqual(metric(await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped)), { portable: 10272, lines: 98, paths: 6 });
+  const change = { current: `change-20260101T000000Z-${"a".repeat(32)}`, source: `change-20260101T000001Z-${"b".repeat(32)}`, legacy: true };
+  const linked = await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped, change);
+  assert.deepEqual(metric(linked), { portable: 10700, lines: 101, paths: 6 });
+  assert.ok(metric(linked).portable * 1.05 < 26300);
+  assert.match(linked, /Follow each log's first entry to read the full source chain and accounting/);
+  assert.match(linked, /Read-only legacy root log: research-log.md/);
 });
 
 test("blocked logical policy renders a visible doctrine refusal", { timeout: 5000 }, async () => {
@@ -362,7 +377,7 @@ test("doctrine states research-log, packet, and reviewer rules", { timeout: 5000
 
 test("rule 8 renders exact feature-off and enabled publishing tails", { timeout: 5000 }, async () => {
   const local = (await renderDoctrine()).replace(/\s+/g, " ");
-  assert.ok(local.includes("Durable workflow records anchor in the retained repo-root research log per the workflow doc."));
+  assert.ok(local.includes("Keep workflow records in the change folder."));
   assert.doesNotMatch(local, /repo-root workflow log/);
   assert.equal(local.includes(PR_PUBLISHING_DOC), false);
   assert.doesNotMatch(local, /Publish one umbrella draft PR/);
@@ -384,7 +399,7 @@ test("routing-recommendation doctrine is trusted, opt-in, and feature-off inert"
   const enabled = await renderDoctrine(undefined, { workflow: { routingRecommendations: true } });
   assert.equal(disabled, absent);
   assert.ok(enabled.includes(pointer));
-  assert.ok(enabled.replace(/\s+/g, " ").includes("Durable workflow records anchor in the retained repo-root research log"));
+  assert.ok(enabled.replace(/\s+/g, " ").includes("Keep workflow records in the change folder"));
 
   const untrustedAbsent = await renderDoctrine(undefined, {}, false);
   const untrustedEnabled = await renderDoctrine(undefined, { workflow: { routingRecommendations: true } }, false);

@@ -34,6 +34,8 @@
  */
 
 import { join } from "node:path";
+import { createChangeFolder } from "./artifact-names.ts";
+import { createChangeDirectory } from "./slate-files.ts";
 import { getAgentDir, SettingsManager, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { loadConfig, permitsSlateConfig } from "./config.ts";
 import type { CompressorRetryPolicy } from "./logical-model-adapters.ts";
@@ -190,11 +192,38 @@ export default function (pi: ExtensionAPI) {
 		await manager.disposeAll();
 	});
 
-	// session_start ordering (registration order): restore → adopt successor
-	// session entry if no saved state → re-apply mode tools. registerSlateHandoff must therefore sit
-	// between the restore handler above and registerSlateMode below.
+	// session_start ordering: restore → adopt successor → reconcile change owner
+	// → re-apply mode tools. Handoff must adopt before ownership is checked.
 	// getConfig reads the CURRENT `manager` (reassigned on session_start).
 	const handoff = registerSlateHandoff(pi, store, () => manager.getConfig(), () => baseModel, () => logicalRuntime);
+
+	// Ownership is tied to Pi's session identifier, not the startup reason.
+	// /tree can select a copied parent entry after a successful fork. On reload
+	// that entry still belongs to the parent and must never become writable here.
+	pi.on("session_start", (_event, ctx) => {
+		if (!store.currentChange || store.changeOwnerSessionId === ctx.sessionManager.getSessionId()) return;
+		const source = store.currentChange; // validated during restore or handoff adoption
+		try {
+			const next = createChangeFolder();
+			createChangeDirectory(ctx.cwd, next, source);
+			store.currentChange = next;
+			store.sourceChange = source;
+			store.changeOwnerSessionId = ctx.sessionManager.getSessionId();
+			store.save();
+		} catch (error) {
+			store.currentChange = undefined;
+			store.sourceChange = undefined;
+			store.changeOwnerSessionId = undefined;
+			const message = `slate: could not create an owned change folder — ${error instanceof Error ? error.message : String(error)}. No change is open.`;
+			if (ctx.hasUI) ctx.ui.notify(message, "warning");
+			else console.warn(message);
+			try { store.save(); } catch (saveError) {
+				const warning = `slate: could not persist the closed change after allocation failed — ${saveError instanceof Error ? saveError.message : String(saveError)}. Reload may retry allocation.`;
+				if (ctx.hasUI) ctx.ui.notify(warning, "warning");
+				else console.warn(warning);
+			}
+		}
+	});
 
 	// Orchestrator model failover (turn_end/agent_settled/input) — not
 	// order-critical relative to the handlers above (different trigger events).

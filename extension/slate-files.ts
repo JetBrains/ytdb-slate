@@ -24,6 +24,7 @@ import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 import {
 	createRuntimeStorageFolder,
 	isRuntimeStorageFolder,
+	isChangeFolder,
 	isSlateArtifactId,
 	isSlateArtifactReference,
 	slateArtifactReference,
@@ -79,7 +80,34 @@ function ensureRealDirectory(path: string): void {
 	if (!entry?.isDirectory()) refuse(`slate refused an artifact directory because that path is not a directory`);
 }
 
-/** Create and verify every artifact parent component. */
+/** Create and verify the visible workflow folder and its first log entry. */
+export function createChangeDirectory(cwd: string, folder: string, source?: string): string {
+	if (!isChangeFolder(folder) || (source !== undefined && !isChangeFolder(source))) refuse("slate refused an invalid change folder name");
+	const root = realpathSync(cwd);
+	const parent = join(root, "slate-changes");
+	ensureRealDirectory(parent);
+	if (realpathSync(parent) !== parent) refuse("slate refused a change directory because its path changed");
+	const dir = join(parent, folder);
+	// Never claim an existing name, including a link or a competing new folder.
+	mkdirSync(dir);
+	ensureRealDirectory(dir);
+	if (realpathSync(dir) !== dir) refuse("slate refused a change directory because its path changed");
+	// The fork's first entry is a reference, not a copy of the source log.
+	const text = source === undefined ? "# Research log\n" : `Read-only earlier log: slate-changes/${source}/research-log.md\n`;
+	const fd = openSync(join(dir, "research-log.md"), constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | NO_FOLLOW);
+	try {
+		const bytes = Buffer.from(text);
+		let offset = 0;
+		while (offset < bytes.length) {
+			const written = writeSync(fd, bytes, offset, bytes.length - offset);
+			if (written <= 0) throw new Error("slate change log write made no progress");
+			offset += written;
+		}
+	} finally { closeSync(fd); }
+	return dir;
+}
+
+/** Create and verify every runtime artifact parent component. */
 export function ensureRuntimeDirectory(cwd: string, folder: string, kind: SlateArtifactKind | "threads"): string {
 	if (!isRuntimeStorageFolder(folder)) refuse("slate refused an invalid runtime storage folder name");
 	const root = realpathSync(cwd);

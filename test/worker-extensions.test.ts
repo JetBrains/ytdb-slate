@@ -380,5 +380,5 @@ test("the slate package-name constant matches the package manifest", () => {
 test("the collision fallback pins slate's complete tool-name set", () => {
 	// pi keeps the first tool registration. Every current slate tool must collide
 	// so an unreadable duplicate contributes no worker candidate through that rule.
-	assert.deepEqual(SLATE_TOOL_NAMES, ["thread", "threads", "episode"]);
+	assert.deepEqual(SLATE_TOOL_NAMES, ["thread", "threads", "episode", "slate_change"]);
 });

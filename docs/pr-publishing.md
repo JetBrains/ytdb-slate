@@ -17,8 +17,9 @@ required gates, as defined in track-workflow.md § Delivery and termination.
 
 Draft publishing does not remove or move planning, design, focus approval,
 review, track-packet, user-note, blocking track-acceptance, final-acceptance,
-or finding-disposition requirements. Retain `research-log.md` and every
-implementer report until the whole change reaches delivery.
+or finding-disposition requirements. Retain the current change folder's
+research log and every implementer report through and after delivery. Only
+the user may delete the change folder.
 <!-- umbrella-publishing-policy:end -->
 
 ## Creation
@@ -88,8 +89,8 @@ Subsections activate when their content exists:
   carries its identifier, location, and one-line summary.
 - **Delivery accounting** — the conclusions that
   [delivery-packages.md](delivery-packages.md) § Durable accounting requires.
-  Update this subsection from the research log before each package. Keep private
-  reasoning and private data out of it.
+  Update this subsection from the current research log and its source chain
+  before each package. Keep private reasoning and private data out of it.
 - **Verification approach** — 1–2 lines.
 
 "Deep enough" test: a reviewer who knows the codebase but not this
@@ -140,7 +141,8 @@ Keep the title and description synchronized with what is actually pushed.
 Update a track's table row when its marker commit lands. Append post-design
 decisions as they are made. Revise Planned changes whenever reality diverges
 from it. Before each track or change package, copy the required delivery
-accounting from the research log into the description. A stale description fails the "deep enough" test.
+accounting from the current research log and its source chain into the
+description. A stale description fails the "deep enough" test.
 
 ## Ready-for-review flip
 
@@ -203,9 +205,11 @@ supplies final change acceptance.
 
 ## After the merge
 
-After the user merges the umbrella pull request, complete the research-log
-delivery cleanup defined by track-workflow.md § Session handoff and the research
-log.
+After the user merges the umbrella pull request, complete the change's
+delivery accounting. Then close the change under track-workflow.md § Session
+handoff and the research log. Abandonment at any stage also ends with
+`slate_change close`, even if no delivery artifact exists. Closing deletes
+nothing. Keep its folder and reports.
 
 Any cleanup a layered peer-review process requires, such as closing its review
 pull requests or deleting its pinned branches, is an agent duty. Execute it when

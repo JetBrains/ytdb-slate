@@ -172,15 +172,15 @@ A single-track change uses the combined package defined in
 multi-track change uses the separate change package defined in that document.
 Package preparation does not delay or replace the feedback triggers above.
 
-Before final acceptance, the research log provides full accounting for the
-current work. The transfer defined in
+Before final acceptance, the current research log and its read-only source
+chain provide full accounting for the current work. The transfer defined in
 [delivery-packages.md](delivery-packages.md) § Durable accounting follows the
 reachable record lifecycle. Draft publishing copies the required conclusions to
 the pull-request description before each package. Without draft publishing,
-intermediate and final-acceptance packages use the retained research log as the
-current accounting source. After final acceptance, commit creation copies the
-required conclusions into the final squashed commit body. Cleanup waits for
-verification of that body. The accounting covers:
+intermediate and final-acceptance packages use the current research log and
+its source chain as the accounting source. After final acceptance, commit
+creation copies the required conclusions into the final squashed commit body.
+Cleanup waits for verification of that body. The accounting covers:
 
 - every finding and its disposition.
 - every user note, acknowledgement, route, blocking reading and disposition.

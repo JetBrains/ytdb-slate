@@ -84,6 +84,7 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 		],
 		parameters: Type.Object({
 			name: Type.Optional(Type.String({ description: "Short name for a NEW thread (e.g. \"recon\")" })),
+			trackNumber: Type.Optional(Type.Integer({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER, description: "Required for an implementer on an open change. The exact report track number." })),
 			type: Type.Union(THREAD_TYPES.map((value) => Type.Literal(value)), {
 				description: THREAD_TYPE_PARAMETER_DESCRIPTION,
 			}),
@@ -113,6 +114,10 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 				throw new Error('The "effort" field was removed. Select a logical model. Its policy fixes the effort.');
 			}
 			const type = parseThreadType(params.type, true);
+			if (type === "implementer" && store.currentChange &&
+				(!Number.isSafeInteger(params.trackNumber) || (params.trackNumber ?? 0) < 1)) {
+				throw new Error("An implementer on an open change requires a positive safe trackNumber for its report.");
+			}
 			const displayedType = (threadId: string) => displayThreadType(store.threads.get(threadId)?.type ?? type);
 			const onProgress = (p: DispatchProgress) => {
 				onUpdate?.({
@@ -133,11 +138,17 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 				});
 			};
 
+			const reportTask = params.type === "implementer" && store.currentChange
+				? `${params.task}\n\nImplementer report: slate-changes/${store.currentChange}/track-${params.trackNumber}-implementer-report.md. Create without following a symbolic link.` +
+					(store.sourceChange
+						? ` If the source folder has this track's report, continue it in this new report and name slate-changes/${store.sourceChange}/track-${params.trackNumber}-implementer-report.md as read-only in the new report's first entry. Do not edit the source report.`
+						: "")
+				: params.task;
 			const result = await getManager().dispatch(
 				{
 					name: params.name,
 					type,
-					task: params.task,
+					task: reportTask,
 					contextEpisodeIds: params.context,
 					model: params.model,
 					reason: params.reason,

@@ -107,10 +107,10 @@ test("thread tool enforces the creation type and publishes the closed vocabulary
   assert.equal(routeProperties.reason?.type, "string");
   assert.equal(routeProperties.reason?.maxLength, 200);
   assert.equal(descriptionBytes, 973, "thread description byte budget changed; update docs/context-budget.md in the same commit");
-  assert.equal(parameterSchemaBytes, 1_158, "thread parameter schema byte budget changed; update docs/context-budget.md in the same commit");
+  assert.equal(parameterSchemaBytes, 1_324, "thread parameter schema byte budget changed; update docs/context-budget.md in the same commit");
   assert.equal(
     descriptionBytes + parameterSchemaBytes,
-    2_131,
+    2_297,
     "thread combined byte budget changed; update docs/context-budget.md in the same commit",
   );
 

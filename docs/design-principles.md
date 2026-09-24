@@ -149,7 +149,7 @@ or two problems for the others:
   [context-budget.md](context-budget.md).
 
 - **P11 — Proportional process.** *(Repo-local note, not from the report.)*
-  The research log is the sole permitted unconditional-artifact exception for
+  The current change folder's research log is the sole permitted unconditional-artifact exception for
   authors of future rules. Every other future rule that adds process cost names
   the condition that engages it. The condition is a proved focus area, an
   artifact whose own existence a proved focus area decides, or specific
@@ -163,7 +163,8 @@ evidence appears in every track, in which case the rule is unconditional.
 Prompt text and output quality floors are not process steps, and a published
 size budget governs them instead. P11 constrains the authors of future rules.
 It does not remove or condition current required artifacts, including the
-per-track implementer report.
+per-track implementer report. Closing a change keeps its folder and records.
+Only the user deletes that folder.
 
 P11 also governs user interaction. Questions follow unresolved decisions, not
 the number of workflow steps, records, or tracks. Applicable evidence and prior

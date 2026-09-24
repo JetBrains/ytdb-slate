@@ -18,7 +18,7 @@ import type { ObservationRecord } from "./observations.ts";
 // its own config shape and sanitizer, and this import is erased at load time.
 import type { RequestThrottleConfig, SanitizedRequestThrottle } from "./request-throttle.ts";
 import { sanitizeForNotify } from "./notify.ts";
-import { createRuntimeStorageFolder, isRuntimeStorageFolder, isSafeThreadId, isSlateArtifactReference, slateEpisodeId } from "./artifact-names.ts";
+import { createRuntimeStorageFolder, isRuntimeStorageFolder, isChangeFolder, isSafeThreadId, isSlateArtifactReference, slateEpisodeId } from "./artifact-names.ts";
 import { createWritingReminderRuntime, type WritingReminderRuntime } from "./writing-reminder.ts";
 
 /**
@@ -194,6 +194,12 @@ export interface SlateSnapshot {
 	episodes: EpisodeRecord[];
 	/** Highest allocated generated thread ordinal. Absent snapshots derive it from records. */
 	threadSeq?: number;
+	/** Current visible workflow folder, if a change is open. */
+	currentChange?: string;
+	/** Session that may write to the current change. */
+	changeOwnerSessionId?: string;
+	/** Direct read-only source folder. Its own first log entry links to its source. */
+	sourceChange?: string;
 	orchestratorMode: boolean;
 	paused: boolean;
 	workerCostUsd: number;
@@ -466,6 +472,20 @@ function observationRecord(value: unknown, episodeId: string): ObservationRecord
  * and every key here must come back, which is the same claim from the outside and needs
  * no type checker at all.
  */
+export const ADOPTED_SNAPSHOT_FIELDS = {
+	format: true,
+	threads: true,
+	episodes: true,
+	threadSeq: true,
+	currentChange: true,
+	changeOwnerSessionId: true,
+	sourceChange: true,
+	orchestratorMode: true,
+	paused: true,
+	workerCostUsd: true,
+	carriedCostUsd: true,
+} satisfies Record<keyof Required<SlateSnapshot>, true>;
+
 export const ADOPTED_THREAD_FIELDS = {
 	id: true,
 	name: true,
@@ -806,6 +826,9 @@ export class SlateStore {
 	threads = new Map<string, ThreadRecord>();
 	episodes = new Map<string, EpisodeRecord>();
 	private threadSeq = 0;
+	currentChange?: string;
+	changeOwnerSessionId?: string;
+	sourceChange?: string;
 	/** New on every session start. This name is not saved with the snapshot. */
 	runtimeFolder = createRuntimeStorageFolder();
 	startRuntime(): void { this.runtimeFolder = createRuntimeStorageFolder(); }
@@ -852,6 +875,7 @@ export class SlateStore {
 			threads: [...this.threads.values()],
 			episodes: [...this.episodes.values()],
 			threadSeq: this.threadSeq,
+			...(this.currentChange ? { currentChange: this.currentChange, changeOwnerSessionId: this.changeOwnerSessionId, sourceChange: this.sourceChange } : {}),
 			orchestratorMode: this.orchestratorMode,
 			paused: this.paused,
 			workerCostUsd: this.workerCostUsd,
@@ -899,6 +923,9 @@ export class SlateStore {
 		this.threads.clear();
 		this.episodes.clear();
 		this.threadSeq = 0;
+		this.currentChange = undefined;
+		this.changeOwnerSessionId = undefined;
+		this.sourceChange = undefined;
 		this.orchestratorMode = false;
 		this.paused = false;
 		this.workerCostUsd = 0;
@@ -912,6 +939,23 @@ export class SlateStore {
 		this.carriedCostUsd = latest.carriedCostUsd ?? 0;
 		this.threadSeq = counter(latest.threadSeq) ?? 0;
 		const dropped: string[] = [];
+		if (latest.currentChange !== undefined) {
+			if (isChangeFolder(latest.currentChange)) this.currentChange = latest.currentChange;
+			else dropped.push("change: ignoring invalid currentChange folder name");
+		}
+		if (latest.sourceChange !== undefined) {
+			if (isChangeFolder(latest.sourceChange) && latest.sourceChange !== this.currentChange) this.sourceChange = latest.sourceChange;
+			else dropped.push("change: ignoring invalid sourceChange folder name");
+		}
+		if (latest.changeOwnerSessionId !== undefined) {
+			if (typeof latest.changeOwnerSessionId === "string" && latest.changeOwnerSessionId.length > 0) this.changeOwnerSessionId = latest.changeOwnerSessionId;
+			else dropped.push("change: ignoring invalid changeOwnerSessionId");
+		}
+		if (!this.currentChange) {
+			if (this.sourceChange) dropped.push("change: ignoring sourceChange without a current change");
+			this.sourceChange = undefined;
+			this.changeOwnerSessionId = undefined;
+		}
 		// EVERY record is validated field by field on the way in (BG26) — see
 		// sanitizeThreadRecord. Nothing downstream re-checks these types, so a snapshot
 		// that has been hand-edited, truncated or written by another version must be made
@@ -959,8 +1003,10 @@ export class SlateStore {
 				dropped.push(`thread ${thread.id}: its episode did not survive restoration`);
 			}
 		}
-		if (dropped.length > 0 && ctx.hasUI) {
-			ctx.ui.notify(`slate: dropped or repaired stale records:\n${dropped.join("\n")}`, "warning");
+		if (dropped.length > 0) {
+			const message = `slate: dropped or repaired stale records:\n${dropped.join("\n")}`;
+			if (ctx.hasUI) ctx.ui.notify(message, "warning");
+			else console.warn(message);
 		}
 		this.onDidChange?.();
 	}

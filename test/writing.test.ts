@@ -302,6 +302,7 @@ test("mode measures at message end, retries loading, and advances turn cadence",
   const pi = {
     on(event: string, handler: (event: any, ctx: ExtensionContext) => unknown) { const list = handlers.get(event) ?? []; list.push(handler); handlers.set(event, list); },
     registerCommand(name: string, spec: { handler: (args: string, ctx: ExtensionContext) => Promise<void> }) { commands.set(name, spec); },
+    registerTool() {},
     getActiveTools: () => [], setActiveTools() {}, getAllTools: () => [],
     sendMessage(message: unknown, options: unknown) { sent.push([message, options]); },
   } as unknown as ExtensionAPI;

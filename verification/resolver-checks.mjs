@@ -48,7 +48,7 @@ const DOCTRINE_LIMITS = Object.freeze({
 	writingAndDesignChars: 5600,
 	writingPlusExtensionsChars: 6000,
 	allTailsChars: 24600,
-	maximalChars: 25800,
+	maximalChars: 26300,
 	cappedWorkerRuleChars: 1600,
 	writingRuleChars: 1500,
 	writingRuleLines: 25,
@@ -208,6 +208,7 @@ function writingStatusFixture({ writing = true, writingConfig, trusted = true, o
 	const pi = {
 		on: (event, handler) => { (handlers[event] ??= []).push(handler); },
 		registerCommand: () => {},
+		registerTool: () => {},
 		getActiveTools: () => [],
 		setActiveTools: () => {},
 		getAllTools: () => [],
@@ -290,11 +291,12 @@ function mkpkg(name, entries, files) {
 // Drive the doctrine builder the way index.ts does — through registerSlateMode's
 // before_agent_start handler — with a fixed (empty) config and an untrusted
 // project, so only the worker-extension rule varies between calls.
-async function doctrine(extSet, getRouter, trusted = false, config = {}) {
+async function doctrine(extSet, getRouter, trusted = false, config = {}, change = {}) {
 	const handlers = {};
 	const pi = {
 		on: (e, h) => (handlers[e] = h),
 		registerCommand: () => {},
+		registerTool: () => {},
 		getActiveTools: () => [],
 		setActiveTools: () => {},
 		getAllTools: () => [],
@@ -305,6 +307,8 @@ async function doctrine(extSet, getRouter, trusted = false, config = {}) {
 		threads: new Map(),
 		workerCostUsd: 0,
 		carriedCostUsd: 0,
+		currentChange: change.currentChange,
+		sourceChange: change.sourceChange,
 		save() {},
 		set onDidChange(_v) {},
 	};
@@ -315,7 +319,13 @@ async function doctrine(extSet, getRouter, trusted = false, config = {}) {
 	mode.registerSlateMode(...args);
 	// Trust defaults to false. Doctrine checks pass true only when they exercise
 	// trusted project policy and its trusted-only tail rules.
-	const ctx = { cwd: REPO, isProjectTrusted: () => trusted, mode: "print", hasUI: false };
+	// Use an isolated project without a legacy root log for reproducible size pins.
+	const legacyProject = join(WORK, "doctrine-legacy-fixture");
+	if (change.legacyLog) {
+		mkdirSync(legacyProject, { recursive: true });
+		writeFileSync(join(legacyProject, "research-log.md"), "legacy input");
+	}
+	const ctx = { cwd: change.legacyLog ? legacyProject : WORK, isProjectTrusted: () => trusted, mode: "print", hasUI: false };
 	const res = await handlers.before_agent_start({ systemPrompt: "" }, ctx);
 	return res.systemPrompt;
 }
@@ -1273,7 +1283,7 @@ try {
 			const handoffHandlers = {};
 			const handoffPi = {
 				on: (event, handler) => { (handoffHandlers[event] ??= []).push(handler); },
-				sendMessage() {}, registerCommand() {}, getActiveTools: () => [], setActiveTools() {}, getAllTools: () => [],
+				sendMessage() {}, registerCommand() {}, registerTool() {}, getActiveTools: () => [], setActiveTools() {}, getAllTools: () => [],
 			};
 			const realHooks = handoff.registerSlateHandoff(handoffPi, adoptedStore, () => ({ writing: { check: true, remind: true } }), () => ({}));
 			mode.registerSlateMode(handoffPi, adoptedStore, realHooks, () => ({ writing: { check: true, remind: true } }), () => ({ units: [] }));
@@ -1348,6 +1358,8 @@ try {
 			{ path: "/fixture/search", source: "npm:pi-web-search@1.6.0", isDirectory: true, tools: [{ name: "web_search", description: "Search the web and return cited results." }, { name: "web_fetch", description: "Fetch one web page and return readable content." }] },
 		], paths: [], toolNames: [] };
 		const dogRuntime = logicalRuntime.createLogicalRuntime({ trusted: true, projectConfig: dogConfig, documentationDirectory: docsDirectory });
+		const openChange = { currentChange: `change-20260101T000000Z-${"a".repeat(32)}` };
+		const linkedChange = { ...openChange, sourceChange: `change-20260101T000001Z-${"b".repeat(32)}`, legacyLog: true };
 		const rendered = {
 			prompt: metrics(activeRuntime.promptText()),
 			trusted: metrics(await doctrineFor()),
@@ -1361,16 +1373,19 @@ try {
 			draftRouting: metrics(await doctrine(capped, () => activeRuntime, true, { workflow: { draftPRs: true, routingRecommendations: true } })),
 			followUpRouting: metrics(await doctrine(capped, () => activeRuntime, true, { workflow: { followUpIssues: true, routingRecommendations: true } })),
 			maximal: metrics(await doctrine(capped, () => activeRuntime, true, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } })),
+			maximalOpen: metrics(await doctrine(capped, () => activeRuntime, true, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, openChange)),
+			maximalLinked: metrics(await doctrine(capped, () => activeRuntime, true, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, linkedChange)),
 			dogfood: metrics(await doctrine(dogExtensions, () => dogRuntime, true, dogConfig)),
 		};
 		const exact = {
-			prompt: { portable: 3892, lines: 11, paths: 0 }, trusted: { portable: 8694, lines: 84, paths: 5 },
-			untrusted: { portable: 2705, lines: 43, paths: 4 }, draft: { portable: 8717, lines: 84, paths: 6 },
-			extensions: { portable: 10041, lines: 94, paths: 5 }, allTails: { portable: 10064, lines: 94, paths: 6 },
-			followUp: { portable: 10115, lines: 95, paths: 5 }, routing: { portable: 10138, lines: 95, paths: 5 },
-			draftFollowUp: { portable: 10138, lines: 95, paths: 6 }, draftRouting: { portable: 10157, lines: 95, paths: 6 },
-			followUpRouting: { portable: 10212, lines: 96, paths: 5 }, maximal: { portable: 10231, lines: 96, paths: 6 },
-			dogfood: { portable: 9356, lines: 95, paths: 6 },
+			prompt: { portable: 3892, lines: 11, paths: 0 }, trusted: { portable: 8683, lines: 85, paths: 5 },
+			untrusted: { portable: 2694, lines: 44, paths: 4 }, draft: { portable: 8758, lines: 86, paths: 6 },
+			extensions: { portable: 10030, lines: 95, paths: 5 }, allTails: { portable: 10105, lines: 96, paths: 6 },
+			followUp: { portable: 10104, lines: 96, paths: 5 }, routing: { portable: 10127, lines: 96, paths: 5 },
+			draftFollowUp: { portable: 10179, lines: 97, paths: 6 }, draftRouting: { portable: 10198, lines: 97, paths: 6 },
+			followUpRouting: { portable: 10201, lines: 97, paths: 5 }, maximal: { portable: 10272, lines: 98, paths: 6 },
+			maximalOpen: { portable: 10470, lines: 99, paths: 6 }, maximalLinked: { portable: 10700, lines: 101, paths: 6 },
+			dogfood: { portable: 9397, lines: 97, paths: 6 },
 		};
 		const doctrineBaselines = Object.values(rendered);
 		checkAll("doctrine-budget", "exact production renders match published portable baselines and every current baseline keeps five-percent reserve", [
@@ -1394,22 +1409,27 @@ try {
 		const lineRuntime = (count) => logicalRuntime.createLogicalRuntime({ trusted: true, documentationDirectory: docsDirectory, projectConfig: { router: { models: { add: Array.from({ length: count }, (_, i) => ({ model: `m${i}`, capabilityRating: 1, effort: "off", costRating: 1, preferredProvider: "p", providers: { p: `m${i}` }, guidelines: [], cautions: [] })) } } } });
 		const atLines = lineRuntime(94);
 		const aboveLines = lineRuntime(95);
-		const featureOffDraft = await doctrine(capped, () => atChars, true, { workflow: { draftPRs: true } });
-		const featureOffTight = await doctrine(capped, () => atChars, true, { workflow: { draftPRs: true, followUpIssues: true } });
-		const routingWithoutDrafts = await doctrine(capped, () => atChars, true, { workflow: { routingRecommendations: true } });
-		const routingWithFollowUp = await doctrine(capped, () => atChars, true, { workflow: { followUpIssues: true, routingRecommendations: true } });
-		const routing = await doctrine(capped, () => atChars, true, { workflow: { draftPRs: true, routingRecommendations: true } });
-		const deferred = await doctrine(capped, () => atChars, true, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } });
+		const change = { currentChange: `change-20260101T000000Z-${"a".repeat(32)}`, sourceChange: `change-20260101T000001Z-${"b".repeat(32)}`, legacyLog: true };
+		const featureOffDraft = await doctrine(capped, () => atChars, true, { workflow: { draftPRs: true } }, change);
+		const featureOffTight = await doctrine(capped, () => atChars, true, { workflow: { draftPRs: true, followUpIssues: true } }, change);
+		const routingWithoutDrafts = await doctrine(capped, () => atChars, true, { workflow: { routingRecommendations: true } }, change);
+		const routingWithFollowUp = await doctrine(capped, () => atChars, true, { workflow: { followUpIssues: true, routingRecommendations: true } }, change);
+		const routing = await doctrine(capped, () => atChars, true, { workflow: { draftPRs: true, routingRecommendations: true } }, change);
+		const deferred = await doctrine(capped, () => atChars, true, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, change);
 		const overExtensions = { units: [{ path: "/fixture/over", source: "z".repeat(128), isDirectory: true, tools: Array.from({ length: 88 }, (_, i) => ({ name: (`t${i}`).padEnd(64, "x"), description: "q".repeat(140) })) }], paths: [], toolNames: [] };
-		const over = await doctrine(overExtensions, () => activeRuntime, true, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } });
+		const over = await doctrine(overExtensions, () => activeRuntime, true, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, change);
 		const portable = (text) => text.split(docsDirectory).join("").length;
+		const wholeAt = await doctrine({ ...capped, units: [...capped.units, { path: "/fixture/c", source: "c".repeat(86), isDirectory: true, tools: [] }] }, () => atChars, true, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, change);
+		const wholeAbove = await doctrine({ ...capped, units: [...capped.units, { path: "/fixture/c", source: "c".repeat(87), isDirectory: true, tools: [] }] }, () => atChars, true, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, change);
 		checkAll("doctrine-budget-boundaries", "runtime equality, first-over-limit rejection, maximum composition, and valid-router doctrine growth remain discriminatory", [
 			["19,400 accepted", atChars.promptText().length === 19400 && atChars.criticalErrors.length === 0, { length: atChars.promptText()?.length, errors: atChars.criticalErrors }],
 			["19,401 rejected", aboveChars.promptText() === undefined && aboveChars.criticalErrors.some((x) => /19401 portable characters/.test(x)), aboveChars.criticalErrors],
 			["105 lines accepted", atLines.promptText()?.split("\n").length === 105, atLines.criticalErrors],
 			["106 lines rejected", aboveLines.promptText() === undefined && aboveLines.criticalErrors.some((x) => /106 lines/.test(x)), aboveLines.criticalErrors],
-			["boundary compositions stay exact and below whole-doctrine cap", portable(featureOffDraft) === 25572 && portable(featureOffTight) === 25646 && portable(routingWithoutDrafts) === 25646 && portable(routingWithFollowUp) === 25720 && portable(routing) === 25665 && portable(deferred) === 25739 && [featureOffDraft, featureOffTight, routingWithoutDrafts, routingWithFollowUp, routing, deferred].every((text) => portable(text) <= DOCTRINE_LIMITS.maximalChars), { featureOffDraft: portable(featureOffDraft), featureOffTight: portable(featureOffTight), routingWithoutDrafts: portable(routingWithoutDrafts), routingWithFollowUp: portable(routingWithFollowUp), routing: portable(routing), deferred: portable(deferred) }],
-			["fresh valid-router over-cap control reaches whole-doctrine guard", portable(over) === 27905 && portable(over) > DOCTRINE_LIMITS.maximalChars, portable(over)],
+			["whole-doctrine equality is accepted and first-over-limit is rejected", portable(wholeAt) === DOCTRINE_LIMITS.maximalChars && portable(wholeAbove) === DOCTRINE_LIMITS.maximalChars + 1, { at: portable(wholeAt), above: portable(wholeAbove), ceiling: DOCTRINE_LIMITS.maximalChars }],
+			["boundary compositions stay exact and below whole-doctrine cap", portable(featureOffDraft) === 26041 && portable(featureOffTight) === 26115 && portable(routingWithoutDrafts) === 26063 && portable(routingWithFollowUp) === 26137 && portable(routing) === 26134 && portable(deferred) === 26208 && [featureOffDraft, featureOffTight, routingWithoutDrafts, routingWithFollowUp, routing, deferred].every((text) => portable(text) <= DOCTRINE_LIMITS.maximalChars), { featureOffDraft: portable(featureOffDraft), featureOffTight: portable(featureOffTight), routingWithoutDrafts: portable(routingWithoutDrafts), routingWithFollowUp: portable(routingWithFollowUp), routing: portable(routing), deferred: portable(deferred) }],
+			["boundary composition line counts match the published tables", featureOffDraft.split("\n").length === 99 && featureOffTight.split("\n").length === 100 && routingWithoutDrafts.split("\n").length === 99 && routingWithFollowUp.split("\n").length === 100 && routing.split("\n").length === 100 && deferred.split("\n").length === 101, { featureOffDraft: featureOffDraft.split("\n").length, featureOffTight: featureOffTight.split("\n").length, routingWithoutDrafts: routingWithoutDrafts.split("\n").length, routingWithFollowUp: routingWithFollowUp.split("\n").length, routing: routing.split("\n").length, deferred: deferred.split("\n").length }],
+			["fresh valid-router over-cap control reaches whole-doctrine guard", portable(over) === 28374 && portable(over) > DOCTRINE_LIMITS.maximalChars, portable(over)],
 		]);
 	});
 
@@ -2329,7 +2349,7 @@ Reviewer composition and merging belong to
 				};
 			};
 			const phaseHandoff = resolvePhaseHandoff(workflow);
-			const expectedPhaseHandoff = normalizeText(`For a multi-track change, immediately before the implementation of every track, the orchestrator saves a current state summary in \`research-log.md\` and appends a typed \`handoff\` entry. The orchestrator then asks the user whether to hand off to a fresh session.
+			const expectedPhaseHandoff = normalizeText(`For a multi-track change, immediately before the implementation of every track, the orchestrator saves a current state summary in the current change's \`research-log.md\` and appends a typed \`handoff\` entry. The orchestrator then asks the user whether to hand off to a fresh session.
 
 The first boundary is after all required planning and pre-implementation gates for the affected track are complete, including the confirmation gate, any scope-exception decisions, and every applicable design gate. It is immediately before the first track implementation. At each later boundary, the orchestrator completes the current track packet and required acceptance before saving state and asking for handoff before the next track implementation.
 
@@ -2417,7 +2437,7 @@ adversarial review is required, validation and final approval form one gate.`);
 				};
 			};
 			const expectedP11Source = `- **P11 — Proportional process.** *(Repo-local note, not from the report.)*
-  The research log is the sole permitted unconditional-artifact exception for
+  The current change folder's research log is the sole permitted unconditional-artifact exception for
   authors of future rules. Every other future rule that adds process cost names
   the condition that engages it. The condition is a proved focus area, an
   artifact whose own existence a proved focus area decides, or specific
@@ -2431,7 +2451,8 @@ evidence appears in every track, in which case the rule is unconditional.
 Prompt text and output quality floors are not process steps, and a published
 size budget governs them instead. P11 constrains the authors of future rules.
 It does not remove or condition current required artifacts, including the
-per-track implementer report.
+per-track implementer report. Closing a change keeps its folder and records.
+Only the user deletes that folder.
 
 P11 also governs user interaction. Questions follow unresolved decisions, not
 the number of workflow steps, records, or tracks. Applicable evidence and prior
@@ -2442,7 +2463,7 @@ required reviews, ordered gates, user authority, or final acceptance.`;
 			const p11 = p11Resolution.text;
 			const p11Mutations = [
 				p11.replace("a proved focus area, an artifact whose own existence a proved focus area decides", "the size grade, a proved focus area, an artifact whose own existence either decides"),
-				p11.replace("The research log is the sole permitted unconditional-artifact exception", "The research log and implementer report are permitted unconditional-artifact exceptions"),
+				p11.replace("The current change folder's research log is the sole permitted unconditional-artifact exception", "The research log and implementer report are permitted unconditional-artifact exceptions"),
 				p11.replace("or specific evidence that does not appear in every track", "or any available evidence"),
 				p11.replace("It does not remove or condition current required artifacts", "It may condition current required artifacts"),
 				p11.replace("Questions follow unresolved decisions", "Questions follow workflow steps"),
@@ -2594,15 +2615,18 @@ required gates, as defined in track-workflow.md § Delivery and termination.
 
 Draft publishing does not remove or move planning, design, focus approval,
 review, track-packet, user-note, blocking track-acceptance, final-acceptance,
-or finding-disposition requirements. Retain \`research-log.md\` and every
-implementer report until the whole change reaches delivery.`),
+or finding-disposition requirements. Retain the current change folder's
+research log and every implementer report through and after delivery. Only
+the user may delete the change folder.`),
 				},
 				{
 					id: "publishing-after-merge",
 					extract: regionUnit(/^## After the merge\n\n([\s\S]*?)(?=^Any cleanup)/gm),
-					expected: normalizeText(`After the user merges the umbrella pull request, complete the research-log
-delivery cleanup defined by track-workflow.md § Session handoff and the research
-log.`),
+					expected: normalizeText(`After the user merges the umbrella pull request, complete the change's
+delivery accounting. Then close the change under track-workflow.md § Session
+handoff and the research log. Abandonment at any stage also ends with
+\`slate_change close\`, even if no delivery artifact exists. Closing deletes
+nothing. Keep its folder and reports.`),
 				},
 			];
 			const resolveTrackSizePublishing = (workflowSource = workflow, publishingSource = publishing) => [
@@ -2637,7 +2661,7 @@ log.`),
 				[workflow, publishing.replace("Each multi-track boundary uses a marker commit", "Each multi-track boundary uses a merged commit")],
 				[workflow, publishing.replace("After the user merges the umbrella pull request", "Before the user merges the umbrella pull request")],
 				[workflow, publishing.replace("Draft publishing does not remove or move planning", "Draft publishing may remove or move planning")],
-				[workflow, publishing.replace("Retain \`research-log.md\` and every\nimplementer report", "Delete \`research-log.md\` and every\nimplementer report")],
+				[workflow, publishing.replace("Retain the current change folder's\nresearch log and every implementer report", "Delete the current change folder's\nresearch log and every implementer report")],
 			].map(([workflowSource, publishingSource]) => ({
 				changed: workflowSource !== workflow || publishingSource !== publishing,
 				accepted: resolveTrackSizePublishing(workflowSource, publishingSource).every((unit) => unit.count === 1 && unit.text === unit.expected),
@@ -2967,14 +2991,14 @@ before investigation starts.
 
 Record the trigger, proposed scope, user corrections, approved scope, findings,
 evidence, limits, holistic solution, verification plan, and decision as typed
-entries in \`research-log.md\`. The investigation must distinguish a symptom
+entries in the current change's \`research-log.md\`. The investigation must distinguish a symptom
 repair from closure of the full approved requirement. After investigation,
 present a holistic solution for the full requirement and wait for a separate
 user approval before implementation resumes. Existing repair caps, the
 stuck-fix consultation and its budget, reviewer input restrictions, focus gates,
 required reviews, and verification remain unchanged. This route adds no repair
 round, resets no cap, creates no new reviewer or separate artifact beyond the
-existing research-log record, narrows no requirement, and does not require
+existing change research-log record, narrows no requirement, and does not require
 verbatim retention of every tool result.`);
 			const investigationWorkflow = markedUnit("requirement-investigation-workflow")(workflow);
 			const investigationUserRowExpected = normalizeText("| The two-round fix cap is exhausted with the same approved requirement still incomplete. | At the end of round two, before any further repair. | Correct or approve the investigation scope, then approve or reject the holistic solution separately. Redesign, waive, or split remain available. |");
@@ -3129,7 +3153,7 @@ The code reviewer is read-only. It reports inside this area only. Prefix \`UF\`.
 				["retired prefixes are absent from the active list", retiredPrefixes.every((prefix) => !new RegExp(`Active built-in prefixes[^.]*\\b${prefix}\\b`, "s").test(reviews)), retiredPrefixes],
 			]);
 
-			const dispatchReference = "Research log: `research-log.md` remains the retained full record. Use the references and excerpts supplied for this action. Read more history only when a relevant question remains unresolved.\n";
+			const dispatchReference = "Research log: the current `slate-changes/<change>/research-log.md` remains the retained full record. The dispatch names its exact path and the implementer's `slate-changes/<change>/track-<number>-implementer-report.md` path. Use the references and excerpts supplied for this action. Read more history only when a relevant question remains unresolved.\n";
 			const boundedCharters = [
 				["non-local logic defect reviewer charter", /^#### Non-local logic defect reviewer\n[\s\S]*?(?=^#### Consumer contract break reviewer)/m, 1245],
 				["consumer contract break reviewer charter", /^#### Consumer contract break reviewer\n[\s\S]*?(?=^#### Governing-rule defect reviewer)/m, 1547],
@@ -3161,15 +3185,15 @@ The code reviewer is read-only. It reports inside this area only. Prefix \`UF\`.
 					extract: regionUnit(/^(Every implementation dispatch carries this focused current-context block:\n[\s\S]*?)(?=Every implementation dispatch either carries)/gm),
 					expected: normalizeText(`Every implementation dispatch carries this focused current-context block:
 
-> Research log: \`research-log.md\` remains the retained full record. Use the references and excerpts supplied for this action. Read more history only when a relevant question remains unresolved.
+> Research log: the current \`slate-changes/<change>/research-log.md\` remains the retained full record. The dispatch names its exact path and the implementer's \`slate-changes/<change>/track-<number>-implementer-report.md\` path. Use the references and excerpts supplied for this action. Read more history only when a relevant question remains unresolved.
 
 The block states the current approved design when one exists, the current task and acceptance condition, assigned findings and compact evidence when fixing, affected code or documents, relevant decisions, and unresolved relevant questions. The orchestrator supplies these inputs through specific section references or bounded excerpts. Implementers and fixers use the supplied current context. The full log remains available for unresolved relevant questions and retention. No implementation dispatch requires reading the entire historical log. This rule does not change reviewer input restrictions.`),
 				},
 				{
 					id: "research-log-lifecycle",
 					source: workflow,
-					extract: regionUnit(/^(Create `research-log\.md` at the repository root before the first implementation[\s\S]*?)(?=^Open these sections:)/gm),
-					expected: normalizeText(`Create \`research-log.md\` at the repository root before the first implementation dispatch, without waiting for a retained trigger. Each track creates its implementer report at track start. Append a retained entry immediately when any trigger below fires.
+					extract: regionUnit(/^(Start a change with `slate_change start` before the first implementation[\s\S]*?)(?=^Open these sections:)/gm),
+					expected: normalizeText(`Start a change with \`slate_change start\` before the first implementation dispatch. Slate creates \`slate-changes/<change>/research-log.md\` without waiting for a retained trigger. It records the generated folder name and owning Pi session identifier in saved state. Each track creates its implementer report there at track start. Append a retained entry immediately when any trigger below fires. \`slate_change close\` clears the current change after delivery or abandonment. It deletes no files.
 
 - a second non-obvious decision.
 - a surprise about repository behaviour.
@@ -3235,13 +3259,26 @@ The ordinary budget permits one consultation. A second requires an explicit user
 				changed: workflowSource !== workflow || reviewSource !== reviews,
 				accepted: resolveDispatchUnits(workflowSource, reviewSource).every((result) => result.count === 1 && result.text === result.expected),
 			}));
+			// Exact pins include the report and ownership rules after the trigger list.
+			const reportRule = regionUnit(/^For each track, the implementer creates\n([\s\S]*?)(?=^Tracks are contiguous)/gm);
+			const forkRule = regionUnit(/^Use a safe write method\. ([\s\S]*?)(?=^Before a session handoff)/gm);
+			const expectedReportRule = normalizeText(`\`track-<number>-implementer-report.md\` in the current change folder when the track starts. The dispatch gives the exact path. The report is untracked working material. After a session with a different identifier takes ownership, create a report in the new change folder. If the source folder has this track's report, name it as read-only in the new report's first entry. Continue the work in the new report. The report has four required sections: changes to the high-level design with the reason for each, the low-level design, diagrams where they help, and checks run with their results. Later fix rounds append to that report in the current change folder.`);
+			const expectedForkRule = normalizeText(`Create each file without following a symbolic link. Append through a temporary file and atomic rename when replacement is needed. Slate checks the folder chain when it creates the change. Slate cannot enforce the safe-write rule for each file that Pi's file tools write. Keep the log and every implementer report untracked and visible in repository status. Do not add them to an ignore file. Never overwrite either from a stale in-memory copy. An implementer report never enters a pull request. When a session adopts a change owned by a different Pi session identifier, Slate starts a new folder. Its log first names the direct source folder as a read-only earlier log. Each source log's first entry links to its own source. Follow those links to read the full history. The source remains in place without copying. A resume or reload with the same identifier continues the current folder. A /tree move to parent history with a different owner creates a new folder on reload. A handoff makes the successor the owner of the current folder. If folder allocation fails, Slate saves no open change and reports the failure. If that save fails, Slate reports it too. A legacy root \`research-log.md\` remains read-only. Only the user deletes a delivered or abandoned change folder.`);
+			const acceptsLateRules = (source) => {
+				const report = reportRule(source);
+				const fork = forkRule(source);
+				return report.count === 1 && fork.count === 1 && normalizeText(report.text) === expectedReportRule && normalizeText(fork.text) === expectedForkRule;
+			};
+			const rootReport = workflow.replace("in the current change folder when the track", "at the repository root when the track");
+			const reusedFork = workflow.replace(/Slate starts a new folder\.\s+Its log first names/, "Slate reuses the source folder. Its log first names");
+			const unconditionalReport = workflow.replace(/If the source folder has this track's report,\s+name it as read-only in the new report's first entry\./, "Name the earlier report as read-only in the new report's first entry.");
 			const missingUnitOutcomes = [
 				resolveDispatchUnits(workflow.replace("Every implementation dispatch carries this focused current-context block:", "Implementation reference block:"), reviews)[0],
-				resolveDispatchUnits(workflow.replace("Create `research-log.md` at the repository root before the first implementation", "Create the retained log before the first implementation"), reviews)[1],
+				resolveDispatchUnits(workflow.replace("Start a change with `slate_change start` before the first implementation", "Create the retained log before the first implementation"), reviews)[1],
 				resolveDispatchUnits(workflow, reviews.replace("### Reviewer input contract", "### Review inputs"))[2],
 				resolveDispatchUnits(workflow, reviews.replace("## Stuck-fix consultation", "## Diagnostic consultation"))[3],
 			];
-			const duplicatedWorkflow = `${workflow}\n\nEvery implementation dispatch carries this focused current-context block:\n\n> ${dispatchReference.trim()}\n\nThe block states the current approved design when one exists, the current task and acceptance condition, assigned findings and compact evidence when fixing, affected code or documents, relevant decisions, and unresolved relevant questions. The orchestrator supplies these inputs through specific section references or bounded excerpts. Implementers and fixers use the supplied current context. The full log remains available for unresolved relevant questions and retention. No implementation dispatch requires reading the entire historical log. This rule does not change reviewer input restrictions.\n\nEvery implementation dispatch either carries a trigger.\n\nCreate \`research-log.md\` at the repository root before the first implementation dispatch, without waiting for a retained trigger. Each track creates its implementer report at track start. Append a retained entry immediately when any trigger below fires.\n\n- a second non-obvious decision.\n- a surprise about repository behaviour.\n- a NAMED focus area.\n- a session boundary.\n- multiple tracks.\n- a plan-changing ruling.\n- a user request.\n- an unresolved question needed later.\n\nOpen these sections:`;
+			const duplicatedWorkflow = `${workflow}\n\nEvery implementation dispatch carries this focused current-context block:\n\n> ${dispatchReference.trim()}\n\nThe block states the current approved design when one exists, the current task and acceptance condition, assigned findings and compact evidence when fixing, affected code or documents, relevant decisions, and unresolved relevant questions. The orchestrator supplies these inputs through specific section references or bounded excerpts. Implementers and fixers use the supplied current context. The full log remains available for unresolved relevant questions and retention. No implementation dispatch requires reading the entire historical log. This rule does not change reviewer input restrictions.\n\nEvery implementation dispatch either carries a trigger.\n\nStart a change with \`slate_change start\` before the first implementation dispatch. Slate creates \`slate-changes/<change>/research-log.md\` without waiting for a retained trigger. It records the generated folder name and owning Pi session identifier in saved state. Each track creates its implementer report there at track start. Append a retained entry immediately when any trigger below fires. \`slate_change close\` clears the current change after delivery or abandonment. It deletes no files.\n\n- a second non-obvious decision.\n- a surprise about repository behaviour.\n- a NAMED focus area.\n- a session boundary.\n- multiple tracks.\n- a plan-changing ruling.\n- a user request.\n- an unresolved question needed later.\n\nOpen these sections:`;
 			const duplicatedReviews = `${reviews}\n\n### Reviewer input contract\n\n${dispatchUnitById.get("reviewer-input-contract")?.text}\n\nA design-stage adversarial review also judges.\n\n## Stuck-fix consultation\n\n${dispatchUnitById.get("stuck-fix-policy")?.text}\n\n## Termination and deferred-work routing`;
 			const duplicateUnitOutcomes = resolveDispatchUnits(duplicatedWorkflow, duplicatedReviews);
 			const benignWorkflow = `${workflow}\n\n<!-- resolver benign dispatch-context control -->`;
@@ -3250,6 +3287,8 @@ The ordinary budget permits one consultation. A second requires an explicit user
 			const duplicatedCharters = `${reviews}\n${reviews}`;
 			const missingBoundary = reviews.replace("#### Consumer contract break reviewer", "### Consumer contract break reviewer");
 			checkAll("contract-dispatch-context", "four complete dispatch-policy units resolve exactly once and equal independent expectations. They cover the focused implementation-context obligation, research-log lifecycle, reviewer-input contract, and stuck-fix policy. Counterfactuals reject missing current-context inputs, a restored mandatory whole-log read, other policy weakening, or additions inside a unit, while benign text outside the units remains accepted. Five bounded UTF-8 measurements remain exact", [
+				["later report-location and fork-ownership rules match independent exact pins", acceptsLateRules(workflow), { report: reportRule(workflow), fork: forkRule(workflow) }],
+				["root-report, same-folder fork, and unconditional report mutations each break their pin", rootReport !== workflow && reusedFork !== workflow && unconditionalReport !== workflow && !acceptsLateRules(rootReport) && !acceptsLateRules(reusedFork) && !acceptsLateRules(unconditionalReport), { root: acceptsLateRules(rootReport), fork: acceptsLateRules(reusedFork), unconditional: acceptsLateRules(unconditionalReport) }],
 				["the four approved policy units form the exact roster and resolve once", dispatchUnitResults.map(({ id }) => id).join() === "implementation-reference,research-log-lifecycle,reviewer-input-contract,stuck-fix-policy" && dispatchUnitResults.every(({ count }) => count === 1), dispatchUnitResults.map(({ id, count }) => ({ id, count }))],
 				["every complete policy unit equals its independent expectation", dispatchUnitResults.every(({ text, expected }) => text === expected), dispatchUnitResults.filter(({ text, expected }) => text !== expected).map(({ id, text, expected }) => ({ id, text, expected }))],
 				["the exact focused-context reference occurs once and has its measured UTF-8 bytes including its final line feed", dispatchUnitById.get("implementation-reference")?.text.split(dispatchReference.trim()).length - 1 === 1 && Buffer.byteLength(dispatchReference, "utf8") > 0, { occurrences: dispatchUnitById.get("implementation-reference")?.text.split(dispatchReference.trim()).length - 1, bytes: Buffer.byteLength(dispatchReference, "utf8") }],
@@ -3266,7 +3305,7 @@ The ordinary budget permits one consultation. A second requires an explicit user
 
 			const packageContract = block(deliveryPackages, "delivery-package-contract");
 			const digest = (text) => createHash("sha256").update(normalizeText(text)).digest("hex");
-			const EXPECTED_DELIVERY_PACKAGES_SHA256 = "5a9a025667510aed3021c8ddec5f18fc997ca3e844100b88be12b29e584e510f";
+			const EXPECTED_DELIVERY_PACKAGES_SHA256 = "fd50584597813e4389c714cf36b1d72571ddd39f266d1b8a24772b784f167a15";
 			const acceptsPackageContract = (source) => {
 				const owned = block(source, "delivery-package-contract");
 				return owned.count === 1 && owned.endCount === 1 && digest(source) === EXPECTED_DELIVERY_PACKAGES_SHA256;
@@ -3298,17 +3337,21 @@ The ordinary budget permits one consultation. A second requires an explicit user
 final acceptance. Use this sequence:
 
 1. Before every intermediate track package in a multi-track change, confirm
-   that the retained research log contains all required accounting to date.
-   The package references the exact range and the retained research log as the
-   current accounting source. Do not claim that the final commit exists.
+   that the current research log and its source chain contain all required
+   accounting to date. The package references the exact range and the current
+   research log as the current accounting source. Do not claim that the final commit exists.
 2. Before a single-track combined package or the final change package in a
-   multi-track change, complete the accounting in the retained research log.
-   Keep the log and every implementer report through final acceptance.
+   multi-track change, complete the accounting across the current research log
+   and its source chain. Keep the log and every implementer report through final acceptance.
 3. After final acceptance, create the final squashed delivery commit. Copy all
-   required accounting from the research log into the commit body as part of
-   that commit creation.
+   required accounting from the current log and its source chain into the
+   commit body as part of that commit creation.
 4. Verify that the commit body contains the required accounting. Only then
-   delete the research log and every implementer report.
+   close the current change with \`slate_change close\`. Keep its research log and
+   every implementer report. Only the user deletes the change folder.
+
+Abandonment at any stage ends with \`slate_change close\`. No delivery artifact is
+needed for abandonment, and the close deletes nothing.
 
 A publishing-disabled single-track change starts at step 2. A
 publishing-disabled multi-track change repeats step 1 for each track, then runs
@@ -3320,9 +3363,9 @@ exists.`);
 				return resolved.count === 1 && resolved.text === expectedDisabledAccounting;
 			};
 			const disabledAccountingMutations = [
-				["future-intermediate-record", deliveryPackages.replace("the retained research log as the\n   current accounting source", "the final squashed commit body as the\n   current accounting source")],
-				["missing-final-transfer", deliveryPackages.replace("Copy all\n   required accounting from the research log into the commit body as part of\n   that commit creation.", "Create the commit without copying the accounting from the research log.")],
-				["cleanup-before-verification", deliveryPackages.replace("Verify that the commit body contains the required accounting. Only then\n   delete", "Delete before verifying that the commit body contains the required accounting. Then\n   restore")],
+				["future-intermediate-record", deliveryPackages.replace(/the current\s+research log as the\s+current accounting source/, "the final squashed commit body as the current accounting source")],
+				["missing-final-transfer", deliveryPackages.replace("Copy all\n   required accounting from the current log and its source chain into the\n   commit body as part of that commit creation.", "Create the commit without copying the accounting from the research log.")],
+				["cleanup-before-verification", deliveryPackages.replace("Verify that the commit body contains the required accounting. Only then\n   close", "Close before verifying that the commit body contains the required accounting. Then\n   restore")],
 				["missing-single-track-route", deliveryPackages.replace("A publishing-disabled single-track change starts at step 2.", "A publishing-disabled single-track change has no accounting route.")],
 			];
 			const disabledAccountingMutationOutcomes = disabledAccountingMutations.map(([id, source]) => ({ id, changed: source !== deliveryPackages, accepted: acceptsDisabledAccounting(source) }));
@@ -3394,21 +3437,25 @@ has no mandatory track-acceptance gate.
 In a single-track change, any blocking track acceptance and final change
 acceptance are one event. Final change acceptance is always blocking.`),
 				normalizeText(`With draft publishing, delivery is the user's final accepted merge of the
-umbrella pull request into the default development branch. When publishing is disabled, the final package asks for
-acceptance while the research log and every implementer report remain retained.
-After acceptance, copy the required accounting from the log into the final
-squashed commit body as part of creating that commit. Verify the body before
-calling the commit delivery. This sequence applies to single-track and
+umbrella pull request into the default development branch. When publishing is
+disabled, the final package asks for acceptance while the current research log,
+its source chain, and every implementer report remain retained. After acceptance,
+copy the required accounting from the current log and its source chain into the
+final squashed commit body as part of creating that commit. Verify the body
+before calling the commit delivery. This sequence applies to single-track and
 multi-track changes. Intermediate multi-track packages continue to use the
-retained research log as their current accounting source. Explicit abandonment
-is the other delivery outcome. Resolve or hand every open question to the user.
+current research log and its source chain as their accounting source. Explicit
+abandonment is the other delivery outcome. Resolve or hand every open question
+to the user.
 Follow [user-notes.md](user-notes.md) for feedback and note accounting. Follow
 [delivery-packages.md](delivery-packages.md) for the final user-facing package
-and the complete accounting sequence. Delete the retained local log and every
-implementer report only after the whole change reaches delivery and the required
-accounting is verified in its final record. The untracked-retention rule in
-§ Session handoff and the research log keeps the local files out of the pull
-request. On abandonment, offer their content for archival first.`),
+and the complete accounting sequence. Close the change only after the whole
+change reaches delivery and the required accounting is verified in its final
+record. Abandonment at any stage ends with \`slate_change close\`, even when no
+delivery artifact exists. Closing deletes nothing. The untracked-retention rule
+in § Session handoff and the research log keeps the local files out of the pull request.
+On abandonment, offer their content for archival first. Only the user deletes
+an old change folder.`),
 			];
 			const reviewedReference = (file, headings, text) => ({ file, headings, text: normalizeText(text), uniqueOwner: true });
 			const expectedPackageReferenceContexts = [
@@ -3421,7 +3468,7 @@ not edit any file. It does not authorize a model selection, a new model, or a
 roster change.`),
 				reviewedReference("docs/pr-publishing.md", ["# Draft-PR publishing", "## Description rules"], `- **Delivery accounting** — the conclusions that
   [delivery-packages.md](delivery-packages.md) § Durable accounting requires.
-  Update this subsection from the research log before each package. Keep private
+  Update this subsection from the current research log and its source chain before each package. Keep private
   reasoning and private data out of it.`),
 				...expectedWorkflowReferenceTexts.map((text, index) => reviewedReference("docs/track-workflow.md", [
 					"# Track-based development workflow",
@@ -3441,13 +3488,13 @@ accounting. The package references that record and the diff.`),
 [delivery-packages.md](delivery-packages.md) § Single-track combined package. A
 multi-track change uses the separate change package defined in that document.
 Package preparation does not delay or replace the feedback triggers above.`),
-				reviewedReference("docs/user-notes.md", ["# User notes and user-facing registers", "## Durable final accounting"], `Before final acceptance, the research log provides full accounting for the
-current work. The transfer defined in
+				reviewedReference("docs/user-notes.md", ["# User notes and user-facing registers", "## Durable final accounting"], `Before final acceptance, the current research log and its read-only source
+chain provide full accounting for the current work. The transfer defined in
 [delivery-packages.md](delivery-packages.md) § Durable accounting follows the
 reachable record lifecycle. Draft publishing copies the required conclusions to
 the pull-request description before each package. Without draft publishing,
-intermediate and final-acceptance packages use the retained research log as the
-current accounting source. After final acceptance, commit creation copies the
+intermediate and final-acceptance packages use the current research log and
+its source chain as the accounting source. After final acceptance, commit creation copies the
 required conclusions into the final squashed commit body. Cleanup waits for
 verification of that body. The accounting covers:`),
 			].sort((a, b) => a.file.localeCompare(b.file));
@@ -3479,7 +3526,7 @@ verification of that body. The accounting covers:`),
 				["the publishing-disabled accounting unit gives single-track and multi-track packages reachable sources, then transfers and verifies the final commit before cleanup", acceptsDisabledAccounting(deliveryPackages), resolveDisabledAccounting(deliveryPackages)],
 				["future-record, missing-transfer, early-cleanup, and missing-single-track counterfactuals each change the accounting sequence and fail", disabledAccountingMutationOutcomes.every(({ changed, accepted }) => changed && !accepted), disabledAccountingMutationOutcomes],
 				["missing and duplicated publishing-disabled accounting boundaries fail closed", missingDisabledAccountingBoundary.count === 0 && missingDisabledAccountingBoundary.text === "" && duplicateDisabledAccountingBoundary.count === 2 && duplicateDisabledAccountingBoundary.text === "", { missingDisabledAccountingBoundary, duplicateDisabledAccountingBoundary }],
-				["publishing, workflow, and note rules match the reachable accounting lifecycle", publishingFlat.includes("**Delivery accounting** — the conclusions that [delivery-packages.md](delivery-packages.md) § Durable accounting requires. Update this subsection from the research log before each package.") && publishingFlat.includes("Before each track or change package, copy the required delivery accounting from the research log into the description.") && workflowFlat.includes("After acceptance, copy the required accounting from the log into the final squashed commit body as part of creating that commit. Verify the body before calling the commit delivery.") && workflowFlat.includes("Intermediate multi-track packages continue to use the retained research log as their current accounting source.") && userNotesFlat.includes("Without draft publishing, intermediate and final-acceptance packages use the retained research log as the current accounting source.") && userNotesFlat.includes("After final acceptance, commit creation copies the required conclusions into the final squashed commit body. Cleanup waits for verification of that body."), { workflow: workflow.match(/With draft publishing, delivery is[\s\S]*?(?=\n\nAim for a delivery body)/)?.[0], publishing: publishing.match(/\*\*Delivery accounting\*\*[\s\S]*?(?=\n- \*\*Verification approach)/)?.[0], userNotes: userNotes.match(/Before final acceptance[\s\S]*?(?=\n\n- every finding)/)?.[0] }],
+				["publishing, workflow, and note rules match the reachable accounting lifecycle", publishingFlat.includes("**Delivery accounting** — the conclusions that [delivery-packages.md](delivery-packages.md) § Durable accounting requires. Update this subsection from the current research log and its source chain before each package.") && publishingFlat.includes("Before each track or change package, copy the required delivery accounting from the current research log and its source chain into the description.") && workflowFlat.includes("After acceptance, copy the required accounting from the current log and its source chain into the final squashed commit body as part of creating that commit. Verify the body before calling the commit delivery.") && workflowFlat.includes("Intermediate multi-track packages continue to use the current research log and its source chain as their accounting source.") && userNotesFlat.includes("Without draft publishing, intermediate and final-acceptance packages use the current research log and its source chain as the accounting source.") && userNotesFlat.includes("After final acceptance, commit creation copies the required conclusions into the final squashed commit body. Cleanup waits for verification of that body."), { workflow: workflow.match(/With draft publishing, delivery is[\s\S]*?(?=\n\nAim for a delivery body)/)?.[0], publishing: publishing.match(/\*\*Delivery accounting\*\*[\s\S]*?(?=\n- \*\*Verification approach)/)?.[0], userNotes: userNotes.match(/Before final acceptance[\s\S]*?(?=\n\n- every finding)/)?.[0] }],
 				["the workflow loading unit and every literal filename context across README and recursive docs equal independent expectations", acceptsPackageLoading(workflow), { loading: resolvePackageLoading(workflow), contexts: packageReferenceContexts(packageDocuments) }],
 				["owned-unit, appended, and count-preserving actor-table eager-load mutations each change the source and fail", packageLoadingMutationOutcomes.every(({ changed, accepted }) => changed && !accepted), packageLoadingMutationOutcomes],
 				["missing and duplicated loading boundaries fail closed", missingLoadingBoundary.count === 0 && missingLoadingBoundary.text === "" && duplicateLoadingBoundary.count === 2 && duplicateLoadingBoundary.text === "", { missingLoadingBoundary, duplicateLoadingBoundary }],
