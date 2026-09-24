@@ -300,7 +300,7 @@ they change approved behavior or constraints. If an implementer discovers a
 design gap later, pause affected work and complete this route before continuing.
 
 <!-- multi-track-handoff:begin -->
-For a multi-track change, immediately before the implementation of every track, the orchestrator saves a current state summary in the current change's `research-log.md` and appends a typed `handoff` entry. The orchestrator then asks the user whether to hand off to a fresh session.
+For a multi-track change, immediately before the implementation of every track, the orchestrator saves a current state summary in the current change's `research-log.md` and appends a typed `handoff` entry. The orchestrator then asks the user whether to run `/slate handoff [focus]`. This command continues the work in a fresh session and restores all threads and episodes. The orchestrator does not propose a plain new pi session instead.
 
 The first boundary is after all required planning and pre-implementation gates for the affected track are complete, including the confirmation gate, any scope-exception decisions, and every applicable design gate. It is immediately before the first track implementation. At each later boundary, the orchestrator completes the current track packet and required acceptance before saving state and asking for handoff before the next track implementation.
 
