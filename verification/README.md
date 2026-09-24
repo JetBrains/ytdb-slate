@@ -647,12 +647,12 @@ exact current production renders are:
 | maximal baseline with an open change | 6 | 10,470 | 99 |
 | maximal baseline with source and legacy root log | 6 | 10,700 | 101 |
 | dogfood config and extension roster | 6 | 9,397 | 97 |
-| 19,400-character policy plus draft, source and legacy log | 6 | 26,041 | 100 |
-| same policy plus draft and deferred issues, source and legacy log | 6 | 26,115 | 101 |
-| same policy plus routing recommendations, source and legacy log | 5 | 26,063 | 100 |
-| same policy plus deferred issues and routing recommendations, source and legacy log | 5 | 26,137 | 101 |
-| same policy plus draft and routing recommendations, source and legacy log | 6 | 26,134 | 101 |
-| same boundary composition plus deferred issues | 6 | 26,208 | 102 |
+| 19,400-character policy plus draft, source and legacy log | 6 | 26,041 | 99 |
+| same policy plus draft and deferred issues, source and legacy log | 6 | 26,115 | 100 |
+| same policy plus routing recommendations, source and legacy log | 5 | 26,063 | 99 |
+| same policy plus deferred issues and routing recommendations, source and legacy log | 5 | 26,137 | 100 |
+| same policy plus draft and routing recommendations, source and legacy log | 6 | 26,134 | 100 |
+| same boundary composition plus deferred issues | 6 | 26,208 | 101 |
 | valid shipped policy plus 88 capped tools, source and legacy log | 6 | 28,374 | 184 |
 
 The capped worker baseline has two units and four tools. Each unit label has 128

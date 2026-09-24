@@ -211,12 +211,12 @@ characters. Tool names use 64 characters. Descriptions use 140 characters.
 | maximal baseline with an open change | 6 | 10,470 | 99 |
 | maximal baseline with source and legacy root log | 6 | 10,700 | 101 |
 | dogfood `.pi/slate.json` and its two extension units | 6 | 9,397 | 97 |
-| runtime boundary plus draft and capped workers, source and legacy log | 6 | 26,041 | 100 |
-| runtime boundary plus draft and deferred issues, source and legacy log | 6 | 26,115 | 101 |
-| runtime boundary plus routing recommendations, source and legacy log | 5 | 26,063 | 100 |
-| runtime boundary plus deferred issues and routing recommendations, source and legacy log | 5 | 26,137 | 101 |
-| runtime boundary plus draft and routing recommendations, source and legacy log | 6 | 26,134 | 101 |
-| same boundary composition plus deferred issues | 6 | 26,208 | 102 |
+| runtime boundary plus draft and capped workers, source and legacy log | 6 | 26,041 | 99 |
+| runtime boundary plus draft and deferred issues, source and legacy log | 6 | 26,115 | 100 |
+| runtime boundary plus routing recommendations, source and legacy log | 5 | 26,063 | 99 |
+| runtime boundary plus deferred issues and routing recommendations, source and legacy log | 5 | 26,137 | 100 |
+| runtime boundary plus draft and routing recommendations, source and legacy log | 6 | 26,134 | 100 |
+| same boundary composition plus deferred issues | 6 | 26,208 | 101 |
 | valid shipped policy plus 88 capped worker tools, source and legacy log | 6 | 28,374 | 184 |
 
 An untrusted session with an empty home `slate.json` receives the same doctrine
