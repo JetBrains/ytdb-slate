@@ -1352,7 +1352,7 @@ processes: 1 version-pin probe plus 2 rpc sessions.
 | `L4` | the canary saw all three dispatch tools: `thread`, `threads` and `episode`. Nothing else detects their removal |
 | `L5` | the canary reported a **non-empty** tool list, and it named the place. This check stops `L4` from a pass when the canary never loaded, or when `session_start` runs before the registration |
 | `L6` | pi registered the `/slate` command **and attributed it to a path inside the checkout under test**, which proves that the run used the working tree and not an installed release |
-| `L7` | `/slate on` completes through the command handler offline: the prompt response succeeded, the handler appended a `slate-state` entry, and the widget holds lines |
+| `L7` | `/slate on` completes through the command handler offline: the prompt response succeeded, the handler appended a `slate-state` entry, and `setStatus` set the `slate` key to text beginning `slate: orchestrator` |
 | `L8` | the run left `.pi/npm` in the checkout unchanged, so the run stayed offline and npm-installed nothing into the working tree |
 | `T1` | pi exited 0 on the trusted (`-a`) run, **and** the `trusted` field of the canary reads `true` (the `canary-trusted` query of the driver). This check protects `T2`: without trust slate reads no `.pi/slate.json`, and a clean `T2` then means nothing |
 | `T2` | the trusted config emitted no sanitizer warning. Any warning, malformed rpc output, or untrusted positive control FAILS. This check passes the tracked logical `router.models` and `router.compressor` configuration through the current sanitizer together with `contextBudget`, `workerExtensions`, and `writing` when those groups are present |
