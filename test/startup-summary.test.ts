@@ -233,12 +233,12 @@ const PANEL = [
 	"Run /slate summary off or /slate summary on to hide or show this summary when orchestrator mode starts.",
 ];
 
-test("reload clears extension UI, restores the mode widget, then replaces the status without hiding the panel", { timeout: 10000 }, async (t) => {
+test("reload keeps the summary panel and restores the mode status", { timeout: 10000 }, async (t) => {
 	const f = harness(t);
 	f.snapshot(snapshot("change-20260924T105757Z-ab29a0b2cdd1cdc0fa26d66bc4718dc9", "parent"));
 	await f.start();
 	assert.deepEqual(f.widgets.get(SUMMARY_WIDGET_KEY), PANEL);
-	assert.ok(f.widgets.has("slate"), "mode widget has its own key");
+	assert.equal(f.widgets.has("slate"), false, "orchestrator status needs no widget");
 	f.resetUI(); // Pi resetExtensionUI clears widgets before session_start on reload.
 	assert.equal(f.widgets.has(SUMMARY_WIDGET_KEY), false);
 	await f.start("reload");
@@ -326,7 +326,7 @@ test("the first terminal prompt clears only the summary widget without changing 
 	assert.doesNotMatch(submitted.prompt!, /What Slate does, step by step:|Run \/slate summary off or/);
 	assert.deepEqual(f.ctx.sessionManager.getEntries(), entries, "clearing writes no session or model message");
 	assert.equal(f.widgets.has(SUMMARY_WIDGET_KEY), false);
-	assert.ok(f.widgets.has("slate"), "the mode widget remains");
+	assert.equal(f.widgets.has("slate"), false, "clearing the panel needs no mode widget");
 	await f.submit("/slate summary");
 	assert.deepEqual(f.widgets.get(SUMMARY_WIDGET_KEY), lines, "on demand restores the panel");
 	await f.submit("Next prompt.");

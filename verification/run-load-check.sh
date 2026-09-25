@@ -356,7 +356,7 @@ else if (q === "ext-error-detail") say(objs.filter((o) => o && o.type === "exten
 else if (q === "warnings") say(warnings.length);
 else if (q === "warning-detail") say(warnings.map((o) => o.message).join(" | "));
 else if (q === "state-entries") say(objs.filter((o) => o && o.type === "entry_appended" && o.entry && o.entry.customType === "slate-state").length);
-else if (q === "widget-lines") { let n = 0; for (const o of ui) if (o.method === "setWidget" && o.widgetKey === "slate" && Array.isArray(o.widgetLines)) n = Math.max(n, o.widgetLines.length); say(n); }
+else if (q === "slate-status") say(ui.some((o) => o.method === "setStatus" && o.statusKey === "slate" && typeof o.statusText === "string" && o.statusText.startsWith("slate: orchestrator")) ? "yes" : "no");
 else if (q === "prompt-ok") say(objs.some((o) => o && o.type === "response" && o.command === "prompt" && o.success === true) ? "yes" : "no");
 else { process.stderr.write("rpcq: unknown query " + q + "\n"); process.exit(3); }
 ' "$1" "$2"
@@ -929,11 +929,11 @@ if run_wanted L1 L2 L3 L4 L5 L6 L7 L8; then
 	want L7 && {
 		OK="$(rpcq prompt-ok "$WORK/run1.out")"
 		E="$(rpcq state-entries "$WORK/run1.out")"
-		W="$(rpcq widget-lines "$WORK/run1.out")"
+		S="$(rpcq slate-status "$WORK/run1.out")"
 		if [ "$OK" != yes ]; then check L7 1 "the /slate on request did not complete successfully (prompt response missing or success=false)"
 		elif [ "$E" = 0 ]; then check L7 1 "/slate on appended no slate-state entry — the command handler did not reach the state store"
-		elif [ "$W" = 0 ]; then check L7 1 "/slate on left the slate widget empty (no setWidget carrying widgetLines)"
-		else check L7 0 "/slate on ran offline through the command handler: $E slate-state entry/entries appended, widget populated with $W line(s)"; fi
+		elif [ "$S" != yes ]; then check L7 1 "/slate on left the slate status unset (no setStatus for slate with orchestrator text)"
+		else check L7 0 "/slate on ran offline through the command handler: $E slate-state entry/entries appended, slate status set"; fi
 	}
 
 	want L8 && {

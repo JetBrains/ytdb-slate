@@ -5,7 +5,7 @@
  *   - active tools restricted to read-only + slate tools (no bash/edit/write):
  *     delegation becomes the natural behavior;
  *   - the thread-weaving doctrine is appended to the system prompt each turn;
- *   - a widget above the editor shows live thread status;
+ *   - a status line shows orchestrator spend and pause state;
  *   - the mode persists in slate state and is re-applied on session restore;
  *   - with config `orchestratorModeDefault` (slate.json), genuinely fresh
  *     interactive sessions are seeded with the mode ON (unsaved until the
@@ -34,13 +34,9 @@ import {
 import { permitsSlateConfig } from "./config.ts";
 import { loadPromptDocs } from "./prompt-docs.ts";
 import {
-	displayThreadType,
-	renderThreadId,
 	orchestratorCostUsd,
-	threadTypeMarker,
 	type SlateConfig,
 	type SlateStore,
-	type ThreadRecord,
 } from "./state.ts";
 import {
 	advanceWritingReminderTurn,
@@ -416,11 +412,6 @@ function reportPausedInput(ctx: ExtensionContext): void {
 	}
 }
 
-export function renderThreadWidgetLine(thread: ThreadRecord): string {
-	const marker = threadTypeMarker(displayThreadType(thread.type));
-	return `  ${thread.status === "running" ? "⏳" : "·"} ${renderThreadId(thread.id)} ${thread.name} [${thread.status}]${marker} ${thread.episodeId === undefined ? "no episode" : `episode ${thread.episodeId}`}`;
-}
-
 export function registerSlateMode(
 	pi: ExtensionAPI,
 	store: SlateStore,
@@ -446,10 +437,9 @@ export function registerSlateMode(
 	const writingIsActive = (ctx: ExtensionContext): boolean => store.orchestratorMode && permitsSlateConfig(getConfig(), ctx.isProjectTrusted());
 	const writingIsVisible = (ctx: ExtensionContext): boolean => ctx.hasUI && writingIsActive(ctx);
 
-	const updateWidget = () => {
+	const updateStatus = () => {
 		if (!uiCtx?.hasUI) return;
 		if (!store.orchestratorMode) {
-			uiCtx.ui.setWidget("slate", undefined);
 			uiCtx.ui.setStatus("slate", undefined);
 			return;
 		}
@@ -470,15 +460,7 @@ export function registerSlateMode(
 						? " ⋅ writing unavailable"
 						: ` ⋅ writing 0 fail, 0 style / ${statusWindowTurns} turns`
 			: "";
-		uiCtx.ui.setStatus("slate", `slate: orchestrator ⋅ ${costLine}${writingLine}`);
-		const threads = [...store.threads.values()];
-		const lines = [
-			`slate ⋅ orchestrator mode ⋅ ${threads.length} thread${threads.length === 1 ? "" : "s"}`,
-			`  ${costLine}`,
-			...(store.paused ? ["  ⛔ PAUSED (context budget) — run /slate handoff"] : []),
-			...threads.map((thread) => renderThreadWidgetLine(thread)),
-		];
-		uiCtx.ui.setWidget("slate", lines);
+		uiCtx.ui.setStatus("slate", `slate: orchestrator${store.paused ? " ⋅ ⛔ PAUSED — run /slate handoff" : ""} ⋅ ${costLine}${writingLine}`);
 	};
 
 	pi.registerTool({
@@ -530,11 +512,11 @@ export function registerSlateMode(
 		if (!on) store.paused = false; // a pause is meaningless outside orchestrator mode
 		store.orchestratorMode = on;
 		if (persist) store.save();
-		updateWidget();
+		updateStatus();
 	};
 
-	// Widget refresh whenever slate state changes (dispatch start/end, new threads).
-	store.onDidChange = updateWidget;
+	// Refresh the status line whenever slate state changes (dispatch start/end, new threads).
+	store.onDidChange = updateStatus;
 
 	const warnSummary = (ctx: ExtensionContext, message: string) => {
 		try {
@@ -702,7 +684,7 @@ export function registerSlateMode(
 		if (bytes !== undefined && bytes > WRITING_TURN_MAX_BYTES) {
 			writingCounters.latest = undefined;
 			writingStatus = "skipped";
-			updateWidget();
+			updateStatus();
 			return;
 		}
 		let checker: WritingChecker;
@@ -713,7 +695,7 @@ export function registerSlateMode(
 			writingCheckerPromise = undefined;
 			writingCounters.latest = undefined;
 			writingStatus = "unavailable";
-			updateWidget();
+			updateStatus();
 			return;
 		}
 		const writingConfig = getConfig().writing;
@@ -732,7 +714,7 @@ export function registerSlateMode(
 		} else if (outcome === "failed") {
 			writingStatus = "unavailable";
 		}
-		updateWidget();
+		updateStatus();
 	});
 
 	// Gate and claim stay synchronous. The claim is the cadence delivery.
@@ -810,7 +792,7 @@ export function registerSlateMode(
 			pendingErrorTurn = false;
 		}
 		uiCtx = ctx;
-		updateWidget();
+		updateStatus();
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
@@ -863,7 +845,7 @@ export function registerSlateMode(
 			if (!alreadyRestricted) savedTools = active;
 			pi.setActiveTools(ORCHESTRATOR_TOOLS);
 		}
-		updateWidget();
+		updateStatus();
 		// Restore, handoff adoption, and mode seeding run before the display choice.
 		summaryVisible = false;
 		if (ctx.mode !== "tui") return;

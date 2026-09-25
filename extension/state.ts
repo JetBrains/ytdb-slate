@@ -837,7 +837,7 @@ export class SlateStore {
 	paused = false;
 	/**
 	 * Cumulative USD spend of worker threads this session. Includes the episode
-	 * compressor's LLM calls, so the "workers" figure shown in the widget covers
+	 * compressor's LLM calls, so the "workers" figure shown in the status line covers
 	 * compression spend too.
 	 */
 	workerCostUsd = 0;
@@ -845,7 +845,7 @@ export class SlateStore {
 	carriedCostUsd = 0;
 	/** Session-instance reminder state. It is never part of a snapshot. */
 	readonly writingReminder: WritingReminderRuntime = createWritingReminderRuntime();
-	/** Invoked after every save/restore; used by mode.ts to refresh the widget. */
+	/** Invoked after every save/restore; used by mode.ts to refresh the status line. */
 	onDidChange?: () => void;
 
 	private pi: ExtensionAPI;
@@ -1017,7 +1017,7 @@ export class SlateStore {
  * summed over ALL entries including abandoned branches (forked/cloned sessions
  * thus inherit parent-file spend as their own). EXCLUDES pi-internal LLM calls
  * stored as non-message entries (compaction, branch summarization).
- * Shared by the widget (mode.ts) and handoff carry (handoff.ts).
+ * Shared by the status line (mode.ts) and handoff carry (handoff.ts).
  */
 export function orchestratorCostUsd(ctx: ExtensionContext): number {
 	let cost = 0;

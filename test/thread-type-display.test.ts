@@ -3,7 +3,7 @@ const TEST_ROUTE = { model: "fixture", reason: "test fixture" } as const;
 import assert from "node:assert/strict";
 import test from "node:test";
 import { initTheme, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { registerSlateMode, renderThreadWidgetLine } from "../extension/mode.ts";
+import { registerSlateMode } from "../extension/mode.ts";
 import { renderThreadResult } from "../extension/render.ts";
 import { effectiveThreadType, SlateStore, type ThreadRecord, type ThreadType } from "../extension/state.ts";
 import { EMPTY_WORKER_EXTENSION_SET } from "../extension/worker-extensions.ts";
@@ -98,26 +98,10 @@ function firstLine(component: { render(width: number): string[] }): string {
   return component.render(200)[0]?.trimEnd() ?? "";
 }
 
-test("widget thread lines render every type and both fallback shapes", () => {
-  const records = caseRecords();
-  for (const [index, entry] of cases.entries()) {
-    const thread = records[index];
-    assert.ok(thread);
-    assert.equal(
-      renderThreadWidgetLine(thread),
-      `  · ${thread.id} ${entry.name} [cancelled]${entry.marker} no episode`,
-    );
-  }
-});
-
-test("widget thread lines distinguish a running thread with one episode", () => {
-  const running = record({ status: "running", episodeId: "t1.e1" });
-  assert.equal(renderThreadWidgetLine(running), "  ⏳ t1 worker [running] episode t1.e1");
-});
-
-test("mode refresh publishes all stored thread widget lines", async () => {
+test("mode refresh keeps pause on the status line without a thread widget", async () => {
   const appended: unknown[] = [];
-  const widgets: string[][] = [];
+  const widgets: string[] = [];
+  const statuses: Array<{ key: string; text: string | undefined }> = [];
   const handlers = new Map<string, (event: unknown, ctx: ExtensionContext) => unknown>();
   const pi = {
     registerCommand() {},
@@ -147,17 +131,24 @@ test("mode refresh publishes all stored thread widget lines", async () => {
     mode: "rpc",
     isProjectTrusted: () => true,
     ui: {
-      setWidget: (_id: string, lines: string[] | undefined) => { if (lines) widgets.push(lines); },
-      setStatus() {},
+      setWidget: (key: string) => { widgets.push(key); },
+      setStatus: (key: string, text: string | undefined) => { statuses.push({ key, text }); },
     },
     sessionManager: { getBranch: () => [], getEntries: () => [] },
   } as unknown as ExtensionContext);
-  assert.deepEqual(widgets.at(-1), [
-    "slate ⋅ orchestrator mode ⋅ 1 thread",
-    "  total $0.0000 (me $0.0000 + workers $0.0000)",
-    "  ⏳ t1 worker [running] episode t1.e1",
-  ]);
+  const base = "slate: orchestrator ⋅ total $0.0000 (me $0.0000 + workers $0.0000) ⋅ writing 0 fail, 0 style / 10 turns";
+  assert.deepEqual(statuses.at(-1), { key: "slate", text: base });
   assert.equal(appended.length, 0);
+  store.paused = true;
+  store.save();
+  assert.deepEqual(statuses.at(-1), { key: "slate", text: base.replace("slate: orchestrator", "slate: orchestrator ⋅ ⛔ PAUSED — run /slate handoff") });
+  store.paused = false;
+  store.save();
+  assert.deepEqual(statuses.at(-1), { key: "slate", text: base });
+  store.orchestratorMode = false;
+  store.save();
+  assert.deepEqual(statuses.at(-1), { key: "slate", text: undefined });
+  assert.equal(widgets.includes("slate"), false);
 });
 
 test("threads tool rows render every type and both fallback shapes", async () => {
@@ -341,8 +332,8 @@ test("display resolution never consumes the dispatch warning", async () => {
   assert.ok(threadTool?.renderCall);
   assert.ok(threadsTool);
 
-  renderThreadWidgetLine(unknown);
-  renderThreadWidgetLine(unknown);
+  await threadsTool.execute("call", {}, undefined, undefined, ctx);
+  await threadsTool.execute("call", {}, undefined, undefined, ctx);
   threadTool.renderCall({ thread: unknown.id, task: "Inspect" }, theme);
   threadTool.renderCall({ thread: unknown.id, task: "Inspect again" }, theme);
   await threadsTool.execute("call", {}, undefined, undefined, ctx);
