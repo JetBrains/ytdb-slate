@@ -76,7 +76,7 @@ Write the notes in Markdown with this structure. Include `Fixes` only when the r
 
 ## SDK compatibility
 
-<Supported SDK information backed by evidence.>
+The pi software development kit (SDK) <supported versions and the evidence for them>.
 ```
 
 Follow the writing convention in `AGENTS.md` and `docs/writing-guidance.md`. Release notes may describe removals as change records. Keep tokens out of the notes as required in **One-time setup**. The workflow checks only that the notes are not empty. The structure above is a rule for the release agent, not a workflow format check.
