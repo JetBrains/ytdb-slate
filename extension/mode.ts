@@ -916,7 +916,11 @@ export function registerSlateMode(
 		try {
 			ctx.ui.setWidget(SUMMARY_WIDGET_KEY, undefined);
 			if (carriedVisibility === undefined) showAutomaticSummary(ctx);
-			else if (carriedVisibility) displaySummary(ctx);
+			else {
+				const choice = readStartupSummary();
+				if (choice.warning) warnSummary(ctx, choice.warning);
+				if (carriedVisibility) displaySummary(ctx);
+			}
 		} catch (error) { warnSummary(ctx, `slate: could not show the workflow summary: ${String(error)}`); }
 	});
 }

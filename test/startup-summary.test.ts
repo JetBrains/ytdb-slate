@@ -341,6 +341,27 @@ test("an interactive prompt hides the panel in the successor despite automatic d
 	assert.deepEqual(successor.widgets.get(SUMMARY_WIDGET_KEY), STYLED_PANEL, "reload uses the automatic rule");
 });
 
+test("carried panel visibility reports broken preferences without changing the panel", { timeout: 10000 }, async (t) => {
+	for (const [visible, text, warning] of [
+		[true, "{broken", /Cannot read or parse/],
+		[false, '{"startupSummary":1}', /needs a boolean startupSummary value/],
+	] as const) {
+		await t.test(visible ? "visible" : "hidden", async (caseT) => {
+			const f = harness(caseT);
+			mkdirSync(f.agent);
+			writeFileSync(f.path, text);
+			f.handoff({ sessionId: "successor", summaryVisible: visible, snapshot: snapshot() });
+			await f.start("new");
+			const preferenceWarnings = f.notices.filter((notice) => notice.type === "warning" && notice.text.includes(f.path));
+			assert.equal(preferenceWarnings.length, 1);
+			assert.match(preferenceWarnings[0]!.text, warning);
+			assert.equal(readStartupSummary().enabled, true, "a broken preference defaults to on");
+			if (visible) assert.deepEqual(f.widgets.get(SUMMARY_WIDGET_KEY), STYLED_PANEL);
+			else assert.equal(f.widgets.has(SUMMARY_WIDGET_KEY), false, "carried hidden state overrides the default");
+		});
+	}
+});
+
 test("handoff entries without visibility retain the automatic display rule", { timeout: 10000 }, async (t) => {
 	for (const enabled of [false, true]) {
 		await t.test(`startup preference ${enabled ? "on" : "off"}`, async (caseT) => {
