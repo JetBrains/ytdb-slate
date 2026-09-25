@@ -363,7 +363,7 @@ test("real prepare workflow uses the control script's final statuses for lane ow
     writeFileSync(join(f.root,"package.json"),JSON.stringify({version:"0.11.0",versions:["0.10.0"],time:{created:NOW,modified:NOW,"0.10.0":NOW}}));
     writeFileSync(join(f.root,"package-lock.json"),JSON.stringify({version:"0.11.0",packages:{"":{version:"0.11.0"}}}));
     writeFileSync(join(f.root,"bin/git"),`#!/bin/sh\nprintf 'git\\t%s\\n' "$*" >>"$EFFECT_LOG"\ncase "$*" in\n  "ls-remote --exit-code --heads origin release-state") exit 0;;\n  "ls-remote --exit-code --heads origin "*) exit 2;;\n  "rev-parse HEAD") printf '${C}\\n'; exit 0;;\n  "rev-parse origin/release-state") printf '${A}\\n'; exit 0;;\n  "rev-list ${A}") printf '${A}\\n'; exit 0;;
-  "show ${A}:state.json") cat "$HOME/state.json"; exit 0;;\n  "commit-tree "*) printf '${B}\\n'; exit 0;;\nesac\nexit 0\n`);
+  "show ${A}:state.json") cat "$HOME/state.json"; exit 0;;\n  "commit-tree "*) cat >/dev/null; printf '${B}\\n'; exit 0;;\nesac\nexit 0\n`);
     const result=runWorkflowBlock(f,script,{VERSION:"0.10.1",NOTES:"Release notes",STATE_BRANCH:"release-state"}),effects=readFileSync(f.effectLog,"utf8");
     assert.notEqual(old.identity,makeRequest({version:"0.10.1",baseSha:C,notes:"Release notes\n",currentVersion:"0.11.0",authorization:"900"}).identity,status);
     if(TERMINAL.includes(status)){
@@ -391,7 +391,7 @@ case "$*" in
   "rev-parse origin/release-state") printf '%s\\n' "$HISTORY_HEAD";;
   "rev-list "*) test "${'${HISTORY_FAIL:-0}'}" = 0 || exit 1; case "$HISTORY_HEAD" in a) printf 'a\\nd\\n';; b) printf 'b\\na\\nd\\n';; c) printf 'c\\nb\\na\\nd\\n';; esac;;
   "show "*) sha="${'${2%%:*}'}"; cat "$HOME/$sha.json";;
-  "commit-tree "*) printf '${B}\\n';;
+  "commit-tree "*) cat >/dev/null; printf '${B}\\n';;
 esac
 exit 0
 `);
