@@ -6,7 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { createRequire } from "node:module";
 import test from "node:test";
 // @ts-expect-error Unshipped JavaScript commands have no declaration files.
-import { STATUSES, TERMINAL, assertNoEndedIdentity, preparedMergeProof, abandon, advance, authorizeInstall, authorizeUpload, beginPromotion, beginUpload, claimRelease, classifyRegistry, closeWithoutPromotion, hashBytes, initialState, makeRequest, planFinalization, recordInstallFailure, recordInstallProof, recordPromotion, recordRegistry, releasePathsAllowed, retire, validateState, versionUsage, verifyReleaseIdentity, writeExclusive } from "../verification/release-control.mjs";
+import { STATUSES, TERMINAL, assertNoEndedIdentity, preparedMergeProof, abandonPullRequests, abandon, advance, authorizeInstall, authorizeUpload, beginPromotion, beginUpload, claimRelease, classifyRegistry, closeWithoutPromotion, hashBytes, initialState, makeRequest, planFinalization, recordInstallFailure, recordInstallProof, recordPromotion, recordRegistry, releasePathsAllowed, retire, validateState, versionUsage, verifyReleaseIdentity, writeExclusive } from "../verification/release-control.mjs";
 // @ts-expect-error Unshipped JavaScript commands have no declaration files.
 import { executeFinalRecords, executeInstall, executePromotion, executeUpload } from "../verification/release-job.mjs";
 
@@ -120,7 +120,7 @@ function workflowRunBody(lines:string[],marker:number){const markerLine=lines[ma
 function workflowRunBlock(name:string){const lines=workflowJobBlock(name),marker=lines.findIndex(x=>["run: |","- run: |"].includes(x.trim()));assert.notEqual(marker,-1,`missing run block for ${name}`);return workflowRunBody(lines,marker);}
 function workflowStepRunBlock(job:string,id:string){const lines=workflowJobBlock(job),step=lines.findIndex(x=>x.trim()===`- id: ${id}`);assert.notEqual(step,-1,`missing workflow step ${job}.${id}`);const marker=lines.findIndex((x,i)=>i>step&&["run: |","- run: |"].includes(x.trim()));assert.notEqual(marker,-1,`missing run block for ${job}.${id}`);return workflowRunBody(lines,marker);}
 function renderWorkflowBlock(source:string,values:Record<string,string>={}){return source.replace(/\$\{\{\s*([^}]+?)\s*\}\}/g,(_all,key:string)=>{const value=values[key.trim()];if(value===undefined)throw new Error(`unknown workflow expression ${key}`);return value;});}
-function workflowFixture(t:any,state:any){const root=mkdtempSync(join(tmpdir(),"slate-workflow-")),bin=join(root,"bin"),effectLog=join(root,"effects.log"),temp=join(root,"tmp");t.after(()=>rmSync(root,{recursive:true,force:true}));mkdirSync(bin);mkdirSync(temp);mkdirSync(join(root,"verification"));mkdirSync(join(root,"control/verification"),{recursive:true});mkdirSync(join(root,"state/archive"),{recursive:true});mkdirSync(join(root,"current-control/verification"),{recursive:true});mkdirSync(join(root,"runner"));for(const dir of["verification","control/verification","current-control/verification"])for(const file of["release-control.mjs","release-job.mjs"])cpSync(new URL(`../verification/${file}`,import.meta.url),join(root,dir,file));writeFileSync(join(root,"state.json"),JSON.stringify(state,null,2)+"\n");writeFileSync(join(root,"state/state.json"),JSON.stringify(state,null,2)+"\n");writeFileSync(join(root,"state/archive/package.tgz"),"archive");writeFileSync(effectLog,"");writeFileSync(join(bin,"git"),`#!/bin/sh\nprintf 'git\\t%s\\n' "$*" >>"$EFFECT_LOG"\ncase "$*" in *"rev-parse HEAD"*) printf '${C}\\n';; esac\nexit 0\n`);writeFileSync(join(bin,"gh"),`#!/bin/sh\nprintf 'gh\\t%s\\n' "$*" >>"$EFFECT_LOG"\ncase "$*" in *"/pulls?"*) test "${'${GH_FAIL_PRS:-0}'}" = 0 || exit 1; test -f "$GH_PRS" || exit 1; cat "$GH_PRS";; *"/jobs?"*) test "${'${GH_FAIL_JOBS:-0}'}" = 1 && exit 1; test -f "$GH_JOBS" || exit 1; cat "$GH_JOBS"; test "${'${GH_FAIL_JOBS:-0}'}" = 0 || exit 1;; *"/attempts/"*) test "${'${GH_FAIL_RUN:-0}'}" = 1 && exit 1; test -f "$GH_RUN" || exit 1; cat "$GH_RUN"; test "${'${GH_FAIL_RUN:-0}'}" = 0 || exit 1;; esac\nexit 0\n`);writeFileSync(join(root,"latest"),"0.10.0\n");writeFileSync(join(bin,"npm"),`#!/bin/sh\nprintf 'npm\\t%s\\n' "$*" >>"$EFFECT_LOG"\ncase "$*" in *"versions time"*) test "${'${NPM_FAIL:-0}'}" = 0 || { if test "${'${NPM_FAIL:-0}'}" = 4; then cat "$NPM_DOC"; exit 1; fi; echo 'E404 or network failure' >&2; exit 1; }; test -f "$NPM_DOC" && { cat "$NPM_DOC"; exit 0; }; exit 1;; *"dist-tags.latest"*) n=$(($(cat "$NPM_READ_COUNT" 2>/dev/null || echo 0)+1)); echo "$n" >"$NPM_READ_COUNT"; case "${'${NPM_READ_FAIL_FIRST:-0}'}:$n" in 1:1) echo 'PRIVATE REGISTRY RESPONSE' >&2; exit 1;; esac; case "${'${NPM_READ_FAIL_SECOND:-0}'}:$n" in 1:2) echo 'PRIVATE REGISTRY RESPONSE' >&2; exit 1;; esac; cat "$NPM_LATEST_FILE";; *"dist-tag add"*) test "${'${NODE_AUTH_TOKEN:-}'}" = fixture-stage-token || { echo 'missing authorized token' >&2; exit 8; }; test "${'${NPM_WRITE_FAIL:-0}'}" = 0 || { if test "${'${NPM_WRITE_FAIL:-0}'}" = 2; then echo 'UNKNOWN npm failure' >&2; else echo 'E403 Forbidden' >&2; fi; exit 1; }; printf '%s\\n' "${'${3#ytdb-slate@}'}" >"$NPM_LATEST_FILE";; esac\nexit 0\n`);writeFileSync(join(bin,"pi"),`#!/bin/sh\nprintf 'pi\\t%s\\n' "$*" >>"$EFFECT_LOG"\ncase "$*" in *"--mode rpc"*) if test "${'${PI_SUCCESS:-0}'}" = 1; then printf '{"type":"response","command":"get_commands","data":{"commands":[{"name":"slate","sourceInfo":{"source":"npm:ytdb-slate@0.10.1"}}]}}\\n'; else printf '{"type":"response","command":"get_commands","data":{"commands":[]}}\\n'; fi;; esac\nexit 0\n`);for(const name of["git","gh","npm","pi"])chmodSync(join(bin,name),0o755);const env={PATH:`${bin}:${dirname(process.execPath)}:/usr/bin:/bin`,PI_BIN:join(bin,"pi"),HOME:root,TMPDIR:temp,RUNNER_TEMP:join(root,"runner"),REGISTRY:"https://registry.invalid/",GH_RUN:join(root,"run.json"),GH_JOBS:join(root,"jobs.json"),GH_PRS:join(root,"prs.jsonl"),NPM_DOC:join(root,"package.json"),GIT_CONFIG_NOSYSTEM:"1",GIT_CONFIG_GLOBAL:"/dev/null",EFFECT_LOG:effectLog,NPM_LATEST_FILE:join(root,"latest"),NPM_READ_COUNT:join(root,"read-count"),GITHUB_RUN_ID:"900",GITHUB_RUN_ATTEMPT:"2",GITHUB_REPOSITORY:"JetBrains/ytdb-slate",GITHUB_OUTPUT:join(root,"output")};return{root,effectLog,env};}
+function workflowFixture(t:any,state:any){const root=mkdtempSync(join(tmpdir(),"slate-workflow-")),bin=join(root,"bin"),effectLog=join(root,"effects.log"),temp=join(root,"tmp");t.after(()=>rmSync(root,{recursive:true,force:true}));mkdirSync(bin);mkdirSync(temp);mkdirSync(join(root,"verification"));mkdirSync(join(root,"control/verification"),{recursive:true});mkdirSync(join(root,"state/archive"),{recursive:true});mkdirSync(join(root,"current-control/verification"),{recursive:true});mkdirSync(join(root,"runner"));for(const dir of["verification","control/verification","current-control/verification"])for(const file of["release-control.mjs","release-job.mjs"])cpSync(new URL(`../verification/${file}`,import.meta.url),join(root,dir,file));writeFileSync(join(root,"state.json"),JSON.stringify(state,null,2)+"\n");writeFileSync(join(root,"state/state.json"),JSON.stringify(state,null,2)+"\n");writeFileSync(join(root,"state/archive/package.tgz"),"archive");writeFileSync(effectLog,"");writeFileSync(join(bin,"git"),`#!/bin/sh\nprintf 'git\\t%s\\n' "$*" >>"$EFFECT_LOG"\ncase "$*" in *"rev-parse HEAD"*) printf '${C}\\n';; esac\nexit 0\n`);writeFileSync(join(bin,"gh"),`#!/bin/sh\nprintf 'gh\\t%s\\n' "$*" >>"$EFFECT_LOG"\ncase "$*" in *"/pulls?"*) if test -n "${'${GH_EXPECT_PRS_QUERY:-}'}"; then if ! { test "$#" -eq 5 && test "$1" = api && test "$2" = --paginate && test "$3" = "$GH_EXPECT_PRS_QUERY" && test "$4" = --jq && test "$5" = tojson; }; then printf 'unexpected preparation pull request query: %s\\n' "$*" >&2; exit 2; fi; fi; test "${'${GH_FAIL_PRS:-0}'}" = 1 && { printf '[]\\n'; exit 1; }; test -f "$GH_PRS" || exit 1; cat "$GH_PRS"; test "${'${GH_FAIL_PRS:-0}'}" = 0 || exit 1;; *"/jobs?"*) test "${'${GH_FAIL_JOBS:-0}'}" = 1 && exit 1; test -f "$GH_JOBS" || exit 1; cat "$GH_JOBS"; test "${'${GH_FAIL_JOBS:-0}'}" = 0 || exit 1;; *"/attempts/"*) test "${'${GH_FAIL_RUN:-0}'}" = 1 && exit 1; test -f "$GH_RUN" || exit 1; cat "$GH_RUN"; test "${'${GH_FAIL_RUN:-0}'}" = 0 || exit 1;; esac\nexit 0\n`);writeFileSync(join(root,"latest"),"0.10.0\n");writeFileSync(join(bin,"npm"),`#!/bin/sh\nprintf 'npm\\t%s\\n' "$*" >>"$EFFECT_LOG"\ncase "$*" in *"versions time"*) test "${'${NPM_FAIL:-0}'}" = 0 || { if test "${'${NPM_FAIL:-0}'}" = 4; then cat "$NPM_DOC"; exit 1; fi; echo 'E404 or network failure' >&2; exit 1; }; test -f "$NPM_DOC" && { cat "$NPM_DOC"; exit 0; }; exit 1;; *"dist-tags.latest"*) n=$(($(cat "$NPM_READ_COUNT" 2>/dev/null || echo 0)+1)); echo "$n" >"$NPM_READ_COUNT"; case "${'${NPM_READ_FAIL_FIRST:-0}'}:$n" in 1:1) echo 'PRIVATE REGISTRY RESPONSE' >&2; exit 1;; esac; case "${'${NPM_READ_FAIL_SECOND:-0}'}:$n" in 1:2) echo 'PRIVATE REGISTRY RESPONSE' >&2; exit 1;; esac; cat "$NPM_LATEST_FILE";; *"dist-tag add"*) test "${'${NODE_AUTH_TOKEN:-}'}" = fixture-stage-token || { echo 'missing authorized token' >&2; exit 8; }; test "${'${NPM_WRITE_FAIL:-0}'}" = 0 || { if test "${'${NPM_WRITE_FAIL:-0}'}" = 2; then echo 'UNKNOWN npm failure' >&2; else echo 'E403 Forbidden' >&2; fi; exit 1; }; printf '%s\\n' "${'${3#ytdb-slate@}'}" >"$NPM_LATEST_FILE";; esac\nexit 0\n`);writeFileSync(join(bin,"pi"),`#!/bin/sh\nprintf 'pi\\t%s\\n' "$*" >>"$EFFECT_LOG"\ncase "$*" in *"--mode rpc"*) if test "${'${PI_SUCCESS:-0}'}" = 1; then printf '{"type":"response","command":"get_commands","data":{"commands":[{"name":"slate","sourceInfo":{"source":"npm:ytdb-slate@0.10.1"}}]}}\\n'; else printf '{"type":"response","command":"get_commands","data":{"commands":[]}}\\n'; fi;; esac\nexit 0\n`);for(const name of["git","gh","npm","pi"])chmodSync(join(bin,name),0o755);const env={PATH:`${bin}:${dirname(process.execPath)}:/usr/bin:/bin`,PI_BIN:join(bin,"pi"),HOME:root,TMPDIR:temp,RUNNER_TEMP:join(root,"runner"),REGISTRY:"https://registry.invalid/",GH_RUN:join(root,"run.json"),GH_JOBS:join(root,"jobs.json"),GH_PRS:join(root,"prs.jsonl"),NPM_DOC:join(root,"package.json"),GIT_CONFIG_NOSYSTEM:"1",GIT_CONFIG_GLOBAL:"/dev/null",EFFECT_LOG:effectLog,NPM_LATEST_FILE:join(root,"latest"),NPM_READ_COUNT:join(root,"read-count"),GITHUB_RUN_ID:"900",GITHUB_RUN_ATTEMPT:"2",GITHUB_REPOSITORY:"JetBrains/ytdb-slate",GITHUB_OUTPUT:join(root,"output")};return{root,effectLog,env};}
 function runWorkflowBlock(f:any,script:string,more:Record<string,string>={}){return spawnSync("/bin/bash",["-c",script],{cwd:f.root,env:{...f.env,...more},encoding:"utf8",timeout:10000});}
 function registryProofFixture(t:any,state:any,scenario:string){
   const f=workflowFixture(t,state),attempts=join(f.root,"npm-attempts");
@@ -304,6 +304,88 @@ const mutant=source.split("\n").map(line=>line.includes(" begin-upload ")?line.r
 
 test("real operator workflow blocks bind targets and permit intended progress",t=>{for(const [name,state,expectedStatus] of [["retire",claimed(),"retired"],["close",proved(),"closed-unpromoted"],["close",failedPublished(),"closed-unpromoted"]] as const){const script=workflowRunBlock(name);for(const [label,version,identity] of [["correct",state.version,state.identity],["wrong-version","0.10.2",state.identity],["wrong-identity",state.version,"f".repeat(64)]] as const){const f=workflowFixture(t,state),before=readFileSync(join(f.root,"state.json"),"utf8"),result=runWorkflowBlock(f,script,{VERSION:version,IDENTITY:identity}),effects=readFileSync(f.effectLog,"utf8");if(label==="correct"){assert.equal(result.status,0,`${name}: ${result.stderr}`);assert.equal(JSON.parse(readFileSync(join(f.root,"state.json"),"utf8")).status,expectedStatus);assert.match(effects,/push origin HEAD:release-state/);if(name==="retire")assert.match(effects,/commit -m Retire merged no-upload authorization/);}else{assert.notEqual(result.status,0,`${name} accepted ${label}`);assert.equal(readFileSync(join(f.root,"state.json"),"utf8"),before);assert.doesNotMatch(effects,/git\t.*(?:add|commit|push)|gh\t|npm\t/);}}}
 const state=published(),script=workflowRunBlock("recover");for(const [label,version,identity] of [["correct",state.version,state.identity],["wrong-version","0.10.2",state.identity],["wrong-identity",state.version,"f".repeat(64)]] as const){const f=workflowFixture(t,state),before=readFileSync(join(f.root,"state.json"),"utf8"),result=runWorkflowBlock(f,script,{VERSION:version,IDENTITY:identity}),effects=readFileSync(f.effectLog,"utf8");if(label==="correct"){assert.equal(result.status,0,result.stderr);assert.match(effects,/gh\trun rerun 17 --repo JetBrains\/ytdb-slate --failed/);assert.match(result.stdout,/failed jobs and their dependents/);assert.match(result.stdout,/Promotion and final records can run only after/);assert.doesNotMatch(result.stdout,/read-only installation proof|promotion remain disabled/i);}else{assert.notEqual(result.status,0);assert.doesNotMatch(effects,/gh\t|npm\t|git\t.*(?:add|commit|push)/);}assert.equal(readFileSync(join(f.root,"state.json"),"utf8"),before);}const unknown=uploaded(),uf=workflowFixture(t,unknown),before=readFileSync(join(uf.root,"state.json"),"utf8"),retried=runWorkflowBlock(uf,script,{VERSION:unknown.version,IDENTITY:unknown.identity});assert.equal(retried.status,0,retried.stderr);assert.match(readFileSync(uf.effectLog,"utf8"),/gh\trun rerun 17 --repo JetBrains\/ytdb-slate --failed/);assert.match(retried.stdout,/failed jobs and their dependents/);assert.match(retried.stdout,/sealed upload authority rejects every upload rerun/);assert.match(retried.stdout,/Promotion and final records can run only after registry and installation proofs succeed/);assert.equal(readFileSync(join(uf.root,"state.json"),"utf8"),before);});
+
+test("real abandonment validates every page before any effect and closes only open exact matches",t=>{
+  const state=initialState(req(),NOW),branch=`release/v${state.version}-${state.identity.slice(0,12)}`;
+  const exact={number:9,merged_at:null,state:"open",head:{ref:branch,repo:{full_name:"JetBrains/ytdb-slate"}},base:{ref:"main"}};
+  const fork={...exact,number:10,head:{...exact.head,repo:{full_name:"fork/repo"}}};
+  const otherBase={...exact,number:11,base:{ref:"other"}};
+  const otherBranch={...exact,number:15,head:{...exact.head,ref:"release/unrelated"}};
+  const closed={...exact,number:12,state:"closed"};
+  const merged={...exact,number:13,merged_at:NOW,state:"closed"};
+  const page=(...prs:any[])=>JSON.stringify(prs)+"\n";
+  const target={repository:"JetBrains/ytdb-slate",branch};
+  assert.deepEqual(abandonPullRequests(page(fork,otherBase,exact,closed),target),[9]);
+  assert.deepEqual(abandonPullRequests(page()+page(exact,{...exact,number:14}),target),[9,14]);
+  assert.throws(()=>abandonPullRequests(page(exact)+page(merged),target),/merged/);
+  const job=workflowJobBlock("abandon").join("\n"),script=workflowRunBlock("abandon");
+  assert.match(job,/ref: '\$\{\{ github.sha \}\}', path: current-control/);
+  assert.match(script,/gh api --paginate "repos\/\$GITHUB_REPOSITORY\/pulls\?state=all&head=\$owner:\$branch&per_page=100" --jq 'tojson'/);
+  assert.match(script,/from '.\/current-control\/verification\/release-control.mjs'/);
+  const run=(payload:string,fail="0",source=script,currentControl?:string)=>{
+    const f=workflowFixture(t,state),before=readFileSync(join(f.root,"state.json"),"utf8");
+    writeFileSync(join(f.root,"prs.jsonl"),payload);
+    if(currentControl)writeFileSync(join(f.root,"current-control/verification/release-control.mjs"),currentControl);
+    const result=runWorkflowBlock(f,source,{VERSION:state.version,IDENTITY:state.identity,GH_FAIL_PRS:fail,GH_EXPECT_PRS_QUERY:`repos/${target.repository}/pulls?state=all&head=JetBrains:${target.branch}&per_page=100`});
+    return {f,before,result,effects:readFileSync(f.effectLog,"utf8"),after:readFileSync(join(f.root,"state.json"),"utf8")};
+  };
+  for(const [name,payload,closedNumbers] of [
+    ["no match",page(),[]],
+    ["fork only",page({...fork,merged_at:NOW,state:"closed"}),[]],
+    ["wrong base",page({...otherBase,merged_at:NOW,state:"closed"}),[]],
+    ["wrong branch",page(otherBranch),[]],
+    ["exact plus fork",page(fork,exact,closed,otherBase,otherBranch),[9]],
+    ["several unmerged",page(exact)+page({...exact,number:14},fork),[9,14]],
+  ] as const){
+    const r=run(payload);assert.equal(r.result.status,0,`${name}: ${r.result.stderr}`);
+    assert.equal(JSON.parse(r.after).status,"abandoned");
+    assert.deepEqual(r.effects.split("\n").filter(line=>line.startsWith("gh\tpr close ")).map(line=>Number(/pr close (\d+)/.exec(line)?.[1])),closedNumbers,name);
+    assert.match(r.effects,/git\tpush origin HEAD:release-state --force-with-lease=/);
+    assert.doesNotMatch(r.effects,/gh\tpr close (?:10|11|12|15)\b/);
+  }
+  for(const [name,mutant] of [
+    ["wrong owner",script.replace("owner=${GITHUB_REPOSITORY%%/*}","owner=foreign-org")],
+    ["wrong branch",script.replace('branch="release/v$VERSION-${identity:0:12}"','branch="release/v$VERSION"')],
+  ] as const){
+    assert.notEqual(mutant,script,`${name} mutation must change the workflow`);
+    const r=run(page(merged),"0",mutant);
+    assert.notEqual(r.result.status,0,name);
+    assert.match(r.result.stderr,/unexpected preparation pull request query/,name);
+    assert.equal(r.after,r.before,name);
+    assert.doesNotMatch(r.effects,/gh\tpr close|git\tpush origin --delete|git\t(?:add|commit)|git\tpush origin HEAD:release-state/,name);
+  }
+  const refusals=[
+    ["read error",page(exact),"1"],
+    ["partial output with read error",page(exact),"2"],
+    ["invalid first page","{\n","0"],
+    ["invalid later page",page(exact)+"{\n","0"],
+    ["malformed evidence on later page",page(exact)+page({...fork,head:{...fork.head,repo:null}}),"0"],
+    ["unsafe pull request number",page({...exact,number:1.5}),"0"],
+    ["merged on later page",page(exact)+page(merged),"0"],
+    ["missing REST state",page({...exact,state:undefined}),"0"],
+    ["missing fork REST state",page({...fork,state:undefined}),"0"],
+  ] as const;
+  const controlSource=readFileSync(new URL("../verification/release-control.mjs",import.meta.url),"utf8");
+  const unguardedRead=script.replace(/ \|\| \{ echo 'Cannot read preparation pull requests\.' >&2; exit 2; \}/," || true");
+  assert.notEqual(unguardedRead,script);
+  for(const [name,payload,fail] of refusals){
+    const guarded=run(payload,fail);assert.notEqual(guarded.result.status,0,name);
+    assert.match(guarded.result.stderr,/./,name);
+    assert.equal(guarded.after,guarded.before,name);
+    assert.doesNotMatch(guarded.effects,/gh\tpr close|git\tpush origin --delete|git\t(?:add|commit)|git\tpush origin HEAD:release-state/,name);
+    const guard=name.includes("REST state")? 'if(action==="abandonment"&&p.state!=="open"&&p.state!=="closed")throw new Error("prepared abandonment pull request evidence is malformed");':name==="merged on later page"?'if(matches.some(p=>p.merged_at!==null))throw new Error("Matching preparation pull request is merged. Use retire instead.");':null;
+    const control=guard?controlSource.replace(guard,""):name.includes("invalid")?controlSource.replace('throw new Error(`prepared ${action} pull request evidence is malformed`);','return [];'):(name==="malformed evidence on later page"||name==="unsafe pull request number")?controlSource.replace('if(!p||!Number.isSafeInteger(p.number)||p.number<1||p.merged_at!==null&&!dated(p.merged_at)||typeof p.head?.ref!=="string"||typeof p.head?.repo?.full_name!=="string"||typeof p.base?.ref!=="string")throw new Error(`prepared ${action} pull request evidence is malformed`);','if(!p||!Number.isSafeInteger(p.number)||p.number<1||p.merged_at!==null&&!dated(p.merged_at)||typeof p.head?.ref!=="string"||typeof p.head?.repo?.full_name!=="string"||typeof p.base?.ref!=="string")return [];'):controlSource;
+    if(fail==="0")assert.notEqual(control,controlSource,`${name} lacks a mutation`);
+    const mutant=run(payload,fail,fail==="0"?script:unguardedRead,control);
+    assert.equal(mutant.result.status,0,`${name} did not detect removal of its guard: ${mutant.result.stderr}`);
+    assert.equal(JSON.parse(mutant.after).status,"abandoned");
+  }
+  for(const [name,version,identity] of [["wrong version","0.10.2",state.identity],["wrong identity",state.version,"f".repeat(64)]] as const){
+    const f=workflowFixture(t,state),before=readFileSync(join(f.root,"state.json"),"utf8"),result=runWorkflowBlock(f,script,{VERSION:version,IDENTITY:identity});
+    assert.notEqual(result.status,0,name);assert.equal(readFileSync(join(f.root,"state.json"),"utf8"),before);
+    assert.doesNotMatch(readFileSync(f.effectLog,"utf8"),/gh\t|git\t(?:add|commit|push)/);
+  }
+});
 
 test("prepared retirement validates one merged pull request and preserves empty claim fields",t=>{
   const state=initialState(req(),NOW),branch=`release/v${state.version}-${state.identity.slice(0,12)}`,pr={number:9,merged_at:NOW,head:{ref:branch,repo:{full_name:"JetBrains/ytdb-slate"}},base:{ref:"main"}},pages=JSON.stringify([pr])+"\n";
