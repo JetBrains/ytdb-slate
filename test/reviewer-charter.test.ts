@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import "../verification/test-hooks.mjs";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { THREAD_TYPES, type ThreadRecord, type ThreadType } from "../extension/state.ts";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { REVIEW_COMMON_POLICY_DOC, REVIEW_IMPLEMENTATION_INPUT_DOC, WRITING_CHECKER, WRITING_GUIDANCE_DOC } from "../extension/paths.ts";
+import { REVIEW_PERSPECTIVES } from "../extension/review-perspectives.ts";
+import { SlateStore, THREAD_TYPES, type ThreadRecord, type ThreadType } from "../extension/state.ts";
+import { createLogicalRuntime } from "../extension/logical-model-runtime.ts";
 import type { WorkerSession } from "../extension/worker.ts";
 
 const codingAgentModule = await import("@earendil-works/pi-coding-agent") as unknown as {
@@ -148,6 +151,74 @@ test("real worker assembly delivers the charter only to review thread types", as
   }
 });
 
+
+test("public dispatch delivers selected guidance to the worker loader and leaves manual reviews alone", { timeout: 5000 }, async () => {
+  const root = mkdtempSync(join(tmpdir(), "slate-selected-review-test."));
+  const optionsSeen: Array<Record<string, unknown>> = [];
+  const common = readFileSync(REVIEW_COMMON_POLICY_DOC, "utf8").trim()
+    .replaceAll("<installed-writing-checker>", WRITING_CHECKER)
+    .replaceAll("<installed-writing-guidance>", WRITING_GUIDANCE_DOC);
+  const input = readFileSync(REVIEW_IMPLEMENTATION_INPUT_DOC, "utf8").trim();
+  const runtime = createLogicalRuntime({ trusted: true, projectConfig: { router: { models: { include: [], add: [
+    { model: "fixture", capabilityRating: 50, effort: "off", costRating: 50, preferredProvider: "test", providers: { test: "worker" }, guidelines: [], cautions: [] },
+  ] } } } });
+  const admittedRuntime = Object.freeze({ ...runtime, validateRoute: async () => ({ ok: true } as const) });
+  const ctx = { cwd: root, model: undefined, isProjectTrusted: () => true, modelRegistry: {
+    find: (provider: string, id: string) => provider === "test" && id === "worker" ? { provider, id } : undefined,
+    getRegisteredProviderIds: () => [], getRegisteredNativeProvider: () => undefined, getRegisteredProviderConfig: () => undefined,
+  } } as unknown as ExtensionContext;
+  try {
+    for (const selected of [["Reviewer I"], ["Consumer contract break reviewer", "Non-local logic defect reviewer"], undefined] as const) {
+      const abort = new AbortController();
+      const openingBefore = optionsSeen.length;
+      codingAgentStub.createAgentSession = async (options) => {
+        optionsSeen.push(options);
+        // Stop after the real loader was built. No provider or compressor is needed.
+        abort.abort();
+        return { session: {
+          messages: [], model: undefined, thinkingLevel: "medium", modelRuntime: { getRegisteredProviderIds: () => [] },
+          agent: { state: { tools: [] }, streamFunction: async () => ({}) },
+          subscribe: () => () => {}, async abort() {}, async waitForIdle() {},
+          async bindExtensions() {}, extensionRunner: { async emit() {} }, dispose() {},
+        } as unknown as WorkerSession };
+      };
+      const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
+      const manager = new ThreadManager(store, {}, undefined, admittedRuntime, undefined, {},
+        selected === undefined ? () => { throw new Error("manual review read an automatic policy file"); } : undefined);
+      await assert.rejects(manager.dispatch({
+        task: "review this range", type: "reviewer", model: "fixture", reason: "review",
+        ...(selected === undefined ? {} : { reviewPerspectives: [...selected] }),
+      }, ctx, abort.signal), /cancelled by the caller/);
+      assert.equal(optionsSeen.length, openingBefore + 1);
+      const loader = optionsSeen.at(-1)?.resourceLoader as { options?: { appendSystemPrompt?: string[] } } | undefined;
+      const blocks = loader?.options?.appendSystemPrompt;
+      const expected = selected === undefined ? undefined : [common, input, ...selected.map((name) =>
+        readFileSync(REVIEW_PERSPECTIVES.find((role) => role.name === name)!.file, "utf8").trim(),
+      )].join("\n\n");
+      assert.deepEqual(blocks, expected === undefined ? [workerPreamble(true, true)] : [workerPreamble(true, true), expected]);
+      assert.equal((blocks?.[0]?.split(REVIEWER_CHARTER).length ?? 0) - 1, 1);
+      if (selected === undefined) assert.doesNotMatch(blocks?.join("\n") ?? "", /Implementation design quality|Design-quality questions/);
+      if (selected !== undefined && expected !== undefined) {
+        assert.equal(expected.split("### Implementation design quality").length - 1, 1);
+        assert.ok(expected.indexOf("### Implementation design quality") > expected.indexOf("## Common review policy"));
+        assert.ok(expected.indexOf("### Implementation design quality") < expected.indexOf(`# ${selected[0]}\n`));
+        assert.equal(expected.split(common).length - 1, 1);
+        assert.equal(expected.split(input).length - 1, 1);
+        for (const name of selected) {
+          const charter = readFileSync(REVIEW_PERSPECTIVES.find((role) => role.name === name)!.file, "utf8").trim();
+          assert.equal(expected.split(charter).length - 1, 1);
+          assert.match(charter, /\*\*Design-quality questions\*\*[\s\S]*?1\. /);
+          assert.match(charter, /\*\*Examples of useful evidence\*\*/);
+        }
+        if (selected[0] === "Reviewer I") assert.match(expected, /without speculative layers or duplicated paths/);
+      }
+      assert.equal(store.episodes.size, 0);
+    }
+  } finally {
+    codingAgentStub.createAgentSession = originalCreateAgentSession;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("worker assembly restores the shared SDK session stub", () => {
   assert.strictEqual(codingAgentStub.createAgentSession, originalCreateAgentSession);

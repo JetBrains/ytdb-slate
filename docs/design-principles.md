@@ -180,6 +180,19 @@ required reviews, ordered gates, user authority, or final acceptance.
   reference. Accept the repeated subject and its word cost. Avoid disconnected
   fragments. The configured limit controls the sentence-length finding.
 
+- **P13 — Research and define built-in focus areas by risk.** *(Repo-local note, not from the report.)* When proposing a new built-in focus area and its reviewer, apply these rules:
+
+  0. Research external sources before defining the area or writing reviewer questions. Standards, research papers, and established engineering guides are possible sources. Keep a corpus of findings, meaning a collection of source summaries, in the proposing tracker issue or pull request. Do not ship the corpus. Each entry links its source and states its support for the area and its applicability limits. State what the source does not prove. Copy no source text. Use the corpus as evidence for judgment in rules 1, 2, 3, and 6. The user still approves the area.
+  1. Define the risk by the outcome it prevents and the condition that engages it. The size of a change, its file count, and a complexity score never engage an area. A requirement can still state a size limit as part of the risk, for example a size budget for one path.
+  2. State a boundary with every existing area. Explain which outcome belongs where and when both areas engage.
+  3. Explain all four proof parts for the area: defect class, place, material consequence of omitting its reviewer, and review contribution. The contribution identifies useful review evidence and why planned implementation checks cannot settle the risk.
+  4. Choose DESIGN-TRIGGERING, which requires a high-level design, or REVIEWER-ONLY, which adds a reviewer only. Give the reason.
+  5. Run the new reviewer only through a proved area, applying P11. A proved area has user approval of its four-part proof.
+  6. Create one perspective file with a one-sentence definition, charter, design-quality questions, and examples of useful evidence, in that order. Cover every design concern inside the area without a fixed question count. Evidence examples are not required checks or artifacts.
+  7. Keep every rule and question applicable to any project using Slate.
+  8. Update the code list of review perspectives, finding prefix, both focus-area tables, class list, structure and agreement checks, and published size figure. Keep all of them consistent.
+  9. Put a project-only rule in a project-added charter through `reviewPerspectivesPath`, not a built-in area.
+
 ## 5. Where each principle lives in the code
 
 | Principle | Implementation |
@@ -196,6 +209,7 @@ required reviews, ordered gates, user authority, or final acceptance.
 | P10 context as RAM | `handoff.ts` context-budget auto-pause + fresh-session handoff |
 | P11 proportional process | no code home; the shipped workflow documents apply it to gates, artifacts and review actions |
 | P12 reader understanding | `writing-check.mjs` reports sentence-length findings; the writing guidance and review rules apply it to project prose |
+| P13 risk-based focus-area authorship | no runtime code home for author research or approval. Focus definitions, reviewer content, the code roster, and structure and agreement checks apply the rule. |
 
 Repo-local note (not from the report): the `maxConcurrent` cap defaults
 to 4. Its failure modes are asymmetric: excess dispatches wait for a

@@ -24,6 +24,7 @@ import {
 } from "./state.ts";
 import { MAX_CONTEXT_EPISODES, type DispatchProgress, type ThreadManager } from "./threads.ts";
 import { JUDGEMENT_THREAD_TYPES } from "./worker.ts";
+import { REVIEW_PERSPECTIVES } from "./review-perspectives.ts";
 
 const threadTypeGlosses = THREAD_TYPES.map((type) => `${type} ${THREAD_TYPE_GLOSSES[type]}`).join(", ");
 const judgementThreadTypes = JUDGEMENT_THREAD_TYPES.join(" and ");
@@ -100,6 +101,10 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 				maxLength: 200,
 			}),
 			tools: Type.Optional(Type.Array(Type.String(), { description: "Worker tool allowlist (new threads only)" })),
+			reviewPerspectives: Type.Optional(Type.Array(
+				Type.String({ description: `Names: ${REVIEW_PERSPECTIVES.map((role) => role.name).join(", ")}` }),
+				{ description: "Built-in implementation review only, type reviewer. Reviewer I and Test-quality and structure reviewer each run alone. Other specialists may merge only with matching scope and evidence." },
+			)),
 		}),
 
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
@@ -153,6 +158,7 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 					model: params.model,
 					reason: params.reason,
 					tools: params.tools,
+					reviewPerspectives: raw.reviewPerspectives,
 				},
 				ctx,
 				signal,

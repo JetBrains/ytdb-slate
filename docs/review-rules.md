@@ -46,46 +46,9 @@ permit a direct private read or a separately supplied private source.
 
 A design-stage adversarial review also judges the simplest solution. The review checks the approved high-level design against slate's simplest-solution requirement. That requirement asks for the simplest solution with the fewest changes that keeps every approved goal, the product and implementation quality, and every required gate. The review judges the design as a whole and not one track at a time. This duty adds no artifact, no phase and no gate.
 
-Before applying its specific charter, every reviewer runs:
-
-```bash
-node <package>/extension/writing-check.mjs --diff <regular-temp-diff> --format text
-```
-
-`<package>` is the absolute root of the installed `ytdb-slate` package. Resolve
-it from this document's absolute installed path. Write the unified review diff
-to a regular temporary file outside the checkout. See
-[writing-guidance.md](writing-guidance.md) for checker scope and limits.
-
-The checker is diagnostic. In governed prose, a `fail` is normally major. No
-current rule emits a `warning`. A `warning` is at most minor without independent
-evidence. A `house-style` match is at most minor when the convention applies.
-
-An `advisory` is never a finding by itself. Independent evidence may justify
-another severity. Reviewer judgment remains authoritative.
+Every reviewer uses the [common review policy](review-common-policy.md) for writing checks, evidence, severity, identifiers, and output format. Resolve its writing-checker path from the installed package as `../extension/writing-check.mjs`. Resolve its writing-guidance path as `writing-guidance.md` beside the policy. Manual reviews combine this policy with their stage-specific input contract and applicable charter.
 
 ## Reviewer sets, merge rule and charters
-
-**Reviewer I**, with prefix `RI`, is the general implementation reviewer.
-Reviewer I checks maintainability, concretely harmful antipatterns,
-responsibility distribution, completeness against the approved current-track
-requirements, and ordinary local correctness. Ordinary local correctness covers
-local logic, boundaries, returned values, and local error handling when no
-specialist charter owns the check.
-
-An antipattern is concretely harmful only when evidence links it to an adverse
-effect on correctness, maintenance, operation, or a consumer. Responsibility
-distribution is defective when evidence shows unjustified coupling or a
-responsibility placed in a component that cannot own it coherently. A label or
-preference alone is not a finding.
-
-Reviewer I does not absorb an absent specialist charter. Reviewer I does not
-judge or reject area proofs. Reviewer I does not justify an area's absence.
-Reviewer I does not search for missing focus areas. Reviewer I does not add
-gates. Reviewer I does not replace a specialist. The shared evidence standards in
-this document apply to Reviewer I and every specialist. Specialists retain
-consumer compatibility, failure reporting, rule agreement, and every other
-duty in their charters.
 
 | track | required routine implementation-review set |
 | --- | --- |
@@ -131,167 +94,30 @@ Compose each applicable charter beside the built-in set. Each charter declares a
 stable prefix. The orchestrator replaces and records any colliding prefix.
 Project charters supplement the required reviewers and never replace them.
 
-### Production area charters
+### Built-in implementation perspectives
 
-- **concurrency:** interleavings, shared state, atomicity, cancellation,
-  ordering, lifecycle, and deadlock.
-- **data loss and recovery:** persistence, migration, corruption, retry,
-  recovery, and transactional guarantees.
-- **security:** trust boundaries, authentication, authorization, secrets,
-  untrusted input, sandboxing, and user-data exposure.
-- **performance:** asymptotic growth, hot paths, input/output, allocation,
-  synchronization, caching, batching, and benchmark evidence.
+For built-in implementation review, give the `thread` tool type `reviewer` and the `reviewPerspectives` list. Supply the approved review range, track intention, and ordinary evidence in the task. The track intention states the target, scope boundary, deferred work, acceptance condition, and declared file list. Slate loads the [common policy](review-common-policy.md), the [implementation-only input contract](review-implementation-input.md), and every selected perspective file into worker system guidance. Do not copy built-in charters into the task. Names select fixed shipped files. Prefixes identify findings and are not selector aliases. RG is a regression-gate prefix and not a perspective.
 
-#### Non-local logic defect reviewer
+| perspective | prefix | focus area | charter |
+| --- | --- | --- | --- |
+| Reviewer I | RI | none | [ri.md](review-perspectives/ri.md) |
+| Concurrency reviewer | CN | concurrency defect | [cn.md](review-perspectives/cn.md) |
+| Data loss and recovery reviewer | DU | data loss | [du.md](review-perspectives/du.md) |
+| Security reviewer | SE | security weakness | [se.md](review-perspectives/se.md) |
+| Performance reviewer | PF | performance degradation | [pf.md](review-perspectives/pf.md) |
+| Test-quality and structure reviewer | TQ | test-quality defect | [tq.md](review-perspectives/tq.md) |
+| Prose reviewer | PL | unreadable user-facing prose | [pl.md](review-perspectives/pl.md) |
+| Licensing reviewer | LX | licensing exposure | [lx.md](review-perspectives/lx.md) |
+| Non-local logic defect reviewer | NL | non-local logic defect | [nl.md](review-perspectives/nl.md) |
+| Consumer contract break reviewer | CB | consumer contract break | [cb.md](review-perspectives/cb.md) |
+| Governing-rule defect reviewer | GR | governing-rule defect | [gr.md](review-perspectives/gr.md) |
+| Unreported failure reviewer | UF | unreported failure | [uf.md](review-perspectives/uf.md) |
 
-The code reviewer is read-only and reports inside this area only. Prefix `NL`.
-
-The non-local logic defect area owns an agreement between places that an
-execution reads. The governing-rule defect area owns agreement between rule
-documents.
-
-1. List every fact outside the changed lines that the correctness verdict
-   depends on. For each fact, state where it lives and how you checked it.
-2. Name each rule that two or more places must apply in the same way. List every
-   place that must apply it. Check each place against the rule.
-3. Name each state or history that an earlier execution can leave. Cover a
-   first run, a repeat run, an interrupted run and a restart.
-4. Name each pair or group of conditions that must hold at the same time to
-   reach the forbidden result. Check that each combination is intended.
-5. Name each matching edit that the change owes to a place it does not touch.
-   Report a missing matching edit as a defect.
-6. Check the order of effects inside one execution when a place outside the
-   change can observe that order.
-7. Check that the implemented decisions agree with the stated intent of the
-   track.
-8. Check error and failure paths that cross the agreements above.
-
-
-#### Consumer contract break reviewer
-
-The code reviewer is read-only and reports inside this area only. Prefix `CB`.
-
-1. List every consumer-reachable surface the change touches: an exported name, a command argument or option, an exit status, a machine-readable output shape, a configuration key together with the value used when that key is absent, a written or read record, and a shipped statement about accepted input or produced output.
-2. For each listed surface, state what an unchanged consumer gets from the review base and what it gets from the candidate. Name the concrete invocation, configuration file or stored record that you used as the example.
-3. Check every default that the change adds, moves or withdraws. Report a default whose candidate value changes the result for a consumer that set nothing in the review base.
-4. Check the records the change writes or reads in both directions: a record written by the review base and read by the candidate, and a record written by the candidate and read by the review base.
-5. Report every withdrawal, rename or narrowing that ships no route for the base use. State which route exists, from an accepted base form, a default, an alias, a reserved identifier, a reader for the base format or a warning window, and state whether the change shows that the route works.
-6. Check that shipped documents state the same accepted input, produced output, exit statuses and defaults as the code. Report a newly published surface that ships with no statement of which parts a consumer may rely on.
-
-#### Governing-rule defect reviewer
-
-The code reviewer is read-only and reports inside this area only. Prefix `GR`. The governing-rule defect area owns agreement between rule documents. The non-local logic defect area owns an agreement between places that an execution reads.
-
-1. List every rule that the change adds, alters or removes. For each rule, state where it lives, who must obey it, and what the reader must now do differently.
-2. Check agreement between rule documents. Compare each changed rule against every other rule document, every marked duplicate block and every shipped copy that states the same rule. Report each case where two of them tell one reader two different things.
-3. Apply each changed rule as a first-time reader with only the change in front of you. Report each term, threshold, name or path that leaves the rule impossible to apply, and say which decision the reader cannot reach.
-4. Trace each changed rule to the check, the gate or the script that enforces it. Report each place where the rule and its enforcer now permit different work, and report a rule whose stated enforcement no longer exists.
-5. Walk the governed sequence from its start to its declared completion. Report a required step that a reader can pass with no recorded decision, a required step that no route reaches, and a step that can run after completion.
-6. Check every list that tells a reader when to act, for example a re-run trigger list, a required-check table, a phase order or a gate table. Report each entry that the change makes stale, missing or wrong.
-
-#### Unreported failure reviewer
-
-The code reviewer is read-only. It reports inside this area only. Prefix `UF`.
-
-1. Enumerate every in-scope failure mode of the changed behaviour, and name the exact signal that detects each one. Record a mode with no signal as a defect. This duty is the clause the retired general reviewer carried.
-2. For each failure mode, name the place that owes the report and the observable form of that report, for example the exit status, the stream, the stated rejection reason, the failing check or the recorded event.
-3. Check every caught error, every discarded error, every ignored return status and every empty handler on the changed paths. Report a discarded failure that produces no other signal.
-4. Check every effect the change performs and does not verify, for example a write, a delete, a send or a settings update. State what proceeds when the effect fails.
-5. Check every fallback, default, retry and partial result the change adds. Report a case where the substitute result is indistinguishable from success.
-6. Check every report the change removes, narrows, hides or downgrades. Require evidence that the failure it reported can no longer happen.
-
-### Test-quality and structure reviewer
-
-Every proved test-quality defect area receives one separate `test-quality and
-structure reviewer`. The reviewer receives the changed artifacts, production
-paths, and review range. It receives no implementer episode or area proof. It
-also receives no implementer report, private triage, implementer reasoning, or
-risk record. It is read-only.
-
-The final response must contain both sections below, even when it ends with
-`No findings.`. A section may say not applicable only with an artifact-specific
-reason. Missing either section makes the review incomplete.
-
-#### Behavioral effectiveness
-
-State all of these items:
-
-- test locations.
-- behavior or regression each test claims.
-- minimum production path exercised.
-- affected branches and failure paths.
-- assertion and observable outcome.
-- effect of every mock or stub on the production path.
-- a behavior-breaking counterfactual and its trace to the assertion.
-- tests run and results.
-- coverage gaps.
-
-Reject absent, constant, tautological, or unrelated assertions. Reject mocks or
-stubs that bypass the behavior under claim. Coverage is not evidence by itself.
-A test must fail under the traced behavior-breaking counterfactual.
-
-#### Structure and isolation
-
-State all of these items:
-
-- fixture, snapshot, and golden-data design.
-- shared state.
-- setup and cleanup.
-- resource lifecycle.
-- order dependence.
-- isolation and parallel safety.
-- mock and stub ownership and reset.
-- test-to-production integration.
-- coverage gaps.
-
-### Prose reviewer
-
-Check accuracy, audience, reader tasks, terminology, structure,
-cross-references, prompt safety, context cost, and the project writing
-convention. User-facing strings in code remain in scope. Code reviewers own
-claims about code they already inspect.
-
-### Licensing reviewer
-
-Identify copied, adapted, generated, or third-party material. Check its
-provenance, permission basis, and compliance with every applicable condition.
-
-Apply the reviewed project's writing scope before grading checker output. A
-clean result cannot establish accuracy, completeness, or conformance.
+Manual design reviews, fix gates, consultations, and project charters use their existing stage contracts. Read the relevant charter by reference when composing one of those reviews. The common policy applies without the implementation-only input contract.
 
 ## Findings and output
 
-Every reviewer writes full evidence for every finding it files. Every finding
-records the generally applicable dimensions below. A finding raised during a
-design-stage review also records `level` as `design` or
-`implementation`. The design-stage reviewer assigns that value with the
-abstraction test in [track-workflow.md](track-workflow.md) § Lifecycle and
-phases. An implementation-stage review does not record `level`.
-
-| dimension | required value |
-| --- | --- |
-| type | defect, evidence gap, regression, or improvement |
-| level, for design-stage findings only | design or implementation |
-| origin | reviewer perspective and stable finding identifier |
-| severity | blocker, major, or minor |
-| exposure | in-target, pre-existing, or outside-target |
-| owner triage | accept, amend, merge, dispute, or escalate |
-| disposition | fix, waive, moot, reject, or ignored |
-
-Prefixes are stable by perspective. Active built-in prefixes are `RI`, `CN`,
-`DU`, `SE`, `PF`, `TQ`, `PL`, `LX`, `NL`, `CB`, `GR`, `UF`, and `RG`.
-Project-supplied prefixes must not collide. The orchestrator assigns and records
-a replacement when they do.
-Identifiers remain cumulative and never renumber. Historical identifiers keep
-their recorded meaning.
-
-Severity means:
-
-- **blocker:** safe or correct delivery cannot proceed.
-- **major:** the target or required evidence is materially incomplete.
-- **minor:** a bounded defect does not defeat the target.
-
-The reviewer grades against the stated target.
+The [common review policy](review-common-policy.md) defines finding dimensions, severity, stable identifiers, and the compact output row. A design-stage finding also records `level` as `design` or `implementation`. The design-stage reviewer assigns that value using [track-workflow.md](track-workflow.md) § Lifecycle and phases. An implementation-stage finding does not record `level`. The `level` field stays outside the compact row.
 
 The orchestrator validates severity and exposure. It records the reviewer
 severity, validated severity, reason, episode identifier, and canonical
@@ -366,18 +192,6 @@ obligations and does not implement the paper's method.
   arguments carry no formal guarantee and do not replace running the
   project's checks.
 <!-- reviewer-charter:end -->
-
-Every finding ends in one compact row with exactly five fields:
-
-`ID | severity | location | one-line summary | counterexample gist`
-
-The location field carries a file and a line, or a file and a line range. It
-carries no pipe character. The compact row never includes `level`, type,
-exposure, owner triage, or disposition. Those recorded dimensions belong in the
-review evidence and orchestrator records. No reviewer emits a sixth compact-row field.
-
-A review with no findings ends with the exact standalone line `No findings.`.
-The role-specific test sections appear before that line.
 
 ## Observation files and evidence recovery
 
