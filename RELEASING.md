@@ -49,7 +49,7 @@ git diff v<last>..origin/main -- package.json
 
 Read the exact SDK pins in `devDependencies`. The SDK entries in `peerDependencies` use `*`. A changed pin alone does not prove a minimum working pi version. State a minimum version only when tests provide evidence for it.
 
-Read the previous notes as an example with `gh release view v<last> --json body`. On `main`, only the latest release keeps its request under `release/requests/<version>/`. Use the GitHub release for earlier notes.
+The GitHub release holds the published notes for each release. Read the previous notes as an example with `gh release view v<last> --json body`.
 
 Write the notes in Markdown with this structure. Include `Fixes` only when the release has fixes. Include `Breaking changes` only when the release has them. Number each breaking change and give its required user action.
 
