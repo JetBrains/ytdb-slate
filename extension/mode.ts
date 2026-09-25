@@ -531,12 +531,30 @@ export function registerSlateMode(
 		},
 	});
 
+	const enforceToolLimit = () => {
+		const active = pi.getActiveTools();
+		if (savedTools) {
+			const seen = new Set(savedTools);
+			for (const name of active) {
+				if (name !== "slate_change" && !ORCHESTRATOR_TOOLS.includes(name) && !seen.has(name)) {
+					savedTools.push(name);
+					seen.add(name);
+				}
+			}
+		}
+		if (active.length !== ORCHESTRATOR_TOOLS.length || ORCHESTRATOR_TOOLS.some((name) => !active.includes(name))) {
+			pi.setActiveTools(ORCHESTRATOR_TOOLS);
+		}
+	};
+
 	const setMode = (on: boolean, persist: boolean) => {
 		if (on && !store.orchestratorMode) {
-			savedTools = pi.getActiveTools();
-			pi.setActiveTools(ORCHESTRATOR_TOOLS);
+			savedTools = pi.getActiveTools().filter((name) => name !== "slate_change");
+			enforceToolLimit();
 		} else if (!on && store.orchestratorMode) {
-			pi.setActiveTools((savedTools ?? [...pi.getAllTools().map((t) => t.name)]).filter((name) => name !== "slate_change"));
+			const baseline = savedTools ?? pi.getAllTools().map((tool) => tool.name);
+			const extras = pi.getActiveTools().filter((name) => !ORCHESTRATOR_TOOLS.includes(name));
+			pi.setActiveTools([...new Set([...baseline, ...extras])].filter((name) => name !== "slate_change"));
 			savedTools = undefined;
 		}
 		if (!on) store.paused = false; // a pause is meaningless outside orchestrator mode
@@ -678,6 +696,7 @@ export function registerSlateMode(
 
 	pi.on("before_agent_start", async (event, ctx) => {
 		if (!store.orchestratorMode) return;
+		enforceToolLimit();
 		const config = getConfig();
 		// Untrusted callers need the loader's home-only view, not a JSON flag.
 		const trusted = permitsSlateConfig(config, ctx.isProjectTrusted());
@@ -698,6 +717,13 @@ export function registerSlateMode(
 		];
 		if (store.paused) parts.push(PAUSED_ADDENDUM);
 		return { systemPrompt: event.systemPrompt + parts.join("") };
+	});
+
+	pi.on("tool_call", (event) => {
+		if (store.orchestratorMode && !ORCHESTRATOR_TOOLS.includes(event.toolName)) {
+			return { block: true, reason: "slate: orchestrator mode does not allow this tool." };
+		}
+		return undefined;
 	});
 
 	// message_end is awaited before pi executes this response's tools. Measure here
@@ -857,26 +883,30 @@ export function registerSlateMode(
 		// gate limits the seed to interactive terminal sessions — hasUI would not
 		// do: it is also true in RPC mode, and scripted/automated runs
 		// (print/JSON/RPC) must not silently lose tactical tools.
+		let seededMode = false;
 		if (!store.orchestratorMode && ctx.mode === "tui" && getConfig().orchestratorModeDefault === true) {
 			const fresh = !ctx.sessionManager.getBranch().some((entry) => {
 				// Loose cast like state.ts restore(): tolerate malformed/legacy entries.
 				const e = entry as { type: string; customType?: string };
 				return e.type === "message" || (e.type === "custom" && e.customType === "slate-state");
 			});
-			if (fresh) store.orchestratorMode = true;
+			if (fresh) {
+				store.orchestratorMode = true;
+				seededMode = true;
+			}
 		}
 		if (!store.orchestratorMode) {
 			const active = pi.getActiveTools();
 			if (active.includes("slate_change")) pi.setActiveTools(active.filter((name) => name !== "slate_change"));
-		}
-		if (store.orchestratorMode) {
-			const active = pi.getActiveTools();
-			const alreadyRestricted =
-				active.length === ORCHESTRATOR_TOOLS.length && ORCHESTRATOR_TOOLS.every((t) => active.includes(t));
-			// Never capture the restricted set as the thing to restore later —
-			// that would make /slate off a no-op forever.
-			if (!alreadyRestricted) savedTools = active;
-			pi.setActiveTools(ORCHESTRATOR_TOOLS);
+		} else {
+			if (!savedTools) {
+				const active = pi.getActiveTools();
+				// A restricted restored set can include new tools. It is not a pre-mode baseline.
+				if (seededMode || ORCHESTRATOR_TOOLS.some((name) => !active.includes(name))) {
+					savedTools = active.filter((name) => name !== "slate_change");
+				}
+			}
+			enforceToolLimit();
 		}
 		updateStatus();
 		// Restore, handoff adoption, and mode seeding run before the display choice.
