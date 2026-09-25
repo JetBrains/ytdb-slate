@@ -192,18 +192,19 @@ export function measureWritingTurn(
 }
 
 /** The known `writing` keys. Report anything else as a likely typo. */
-const WRITING_KEYS = ["check", "remind", "remindPercent", "remindTurns", "remindOnFinding", "sentenceWordLimit", "statusWindowTurns", "findings"];
+const WRITING_KEYS = ["check", "remind", "remindPercent", "remindTurns", "remindOnFinding", "sentenceWordLimit", "statusWindowTurns", "showStatus", "findings"];
 
 /** Validate the raw `writing` config and retain its configurable limits. */
 export function sanitizeWritingConfig(
 	raw: unknown,
 	warn: (msg: string) => void,
-): Pick<Required<WritingConfig>, "remindTurns" | "remindOnFinding" | "sentenceWordLimit" | "statusWindowTurns" | "findings"> {
+): Pick<Required<WritingConfig>, "remindTurns" | "remindOnFinding" | "sentenceWordLimit" | "statusWindowTurns" | "showStatus" | "findings"> {
 	const defaults = {
 		remindTurns: DEFAULT_REMIND_TURNS,
 		remindOnFinding: DEFAULT_REMIND_ON_FINDING,
 		sentenceWordLimit: DEFAULT_SENTENCE_WORD_LIMIT as SentenceWordLimit,
 		statusWindowTurns: DEFAULT_STATUS_WINDOW_TURNS,
+		showStatus: false,
 		findings: true,
 	};
 	if (raw === undefined) return defaults;
@@ -265,6 +266,13 @@ export function sanitizeWritingConfig(
 		else warn("slate: ignoring writing.statusWindowTurns — expected a whole number from 3 to 100 (defaulting to 10)");
 	}
 
+	let showStatus = defaults.showStatus;
+	const rawShowStatus = read("showStatus", false);
+	if (rawShowStatus !== undefined) {
+		if (typeof rawShowStatus === "boolean") showStatus = rawShowStatus;
+		else warn("slate: ignoring writing.showStatus — expected true or false (defaulting to false)");
+	}
+
 	let findings = defaults.findings;
 	const rawFindings = read("findings", true);
 	if (rawFindings !== undefined) {
@@ -276,5 +284,5 @@ export function sanitizeWritingConfig(
 		warn("slate: writing.remindOnFinding has no effect while writing.findings is false.");
 	}
 
-	return { remindTurns, remindOnFinding, sentenceWordLimit, statusWindowTurns, findings };
+	return { remindTurns, remindOnFinding, sentenceWordLimit, statusWindowTurns, showStatus, findings };
 }

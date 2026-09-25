@@ -433,9 +433,17 @@ export function registerSlateMode(
 	let pendingErrorTurn = false;
 	let previousTurnHadTools = false;
 	let summaryVisible = false;
+	let statusStyleWarningShown = false;
+
+	const warnSummary = (ctx: ExtensionContext, message: string) => {
+		try {
+			if (ctx.hasUI) { ctx.ui.notify(message, "warning"); return; }
+		} catch { /* stale UI: use the console */ }
+		console.warn(message);
+	};
 
 	const writingIsActive = (ctx: ExtensionContext): boolean => store.orchestratorMode && permitsSlateConfig(getConfig(), ctx.isProjectTrusted());
-	const writingIsVisible = (ctx: ExtensionContext): boolean => ctx.hasUI && writingIsActive(ctx);
+	const writingIsVisible = (ctx: ExtensionContext): boolean => ctx.hasUI && writingIsActive(ctx) && getConfig().writing?.showStatus === true;
 
 	const updateStatus = () => {
 		if (!uiCtx?.hasUI) return;
@@ -453,14 +461,33 @@ export function registerSlateMode(
 		const statusWindowTurns = getConfig().writing?.statusWindowTurns ?? DEFAULT_STATUS_WINDOW_TURNS;
 		const writingLine = writingIsVisible(uiCtx)
 			? writingStatus === "ready"
-				? ` ⋅ writing ${writingCounters.failCount} fail, ${writingCounters.styleCount} style / ${statusWindowTurns} turns`
+				? `writing ${writingCounters.failCount} fail, ${writingCounters.styleCount} style / ${statusWindowTurns} turns`
 				: writingStatus === "skipped"
-					? " ⋅ writing skipped (message too large)"
+					? "writing skipped (message too large)"
 					: writingStatus === "unavailable"
-						? " ⋅ writing unavailable"
-						: ` ⋅ writing 0 fail, 0 style / ${statusWindowTurns} turns`
+						? "writing unavailable"
+						: `writing 0 fail, 0 style / ${statusWindowTurns} turns`
 			: "";
-		uiCtx.ui.setStatus("slate", `slate: orchestrator${store.paused ? " ⋅ ⛔ PAUSED — run /slate handoff" : ""} ⋅ ${costLine}${writingLine}`);
+		let statusLine = `slate: orchestrator${store.paused ? " ⋅ ⛔ PAUSED — run /slate handoff" : ""} ⋅ ${costLine}${writingLine ? ` ⋅ ${writingLine}` : ""}`;
+		if (uiCtx.mode === "tui") {
+			try {
+				const theme = uiCtx.ui.theme;
+				if (theme) {
+					const segments = [theme.bold(theme.fg("accent", "◆ slate orchestrator"))];
+					if (store.paused) segments.push(`${theme.bold(theme.fg("error", "⛔ PAUSED"))} — ${theme.fg("warning", "run /slate handoff")}`);
+					segments.push(theme.fg("muted", costLine));
+					if (writingLine) segments.push(theme.fg("dim", writingLine));
+					statusLine = segments.join(" ⋅ ");
+				}
+			} catch (error) {
+				if (!statusStyleWarningShown) {
+					statusStyleWarningShown = true;
+					try { warnSummary(uiCtx, `slate: could not style the status line: ${String(error)}. Slate shows plain text.`); }
+					catch { /* A failed warning cannot block the plain status line. */ }
+				}
+			}
+		}
+		uiCtx.ui.setStatus("slate", statusLine);
 	};
 
 	pi.registerTool({
@@ -518,12 +545,6 @@ export function registerSlateMode(
 	// Refresh the status line whenever slate state changes (dispatch start/end, new threads).
 	store.onDidChange = updateStatus;
 
-	const warnSummary = (ctx: ExtensionContext, message: string) => {
-		try {
-			if (ctx.hasUI) { ctx.ui.notify(message, "warning"); return; }
-		} catch { /* stale UI: use the console */ }
-		console.warn(message);
-	};
 	const showSummary = (ctx: ExtensionContext) => {
 		if (ctx.mode === "tui") {
 			const theme = ctx.ui.theme;
@@ -811,6 +832,7 @@ export function registerSlateMode(
 		);
 		writingCheckerPromise = undefined;
 		writingStatus = "fresh";
+		statusStyleWarningShown = false;
 		latestTurnHasFinding = false;
 		pendingErrorTurn = false;
 		previousTurnHadTools = false;
