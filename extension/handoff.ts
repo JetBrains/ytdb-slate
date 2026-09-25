@@ -83,11 +83,13 @@ interface SessionHandoff {
 	model?: { provider: string; id: string };
 	thinkingLevel?: ThinkingLevel;
 	logicalModel?: string;
+	summaryVisible?: boolean;
 	snapshot: SlateSnapshot;
 }
 
 export interface SlateHandoffHooks {
-	startHandoff(ctx: ExtensionCommandContext, focus?: string): Promise<void>;
+	startHandoff(ctx: ExtensionCommandContext, focus?: string, summaryVisible?: boolean): Promise<void>;
+	takeSummaryVisibility?(): boolean | undefined;
 	effectiveContextBudget(contextWindow: number, ctx: ExtensionContext): number | undefined;
 }
 
@@ -302,6 +304,12 @@ export function registerSlateHandoff(
 	// of caching one model's value. Mid-session file edits remain unobserved.
 	// READ-ONLY: never call a setter on this file-backed settings reader.
 	let cachedSettings: SettingsManager | null | undefined;
+	let adoptedSummaryVisibility: boolean | undefined;
+	const takeSummaryVisibility = () => {
+		const visibility = adoptedSummaryVisibility;
+		adoptedSummaryVisibility = undefined;
+		return visibility;
+	};
 	const reserveTokens = (ctx: ExtensionContext): number => {
 		if (cachedSettings === undefined) {
 			try {
@@ -460,6 +468,7 @@ export function registerSlateHandoff(
 	// Registered AFTER restore and BEFORE mode. Any saved state, even a malformed
 	// entry, wins over the handoff on every later restore.
 	pi.on("session_start", async (_event, ctx) => {
+		adoptedSummaryVisibility = undefined;
 		try {
 			const branch = ctx.sessionManager.getBranch();
 			if (branch.some((entry) => entry.type === "custom" && entry.customType === "slate-state")) return;
@@ -495,6 +504,7 @@ export function registerSlateHandoff(
 				);
 				return;
 			}
+			if (typeof pending.summaryVisible === "boolean") adoptedSummaryVisibility = pending.summaryVisible;
 			getRuntime()?.resetPreferences();
 			if (ctx.hasUI) {
 				const t = store.threads.size;
@@ -648,7 +658,7 @@ export function registerSlateHandoff(
 		}
 	});
 
-	const startHandoff = async (ctx: ExtensionCommandContext, focus?: string): Promise<void> => {
+	const startHandoff = async (ctx: ExtensionCommandContext, focus?: string, summaryVisible?: boolean): Promise<void> => {
 		await ctx.waitForIdle();
 
 		const brief = lastAssistantText(ctx);
@@ -659,6 +669,7 @@ export function registerSlateHandoff(
 		const model = ctx.model ? { provider: ctx.model.provider, id: ctx.model.id } : undefined;
 		const handoff = {
 			model,
+			...(typeof summaryVisible === "boolean" ? { summaryVisible } : {}),
 			thinkingLevel: model ? pi.getThinkingLevel() : undefined,
 			logicalModel: model ? getBaseModel().currentLogicalIdentity() : undefined,
 			// The successor starts paused until model adoption confirms an allowed
@@ -709,5 +720,5 @@ export function registerSlateHandoff(
 		}
 	};
 
-	return { startHandoff, effectiveContextBudget };
+	return { startHandoff, takeSummaryVisibility, effectiveContextBudget };
 }

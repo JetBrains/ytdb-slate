@@ -663,7 +663,7 @@ export function registerSlateMode(
 					if (ctx.hasUI) ctx.ui.notify("slate: orchestrator mode is not active — nothing to hand off.", "warning");
 					return;
 				}
-				await hooks.startHandoff(ctx, rest.join(" ") || undefined);
+				await hooks.startHandoff(ctx, rest.join(" ") || undefined, summaryVisible);
 				return;
 			}
 			if (arg === "effective") {
@@ -910,11 +910,13 @@ export function registerSlateMode(
 		}
 		updateStatus();
 		// Restore, handoff adoption, and mode seeding run before the display choice.
+		const carriedVisibility = hooks.takeSummaryVisibility?.();
 		summaryVisible = false;
 		if (ctx.mode !== "tui") return;
 		try {
 			ctx.ui.setWidget(SUMMARY_WIDGET_KEY, undefined);
-			showAutomaticSummary(ctx);
+			if (carriedVisibility === undefined) showAutomaticSummary(ctx);
+			else if (carriedVisibility) displaySummary(ctx);
 		} catch (error) { warnSummary(ctx, `slate: could not show the workflow summary: ${String(error)}`); }
 	});
 }
