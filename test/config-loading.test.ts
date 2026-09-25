@@ -225,7 +225,7 @@ test("empty home enables the trusted default doctrine in an untrusted session", 
     const api = new Api();
     const ctx = { cwd: f.cwd, hasUI: true, mode: "tui", isProjectTrusted: () => trusted,
       sessionManager: { getBranch: () => [], getEntries: () => [] }, modelRegistry: {}, getContextUsage: () => undefined,
-      ui: { notify: (message: string) => f.warnings.push(message), setWidget() {}, setStatus() {} },
+      ui: { notify: (message: string) => f.warnings.push(message), setWidget() {}, setStatus() {}, theme: { fg: (_color: string, text: string) => text, bold: (text: string) => text } },
     } as unknown as ExtensionContext;
     slateExtension(api as unknown as ExtensionAPI);
     try {
@@ -256,7 +256,7 @@ test("real entry shares home routing, doctrine, writing cadence and startup sett
   writeFileSync(join(f.agent, "extra.md"), "HOME EXTRA CONTENT");
   f.put(f.home, {
     orchestratorModeDefault: true, orchestratorPromptDocs: ["role.md"], doctrineExtraPath: "extra.md", reviewPerspectivesPath: "role.md",
-    writing: { remindTurns: 1 }, workflow: { followUpIssues: true },
+    writing: { remindTurns: 1, showStatus: true }, workflow: { followUpIssues: true },
     router: { models: { include: ["sol-6"] } },
   });
   writeFileSync(f.project, "{ malformed untrusted project");
@@ -264,7 +264,7 @@ test("real entry shares home routing, doctrine, writing cadence and startup sett
   const statuses: string[] = [];
   const ctx = { cwd: f.cwd, hasUI: true, mode: "tui", isProjectTrusted: () => false,
     sessionManager: { getBranch: () => [], getEntries: () => [] }, modelRegistry: {}, getContextUsage: () => undefined,
-    ui: { notify: (message: string) => f.warnings.push(message), setWidget() {}, setStatus: (_key: string, value: string) => statuses.push(value) },
+    ui: { notify: (message: string) => f.warnings.push(message), setWidget() {}, setStatus: (_key: string, value: string) => statuses.push(value), theme: { fg: (_color: string, text: string) => text, bold: (text: string) => text } },
   } as unknown as ExtensionContext;
   slateExtension(api as unknown as ExtensionAPI);
   await api.emit("session_start", {}, ctx);

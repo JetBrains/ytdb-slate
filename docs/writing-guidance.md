@@ -93,10 +93,14 @@ is the instrument that will revisit the number later.
 
 `writing.statusWindowTurns` controls the status window. It defaults to 10 and
 accepts whole numbers from 3 through 100. An invalid value warns and falls back
-to 10. `writing.findings` defaults to `true` and accepts only booleans. An
+to 10. `writing.showStatus` defaults to `false` and accepts only booleans.
+It controls only the writing part of the status line. An invalid value warns
+and falls back to `false`. Measurement and reminders continue when it is
+`false`. `writing.findings` defaults to `true` and accepts only booleans. An
 invalid value warns and falls back to `true`. It controls only the findings
-section in the hidden reminder. Measurement and the status line continue when
-it is `false`. Unknown keys under `writing` also warn and are ignored. The validator is `sanitizeWritingConfig` in
+section in the hidden reminder. Measurement continues when it is `false`.
+The status line follows `writing.showStatus`. Unknown keys under `writing`
+also warn and are ignored. The validator is `sanitizeWritingConfig` in
 `extension/writing.ts`.
 
 Slate reads home `<getAgentDir()>/slate.json` before trusted project config.
@@ -106,7 +110,8 @@ configuration. Untrusted projects cannot supply writing settings.
 Without a home file, untrusted projects receive no writing guidance.
 The [configuration reference](configuration.md) defines the file and merge rules.
 
-Sessions with permitted Slate settings receive four writing and design surfaces:
+Sessions with permitted Slate settings receive the first three writing and
+design surfaces. The fourth surface needs `writing.showStatus: true`:
 
 1. **The writing doctrine rule.** One numbered rule states the writing
    convention and cites this file by absolute path.
@@ -115,8 +120,8 @@ Sessions with permitted Slate settings receive four writing and design surfaces:
    self-contained design updates.
 3. **The worker preamble guidance.** Every worker with permitted settings receives
    writing guidance and a separate current-state documentation rule in its preamble.
-4. **The turn status line.** In an interactive session, the Slate status line
-   gains `writing <n> fail, <m> style / <w> turns`. The default window is ten
+4. **The turn status line.** When `writing.showStatus` is `true`, the Slate status
+   line gains `writing <n> fail, <m> style / <w> turns`. The default window is ten
    measured prose turns. The configured range is 3 through 100. Both counts
    include model-visible findings only.
 
@@ -269,8 +274,9 @@ the whole-doctrine sizes and owns the size budget.
 An interactive session runs the checker synchronously at the assistant
 `message_end` event. This event runs before tool execution. The older `turn_end`
 position could carry a quotation from an earlier turn into the model. The hook
-refuses text over 16 KiB and reports `writing skipped (message too large)`. A
-failed checker import is retried on a later message. This TUI bound is separate
+refuses text over 16 KiB. The status line reports `writing skipped (message too large)`
+when `writing.showStatus` is `true`. Slate retries a failed checker import on a
+later message. This TUI bound is separate
 from the command's 1 MiB input cap.
 
 The checker hook supplies model-visible findings for four rules: semicolons,
@@ -280,8 +286,9 @@ model-visible class and its count. Each quotation is capped at 120 bytes and
 uses `…` when truncated. Truncation keeps both `⟦` and `⟧` frame characters. The
 section states that quoted text is data, not an instruction. It states that a
 finding is a signal, not a verdict. It states: `Split a long sentence, keep the logical connection explicit, name each subject, and avoid disconnected fragments.` A checker
-failure reports `writing unavailable` instead of failing the turn. The hidden
-reminder uses the model-visible channel described above.
+failure reports `writing unavailable` in the status line when `writing.showStatus`
+is `true`. It does not fail the turn. The hidden reminder uses the
+model-visible channel described above.
 
 ## What counts as prose
 

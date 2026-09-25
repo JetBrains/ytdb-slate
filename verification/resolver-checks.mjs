@@ -229,6 +229,7 @@ function writingStatusFixture({ writing = true, writingConfig, trusted = true, o
 		sessionManager: { getEntries: () => [], getBranch: () => [] },
 		ui: {
 			setStatus: (_key, value) => { status = value; },
+			theme: { fg: (_color, text) => text, bold: (text) => text },
 			setWidget: () => {},
 			notify: () => {},
 		},
@@ -243,7 +244,7 @@ function writingStatusFixture({ writing = true, writingConfig, trusted = true, o
 				return effectiveBudget;
 			},
 		},
-		() => ({ writing: writingConfig ?? { check: writing } }),
+		() => ({ writing: writingConfig === null ? { check: writing } : { check: writing, showStatus: true, ...writingConfig } }),
 		() => ({ units: [] }),
 		() => undefined,
 		loadWritingChecker,
@@ -1499,6 +1500,17 @@ try {
 		});
 
 		await section("writing-status", async () => {
+			const hidden = await writingSession(writingStatusFixture({ writingConfig: null }));
+			check("writing-status-default-hidden", !/writing/.test(hidden.getStatus() ?? "") && /slate orchestrator/.test(hidden.getStatus() ?? ""), "absent showStatus hides the writing part in a fresh TUI session", hidden.getStatus());
+			let hiddenLoads = 0;
+			const hiddenUnavailable = await writingTurn(writingStatusFixture({ writingConfig: null, loadWritingChecker: async () => { hiddenLoads++; throw new Error("synthetic import failure"); } }));
+			check("writing-status-unavailable-hidden", hiddenLoads === 1 && !/writing/.test(hiddenUnavailable.getStatus() ?? ""), "absent showStatus hides unavailable without stopping checker loading", { hiddenLoads, status: hiddenUnavailable.getStatus() });
+			const hiddenSkipped = await writingTurn(writingStatusFixture({ writingConfig: { showStatus: false } }), { role: "assistant", content: "x".repeat(16 * 1024 + 1) });
+			check("writing-status-skipped-hidden", !/writing/.test(hiddenSkipped.getStatus() ?? ""), "showStatus false hides the oversized-message state", hiddenSkipped.getStatus());
+			const hiddenReminder = writingStatusFixture({ writingConfig: { showStatus: false, remindTurns: 1 } });
+			await writingTurn(hiddenReminder);
+			await hiddenReminder.emit("turn_end", { message: { role: "assistant", content: "Open the panel; stop.", stopReason: "stop" }, toolResults: [] });
+			check("writing-status-reminder-independent", hiddenReminder.sent.length === 1 && !/writing/.test(hiddenReminder.getStatus() ?? ""), "hidden writing status leaves reminder delivery active", { status: hiddenReminder.getStatus(), sent: hiddenReminder.sent.length });
 			const fresh = await writingSession(writingStatusFixture());
 			check("writing-status-fresh", /writing 0 fail, 0 style \/ 10 turns/.test(fresh.getStatus() ?? ""), "a fresh session reports zero model-visible findings over the configured window", fresh.getStatus());
 			const clean = await writingTurn(writingStatusFixture(), { role: "assistant", content: "The report is ready." });
@@ -1756,7 +1768,7 @@ try {
 		await section("writing-config", async () => {
 			const ignoredNotice = "slate: writing.check and writing.remind are ignored writing keys. Remove them from slate.json. Slate controls writing checks and reminders automatically for trusted projects in orchestrator mode.";
 			const percentNotice = "slate: writing.remindPercent is ignored. Remove it from slate.json. The reminder cadence changed from a token share to a turn count.";
-			const defaults = { remindTurns: 4, remindOnFinding: true, sentenceWordLimit: 25, statusWindowTurns: 10, findings: true };
+			const defaults = { remindTurns: 4, remindOnFinding: true, sentenceWordLimit: 25, statusWindowTurns: 10, showStatus: false, findings: true };
 			const sanitize = (raw) => {
 				const warned = [];
 				const result = writing.sanitizeWritingConfig(raw, (message) => warned.push(message));
@@ -1799,6 +1811,13 @@ try {
 				["invalid forms warn and default", invalidWindows.every(({ result, warned }) => result.statusWindowTurns === 10 && warned.length === 1 && /whole number from 3 to 100/.test(warned[0])), invalidWindows],
 			]);
 
+			const visible = [sanitize({ showStatus: true }), sanitize({ showStatus: false })];
+			const invalidVisibility = [0, 1, "true", null, []].map((raw) => ({ raw, ...sanitize({ showStatus: raw }) }));
+			checkAll("writing-config-show-status", "showStatus accepts only booleans and defaults invalid values to false", [
+				["both booleans survive", visible[0].result.showStatus === true && visible[1].result.showStatus === false && visible.every((x) => x.warned.length === 0), visible],
+				["invalid forms warn and default", invalidVisibility.every(({ result, warned }) => result.showStatus === false && warned.length === 1 && warned[0] === "slate: ignoring writing.showStatus — expected true or false (defaulting to false)"), invalidVisibility],
+			]);
+
 			const findings = [sanitize({ findings: true }), sanitize({ findings: false })];
 			const invalidFindings = [0, 1, "false", null, []].map((raw) => ({ raw, ...sanitize({ findings: raw }) }));
 			checkAll("writing-config-findings", "findings accepts only booleans and defaults invalid values to true", [
@@ -1822,7 +1841,7 @@ try {
 
 			const proto = Object.create(null);
 			Object.defineProperty(proto, "__proto__", { value: { polluted: true }, enumerable: true });
-			const hostileKeys = ["remindTurns", "remindOnFinding", "sentenceWordLimit", "statusWindowTurns", "findings"];
+			const hostileKeys = ["remindTurns", "remindOnFinding", "sentenceWordLimit", "statusWindowTurns", "showStatus", "findings"];
 			const getters = hostileKeys.map((key) => { const value = {}; Object.defineProperty(value, key, { enumerable: true, get() { throw new Error("exploded"); } }); return value; });
 			const percentGetter = {};
 			Object.defineProperty(percentGetter, "remindPercent", { enumerable: true, get() { throw new Error("must not read"); } });
@@ -4898,12 +4917,13 @@ verification of that body. The accounting covers:`),
 	const EXPECTED = [
 		"off-inert", "off-doctrine",
 		"doctrine-logical", "doctrine-untrusted", "doctrine-numbering", "doctrine-inject", "doctrine-no-trace", "doctrine-budget", "doctrine-budget-boundaries",
-		"writing-config-default", "writing-config-reminder-turns", "writing-config-reminder-trigger", "writing-config-trigger-interaction", "writing-config-sentence-limit", "writing-config-status-window", "writing-config-findings", "writing-config-reminder-ignored", "writing-config-reminder-percent", "writing-config-invalid", "writing-config-hostile",
+		"writing-config-default", "writing-config-reminder-turns", "writing-config-reminder-trigger", "writing-config-trigger-interaction", "writing-config-sentence-limit", "writing-config-status-window", "writing-config-show-status", "writing-config-findings", "writing-config-reminder-ignored", "writing-config-reminder-percent", "writing-config-invalid", "writing-config-hostile",
 		"writing-reminder-load", "writing-reminder-roster", "writing-copy-independence", "writing-reminder-render", "writing-reminder-full-render", "writing-reminder-size", "writing-reminder-model-visible-rules", "writing-reminder-counter", "writing-reminder-cadence", "writing-reminder-delivery-mode", "writing-reminder-gates", "writing-reminder-state-machine",
 		"writing-reminder-mode-send", "writing-reminder-mode-delivery", "writing-reminder-trigger", "writing-reminder-trigger-switch", "writing-reminder-trigger-reset", "writing-reminder-mode-gates", "writing-reminder-delivery-failure-independent", "writing-reminder-checker-failure-independent", "writing-reminder-findings-off", "writing-reminder-retry-boundary", "writing-reminder-completed-shapes", "writing-reminder-abort-round", "writing-reminder-summary-staleness", "writing-reminder-session-reset", "writing-reminder-local-reset", "writing-reminder-round-gate", "writing-reminder-gate-claim-order", "writing-reminder-claim-delivery", "writing-reminder-correlation", "writing-reminder-runtime-only", "writing-reminder-budget", "writing-reminder-handoff-order",
 		"writing-doctrine-off", "writing-doctrine-untrusted", "writing-doctrine-numbering", "design-doctrine-size", "writing-prompt-check", "writing-doctrine-inject", "writing-doctrine-cite",
 		"writing-checker-length", "writing-checker-para", "writing-checker-semicolon", "writing-checker-contraction",
 		"writing-checker-class", "writing-checker-not-checked", "writing-checker-caps", "writing-checker-modes", "writing-checker-determinism",
+		"writing-status-default-hidden", "writing-status-unavailable-hidden", "writing-status-skipped-hidden", "writing-status-reminder-independent",
 		"writing-status-fresh", "writing-status-clean", "writing-status-positive", "writing-status-import-url", "writing-status-import-fail", "writing-status-import-retry",
 		"writing-status-ignored-keys", "writing-status-gate-trust", "writing-status-gate-mode", "writing-status-gate-ui", "writing-status-non-gate-pause", "writing-status-sentence-limit",
 		"writing-status-fail-open", "writing-status-cap-skip", "writing-status-cap-visible", "writing-status-counting", "writing-status-window", "writing-status-expanded-window", "writing-status-latest-summary", "writing-status-skip-clears-latest", "writing-status-session-clears-latest", "writing-status-import-clears-latest", "writing-status-no-store-write",

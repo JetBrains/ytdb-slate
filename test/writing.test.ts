@@ -37,6 +37,7 @@ const DEFAULT_CONFIG = {
   remindOnFinding: DEFAULT_REMIND_ON_FINDING,
   sentenceWordLimit: 25,
   statusWindowTurns: 10,
+  showStatus: false,
   findings: true,
 };
 const IGNORED_KEYS_NOTICE =
@@ -110,6 +111,17 @@ test("status window accepts both ends and rejects other values", () => {
   }
 });
 
+test("showStatus accepts booleans and warns on invalid values", () => {
+  assert.deepEqual(sanitize({ showStatus: true }), { result: { ...DEFAULT_CONFIG, showStatus: true }, warnings: [] });
+  assert.equal(sanitize({ showStatus: false }).result.showStatus, false);
+  for (const value of [0, "true", null, []]) {
+    assert.deepEqual(sanitize({ showStatus: value }), {
+      result: DEFAULT_CONFIG,
+      warnings: ["slate: ignoring writing.showStatus — expected true or false (defaulting to false)"],
+    });
+  }
+});
+
 test("findings accepts booleans and rejects other values", () => {
   assert.equal(sanitize({ findings: false }).result.findings, false);
   assert.equal(sanitize({ findings: true }).result.findings, true);
@@ -120,12 +132,12 @@ test("findings accepts booleans and rejects other values", () => {
 
 test("new writing keys are known and throwing getters fall back", () => {
   const raw = {} as Record<string, unknown>;
-  for (const key of ["remindTurns", "remindOnFinding", "statusWindowTurns", "findings"]) {
+  for (const key of ["remindTurns", "remindOnFinding", "statusWindowTurns", "showStatus", "findings"]) {
     Object.defineProperty(raw, key, { enumerable: true, get() { throw new Error("no"); } });
   }
   const { result, warnings } = sanitize(raw);
   assert.deepEqual(result, DEFAULT_CONFIG);
-  assert.equal(warnings.length, 4);
+  assert.equal(warnings.length, 5);
   assert.ok(warnings.every((warning) => !warning.includes("unknown writing key")));
 });
 
@@ -307,11 +319,12 @@ test("mode measures at message end, retries loading, and advances turn cadence",
     sendMessage(message: unknown, options: unknown) { sent.push([message, options]); },
   } as unknown as ExtensionAPI;
   let loads = 0;
+  const writingConfig = { statusWindowTurns: 20, showStatus: true };
   registerSlateMode(
     pi,
     store as any,
     { startHandoff: async () => {}, effectiveContextBudget: () => undefined },
-    () => ({ writing: { statusWindowTurns: 20 } }),
+    () => ({ writing: writingConfig }),
     () => ({ units: [], paths: [], toolNames: [] }),
     undefined,
     async () => {
@@ -326,6 +339,7 @@ test("mode measures at message end, retries loading, and advances turn cadence",
     sessionManager: { getBranch: () => [], getEntries: () => [] },
     ui: {
       setStatus: (_key: string, value: string | undefined) => statuses.push(value),
+      theme: { fg: (_color: string, text: string) => text, bold: (text: string) => text },
       setWidget() {},
       notify: (message: string, level?: string) => notifications.push([message, level]),
     },
@@ -416,6 +430,14 @@ test("mode measures at message end, retries loading, and advances turn cadence",
   assert.match(statuses.at(-1) ?? "", /writing skipped/);
   await emit("message_end", { message: { role: "assistant", content: [] } });
   assert.match(statuses.at(-1) ?? "", /writing skipped/);
+  writingConfig.showStatus = false;
+  await emit("message_end", { message: assistant("Open the panel; stop.") });
+  assert.doesNotMatch(statuses.at(-1) ?? "", /writing/);
+  await emit("message_end", { message: assistant("x".repeat(16 * 1024 + 1)) });
+  assert.doesNotMatch(statuses.at(-1) ?? "", /writing/);
+  await emit("message_end", { message: assistant("visible only in reminders") });
+  assert.doesNotMatch(statuses.at(-1) ?? "", /writing/);
+  writingConfig.showStatus = true;
 
   const complete = async (content: unknown, stopReason = "stop", toolResults: unknown[] = []) => {
     const message = { role: "assistant", content, stopReason };

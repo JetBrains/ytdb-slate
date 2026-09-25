@@ -1475,7 +1475,7 @@ Two callers, with different bounds:
 
 | caller | what it reads | the bound applied before the checker runs |
 | --- | --- | --- |
-| the `message_end` hook in `extension/mode.ts`, through `measureWritingTurn` in `extension/writing.ts` | the completed assistant message before tool execution, for the `writing N fail, M style / W turns` status line and the latest reminder findings | `WRITING_TURN_MAX_BYTES` — 16 KiB of assistant text. A larger message is never handed to the checker, and the status line says it was skipped |
+| the `message_end` hook in `extension/mode.ts`, through `measureWritingTurn` in `extension/writing.ts` | the completed assistant message before tool execution, for the optional `writing N fail, M style / W turns` status line and the latest reminder findings | `WRITING_TURN_MAX_BYTES` — 16 KiB of assistant text. A larger message is never handed to the checker, and the status line says it was skipped when `writing.showStatus` is true |
 | the command — `--input records.jsonl`, `--file PATH …`, `--diff changes.diff` | whole files, JSONL records, or the added prose lines of a unified diff | the module's own `MAX_INPUT_BYTES` — 1 MiB per record and per run |
 
 The hook is why the module's wall clock matters at all: it runs synchronously
@@ -2090,7 +2090,7 @@ The status-line and wiring mutations run against the **resolver** suite:
 | remove the trust gate | `writing-status-gate-trust` |
 | rethrow checker errors | `writing-status-crash` (the fail-open section cannot complete) |
 | suppress a sentence-length finding or populate the warning class | `writing-checker-length` |
-| blank the rendered writing status line | `writing-status-positive` |
+| blank the rendered writing status line when `writing.showStatus` is true | `writing-status-positive` |
 | remove the `measureWritingTurn` call | `writing-status-positive` |
 | break the checker import path | `writing-status-positive` |
 | remove the visible size-bound status | `writing-status-cap-visible` |

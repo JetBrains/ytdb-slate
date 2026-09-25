@@ -117,11 +117,12 @@ test("mode refresh keeps pause on the status line without a thread widget", asyn
   const store = new SlateStore(pi);
   store.orchestratorMode = true;
   store.threads.set("t1", record({ id: "t1", status: "running", episodeId: "t1.e1" }));
+  const writing: { showStatus?: boolean } = {};
   registerSlateMode(
     pi,
     store,
     { startHandoff: async () => {}, effectiveContextBudget: (window: number) => window },
-    () => ({}),
+    () => ({ writing }),
     () => EMPTY_WORKER_EXTENSION_SET,
   );
   const sessionStart = handlers.get("session_start");
@@ -136,9 +137,13 @@ test("mode refresh keeps pause on the status line without a thread widget", asyn
     },
     sessionManager: { getBranch: () => [], getEntries: () => [] },
   } as unknown as ExtensionContext);
-  const base = "slate: orchestrator ⋅ total $0.0000 (me $0.0000 + workers $0.0000) ⋅ writing 0 fail, 0 style / 10 turns";
-  assert.deepEqual(statuses.at(-1), { key: "slate", text: base });
+  const plain = "slate: orchestrator ⋅ total $0.0000 (me $0.0000 + workers $0.0000)";
+  assert.deepEqual(statuses.at(-1), { key: "slate", text: plain });
   assert.equal(appended.length, 0);
+  writing.showStatus = true;
+  store.save();
+  const base = `${plain} ⋅ writing 0 fail, 0 style / 10 turns`;
+  assert.deepEqual(statuses.at(-1), { key: "slate", text: base });
   store.paused = true;
   store.save();
   assert.deepEqual(statuses.at(-1), { key: "slate", text: base.replace("slate: orchestrator", "slate: orchestrator ⋅ ⛔ PAUSED — run /slate handoff") });
@@ -149,6 +154,182 @@ test("mode refresh keeps pause on the status line without a thread widget", asyn
   store.save();
   assert.deepEqual(statuses.at(-1), { key: "slate", text: undefined });
   assert.equal(widgets.includes("slate"), false);
+});
+
+test("TUI status themes each segment and hides writing without showStatus", async () => {
+  const statuses: Array<{ key: string; text: string | undefined }> = [];
+  const handlers = new Map<string, (event: unknown, ctx: ExtensionContext) => unknown>();
+  const pi = {
+    registerCommand() {}, registerTool() {},
+    on(name: string, handler: (event: unknown, ctx: ExtensionContext) => unknown) { handlers.set(name, handler); },
+    getActiveTools: () => [], getAllTools: () => [], setActiveTools() {}, appendEntry() {},
+  } as unknown as ExtensionAPI;
+  const store = new SlateStore(pi);
+  store.orchestratorMode = true;
+  const writing = { showStatus: false };
+  registerSlateMode(pi, store,
+    { startHandoff: async () => {}, effectiveContextBudget: (window: number) => window },
+    () => ({ writing }), () => EMPTY_WORKER_EXTENSION_SET);
+  const sessionStart = handlers.get("session_start");
+  assert.ok(sessionStart);
+  const ctx = {
+    hasUI: true, mode: "tui", isProjectTrusted: () => true,
+    ui: {
+      theme: {
+        fg: (color: string, text: string) => `<${color}>${text}</${color}>`,
+        bold: (text: string) => `<bold>${text}</bold>`,
+      },
+      setWidget() {},
+      setStatus: (key: string, text: string | undefined) => { statuses.push({ key, text }); },
+    },
+    sessionManager: { getBranch: () => [], getEntries: () => [] },
+  } as unknown as ExtensionContext;
+  await sessionStart({}, ctx);
+  const label = "<bold><accent>◆ slate orchestrator</accent></bold>";
+  const cost = "<muted>total $0.0000 (me $0.0000 + workers $0.0000)</muted>";
+  const base = `${label} ⋅ ${cost}`;
+  assert.deepEqual(statuses.at(-1), { key: "slate", text: base });
+  writing.showStatus = true;
+  store.save();
+  const withWriting = `${base} ⋅ <dim>writing 0 fail, 0 style / 10 turns</dim>`;
+  assert.deepEqual(statuses.at(-1), { key: "slate", text: withWriting });
+  store.paused = true;
+  store.save();
+  assert.deepEqual(statuses.at(-1), {
+    key: "slate",
+    text: `${label} ⋅ <bold><error>⛔ PAUSED</error></bold> — <warning>run /slate handoff</warning> ⋅ ${cost} ⋅ <dim>writing 0 fail, 0 style / 10 turns</dim>`,
+  });
+});
+
+function statusThemeFixture(initialTheme: "missing" | "null" | "getter" | "fg") {
+  const statuses: Array<string | undefined> = [];
+  const notices: Array<{ text: string; type: string }> = [];
+  const handlers = new Map<string, (event: unknown, ctx: ExtensionContext) => unknown>();
+  const pi = {
+    registerCommand() {}, registerTool() {},
+    on(name: string, handler: (event: unknown, ctx: ExtensionContext) => unknown) { handlers.set(name, handler); },
+    getActiveTools: () => [], getAllTools: () => [], setActiveTools() {}, appendEntry() {},
+  } as unknown as ExtensionAPI;
+  const store = new SlateStore(pi);
+  store.orchestratorMode = true;
+  let mode = "rpc";
+  let notifyFails = false;
+  let themeMode: "missing" | "null" | "getter" | "fg" | "good" = initialTheme;
+  const ctx = {
+    hasUI: true, get mode() { return mode; }, isProjectTrusted: () => true,
+    ui: {
+      get theme() {
+        if (themeMode === "getter") throw new Error("theme failed");
+        if (themeMode === "missing") return undefined;
+        if (themeMode === "null") return null;
+        return {
+          fg: (_color: string, text: string) => {
+            if (themeMode === "fg") throw new Error("color failed");
+            return text;
+          },
+          bold: (text: string) => text,
+        };
+      },
+      setStatus: (_key: string, text: string | undefined) => { statuses.push(text); },
+      notify: (text: string, type: string) => {
+        if (notifyFails) throw new Error("notice failed");
+        notices.push({ text, type });
+      },
+      setWidget() {},
+    },
+    sessionManager: { getBranch: () => [], getEntries: () => [] },
+  } as unknown as ExtensionContext;
+  registerSlateMode(pi, store,
+    { startHandoff: async () => {}, effectiveContextBudget: (window: number) => window },
+    () => ({}), () => EMPTY_WORKER_EXTENSION_SET);
+  const sessionStart = handlers.get("session_start");
+  assert.ok(sessionStart);
+  return {
+    statuses, notices, store,
+    failNotify() { notifyFails = true; },
+    setTheme(value: typeof themeMode) { themeMode = value; },
+    async start() {
+      // Start in RPC mode to keep the independent summary widget out of these status tests.
+      mode = "rpc";
+      await sessionStart({}, ctx);
+      mode = "tui";
+      store.save();
+    },
+  };
+}
+
+const PLAIN_STATUS = "slate: orchestrator ⋅ total $0.0000 (me $0.0000 + workers $0.0000)";
+
+test("TUI status without a theme uses plain text without a warning", async () => {
+  for (const missing of ["missing", "null"] as const) {
+    const f = statusThemeFixture(missing);
+    await f.start();
+    assert.equal(f.statuses.at(-1), PLAIN_STATUS);
+    f.store.save();
+    assert.equal(f.statuses.at(-1), PLAIN_STATUS);
+    assert.deepEqual(f.notices, []);
+  }
+});
+
+test("TUI status catches a throwing theme getter and warns once despite a successful render", async () => {
+  const f = statusThemeFixture("getter");
+  await f.start();
+  assert.equal(f.statuses.at(-1), PLAIN_STATUS);
+  f.store.save();
+  assert.equal(f.statuses.at(-1), PLAIN_STATUS);
+  assert.deepEqual(f.notices, [{
+    text: "slate: could not style the status line: Error: theme failed. Slate shows plain text.",
+    type: "warning",
+  }]);
+  f.setTheme("good");
+  f.store.save();
+  assert.equal(f.statuses.at(-1), "◆ slate orchestrator ⋅ total $0.0000 (me $0.0000 + workers $0.0000)");
+  f.setTheme("getter");
+  f.store.save();
+  assert.equal(f.statuses.at(-1), PLAIN_STATUS);
+  assert.equal(f.notices.length, 1);
+});
+
+test("TUI status catches a throwing theme fg and warns once", async () => {
+  const f = statusThemeFixture("fg");
+  await f.start();
+  assert.equal(f.statuses.at(-1), PLAIN_STATUS);
+  f.store.save();
+  assert.equal(f.statuses.at(-1), PLAIN_STATUS);
+  assert.deepEqual(f.notices, [{
+    text: "slate: could not style the status line: Error: color failed. Slate shows plain text.",
+    type: "warning",
+  }]);
+});
+
+test("TUI status uses the console if its warning notice fails", async () => {
+  const f = statusThemeFixture("getter");
+  f.failNotify();
+  const warnings: string[] = [];
+  const originalWarn = console.warn;
+  console.warn = (message: string) => { warnings.push(message); };
+  try {
+    await f.start();
+    f.store.save();
+    assert.equal(f.statuses.at(-1), PLAIN_STATUS);
+    assert.deepEqual(f.notices, []);
+    assert.deepEqual(warnings, ["slate: could not style the status line: Error: theme failed. Slate shows plain text."]);
+  } finally {
+    console.warn = originalWarn;
+  }
+});
+
+test("TUI status warning re-arms after session_start", async () => {
+  const f = statusThemeFixture("getter");
+  await f.start();
+  f.store.save();
+  assert.equal(f.notices.length, 1);
+  await f.start();
+  assert.equal(f.statuses.at(-1), PLAIN_STATUS);
+  assert.deepEqual(f.notices, Array(2).fill({
+    text: "slate: could not style the status line: Error: theme failed. Slate shows plain text.",
+    type: "warning",
+  }));
 });
 
 test("threads tool rows render every type and both fallback shapes", async () => {

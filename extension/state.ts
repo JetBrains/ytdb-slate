@@ -797,6 +797,7 @@ export interface WritingConfig {
 	remindOnFinding?: boolean;
 	sentenceWordLimit?: number | false;
 	statusWindowTurns?: number;
+	showStatus?: boolean;
 	findings?: boolean;
 }
 
