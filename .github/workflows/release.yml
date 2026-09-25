@@ -445,7 +445,7 @@ jobs:
             printf '{"identity":"%s","releaseSha":"%s","execution":"%s","result":"%s","before":"%s","after":"%s"}\n' "$IDENTITY" "$sha" "$(node -p 'require("./state.json").promoterExecution')" "$result" "$(node -p 'require("./state.json").promotionEvidence.expectedLatest')" "$latest" >promotion-recovery.json
             node verification/release-control.mjs promotion-record --state state.json --result promotion-recovery.json --identity "$IDENTITY" --version "$VERSION" --sha "$sha" --parent "$parent" --out next.json; mv next.json state.json; status=$(node -p 'require("./state.json").status')
           fi
-          if test "$status" = proved && test "$(node -p 'require("./state.json").promotion')" = refused; then
+          if test "$status" = proved && { test "$(node -p 'require("./state.json").promotion')" = refused || test "$(node -p 'require("./state.json").promotion')" = not-attempted; }; then
             expected=$(node -p 'require("./state.json").promotionEvidence.expectedLatest'); latest=$(npm view ytdb-slate dist-tags.latest --registry "$REGISTRY")
             test "$latest" = "$expected" || { echo "Observed latest conflict $latest. Use close instead of rollback."; exit 2; }
             node verification/release-control.mjs promotion-intent --state state.json --latest "$expected" --identity "$IDENTITY" --version "$VERSION" --sha "$sha" --parent "$parent" --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --out next.json; mv next.json state.json; status=promotion-unknown; echo 'retry_promotion=true' >>"$GITHUB_OUTPUT"
