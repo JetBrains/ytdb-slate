@@ -19,7 +19,7 @@ The mandatory phases run in this order:
 
 1. research.
 2. propose the eleven-line risk record and obtain user approval.
-3. design and validate when a proved DESIGN-TRIGGERING area requires a design.
+3. design and validate when a proved DESIGN-TRIGGERING area or a per-track size estimate above 100 counted lines requires a design.
 4. when a design exists, reconfirm the focus list against the validated design.
 5. when a design exists, run one adversarial design review for each proved
    DESIGN-TRIGGERING area that has not reviewed the applicable design.
@@ -97,9 +97,17 @@ The retained research log is the durable workflow record.
 <!-- track-size-policy:begin -->
 About 400 added plus removed lines per track is a planning guideline, not a hard
 limit or a completion gate. Lockfiles, migration files, and generated output do
-not count. The orchestrator estimates track size before it proposes the split.
-The implementer estimates size from the work during implementation. Neither role
-needs a cumulative diff counter, a token estimate, or a total-input measurement.
+not count. Before proposing the split, the orchestrator estimates each track
+separately.
+An estimate above 100 counted lines requires a high-level design before
+implementation, including for a documentation-only track. Counted lines are
+added plus removed lines, excluding lockfiles, migration files, and generated
+output. The implementer reports an approximate track size in its response and
+implementer report. Neither role needs an exact line counter, a token estimate,
+or a total-input measurement. When the orchestrator estimates at most 100 but
+the implementer reports above 100, do not require a design after the fact.
+Reviewer I still runs when the track is not documentation-only. Use the larger
+size to estimate remaining tracks.
 
 Plan each track as an autonomous, independently mergeable unit inside the
 change. Aim for a coherent boundary close to 400 changed lines without
@@ -124,10 +132,13 @@ performance degradation, and non-local logic defect. REVIEWER-ONLY areas are
 test-quality defect, unreadable user-facing prose, licensing exposure, consumer
 contract break, governing-rule defect, and unreported failure.
 
-Only a proved area adds a focus-dependent gate or routine implementation
-reviewer. Every proved area adds its specialist. A track with at least one
-proved area also gets exactly one Reviewer I in a separate thread. A track with
-no proved area gets no routine implementation reviewer. A proved
+Only a proved area adds a focus-dependent gate or area reviewer. Every proved
+area adds its specialist. A track with at least one proved area gets exactly one
+Reviewer I in a separate thread, including on documentation-only work. An
+implementer's approximate size above 100 counted lines also requires Reviewer I
+unless the track is documentation-only. With neither trigger, routine
+implementation review is `NOT REQUIRED`. Size alone adds no area reviewer,
+adversarial design reviewer, or blocking track acceptance. A proved
 DESIGN-TRIGGERING area also requires a high-level design, user validation,
 focus reconfirmation, its own adversarial design reviewer, and final design
 approval. User acceptance of a track is blocking when that track proves at
@@ -345,10 +356,10 @@ requested decision or relevant risk under **Needs attention**.
 
 When the orchestrator or implementer discovers a late area, the orchestrator
 presents its four-part proof to the user at once. Approval recomputes the
-complete required routine reviewer set. If the track had no proved area, the
-newly required perspectives are Reviewer I and the new area specialist.
-Otherwise, the existing Reviewer I remains required but is not dispatched
-again. The only newly required perspective is the new area specialist. Approval
+complete required routine reviewer set. If Reviewer I has not covered the range,
+dispatch Reviewer I and the new area specialist. If Reviewer I already ran
+because of size or another proved area, dispatch only the new area specialist.
+Do not dispatch Reviewer I again. Approval
 of a DESIGN-TRIGGERING area also enters or re-enters the design sequence for
 remaining affected work unless the user records a decision to skip that gate.
 Present any necessary new, revised, or materially clarified design before
@@ -388,8 +399,8 @@ historical log. This rule does not change reviewer input restrictions.
 Every implementation dispatch either carries each focus-area trigger with its boundary
 sentences or directs the implementer to the risk definitions in
 [blast-radius.md](blast-radius.md) § Focus areas and their gates. The implementer
-ends its response with `unplanned risk: none` or one line that names a risk the
-plan did not name.
+ends its response with an approximate track size in counted lines, followed by
+`unplanned risk: none` or one line that names a risk the plan did not name.
 
 Review dispatches follow [review-rules.md](review-rules.md) § Reviewer input
 contract. Reviewers receive the approved inputs for their role. Ordinary
@@ -417,7 +428,8 @@ name it as read-only in the new report's first entry. Continue the work in the
 new report. The report has four required
 sections: changes to the high-level design with the reason for each, the
 low-level design, diagrams where they help, and checks run with their results.
-Later fix rounds append to that report in the current change folder.
+The report states the approximate track size in counted lines. Later fix
+rounds append to that report in the current change folder.
 
 Tracks are contiguous and execute through one sequential writer. Independent
 research and reviews may run in parallel. File-writing implementation does not.
@@ -501,10 +513,12 @@ history as boundary authority. The track table is display-only.
 
 ## Review coverage
 
-Every part of a track range must reach the complete routine implementation
-reviewer set that the proved areas require. The set is empty when the track has
-no proved area. Otherwise it contains exactly one Reviewer I and every required
-area specialist. User review never replaces required machine review. This
+Every part of a track range must reach its complete routine implementation
+reviewer set. The set contains every specialist for a proved area. It contains
+exactly one Reviewer I when an area is proved. Without a proved area, it
+contains Reviewer I only when the implementer's approximate size is above 100
+counted lines and the track is not documentation-only. Otherwise the set is
+empty. User review never replaces required machine review. This
 requirement is the coverage invariant. A track with an empty set reports
 routine implementation review as `NOT REQUIRED`.
 

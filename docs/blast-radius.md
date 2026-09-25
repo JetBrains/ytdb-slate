@@ -13,9 +13,13 @@ four-part proof. The proof states the defect class, the place where the defect
 can occur, the material consequence, and the review contribution. User approval
 makes a NAMED area **proved**.
 User rejection makes it **SKIPPED**. Only a proved area adds focus-dependent
-gates or routine implementation reviewers. A track with one or more proved
-areas gets exactly one Reviewer I and every required area specialist. A track
-with no proved area gets no routine implementation reviewer. The user alone
+gates or area reviewers. A track with one or more proved areas gets exactly
+one Reviewer I and every required area specialist. The implementer's approximate
+size above 100 counted lines also requires Reviewer I on a track that is not
+documentation-only. Without either trigger, routine implementation review is
+`NOT REQUIRED`. Size alone adds no area reviewer or blocking track acceptance.
+[track-workflow.md](track-workflow.md) § Track size and split defines counted
+lines and the separate pre-implementation design estimate. The user alone
 judges proofs and whether the proposal is the simplest solution. No script or
 other rule decides whether a proof holds.
 
@@ -341,7 +345,7 @@ change that does not engage the area.
 No rule mechanically decides whether a proof holds. The user alone judges every
 proof at the confirmation gate and at focus reconfirmation. A SKIPPED area gets
 no gate or reviewer. The skip is recorded and is not an escalation. A track with
-no proved area gets no routine implementation reviewer.
+no proved area gets no area reviewer.
 
 Reviewer composition and merging belong to
 [review-rules.md](review-rules.md) § Reviewer sets, merge rule and charters.
@@ -393,19 +397,21 @@ On a halt, the orchestrator:
 The route never applies a design gate retrospectively to completed work. It
 keeps the recorded skip and every reviewer that already covered completed work.
 A late proved area recomputes the complete required routine reviewer set for the
-completed range. The first proved area adds Reviewer I and the new area
-specialist. A later proved area keeps the existing Reviewer I without
-redispatching that perspective and adds only the new area specialist. Every
-newly required perspective reviews the completed range. The durable delivery
-record reports the resulting coverage.
+completed range. If Reviewer I has not covered that range, dispatch Reviewer I
+and the new area specialist. If Reviewer I already ran because of size or
+another proved area, dispatch only the new specialist. Do not dispatch Reviewer I
+again. Every newly required perspective reviews the completed range. The durable
+delivery record reports the resulting coverage.
 
 ## Review coverage and the coverage register
 
 Every part of a track range must reach the complete routine implementation
-reviewer set that the proved areas require. The set is empty when the track has
-no proved area. Otherwise it contains exactly one Reviewer I and every required
-area specialist. Required user acceptance never replaces required machine
-review. This requirement is the coverage invariant.
+reviewer set defined in [track-workflow.md](track-workflow.md) § Review coverage.
+A proved area requires exactly one Reviewer I and every required area
+specialist. Without a proved area, a reported size above 100 counted lines
+requires Reviewer I unless the track is documentation-only. Otherwise the set
+is empty. Required user acceptance never replaces required machine review.
+This requirement is the coverage invariant.
 
 Create a coverage register when a user-review fix commit exists. Record each
 contiguous user-review fix range and its gate verdict. The register remains the

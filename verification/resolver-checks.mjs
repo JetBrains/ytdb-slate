@@ -361,6 +361,7 @@ const DOCTRINE_CONTRACT_IDS = [
 	"contract-test-composite",
 	"contract-delivery-packages",
 	"contract-review-charters",
+	"contract-size-review-copies",
 	"contract-dispatch-context",
 	"contract-section-targets",
 ];
@@ -1378,14 +1379,14 @@ try {
 			dogfood: metrics(await doctrine(dogExtensions, () => dogRuntime, true, dogConfig)),
 		};
 		const exact = {
-			prompt: { portable: 3892, lines: 11, paths: 0 }, trusted: { portable: 8683, lines: 85, paths: 5 },
-			untrusted: { portable: 2694, lines: 44, paths: 4 }, draft: { portable: 8758, lines: 86, paths: 6 },
-			extensions: { portable: 10030, lines: 95, paths: 5 }, allTails: { portable: 10105, lines: 96, paths: 6 },
-			followUp: { portable: 10104, lines: 96, paths: 5 }, routing: { portable: 10127, lines: 96, paths: 5 },
-			draftFollowUp: { portable: 10179, lines: 97, paths: 6 }, draftRouting: { portable: 10198, lines: 97, paths: 6 },
-			followUpRouting: { portable: 10201, lines: 97, paths: 5 }, maximal: { portable: 10272, lines: 98, paths: 6 },
-			maximalOpen: { portable: 10470, lines: 99, paths: 6 }, maximalLinked: { portable: 10700, lines: 101, paths: 6 },
-			dogfood: { portable: 9397, lines: 97, paths: 6 },
+			prompt: { portable: 3892, lines: 11, paths: 0 }, trusted: { portable: 8764, lines: 88, paths: 5 },
+			untrusted: { portable: 2775, lines: 47, paths: 4 }, draft: { portable: 8839, lines: 89, paths: 6 },
+			extensions: { portable: 10111, lines: 98, paths: 5 }, allTails: { portable: 10186, lines: 99, paths: 6 },
+			followUp: { portable: 10185, lines: 99, paths: 5 }, routing: { portable: 10208, lines: 99, paths: 5 },
+			draftFollowUp: { portable: 10260, lines: 100, paths: 6 }, draftRouting: { portable: 10279, lines: 100, paths: 6 },
+			followUpRouting: { portable: 10282, lines: 100, paths: 5 }, maximal: { portable: 10353, lines: 101, paths: 6 },
+			maximalOpen: { portable: 10551, lines: 102, paths: 6 }, maximalLinked: { portable: 10781, lines: 104, paths: 6 },
+			dogfood: { portable: 9478, lines: 100, paths: 6 },
 		};
 		const doctrineBaselines = Object.values(rendered);
 		checkAll("doctrine-budget", "exact production renders match published portable baselines and every current baseline keeps five-percent reserve", [
@@ -1419,17 +1420,17 @@ try {
 		const overExtensions = { units: [{ path: "/fixture/over", source: "z".repeat(128), isDirectory: true, tools: Array.from({ length: 88 }, (_, i) => ({ name: (`t${i}`).padEnd(64, "x"), description: "q".repeat(140) })) }], paths: [], toolNames: [] };
 		const over = await doctrine(overExtensions, () => activeRuntime, true, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, change);
 		const portable = (text) => text.split(docsDirectory).join("").length;
-		const wholeAt = await doctrine({ ...capped, units: [...capped.units, { path: "/fixture/c", source: "c".repeat(86), isDirectory: true, tools: [] }] }, () => atChars, true, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, change);
-		const wholeAbove = await doctrine({ ...capped, units: [...capped.units, { path: "/fixture/c", source: "c".repeat(87), isDirectory: true, tools: [] }] }, () => atChars, true, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, change);
+		const wholeAt = await doctrine({ ...capped, units: [...capped.units, { path: "/fixture/c", source: "c".repeat(5), isDirectory: true, tools: [] }] }, () => atChars, true, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, change);
+		const wholeAbove = await doctrine({ ...capped, units: [...capped.units, { path: "/fixture/c", source: "c".repeat(6), isDirectory: true, tools: [] }] }, () => atChars, true, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, change);
 		checkAll("doctrine-budget-boundaries", "runtime equality, first-over-limit rejection, maximum composition, and valid-router doctrine growth remain discriminatory", [
 			["19,400 accepted", atChars.promptText().length === 19400 && atChars.criticalErrors.length === 0, { length: atChars.promptText()?.length, errors: atChars.criticalErrors }],
 			["19,401 rejected", aboveChars.promptText() === undefined && aboveChars.criticalErrors.some((x) => /19401 portable characters/.test(x)), aboveChars.criticalErrors],
 			["105 lines accepted", atLines.promptText()?.split("\n").length === 105, atLines.criticalErrors],
 			["106 lines rejected", aboveLines.promptText() === undefined && aboveLines.criticalErrors.some((x) => /106 lines/.test(x)), aboveLines.criticalErrors],
 			["whole-doctrine equality is accepted and first-over-limit is rejected", portable(wholeAt) === DOCTRINE_LIMITS.maximalChars && portable(wholeAbove) === DOCTRINE_LIMITS.maximalChars + 1, { at: portable(wholeAt), above: portable(wholeAbove), ceiling: DOCTRINE_LIMITS.maximalChars }],
-			["boundary compositions stay exact and below whole-doctrine cap", portable(featureOffDraft) === 26041 && portable(featureOffTight) === 26115 && portable(routingWithoutDrafts) === 26063 && portable(routingWithFollowUp) === 26137 && portable(routing) === 26134 && portable(deferred) === 26208 && [featureOffDraft, featureOffTight, routingWithoutDrafts, routingWithFollowUp, routing, deferred].every((text) => portable(text) <= DOCTRINE_LIMITS.maximalChars), { featureOffDraft: portable(featureOffDraft), featureOffTight: portable(featureOffTight), routingWithoutDrafts: portable(routingWithoutDrafts), routingWithFollowUp: portable(routingWithFollowUp), routing: portable(routing), deferred: portable(deferred) }],
-			["boundary composition line counts match the published tables", featureOffDraft.split("\n").length === 99 && featureOffTight.split("\n").length === 100 && routingWithoutDrafts.split("\n").length === 99 && routingWithFollowUp.split("\n").length === 100 && routing.split("\n").length === 100 && deferred.split("\n").length === 101, { featureOffDraft: featureOffDraft.split("\n").length, featureOffTight: featureOffTight.split("\n").length, routingWithoutDrafts: routingWithoutDrafts.split("\n").length, routingWithFollowUp: routingWithFollowUp.split("\n").length, routing: routing.split("\n").length, deferred: deferred.split("\n").length }],
-			["fresh valid-router over-cap control reaches whole-doctrine guard", portable(over) === 28374 && portable(over) > DOCTRINE_LIMITS.maximalChars, portable(over)],
+			["boundary compositions stay exact and below whole-doctrine cap", portable(featureOffDraft) === 26122 && portable(featureOffTight) === 26196 && portable(routingWithoutDrafts) === 26144 && portable(routingWithFollowUp) === 26218 && portable(routing) === 26215 && portable(deferred) === 26289 && [featureOffDraft, featureOffTight, routingWithoutDrafts, routingWithFollowUp, routing, deferred].every((text) => portable(text) <= DOCTRINE_LIMITS.maximalChars), { featureOffDraft: portable(featureOffDraft), featureOffTight: portable(featureOffTight), routingWithoutDrafts: portable(routingWithoutDrafts), routingWithFollowUp: portable(routingWithFollowUp), routing: portable(routing), deferred: portable(deferred) }],
+			["boundary composition line counts match the published tables", featureOffDraft.split("\n").length === 102 && featureOffTight.split("\n").length === 103 && routingWithoutDrafts.split("\n").length === 102 && routingWithFollowUp.split("\n").length === 103 && routing.split("\n").length === 103 && deferred.split("\n").length === 104, { featureOffDraft: featureOffDraft.split("\n").length, featureOffTight: featureOffTight.split("\n").length, routingWithoutDrafts: routingWithoutDrafts.split("\n").length, routingWithFollowUp: routingWithFollowUp.split("\n").length, routing: routing.split("\n").length, deferred: deferred.split("\n").length }],
+			["fresh valid-router over-cap control reaches whole-doctrine guard", portable(over) === 28455 && portable(over) > DOCTRINE_LIMITS.maximalChars, portable(over)],
 		]);
 	});
 
@@ -2249,10 +2250,10 @@ requested decision or relevant risk under **Needs attention**.
 
 When the orchestrator or implementer discovers a late area, the orchestrator
 presents its four-part proof to the user at once. Approval recomputes the
-complete required routine reviewer set. If the track had no proved area, the
-newly required perspectives are Reviewer I and the new area specialist.
-Otherwise, the existing Reviewer I remains required but is not dispatched
-again. The only newly required perspective is the new area specialist. Approval
+complete required routine reviewer set. If Reviewer I has not covered the range,
+dispatch Reviewer I and the new area specialist. If Reviewer I already ran
+because of size or another proved area, dispatch only the new area specialist.
+Do not dispatch Reviewer I again. Approval
 of a DESIGN-TRIGGERING area also enters or re-enters the design sequence for
 remaining affected work unless the user records a decision to skip that gate.
 Present any necessary new, revised, or materially clarified design before
@@ -2308,7 +2309,7 @@ change that does not engage the area.
 No rule mechanically decides whether a proof holds. The user alone judges every
 proof at the confirmation gate and at focus reconfirmation. A SKIPPED area gets
 no gate or reviewer. The skip is recorded and is not an escalation. A track with
-no proved area gets no routine implementation reviewer.
+no proved area gets no area reviewer.
 
 Reviewer composition and merging belong to
 [review-rules.md](review-rules.md) § Reviewer sets, merge rule and charters.`);
@@ -2316,12 +2317,12 @@ Reviewer composition and merging belong to
 			const proofMutation = proofSection.replace("becomes proved only through user approval", "becomes proved when NAMED");
 			const skippedMutation = proofSection.replace("SKIPPED and adds no gate or reviewer", "SKIPPED and adds its reviewer");
 			const lateFirstAreaMutation = riskLifecycle.replace(
-				"the newly required perspectives are Reviewer I and the new area specialist.",
-				"the only newly required perspective is the new area specialist.",
+				"dispatch Reviewer I and the new area specialist.",
+				"dispatch only the new area specialist.",
 			);
 			const lateAdditionalAreaMutation = riskLifecycle.replace(
-				"the existing Reviewer I remains required but is not dispatched again.",
-				"the existing Reviewer I remains required and is dispatched again.",
+				"Do not dispatch Reviewer I again.",
+				"Dispatch Reviewer I again.",
 			);
 			checkAll("contract-risk-lifecycle", "orchestrator ownership, user-judged proof states, design reconfirmation, removal approval, both late-area reviewer transitions, completed-range coverage, and implementer reporting stay complete", [
 				["risk lifecycle is exact through its stable next heading", riskLifecycle === expectedRiskLifecycle, riskLifecycle],
@@ -2329,12 +2330,12 @@ Reviewer composition and merging belong to
 				["ownership mutation fails exact comparison", ownerMutation !== expectedRiskLifecycle, ownerMutation],
 				["wrong proof-state mutation fails exact comparison", proofMutation !== proofSection && proofMutation !== expectedProofSection, proofMutation],
 				["SKIPPED-approval mutation fails exact comparison", skippedMutation !== expectedProofSection, skippedMutation],
-				["first late proved area requires Reviewer I and its specialist", /had no proved area, the\s+newly required perspectives are Reviewer I and the new area specialist/.test(riskLifecycle) && /Every newly required routine reviewer\s+perspective reviews the completed range/.test(riskLifecycle), riskLifecycle],
+				["first late proved area requires Reviewer I and its specialist", /If Reviewer I has not covered the range,\s+dispatch Reviewer I and the new area specialist/.test(riskLifecycle) && /Every newly required routine reviewer\s+perspective reviews the completed range/.test(riskLifecycle), riskLifecycle],
 				["first-late-area specialist-only mutation fails exact comparison", lateFirstAreaMutation !== riskLifecycle && lateFirstAreaMutation !== expectedRiskLifecycle, lateFirstAreaMutation],
-				["later proved area adds only its specialist without redispatching Reviewer I", /existing Reviewer I remains required but is not dispatched\s+again\. The only newly required perspective is the new area specialist/.test(riskLifecycle), riskLifecycle],
+				["late area after size-triggered Reviewer I adds only its specialist", /If Reviewer I already ran\s+because of size or another proved area, dispatch only the new area specialist\.\s+Do not dispatch Reviewer I again/.test(riskLifecycle), riskLifecycle],
 				["later-area duplicate-Reviewer-I mutation fails exact comparison", lateAdditionalAreaMutation !== riskLifecycle && lateAdditionalAreaMutation !== expectedRiskLifecycle, lateAdditionalAreaMutation],
 				["new-track applicable approval is explicit", /new track created after the original confirmation gate needs an applicable\nuser approval of its independent risk record before implementation starts/.test(workflow), workflow.match(/.{0,100}new track created.{0,200}/s)?.[0]],
-				["implementer reports one unplanned-risk line", /ends its response with `unplanned risk: none` or one line/.test(workflow), workflow.match(/.{0,100}unplanned risk.{0,140}/s)?.[0]],
+				["implementer reports size followed by one unplanned-risk line", /ends its response with an approximate track size in counted lines, followed by\s+`unplanned risk: none` or one line/.test(workflow), workflow.match(/.{0,100}unplanned risk.{0,140}/s)?.[0]],
 			]);
 
 			const focusGates = normalizeText(workflow.match(/^## Focus classes and gates\n([\s\S]*?)(?=^<!-- focus-area-table:begin -->)/m)?.[1] ?? "");
@@ -2379,7 +2380,7 @@ The orchestrator pauses dispatch pending an actual handoff and resume or an expl
 			];
 			const benignPhaseHandoff = benignPhaseHandoffSources.map(resolvePhaseHandoff);
 			const wrongState = focusGates.replace("Only a proved area", "A NAMED area");
-			const skippedApproval = focusGates.replace("Only a proved area adds a focus-dependent gate or routine implementation reviewer.", "A SKIPPED area adds a routine implementation reviewer.");
+			const skippedApproval = focusGates.replace("Only a proved area adds a focus-dependent gate or area reviewer.", "A SKIPPED area adds an area reviewer.");
 			const designReviewPolicyBegin = "<!-- design-review-policy:begin -->";
 			const designReviewPolicyEnd = "<!-- design-review-policy:end -->";
 			const resolveDesignReviewPolicy = (source) => {
@@ -2478,15 +2479,15 @@ required reviews, ordered gates, user authority, or final acceptance.`;
 			const duplicateP11AtEnd = resolveP11(`${principles}\n\n${expectedP11Source}`);
 			const duplicateP11WithP13 = resolveP11(`${principles}\n\n${expectedP11Source}\n\n- **P13 — Alternate probe terminator.**`);
 			const benignP11 = resolveP11(`${principles}\n\n<!-- resolver benign P11 control -->`);
-			const reviewerRows = [...reviews.matchAll(/^\| (one or more proved areas|no proved area) \| (.+) \|$/gm)].map((match) => [match[1], match[2]]);
+			const reviewerRows = [...reviews.matchAll(/^\| (one or more proved areas|no proved area, more than 100 counted lines, not documentation-only|no proved area, at most 100 counted lines or documentation-only) \| (.+) \|$/gm)].map((match) => [match[1], match[2]]);
 			const markerRule = normalizeText(workflow.match(/A multi-track boundary adds one empty marker commit[\s\S]*?(?=```bash)/)?.[0] ?? "");
 			checkAll("contract-focus-gates", "effective focus states, conditional design phases, per-track design entry, per-reversal design-review permission, the exact clean-review ending, approved removals, marker availability, late-area routing, conditional Reviewer I composition, and no-area model choice are explicit. The acceptance policy itself belongs to contract-acceptance-units and contract-acceptance-mutations", [
 				["design-review policy resolves once and matches its independent bounded expectation", designReviewPolicy.count === 1 && designReviewPolicy.endCount === 1 && designReviewPolicy.text === expectedDesignReviewPolicy, { designReviewPolicy, expectedDesignReviewPolicy }],
 				["one-total, mandatory-round, wrong-stage, and alternate-ending mutations fail", designReviewMutations.every(({ count, endCount, text }) => count === 1 && endCount === 1 && text !== expectedDesignReviewPolicy), designReviewMutations],
 				["adjacent-before, adjacent-after, and EOF benign text preserve the exact design-review unit", benignDesignReviewPolicies.every(({ count, endCount, text }) => count === 1 && endCount === 1 && text === expectedDesignReviewPolicy), benignDesignReviewPolicies],
 				["missing, duplicate, and malformed design-review boundaries fail closed", designReviewBoundaryMutations.every(({ count, endCount, text }) => count !== 1 || endCount !== 1 || text === ""), designReviewBoundaryMutations],
-				["both focus classes and the proved-area reviewer qualifier are present", /DESIGN-TRIGGERING areas are/.test(focusGates) && /REVIEWER-ONLY areas are/.test(focusGates) && /Only a proved area adds a focus-dependent gate or routine implementation\s+reviewer/.test(focusGates), focusGates],
-				["zero, one, and multiple proved areas map to zero or exactly one Reviewer I plus all specialists", /at least one\s+proved area also gets exactly one Reviewer I/.test(focusGates) && /no proved area gets no routine implementation reviewer/.test(focusGates) && reviewerRows.length === 2 && reviewerRows[0]?.[0] === "one or more proved areas" && reviewerRows[0]?.[1].startsWith("exactly one Reviewer I plus one specialist for every proved area") && reviewerRows[1]?.[0] === "no proved area" && reviewerRows[1]?.[1].includes("NOT REQUIRED"), { focusGates, reviewerRows }],
+				["both focus classes and the proved-area reviewer qualifier are present", /DESIGN-TRIGGERING areas are/.test(focusGates) && /REVIEWER-ONLY areas are/.test(focusGates) && /Only a proved area adds a focus-dependent gate or area reviewer/.test(focusGates), focusGates],
+				["100 lines, 101 lines, documentation-only and proved areas select the correct reviewers", /at least one proved area gets exactly one\s+Reviewer I/.test(focusGates) && /above 100 counted lines also requires Reviewer I\s+unless the track is documentation-only/.test(focusGates) && reviewerRows.length === 3 && reviewerRows[0]?.[0] === "one or more proved areas" && reviewerRows[0]?.[1].startsWith("exactly one Reviewer I plus one specialist for every proved area") && reviewerRows[1]?.[0] === "no proved area, more than 100 counted lines, not documentation-only" && reviewerRows[1]?.[1] === "exactly one Reviewer I" && reviewerRows[2]?.[0] === "no proved area, at most 100 counted lines or documentation-only" && reviewerRows[2]?.[1].includes("NOT REQUIRED"), { focusGates, reviewerRows }],
 				["no-design phases skip design-only gates while final acceptance remains mandatory", /when a design exists, reconfirm/.test(phases) && /when a design exists, run one adversarial design review/.test(phases) && /when a design exists, obtain final design approval/.test(phases) && /obtain blocking final acceptance/.test(phases), phases],
 				["design validation and reconfirmation precede one area adversary and final approval", /user validation, focus reconfirmation, its own adversarial\s*design reviewer, and final design approval/.test(focusGates), focusGates],
 				["each track assesses design coverage and re-enters before affected implementation", /Before each track implementation/.test(designEntry) && /newly proves a DESIGN-TRIGGERING area[\s\S]*?enter or re-enter the design sequence[\s\S]*?before the affected implementation/.test(designEntry) && /Reuse adequate unchanged approved design and completed applicable gates/.test(designEntry) && /Reusing text does not bypass a newly required area-specific design review/.test(designEntry) && /Routine low-level design choices need no user approval unless[\s\S]*?change approved behavior or constraints/.test(designEntry), designEntry],
@@ -2498,16 +2499,16 @@ required reviews, ordered gates, user authority, or final acceptance.`;
 				["user-requested track fixes are unconditional", /applies and commits required user-review\s+fixes whenever the user requests them/.test(workflow), workflow.match(/.{0,100}required user-review.{0,160}/s)?.[0]],
 				["marker exists without track acceptance after machine gates, packet, and blocking notes", /after required machine gates and the track packet are complete/.test(markerRule) && /[Aa]ll blocking user notes are resolved/.test(markerRule) && /When track acceptance is mandatory/.test(markerRule), markerRule],
 				["late areas require immediate user decision, complete-set transitions, completed-range coverage, and no retrospective design gate", /presents its four-part proof to the user at once/.test(riskLifecycle) && /Approval recomputes the\s+complete required routine reviewer set/.test(riskLifecycle) && /Every newly required routine reviewer\s+perspective reviews the completed range/.test(riskLifecycle) && /Completed work\s+receives no retrospective design gate/.test(riskLifecycle), riskLifecycle],
-				["NAMED, SKIPPED, and file type do not create routine reviewers", /`NAMED` and `SKIPPED` areas do not select reviewers/.test(reviews) && /Code, mixed, and\s+documentation-only status do not select reviewers/.test(reviews), reviews.slice(0, 4000)],
+				["NAMED and SKIPPED do not select reviewers, while size excludes documentation-only tracks", /`NAMED` and `SKIPPED` areas do not select reviewers/.test(reviews) && /size above 100 counted lines selects Reviewer I for a code or mixed track, but\s+not for a documentation-only track/.test(reviews), reviews.slice(0, 4000)],
 				["no-area orchestrator choice uses ordinary logical guidance without a tier threshold or mandatory user gate", /the orchestrator selects a\s+logical model under the ordinary action guidance/.test(workflow) && /action fit, capability, cost, guidance, and cautions/.test(workflow) && /uses no\s+sourced-tier threshold, highest-tier fallback, or mandatory user-choice gate/.test(workflow) && /ordinary logical-model membership, fixed effort, and dispatch restrictions/.test(workflow), workflow.match(/For implementation of a track with no proved area[\s\S]*?(?=\n\n\[blast-radius)/)?.[0]],
-				["zero-area routine review and user-fix verification have separate durable verdicts", /empty set reports\s+routine implementation review as `NOT REQUIRED`/.test(workflow) && /including when the track has no proved area[\s\S]*?separate from routine implementation review/.test(workflow) && /durable record gives routine implementation review and user-requested-fix\s+verification as separate verdicts/.test(userNotes), { workflow: workflow.match(/For a user-review fix range[\s\S]*?(?=\n\nThe correction)/)?.[0], record: userNotes.match(/The durable record gives routine implementation review[\s\S]*?(?=\n\nThe coverage register)/)?.[0] }],
+				["empty-set routine review and user-fix verification have separate durable verdicts", /empty set reports\s+routine implementation review as `NOT REQUIRED`/.test(workflow) && /including when the track has no proved area[\s\S]*?separate from routine implementation review/.test(workflow) && /durable record gives routine implementation review and user-requested-fix\s+verification as separate verdicts/.test(userNotes) && /neither a proved area nor a\s+size-triggered Reviewer I/.test(userNotes), { workflow: workflow.match(/For a user-review fix range[\s\S]*?(?=\n\nThe correction)/)?.[0], record: userNotes.match(/The durable record gives routine implementation review[\s\S]*?(?=\n\nThe coverage register)/)?.[0] }],
 				["P11 is one exact independently specified policy unit", p11Resolution.count === 1 && p11 === expectedP11, { resolution: p11Resolution, expected: expectedP11 }],
 				["missing and duplicate P11 units fail closed across P12, end-of-file, and alternate-number boundaries", missingP11Source !== principles && missingP11.count === 0 && missingP11.text === "" && [duplicateP11WithP12, duplicateP11AtEnd, duplicateP11WithP13].every(({ count, text }) => count === 2 && text === ""), { missingP11, duplicateP11WithP12, duplicateP11AtEnd, duplicateP11WithP13 }],
 				["benign text outside P11 preserves one exact unit", benignP11.count === 1 && benignP11.text === expectedP11, benignP11],
 				["P11 permits only proved focus, focus-decided artifacts, or non-universal evidence, preserves current reports, and scales questions with unresolved decisions", /condition is a proved focus area, an artifact whose own existence a proved focus area decides, or specific evidence that does not appear in every track/.test(p11) && /research log is the sole permitted unconditional-artifact exception/.test(p11) && /authors of future rules/.test(p11) && /does not remove or condition current required artifacts/.test(p11) && /per-track implementer report/.test(p11) && /Questions follow unresolved decisions, not the number of workflow steps, records, or tracks/.test(p11) && /do not remove reassessment, required reviews, ordered gates, user authority, or final acceptance/.test(p11) && !/size grade/.test(p11) && !/Reviewer I on every track/.test(p11), p11],
 				["restored grade, widened exception, universal evidence, current-artifact, question-scaling, and authority weakening mutations all fail", p11Mutations.every((mutation) => mutation !== p11 && mutation !== expectedP11), p11Mutations],
-				["wrong proof state fails", wrongState !== focusGates && !/Only a proved area adds a focus-dependent gate or routine implementation reviewer/.test(wrongState), wrongState],
-				["SKIPPED approval mutation fails", skippedApproval !== focusGates && !/Only a proved area adds a focus-dependent gate or routine implementation reviewer/.test(skippedApproval), skippedApproval],
+				["wrong proof state fails", wrongState !== focusGates && !/Only a proved area adds a focus-dependent gate or area reviewer/.test(wrongState), wrongState],
+				["SKIPPED approval mutation fails", skippedApproval !== focusGates && !/Only a proved area adds a focus-dependent gate or area reviewer/.test(skippedApproval), skippedApproval],
 			]);
 
 			// ------------------------------------------ the acceptance-policy units --
@@ -2565,6 +2566,148 @@ required reviews, ordered gates, user authority, or final acceptance.`;
 				const matches = [...source.matchAll(pattern)].map((match) => normalizeText(match[1] ?? "")).filter((text) => text !== "");
 				return { count: matches.length, text: matches.length === 1 ? matches[0] : "" };
 			};
+			// Each active copy has its own bounded, independent text expectation. An
+			// addition inside a rule fails even when the required phrases remain.
+			const sizeCopyUnits = [
+				{
+					id: "blast-trigger",
+					source: blast,
+					extract: regionUnit(/^(The orchestrator judges all eleven focus areas[\s\S]*?)(?=^Each track must)/gm),
+					expected: normalizeText(`The orchestrator judges all eleven focus areas for the change and independently
+for every track. An area is **NAMED** when the orchestrator submits its
+four-part proof. The proof states the defect class, the place where the defect
+can occur, the material consequence, and the review contribution. User approval
+makes a NAMED area **proved**.
+User rejection makes it **SKIPPED**. Only a proved area adds focus-dependent
+gates or area reviewers. A track with one or more proved areas gets exactly
+one Reviewer I and every required area specialist. The implementer's approximate
+size above 100 counted lines also requires Reviewer I on a track that is not
+documentation-only. Without either trigger, routine implementation review is
+\`NOT REQUIRED\`. Size alone adds no area reviewer or blocking track acceptance.
+[track-workflow.md](track-workflow.md) § Track size and split defines counted
+lines and the separate pre-implementation design estimate. The user alone
+judges proofs and whether the proposal is the simplest solution. No script or
+other rule decides whether a proof holds.`),
+				},
+				{
+					id: "blast-late-area",
+					source: blast,
+					extract: regionUnit(/^(The route never applies a design gate retrospectively[\s\S]*?)(?=^## Review coverage and the coverage register)/gm),
+					expected: normalizeText(`The route never applies a design gate retrospectively to completed work. It
+keeps the recorded skip and every reviewer that already covered completed work.
+A late proved area recomputes the complete required routine reviewer set for the
+completed range. If Reviewer I has not covered that range, dispatch Reviewer I
+and the new area specialist. If Reviewer I already ran because of size or
+another proved area, dispatch only the new specialist. Do not dispatch Reviewer I
+again. Every newly required perspective reviews the completed range. The durable
+delivery record reports the resulting coverage.`),
+				},
+				{
+					id: "blast-coverage",
+					source: blast,
+					extract: regionUnit(/^## Review coverage and the coverage register\n\n([\s\S]*?)(?=^## Commit discipline for drift and boundaries)/gm),
+					expected: normalizeText(`Every part of a track range must reach the complete routine implementation
+reviewer set defined in [track-workflow.md](track-workflow.md) § Review coverage.
+A proved area requires exactly one Reviewer I and every required area
+specialist. Without a proved area, a reported size above 100 counted lines
+requires Reviewer I unless the track is documentation-only. Otherwise the set
+is empty. Required user acceptance never replaces required machine review.
+This requirement is the coverage invariant.
+
+Create a coverage register when a user-review fix commit exists. Record each
+contiguous user-review fix range and its gate verdict. The register remains the
+review-accounting authority for those ranges. The track table remains a
+display-only split index and carries no commit identifier.
+
+At delivery, a live register produces the separate user-requested-fix
+verification verdict required by [track-workflow.md](track-workflow.md). The
+routine implementation-review conclusion reports \`NOT REQUIRED\` when the
+required reviewer set is empty. The detailed register stays in the research
+log.`),
+				},
+				{
+					id: "workflow-coverage",
+					source: workflow,
+					extract: regionUnit(/^## Review coverage\n\n([\s\S]*?)(?=^### Routing recommendations at change completion)/gm),
+					expected: normalizeText(`Every part of a track range must reach its complete routine implementation
+reviewer set. The set contains every specialist for a proved area. It contains
+exactly one Reviewer I when an area is proved. Without a proved area, it
+contains Reviewer I only when the implementer's approximate size is above 100
+counted lines and the track is not documentation-only. Otherwise the set is
+empty. User review never replaces required machine review. This
+requirement is the coverage invariant. A track with an empty set reports
+routine implementation review as \`NOT REQUIRED\`.
+
+The coverage register records each contiguous range of user-review fix commits
+together with the gate verdict for that range. It is the review-accounting
+authority for those ranges. At delivery, a live register produces the one-line
+coverage conclusion required below.`),
+				},
+				{
+					id: "review-documentation-only",
+					source: reviews,
+					extract: regionUnit(/^(A documentation-only track changes only documents\.[\s\S]*?)(?=^A model may cover)/gm),
+					expected: normalizeText(`A documentation-only track changes only documents. Every changed file must
+neither ship as code nor run. Documentation-only status prevents size alone from triggering Reviewer I.
+It adds no specialist. A proved area still adds Reviewer I and its specialist.
+When unreadable user-facing prose is proved, Reviewer I and the prose specialist
+use two separate threads. A proved licensing area adds another separate specialist
+unless a specialist-only merge rule applies.`),
+				},
+				{
+					id: "review-selection",
+					source: reviews,
+					extract: regionUnit(/^(\| track \| required routine implementation-review set \|[\s\S]*?)(?=^Reviewer I always runs)/gm),
+					expected: normalizeText(`| track | required routine implementation-review set |
+| --- | --- |
+| one or more proved areas | exactly one Reviewer I plus one specialist for every proved area whose canonical gate runs per track |
+| no proved area, more than 100 counted lines, not documentation-only | exactly one Reviewer I |
+| no proved area, at most 100 counted lines or documentation-only | none; report routine implementation review as \`NOT REQUIRED\` |
+
+\`NAMED\` and \`SKIPPED\` areas do not select reviewers. An implementer's approximate
+size above 100 counted lines selects Reviewer I for a code or mixed track, but
+not for a documentation-only track. Counted lines and the separate design
+estimate are defined in [track-workflow.md](track-workflow.md) § Track size and
+split. Every required perspective is dispatched exactly once. Do not dispatch a
+duplicate action for the same required perspective.`),
+				},
+				{
+					id: "rendered-rule-8",
+					source: await doctrine(we.EMPTY_WORKER_EXTENSION_SET, undefined, true, {}),
+					extract: regionUnit(/(Keep separate change\/track records\.[\s\S]*?)(?=Definitions: )/g),
+					expected: normalizeText(`Keep separate change/track records. NAMED: defect, place,
+consequence, review contribution. User approval proves it. Rejection is
+SKIPPED. Proved areas add specialists and one Reviewer I. Estimate each track
+first. Above 100 counted lines requires design before work, even
+documentation-only. Implementer reports approximate size in response and
+report. Above 100 adds Reviewer I except documentation-only.
+Size adds no specialist, design adversary or track acceptance. If size crosses 100
+late, add Reviewer I unless documentation-only. No late design. Use larger size later.
+Late areas add only specialists if Reviewer I ran.`),
+				},
+			];
+			const sizeCopies = sizeCopyUnits.map(({ id, source, extract, expected }) => ({ id, ...extract(source), expected }));
+			const sizeMutations = [
+				["blast-trigger", blast.replace("Without either trigger, routine implementation review is\n`NOT REQUIRED`.", "Without either trigger, Reviewer I still reviews the track.")],
+				["blast-trigger", blast.replace("on a track that is not\ndocumentation-only", "on every track, including\ndocumentation-only")],
+				["blast-trigger", blast.replace("size above 100 counted lines also requires", "size above 101 counted lines also requires")],
+				["blast-late-area", blast.replace("dispatch only the new specialist", "dispatch Reviewer I and the new specialist")],
+				["blast-coverage", blast.replace("Otherwise the set\nis empty", "Otherwise the set\nholds Reviewer I")],
+				["workflow-coverage", workflow.replace("Otherwise the set is\nempty", "Otherwise the set\nholds Reviewer I")],
+				["workflow-coverage", workflow.replace("counted lines and the track is not documentation-only. Otherwise", "counted lines, even on a documentation-only track. Otherwise")],
+				["workflow-coverage", workflow.replace("size is above 100\ncounted lines", "size is at least 100\ncounted lines")],
+				["review-documentation-only", reviews.replace("Documentation-only status prevents size alone from triggering Reviewer I.", "Documentation-only status prevents size alone from triggering Reviewer I. Every track also gets Reviewer I.")],
+				["rendered-rule-8", sizeCopyUnits.at(-1).source.replace("Late areas add only specialists if Reviewer I ran.", "Late areas add only specialists if Reviewer I ran. Every track gets Reviewer I.")],
+			];
+			const sizeMutationsRejected = sizeMutations.map(([id, source]) => {
+				const unit = sizeCopyUnits.find((item) => item.id === id);
+				const resolved = unit.extract(source);
+				return { id, changed: source !== unit.source, rejected: resolved.count !== 1 || resolved.text !== unit.expected };
+			});
+			checkAll("contract-size-review-copies", "the focus guide, coverage invariant, reviewer composition, and rendered rule 8 agree on size-triggered Reviewer I and late area coverage", [
+				["each independent bounded rule copy resolves once and matches", sizeCopies.every(({ count, text, expected }) => count === 1 && text === expected), sizeCopies.filter(({ count, text, expected }) => count !== 1 || text !== expected)],
+				["each reviewer-set, exception, late-area, and boundary mutation changes input and fails", sizeMutationsRejected.every(({ changed, rejected }) => changed && rejected), sizeMutationsRejected],
+			]);
 			const markedUnit = (name) => (source) => {
 				const found = block(source, name);
 				const resolved = found.count === 1 && found.endCount === 1 && found.text !== "";
@@ -2586,9 +2729,16 @@ The retained research log is the durable workflow record.`),
 					extract: markedUnit("track-size-policy"),
 					expected: normalizeText(`About 400 added plus removed lines per track is a planning guideline, not a hard
 limit or a completion gate. Lockfiles, migration files, and generated output do
-not count. The orchestrator estimates track size before it proposes the split.
-The implementer estimates size from the work during implementation. Neither role
-needs a cumulative diff counter, a token estimate, or a total-input measurement.
+not count. Before proposing the split, the orchestrator estimates each track
+separately. An estimate above 100 counted lines requires a high-level design before
+implementation, including for a documentation-only track. Counted lines are
+added plus removed lines, excluding lockfiles, migration files, and generated
+output. The implementer reports an approximate track size in its response and
+implementer report. Neither role needs an exact line counter, a token estimate,
+or a total-input measurement. When the orchestrator estimates at most 100 but
+the implementer reports above 100, do not require a design after the fact.
+Reviewer I still runs when the track is not documentation-only. Use the larger
+size to estimate remaining tracks.
 
 Plan each track as an autonomous, independently mergeable unit inside the
 change. Aim for a coherent boundary close to 400 changed lines without
@@ -2647,9 +2797,14 @@ nothing. Keep its folder and reports.`),
 			const trackSizePublishingMutations = [
 				[workflow.replace("not a hard\nlimit", "a hard\nlimit"), publishing],
 				[workflow.replace("Lockfiles, migration files, and generated output do\nnot count.", "All changed files count."), publishing],
-				[workflow.replace("The orchestrator estimates track size before it proposes the split.", "The implementer alone estimates track size."), publishing],
-				[workflow.replace("The implementer estimates size from the work during implementation.", "The implementer does not estimate during implementation."), publishing],
-				[workflow.replace("Neither role\nneeds a cumulative diff counter, a token estimate, or a total-input measurement.", "Both roles require cumulative counters and token measurements."), publishing],
+				[workflow.replace("Before proposing the split, the orchestrator estimates each track\nseparately.", "Only the implementer estimates the size."), publishing],
+				[workflow.replace("An estimate above 100 counted lines requires a high-level design", "An estimate above 101 counted lines requires a high-level design"), publishing],
+				[workflow.replace("including for a documentation-only track", "except for a documentation-only track"), publishing],
+				[workflow.replace("The implementer reports an approximate track size in its response and\nimplementer report.", "The implementer does not report its size."), publishing],
+				[workflow.replace("Neither role needs an exact line counter, a token estimate,\nor a total-input measurement.", "Both roles require exact line counters."), publishing],
+				[workflow.replace("do not require a design after the fact", "require a design after the fact"), publishing],
+				[workflow.replace("Reviewer I still runs when the track is not documentation-only", "Reviewer I does not run when the estimate was at most 100"), publishing],
+				[workflow.replace("Use the larger\nsize to estimate remaining tracks", "Ignore the larger size for remaining tracks"), publishing],
 				[workflow.replace("autonomous, independently mergeable unit", "dependent partial change"), publishing],
 				[workflow.replace("needs a small overrun,\nfinish that unit and report the reason", "needs a small overrun,\ncut required work to stay below the guideline"), publishing],
 				[workflow.replace("stops adding\nscope", "keeps adding\nscope"), publishing],
@@ -2699,8 +2854,8 @@ before implementation.
 
 For a change without a high-level design, create the pull request after the
 confirmation gate and before implementation. If the change later requires a
-high-level design, keep the existing draft. Follow the late-area approval route
-in track-workflow.md and synchronize the description. Do not recreate the pull
+high-level design, keep the existing draft. Follow the size or late-area design route in track-workflow.md and synchronize
+the description. Do not recreate the pull
 request or apply its creation timing retrospectively.
 
 Every creation path keeps these safeguards:
@@ -2749,6 +2904,7 @@ earlier gates only to identify the governing rule set.`),
 				publishing.replace("The intended fix supplies Planned changes.", "The confirmed grade and intended fix supply Planned changes."),
 				publishing.replace("If a log exists, its", "Its"),
 				publishing.replace("keep the existing draft", "recreate the draft"),
+				publishing.replace("size or late-area design route", "late-area design route"),
 				publishing.replace("For a change without a design gate", "For a SMALL change without a design gate"),
 			];
 			const migrationMutations = [
@@ -2796,7 +2952,7 @@ earlier gates only to identify the governing rule set.`),
 					source: workflow,
 					extract: regionUnit(focusClassesPattern),
 					segments: [
-						"DESIGN-TRIGGERING areas are data loss, concurrency defect, security weakness, performance degradation, and non-local logic defect. REVIEWER-ONLY areas are test-quality defect, unreadable user-facing prose, licensing exposure, consumer contract break, governing-rule defect, and unreported failure. Only a proved area adds a focus-dependent gate or routine implementation reviewer. Every proved area adds its specialist. A track with at least one proved area also gets exactly one Reviewer I in a separate thread. A track with no proved area gets no routine implementation reviewer. A proved DESIGN-TRIGGERING area also requires a high-level design, user validation, focus reconfirmation, its own adversarial design reviewer, and final design approval.",
+						"DESIGN-TRIGGERING areas are data loss, concurrency defect, security weakness, performance degradation, and non-local logic defect. REVIEWER-ONLY areas are test-quality defect, unreadable user-facing prose, licensing exposure, consumer contract break, governing-rule defect, and unreported failure. Only a proved area adds a focus-dependent gate or area reviewer. Every proved area adds its specialist. A track with at least one proved area gets exactly one Reviewer I in a separate thread, including on documentation-only work. An implementer's approximate size above 100 counted lines also requires Reviewer I unless the track is documentation-only. With neither trigger, routine implementation review is `NOT REQUIRED`. Size alone adds no area reviewer, adversarial design reviewer, or blocking track acceptance. A proved DESIGN-TRIGGERING area also requires a high-level design, user validation, focus reconfirmation, its own adversarial design reviewer, and final design approval.",
 						fact("blocking"),
 						fact("noMandatory"),
 						"A track with no proved area also has no area reviewer.",
@@ -2857,7 +3013,7 @@ earlier gates only to identify the governing rule set.`),
 					source: sessionDoctrine,
 					extract: regionUnit(/(Each proved\s+DESIGN-TRIGGERING area requires design,[\s\S]*?Final acceptance always blocks\.)/g),
 					segments: [
-						"Each proved DESIGN-TRIGGERING area requires design, user validation, focus reconfirmation before its adversarial design review, final design approval, and",
+						"Each proved DESIGN-TRIGGERING area requires design, user validation, focus reconfirmation, adversarial design review, final approval, and",
 						fact("blocking"),
 						fact("noMandatory"),
 						fact("finalBlocking"),
@@ -3049,7 +3205,7 @@ verbatim retention of every tool result.`);
 			]);
 
 			const reviewerICharter = reviews.match(/^\*\*Reviewer I\*\*[\s\S]*?(?=^\| track)/m)?.[0] ?? "";
-			const reviewRows = [...reviews.matchAll(/^\| (?:one or more proved areas|no proved area) \| (.+) \|$/gm)].map((match) => match[1]);
+			const reviewRows = [...reviews.matchAll(/^\| (?:one or more proved areas|no proved area, more than 100 counted lines, not documentation-only|no proved area, at most 100 counted lines or documentation-only) \| (.+) \|$/gm)].map((match) => match[1]);
 			const productionCharters = reviews.match(/^### Production area charters\n([\s\S]*?)(?=^### Test-quality and structure reviewer)/m)?.[1]?.trim() ?? "";
 			const expectedProductionCharters = `- **concurrency:** interleavings, shared state, atomicity, cancellation,
   ordering, lifecycle, and deadlock.
@@ -3123,8 +3279,8 @@ The code reviewer is read-only. It reports inside this area only. Prefix \`UF\`.
 			const activePrefixPhrase = "Active built-in prefixes are `RI`, `CN`,\n`DU`, `SE`, `PF`, `TQ`, `PL`, `LX`, `NL`, `CB`, `GR`, `UF`, and `RG`.";
 			const reviewPolicy = (source) => {
 				const flat = normalizeText(source);
-				const rows = [...source.matchAll(/^\| (?:one or more proved areas|no proved area) \| (.+) \|$/gm)].map((match) => match[1]);
-				return rows.length === 2 && rows[0].startsWith("exactly one Reviewer I plus one specialist for every proved area") && rows[1] === "none; report routine implementation review as `NOT REQUIRED`" && flat.includes("Reviewer I always runs in its own fresh thread") && flat.includes("It never merges with any specialist") && flat.includes("does not absorb an absent specialist charter");
+				const rows = [...source.matchAll(/^\| (?:one or more proved areas|no proved area, more than 100 counted lines, not documentation-only|no proved area, at most 100 counted lines or documentation-only) \| (.+) \|$/gm)].map((match) => match[1]);
+				return rows.length === 3 && rows[0].startsWith("exactly one Reviewer I plus one specialist for every proved area") && rows[1] === "exactly one Reviewer I" && rows[2] === "none; report routine implementation review as `NOT REQUIRED`" && flat.includes("Reviewer I always runs in its own fresh thread") && flat.includes("It never merges with any specialist") && flat.includes("does not absorb an absent specialist charter");
 			};
 			const reviewPolicyMutations = [
 				reviews.replace("exactly one Reviewer I", "no Reviewer I"),
@@ -3132,17 +3288,25 @@ The code reviewer is read-only. It reports inside this area only. Prefix \`UF\`.
 				reviews.replace("It never merges with any\nspecialist", "It may merge with a specialist"),
 				reviews.replace("does not absorb an absent specialist charter", "absorbs an absent specialist charter"),
 				reviews.replace("none; report routine implementation review as `NOT REQUIRED`", "exactly one Reviewer I"),
+				reviews.replace("more than 100 counted lines, not documentation-only", "more than 101 counted lines, not documentation-only"),
+				reviews.replace("at most 100 counted lines or documentation-only", "at most 99 counted lines or documentation-only"),
+				reviews.replace("at most 100 counted lines or documentation-only", "at most 100 counted lines"),
 			];
 			checkAll("contract-review-charters", "Reviewer I has a bounded local charter, conditional composition and independent dispatch. All four production defect charters and cap classes remain exact, and retired roles and prefixes remain absent", [
 				["Reviewer I names its five local duties and concrete evidence boundaries", ["maintainability", "concretely harmful antipatterns", "responsibility distribution", "completeness against the approved current-track requirements", "ordinary local correctness", "adverse effect", "unjustified coupling", "responsibility placed in a component"].every((term) => normalizeText(reviewerICharter).includes(term)), reviewerICharter],
 				["Reviewer I cannot take specialist or proof duties", ["does not absorb an absent specialist charter", "does not judge or reject area proofs", "does not search for missing focus areas", "does not add gates", "does not replace a specialist"].every((term) => normalizeText(reviewerICharter).includes(term)), reviewerICharter],
-				["the composition rows discriminate proved and zero-area tracks", reviewRows.length === 2 && reviewRows[0].startsWith("exactly one Reviewer I plus one specialist for every proved area") && reviewRows[1] === "none; report routine implementation review as `NOT REQUIRED`", reviewRows],
+				["the composition rows discriminate proved, 100-line, 101-line and documentation-only tracks", reviewRows.length === 3 && reviewRows[0].startsWith("exactly one Reviewer I plus one specialist for every proved area") && reviewRows[1] === "exactly one Reviewer I" && reviewRows[2] === "none; report routine implementation review as `NOT REQUIRED`" && [
+					{ counted: 100, docsOnly: false, area: false, expected: "none; report routine implementation review as `NOT REQUIRED`" },
+					{ counted: 101, docsOnly: false, area: false, expected: "exactly one Reviewer I" },
+					{ counted: 101, docsOnly: true, area: false, expected: "none; report routine implementation review as `NOT REQUIRED`" },
+					{ counted: 101, docsOnly: true, area: true, expected: "exactly one Reviewer I plus one specialist for every proved area whose canonical gate runs per track" },
+				].every(({ counted, docsOnly, area, expected }) => expected === reviewRows[area ? 0 : counted > 100 && !docsOnly ? 1 : 2]), reviewRows],
 				["all four production defect reviewers are inside the production cap", /The non-local logic defect, consumer contract break, governing-rule defect and\nunreported failure reviewers are production area reviewers and count against\nthis cap\./.test(reviews), reviews.slice(0, 3000)],
 				["test, prose, and licensing are outside the production cap", /test-quality and structure reviewer, prose reviewer, and licensing\nreviewer are additional and never count against that cap/.test(reviews), reviews.slice(0, 2500)],
-				["Reviewer I never merges with a specialist and every required perspective is unique", /Reviewer I always runs in its own fresh thread/.test(reviews) && /never merges with any\s+specialist/.test(reviews) && /Every required perspective\s+is dispatched exactly once/.test(reviews) && /Do not dispatch a duplicate action/.test(reviews), reviews.slice(0, 4000)],
+				["Reviewer I never merges with a specialist and every required perspective is unique", /Reviewer I always runs in its own fresh thread/.test(reviews) && /never merges with any\s+specialist/.test(reviews) && /Every required perspective\s+is dispatched exactly once/.test(reviews) && /Do not dispatch a\s+duplicate action/.test(reviews), reviews.slice(0, 4000)],
 				["specialist-only merges remain possible under their exact scope and evidence rule", normalizeText(reviews).includes("merge rules may combine specialist duties only with other specialist duties when both the code scope and required evidence are the same"), reviews.slice(0, 4000)],
-				["documentation-only classification remains file based and adds no review trigger", /changes only documents/.test(reviews) && /must\s+neither ship as code nor run/.test(reviews) && /Documentation-only status does not trigger\s+Reviewer I/.test(reviews), reviews.slice(0, 4000)],
-				["proved prose on documentation-only work uses separate RI and prose threads", /Reviewer I and the prose specialist use\s+two separate threads/.test(reviews), reviews.slice(0, 4000)],
+				["documentation-only classification excludes only the size trigger", /changes only documents/.test(reviews) && /must\s+neither ship as code nor run/.test(reviews) && /Documentation-only status prevents size alone from triggering Reviewer I/.test(reviews), reviews.slice(0, 4000)],
+				["proved prose on documentation-only work uses separate RI and prose threads", /Reviewer I and the prose specialist\s+use two separate threads/.test(reviews), reviews.slice(0, 4000)],
 				["missing RI, duplicate RI, RI-specialist merge, specialist takeover, and unconditional RI mutations all fail", reviewPolicy(reviews) && reviewPolicyMutations.every((source) => !reviewPolicy(source)) && reviewPolicyMutations.every((source) => source !== reviews), reviewPolicyMutations.map(reviewPolicy)],
 				["no standalone test-structure specialist role", !standaloneTestStructureRole.test(reviews), reviews.match(standaloneTestStructureRole)?.[0]],
 				["prose and licensing charters are separate", /^### Prose reviewer$/m.test(reviews) && /^### Licensing reviewer$/m.test(reviews) && !/^### Prose and licensing reviewer$/m.test(reviews), reviews.match(/^### (?:Prose|Licensing).*$/gm)],
@@ -3262,7 +3426,7 @@ The ordinary budget permits one consultation. A second requires an explicit user
 			// Exact pins include the report and ownership rules after the trigger list.
 			const reportRule = regionUnit(/^For each track, the implementer creates\n([\s\S]*?)(?=^Tracks are contiguous)/gm);
 			const forkRule = regionUnit(/^Use a safe write method\. ([\s\S]*?)(?=^Before a session handoff)/gm);
-			const expectedReportRule = normalizeText(`\`track-<number>-implementer-report.md\` in the current change folder when the track starts. The dispatch gives the exact path. The report is untracked working material. After a session with a different identifier takes ownership, create a report in the new change folder. If the source folder has this track's report, name it as read-only in the new report's first entry. Continue the work in the new report. The report has four required sections: changes to the high-level design with the reason for each, the low-level design, diagrams where they help, and checks run with their results. Later fix rounds append to that report in the current change folder.`);
+			const expectedReportRule = normalizeText(`\`track-<number>-implementer-report.md\` in the current change folder when the track starts. The dispatch gives the exact path. The report is untracked working material. After a session with a different identifier takes ownership, create a report in the new change folder. If the source folder has this track's report, name it as read-only in the new report's first entry. Continue the work in the new report. The report has four required sections: changes to the high-level design with the reason for each, the low-level design, diagrams where they help, and checks run with their results. The report states the approximate track size in counted lines. Later fix rounds append to that report in the current change folder.`);
 			const expectedForkRule = normalizeText(`Create each file without following a symbolic link. Append through a temporary file and atomic rename when replacement is needed. Slate checks the folder chain when it creates the change. Slate cannot enforce the safe-write rule for each file that Pi's file tools write. Keep the log and every implementer report untracked and visible in repository status. Do not add them to an ignore file. Never overwrite either from a stale in-memory copy. An implementer report never enters a pull request. When a session adopts a change owned by a different Pi session identifier, Slate starts a new folder. Its log first names the direct source folder as a read-only earlier log. Each source log's first entry links to its own source. Follow those links to read the full history. The source remains in place without copying. A resume or reload with the same identifier continues the current folder. A /tree move to parent history with a different owner creates a new folder on reload. A handoff makes the successor the owner of the current folder. If folder allocation fails, Slate saves no open change and reports the failure. If that save fails, Slate reports it too. A legacy root \`research-log.md\` remains read-only. Only the user deletes a delivered or abandoned change folder.`);
 			const acceptsLateRules = (source) => {
 				const report = reportRule(source);

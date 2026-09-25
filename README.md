@@ -2,7 +2,7 @@
 
 [![CI status](https://github.com/JetBrains/ytdb-slate/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/JetBrains/ytdb-slate/actions/workflows/ci.yml)
 
-Slate is a multi-agent orchestration extension for the [pi coding agent](https://pi.dev). You work in one interactive pi session, the main session. A bounded action is a focused task with a clear limit. A worker thread is an isolated pi session that researches, implements, or reviews changes. Slate sends bounded actions to separate worker threads. Each worker thread returns a short structured summary called an episode. A risk-based review workflow adds reviewers only for the risks that you approve.
+Slate is a multi-agent orchestration extension for the [pi coding agent](https://pi.dev). You work in one interactive pi session, the main session. A bounded action is a focused task with a clear limit. A worker thread is an isolated pi session that researches, implements, or reviews changes. Slate sends bounded actions to separate worker threads. Each worker thread returns a short structured summary called an episode. A review workflow adds reviewers for risks that you approve or for work above a size threshold.
 
 ## What Slate does
 
@@ -57,7 +57,7 @@ test-quality defects, unreadable user-facing prose, licensing exposure,
 non-local logic defects, consumer contract breaks, governing-rule defects, and
 unreported failures.
 
-The orchestrator records risks for the change and each track. You approve or reject each named proof. Approved proofs select design gates and reviewers. A track with a proved risk gets one general reviewer and its required specialists. A track without one gets no routine implementation reviewer. See [workflow](docs/track-workflow.md) and [focus areas](docs/blast-radius.md) for the rules. Optional draft pull requests cover the whole change. Only you merge them.
+The orchestrator records risks for the change and each track. You approve or reject each named proof. Approved proofs select design gates and reviewers. A track with a proved risk gets one general reviewer and its required specialists. An implementer's approximate track size above 100 added plus removed lines also adds the general reviewer unless the track changes only documents that neither ship as code nor run. Lockfiles, migration files, and generated output do not count. A track that the orchestrator estimates above 100 such lines needs a high-level design before implementation, including when it changes only documents. A track with neither review trigger gets no routine implementation reviewer. See [workflow](docs/track-workflow.md) and [focus areas](docs/blast-radius.md) for the rules. Optional draft pull requests cover the whole change. Only you merge them.
 
 ## Commands
 
