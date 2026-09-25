@@ -183,7 +183,7 @@ required reviews, ordered gates, user authority, or final acceptance.
 - **P13 — Research and define built-in focus areas by risk.** *(Repo-local note, not from the report.)* When proposing a new built-in focus area and its reviewer, apply these rules:
 
   0. Research external sources before defining the area or writing reviewer questions. Standards, research papers, and established engineering guides are possible sources. Keep a corpus of findings, meaning a collection of source summaries, in the proposing tracker issue or pull request. Do not ship the corpus. Each entry links its source and states its support for the area and its applicability limits. State what the source does not prove. Copy no source text. Use the corpus as evidence for judgment in rules 1, 2, 3, and 6. The user still approves the area.
-  1. Define the risk by the outcome it prevents and the condition that engages it. Size, file count, and complexity scores never engage an area.
+  1. Define the risk by the outcome it prevents and the condition that engages it. The size of a change, its file count, and a complexity score never engage an area. A requirement can still state a size limit as part of the risk, for example a size budget for one path.
   2. State a boundary with every existing area. Explain which outcome belongs where and when both areas engage.
   3. Explain all four proof parts for the area: defect class, place, material consequence of omitting its reviewer, and review contribution. The contribution identifies useful review evidence and why planned implementation checks cannot settle the risk.
   4. Choose DESIGN-TRIGGERING, which requires a high-level design, or REVIEWER-ONLY, which adds a reviewer only. Give the reason.

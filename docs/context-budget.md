@@ -358,7 +358,7 @@ dispatch. It excludes the research log and every other task input. Worker histor
 can resend that reference in later model requests. The figure is not a total
 conversation-size or billing promise. Each charter row measures one role file.
 These figures add no runtime limit and raise no existing budget. The on-demand
-P13 author guideline contains 2,167 UTF-8 bytes. Its separate principle-table
+P13 author guideline contains 2,292 UTF-8 bytes. Its separate principle-table
 row contains 201 bytes. Neither enters injected totals or the always-loaded
 principle subset.
 
