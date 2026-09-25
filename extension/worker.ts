@@ -61,6 +61,10 @@ export type WorkerSession = Awaited<ReturnType<typeof createAgentSession>>["sess
 	settleManagedOperations(): Promise<void>;
 	/** Test and diagnostics view. Settled operations are removed immediately. */
 	activeManagedOperationCount(): number;
+	/** First failed admitted operation or Pi command after the startup boundary. */
+	includedOperationFailure(): string | undefined;
+	/** Start a new action without attributing completed startup work to it. */
+	resetIncludedOperationFailure(): void;
 	/** Emit worker session_shutdown once, then dispose even when a handler fails. */
 	shutdownWorker(): Promise<void>;
 };
@@ -643,6 +647,8 @@ export async function openWorkerSession(opts: {
 	let shutdownPromise: Promise<void> | undefined;
 	let managedAdmissionOpen = true;
 	const activeManagedOperations = new Set<Promise<unknown>>();
+	const startupManagedOperations = new Set<Promise<unknown>>();
+	let includedFailure: string | undefined;
 	const extensionError = (error: { extensionPath: string; event: string; error: string }) => {
 		if (
 			!managedAdmissionOpen &&
@@ -654,6 +660,9 @@ export async function openWorkerSession(opts: {
 		// lifecyclePhase while an async session_start handler is still running.
 		const phase = error.event === "session_start" ? "startup" : lifecyclePhase;
 		if (phase === "startup") startupErrors.push(detail);
+		if (phase === "running" && error.event === "command") {
+			includedFailure ??= `slate: worker extension running failed — ${detail}`;
+		}
 		warn(`slate: worker extension ${phase} failed — ${detail}`);
 	};
 	const workerSession = Object.assign(session, {
@@ -663,6 +672,12 @@ export async function openWorkerSession(opts: {
 		},
 		activeManagedOperationCount(): number {
 			return activeManagedOperations.size;
+		},
+		includedOperationFailure(): string | undefined {
+			return includedFailure;
+		},
+		resetIncludedOperationFailure(): void {
+			includedFailure = undefined;
 		},
 		settleManagedOperations(): Promise<void> {
 			if (settlementPromise !== undefined) return settlementPromise;
@@ -706,11 +721,17 @@ export async function openWorkerSession(opts: {
 	const originalSendCustomMessage = managedMethods.sendCustomMessage?.bind(session);
 	const trackManaged = <T>(start: () => Promise<T>): Promise<T> => {
 		if (!managedAdmissionOpen) return Promise.reject(managedClosedError());
-		const operation = start();
+		let operation: Promise<T>;
+		try { operation = start(); } catch (error) { operation = Promise.reject(error); }
 		activeManagedOperations.add(operation);
+		if (lifecyclePhase === "startup") startupManagedOperations.add(operation);
 		void operation.then(
-			() => { activeManagedOperations.delete(operation); },
-			() => { activeManagedOperations.delete(operation); },
+			() => { activeManagedOperations.delete(operation); startupManagedOperations.delete(operation); },
+			(error: unknown) => {
+				activeManagedOperations.delete(operation);
+				startupManagedOperations.delete(operation);
+				if (lifecyclePhase === "running") includedFailure ??= `included message call failed: ${sanitizeForNotify(error instanceof Error ? error.message : String(error))}`;
+			},
 		);
 		return operation;
 	};
@@ -750,6 +771,16 @@ export async function openWorkerSession(opts: {
 		// createAgentSession loads extension factories but does not emit session_start.
 		// Binding completes startup and refreshes tools registered by those handlers.
 		await session.bindExtensions({ mode: "print", onError: extensionError });
+		// A startup handler may start a message call without awaiting it. Its
+		// follow-up handlers may admit more calls while the startup phase is open.
+		// Keep the phase open through Pi idle and drain the whole admitted chain.
+		while (true) {
+			while (startupManagedOperations.size > 0) {
+				await Promise.allSettled([...startupManagedOperations]);
+			}
+			await session.waitForIdle?.();
+			if (startupManagedOperations.size === 0) break;
+		}
 		if (startupErrors.length > 0) {
 			throw new Error(`slate: worker extension startup did not complete: ${startupErrors.join("; ")}`);
 		}

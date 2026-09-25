@@ -1238,6 +1238,362 @@ test("overlapping terminal callers convert one fact once, compress once, save on
   });
 });
 
+test("included work settles before one final outcome and provider preference save", { timeout: 3000 }, async (t) => {
+  for (const [name, settledTurns, expected] of [
+    ["late failure", ["error"], "failed"],
+    ["late success", ["stop"], "ok"],
+    ["failure before success", ["error", "stop"], "failed"],
+    ["aborted by cleanup", ["aborted"], "failed"],
+  ] as const) {
+    await t.test(name, { timeout: 2000 }, async (t) => {
+      const cwd = temporaryProject(t);
+      const ran = model("test", "worker");
+      const compressor = model("test", "compressor");
+      const session = fakeSession(successfulPrompt([{ input: 1, output: 1, cost: { total: 0 } }]), ran);
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => { release = resolve; });
+      let entered!: () => void;
+      const settling = new Promise<void>((resolve) => { entered = resolve; });
+      let settleCalls = 0;
+      let settlementPromise: Promise<void> | undefined;
+      let published = 0;
+      const managed = session as FakeSession & {
+        closeManagedOperations(): void;
+        settleManagedOperations(): Promise<void>;
+        activeManagedOperationCount(): number;
+      };
+      managed.closeManagedOperations = () => {};
+      managed.activeManagedOperationCount = () => 1;
+      let cleanupAborts = 0;
+      if (name === "aborted by cleanup") session.abort = async () => {
+        cleanupAborts++;
+        const message = { ...assistant({}, "included turn 0"), stopReason: "aborted", errorMessage: "included turn 0 aborted" };
+        session.messages.push(message);
+        session.emit({ type: "message_end", message });
+      };
+      managed.settleManagedOperations = () => {
+        if (settlementPromise) return settlementPromise;
+        settleCalls++;
+        settlementPromise = (async () => {
+          entered();
+          await gate;
+          if (name === "aborted by cleanup") {
+            await session.abort();
+          } else {
+            for (const [index, reason] of settledTurns.entries()) {
+              const message = { ...assistant({}, `included turn ${index}`), stopReason: reason,
+                ...(reason === "stop" ? {} : { errorMessage: `included turn ${index} ${reason}` }) };
+              session.messages.push(message);
+              session.emit({ type: "message_end", message });
+            }
+          }
+        })();
+        return settlementPromise;
+      };
+      const base = fixtureRuntime();
+      const runtime = { ...base, publishProvider(...args: Parameters<typeof base.publishProvider>) {
+        if (args[1] === "fixture") published++;
+        return base.publishProvider(...args);
+      } };
+      compressorStub.complete = async () => completeResponse({ input: 1, output: 1, cost: { total: 0 } });
+      const sharedStore = store();
+      const manager = managerWithSessions([session], {}, runtime, sharedStore);
+      const dispatch = manager.dispatch({ ...TEST_ROUTE, task: name, type: "general" }, context(cwd, [ran, compressor]), undefined);
+      await settling;
+      assert.equal(sharedStore.episodes.size, 0, "settlement must precede the episode");
+      release();
+      const result = await dispatch;
+      assert.equal(result.episode.status, expected);
+      assert.equal(result.thread.status, expected === "ok" ? "successful" : "failed");
+      assert.equal(published, expected === "ok" ? 1 : 0);
+      assert.equal(sharedStore.episodes.size, 1, "only one final episode is stored");
+      assert.equal(settleCalls, 1, "worker shutdown shares the settlement");
+      if (name === "aborted by cleanup") assert.equal(cleanupAborts, 1, "the terminal transition invoked abort");
+      if (expected === "failed") assert.match(result.thread.outcomeReason ?? "", /included turn 0/);
+    });
+  }
+});
+
+test("a failed ordinary reply is not replaced by a later successful included reply", { timeout: 2000 }, async (t) => {
+  const cwd = temporaryProject(t);
+  const ran = model("test", "worker");
+  const compressor = model("test", "compressor");
+  const session = fakeSession((current) => {
+    for (const [index, stopReason] of ["error", "stop"].entries()) {
+      const message = { ...assistant({}, `turn ${index}`), stopReason,
+        ...(stopReason === "error" ? { errorMessage: "ordinary turn failed" } : {}) };
+      current.messages.push(message);
+      current.emit({ type: "message_end", message });
+    }
+  }, ran);
+  compressorStub.complete = async () => completeResponse({ input: 1, output: 1, cost: { total: 0 } });
+  const result = await managerWithSessions([session]).dispatch(
+    { ...TEST_ROUTE, task: "ordinary failure", type: "general" }, context(cwd, [ran, compressor]), undefined,
+  );
+  assert.equal(result.episode.status, "failed");
+  assert.match(result.thread.outcomeReason ?? "", /ordinary turn failed/);
+});
+
+test("an included command without a reply fails after ordinary success", { timeout: 2000 }, async (t) => {
+  const cwd = temporaryProject(t);
+  const ran = model("test", "worker");
+  const compressor = model("test", "compressor");
+  const session = fakeSession(successfulPrompt([{ input: 1, output: 1, cost: { total: 0 } }]), ran);
+  let failure: string | undefined;
+  const managed = session as FakeSession & {
+    closeManagedOperations(): void;
+    settleManagedOperations(): Promise<void>;
+    includedOperationFailure(): string | undefined;
+  };
+  managed.closeManagedOperations = () => {};
+  managed.settleManagedOperations = async () => { failure = "included command failed: /latefail exploded"; };
+  managed.includedOperationFailure = () => failure;
+  compressorStub.complete = async () => completeResponse({ input: 1, output: 1, cost: { total: 0 } });
+  const result = await managerWithSessions([session]).dispatch(
+    { ...TEST_ROUTE, task: "included command", type: "general" }, context(cwd, [ran, compressor]), undefined,
+  );
+  assert.equal(result.episode.status, "failed");
+  assert.match(result.thread.outcomeReason ?? "", /latefail exploded/);
+});
+
+test("Pi retries supersede only their own failed attempt before final classification", { timeout: 2000 }, async (t) => {
+  for (const included of [false, true]) await t.test(included ? "included" : "ordinary", async (t) => {
+    const cwd = temporaryProject(t);
+    const ran = model("test", "worker");
+    const session = fakeSession((current) => {
+      const ordinary = assistant({}, "ordinary reply");
+      if (included) {
+        current.messages.push(ordinary);
+        current.emit({ type: "message_end", message: ordinary });
+      }
+      const failed = { ...assistant({}, "transient attempt"), stopReason: "error", errorMessage: "Connection error." };
+      current.messages.push(failed);
+      current.emit({ type: "message_end", message: failed });
+      current.emit({ type: "auto_retry_start", attempt: 1, maxAttempts: 1, delayMs: 0, errorMessage: failed.errorMessage });
+      current.messages.splice(current.messages.indexOf(failed), 1);
+      const recovered = assistant({}, "recovered reply");
+      current.messages.push(recovered);
+      current.emit({ type: "message_end", message: recovered });
+      current.emit({ type: "auto_retry_end", success: true, attempt: 1 });
+    }, ran);
+    let published = 0;
+    const base = fixtureRuntime();
+    const runtime = { ...base, publishProvider(...args: Parameters<typeof base.publishProvider>) {
+      published++;
+      return base.publishProvider(...args);
+    } };
+    const result = await managerWithSessions([session], {}, runtime).dispatch(
+      { ...TEST_ROUTE, task: "recovered attempt", type: "general" }, context(cwd, [ran]), undefined,
+    );
+    assert.equal(result.episode.status, "ok");
+    assert.equal(published, 1, "a recovered worker route publishes only after final success");
+  });
+});
+
+test("a cancelled Pi retry keeps its failed attempt despite a later included success", { timeout: 2000 }, async (t) => {
+  const cwd = temporaryProject(t);
+  const ran = model("test", "worker");
+  const session = fakeSession((current) => {
+    const ordinary = assistant({}, "ordinary success");
+    current.messages.push(ordinary);
+    current.emit({ type: "message_end", message: ordinary });
+  }, ran);
+  const managed = session as FakeSession & { settleManagedOperations(): Promise<void> };
+  managed.settleManagedOperations = async () => {
+    const failed = { ...assistant({}, "failed included attempt"), stopReason: "error", errorMessage: "cancelled retry failed turn" };
+    session.messages.push(failed);
+    session.emit({ type: "message_end", message: failed });
+    session.emit({ type: "auto_retry_start", attempt: 1, maxAttempts: 1, delayMs: 10, errorMessage: failed.errorMessage });
+    session.emit({ type: "auto_retry_end", success: false, attempt: 1, finalError: "Retry cancelled" });
+    const later = assistant({}, "unrelated included success");
+    session.messages.push(later);
+    session.emit({ type: "message_end", message: later });
+  };
+  const result = await managerWithSessions([session]).dispatch(
+    { ...TEST_ROUTE, task: "cancelled retry", type: "general" }, context(cwd, [ran]), undefined,
+  );
+  assert.equal(result.episode.status, "failed");
+  assert.match(result.thread.outcomeReason ?? "", /cancelled retry failed turn/);
+});
+
+test("an earlier included failure survives a different turn's successful Pi retry", { timeout: 2000 }, async (t) => {
+  const cwd = temporaryProject(t);
+  const ran = model("test", "worker");
+  const session = fakeSession((current) => {
+    const prior = { ...assistant({}, "earlier included"), stopReason: "error", errorMessage: "unrelated prior failure" };
+    current.messages.push(prior);
+    current.emit({ type: "message_end", message: prior });
+    const failed = { ...assistant({}, "later attempt"), stopReason: "error", errorMessage: "Connection error." };
+    current.messages.push(failed);
+    current.emit({ type: "message_end", message: failed });
+    current.emit({ type: "auto_retry_start", attempt: 1, maxAttempts: 1, delayMs: 0, errorMessage: failed.errorMessage });
+    const recovered = assistant({}, "recovered later turn");
+    current.messages.push(recovered);
+    current.emit({ type: "message_end", message: recovered });
+    current.emit({ type: "auto_retry_end", success: true, attempt: 1 });
+  }, ran);
+  const result = await managerWithSessions([session]).dispatch(
+    { ...TEST_ROUTE, task: "earlier failure with retry", type: "general" }, context(cwd, [ran]), undefined,
+  );
+  assert.equal(result.episode.status, "failed");
+  assert.match(result.thread.outcomeReason ?? "", /unrelated prior failure/);
+});
+
+test("a failed queued turn survives history reduction and a later successful included turn", { timeout: 2000 }, async (t) => {
+  const cwd = temporaryProject(t);
+  const ran = model("test", "worker");
+  const session = fakeSession(successfulPrompt([{ input: 1, output: 1 }]), ran);
+  const managed = session as FakeSession & { closeManagedOperations(): void; settleManagedOperations(): Promise<void>; activeManagedOperationCount(): number };
+  managed.closeManagedOperations = () => {};
+  managed.activeManagedOperationCount = () => 0;
+  managed.settleManagedOperations = async () => {
+    const failed = { ...assistant({}, "queued turn"), stopReason: "error", errorMessage: "queued included turn failed" };
+    session.messages.push(failed);
+    session.emit({ type: "message_end", message: failed });
+    // Pi can replace its projected history after turn_end. No saved index reaches this error.
+    session.messages.splice(0);
+    session.emit({ type: "compaction_end", reason: "threshold", result: { summary: "reduced" }, willRetry: false });
+    const later = assistant({}, "later included success");
+    session.messages.push(later);
+    session.emit({ type: "message_end", message: later });
+  };
+  const result = await managerWithSessions([session]).dispatch(
+    { ...TEST_ROUTE, task: "queued included turn", type: "general" }, context(cwd, [ran]), undefined,
+  );
+  assert.equal(result.episode.status, "failed");
+  assert.match(result.thread.outcomeReason ?? "", /queued included turn failed/);
+});
+
+test("a successful overflow continuation supersedes its own attempt, not an earlier failure", { timeout: 2000 }, async (t) => {
+  for (const earlier of [false, true]) await t.test(earlier ? "earlier failure" : "only overflow", async (t) => {
+    const cwd = temporaryProject(t);
+    const ran = model("test", "worker");
+    const session = fakeSession((current) => {
+      if (earlier) {
+        const prior = { ...assistant({}, "earlier included"), stopReason: "error", errorMessage: "earlier included failure" };
+        current.messages.push(prior);
+        current.emit({ type: "message_end", message: prior });
+      }
+      const overflow = { ...assistant({}, "overflow attempt"), stopReason: "error", errorMessage: "context_length_exceeded" };
+      current.messages.push(overflow);
+      current.emit({ type: "message_end", message: overflow });
+      current.messages.splice(0);
+      current.emit({ type: "compaction_end", reason: "overflow", result: { summary: "reduced" }, willRetry: true });
+      const recovered = assistant({}, "resumed turn");
+      current.messages.push(recovered);
+      current.emit({ type: "message_end", message: recovered });
+    }, ran);
+    const result = await managerWithSessions([session]).dispatch(
+      { ...TEST_ROUTE, task: "overflow continuation", type: "general" }, context(cwd, [ran]), undefined,
+    );
+    assert.equal(result.episode.status, earlier ? "failed" : "ok");
+    if (earlier) assert.match(result.thread.outcomeReason ?? "", /earlier included failure/);
+  });
+});
+
+test("an overflow of a length response cannot erase an earlier terminal error", { timeout: 2000 }, async (t) => {
+  const cwd = temporaryProject(t);
+  const ran = model("test", "worker");
+  const session = fakeSession((current) => {
+    const failed = { ...assistant({}, "prior failed turn"), stopReason: "error", errorMessage: "prior terminal error" };
+    current.messages.push(failed);
+    current.emit({ type: "message_end", message: failed });
+    const length = { ...assistant({}, "truncated turn"), stopReason: "length" };
+    current.messages.push(length);
+    current.emit({ type: "message_end", message: length });
+    current.messages.splice(0);
+    current.emit({ type: "compaction_end", reason: "overflow", result: { summary: "reduced" }, willRetry: true });
+    const recovered = assistant({}, "resumed length turn");
+    current.messages.push(recovered);
+    current.emit({ type: "message_end", message: recovered });
+  }, ran);
+  const result = await managerWithSessions([session]).dispatch(
+    { ...TEST_ROUTE, task: "length overflow after failed turn", type: "general" }, context(cwd, [ran]), undefined,
+  );
+  assert.equal(result.episode.status, "failed");
+  assert.match(result.thread.outcomeReason ?? "", /prior terminal error/);
+});
+
+test("caller cancellation during included settlement keeps the caller reason after ordinary success", { timeout: 2000 }, async (t) => {
+  const cwd = temporaryProject(t);
+  const controller = new AbortController();
+  const ran = model("test", "worker");
+  const session = fakeSession(successfulPrompt([{ input: 1, output: 1 }]), ran);
+  let entered!: () => void;
+  const settling = new Promise<void>((resolve) => { entered = resolve; });
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const managed = session as FakeSession & { closeManagedOperations(): void; settleManagedOperations(): Promise<void> };
+  managed.closeManagedOperations = () => {};
+  managed.settleManagedOperations = async () => {
+    entered();
+    await gate;
+    const aborted = { ...assistant({}, "included abort"), stopReason: "aborted", errorMessage: "included turn aborted" };
+    session.messages.push(aborted);
+    session.emit({ type: "message_end", message: aborted });
+  };
+  const pending = managerWithSessions([session]).dispatch(
+    { ...TEST_ROUTE, task: "cancel after ordinary reply", type: "general" }, context(cwd, [ran]), controller.signal,
+  );
+  await settling;
+  controller.abort();
+  release();
+  const result = await pending;
+  assert.equal(result.episode.status, "failed");
+  assert.equal(result.thread.outcomeReason, "cancelled by the caller");
+});
+
+test("settlement refusal stays primary when the caller cancels after ordinary success", { timeout: 2000 }, async (t) => {
+  const cwd = temporaryProject(t);
+  const controller = new AbortController();
+  const ran = model("test", "worker");
+  let ordinaryCalls = 0;
+  const session = fakeSession((current) => {
+    ordinaryCalls++;
+    const reply = assistant({}, "ordinary completed fact");
+    current.messages.push(reply);
+    current.emit({ type: "message_end", message: reply });
+  }, ran);
+  const managed = session as FakeSession & { settleManagedOperations(): Promise<void> };
+  managed.settleManagedOperations = async () => {
+    session.setThinkingLevel("medium");
+    await assert.rejects(session.prompt("refused included request"), /route contract violation/i);
+    controller.abort();
+  };
+  const result = await managerWithSessions([session]).dispatch(
+    { ...TEST_ROUTE, task: "settlement refusal", type: "general" }, context(cwd, [ran]), controller.signal,
+  );
+  assert.equal(ordinaryCalls, 1);
+  assert.equal(result.episode.status, "failed");
+  assert.match(result.thread.outcomeReason ?? "", /Slate route contract violation/);
+  assert.doesNotMatch(result.thread.outcomeReason ?? "", /cancelled by the caller/);
+});
+
+test("a persistent worker resets its included failure before each action", { timeout: 2000 }, async (t) => {
+  const cwd = temporaryProject(t);
+  const ran = model("test", "worker");
+  const session = fakeSession(successfulPrompt([{ input: 1, output: 1 }]), ran);
+  let failure: string | undefined;
+  let actions = 0;
+  let resets = 0;
+  const managed = session as FakeSession & {
+    includedOperationFailure(): string | undefined;
+    resetIncludedOperationFailure(): void;
+    settleManagedOperations(): Promise<void>;
+  };
+  managed.includedOperationFailure = () => failure;
+  managed.resetIncludedOperationFailure = () => { resets++; failure = undefined; };
+  managed.settleManagedOperations = async () => { if (++actions === 1) failure = "first action included failure"; };
+  const manager = managerWithSessions([session, session]);
+  const first = await manager.dispatch({ ...TEST_ROUTE, task: "first action", type: "general" }, context(cwd, [ran]), undefined);
+  assert.equal(first.episode.status, "failed");
+  assert.match(first.thread.outcomeReason ?? "", /first action included failure/);
+  const second = await manager.dispatch({ ...TEST_ROUTE, task: "second action", type: "general" }, context(cwd, [ran]), undefined);
+  assert.equal(second.episode.status, "ok");
+  assert.equal(second.thread.outcomeReason, undefined);
+  assert.equal(resets, 2);
+});
+
 test("a disposal failure after durable persistence stays separate from the worker outcome", { timeout: 1000 }, async (t) => {
   const cwd = temporaryProject(t);
   const ran = model("test", "worker");
@@ -1706,6 +2062,60 @@ test("a request refusal remains primary when cancellation and startup failure fo
   assert.doesNotMatch(result.episodeText, /cancelled by the caller/);
   assert.equal(session.shutdownCalls, 1);
   assert.equal(session.disposeCalls, 1);
+});
+
+test("multi-hop recovery clears its exhausted chain but keeps unrelated included failures", { timeout: 3000 }, async (t) => {
+  for (const unrelated of [false, true]) await t.test(unrelated ? "unrelated failure" : "recovered chain", async (t) => {
+    const cwd = temporaryProject(t);
+    const routes = [model("primary", "one"), model("middle", "two"), model("last", "three")];
+    const runtime = createLogicalRuntime({ trusted: true, projectConfig: { router: { models: { include: [], add: [{
+      model: "fixture", capabilityRating: 50, costRating: 50, effort: "off", preferredProvider: "primary",
+      providers: { primary: "one", middle: "two", last: "three" }, guidelines: [], cautions: [],
+    }] } } } });
+    const basePublish = runtime.publishProvider.bind(runtime);
+    let published = 0;
+    const tracked = { ...runtime, publishProvider(...args: Parameters<typeof runtime.publishProvider>) {
+      published++;
+      return basePublish(...args);
+    } };
+    let prompts = 0;
+    const session = fakeSession((current) => {
+      prompts++;
+      if (prompts === 1 && unrelated) {
+        const prior = { ...assistant({}, "prior included"), stopReason: "error", errorMessage: "unrelated included failure" };
+        current.messages.push(prior);
+        current.emit({ type: "message_end", message: prior });
+      }
+      if (prompts === 3) {
+        const success = assistant({}, "third provider recovered the chain");
+        current.messages.push(success);
+        current.emit({ type: "message_end", message: success });
+        return;
+      }
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const failed = { ...assistant({}, `route ${prompts} attempt ${attempt}`), stopReason: "error",
+          errorMessage: `service unavailable route ${prompts} attempt ${attempt}` };
+        current.messages.push(failed);
+        current.emit({ type: "message_end", message: failed });
+        if (attempt === 0) {
+          current.emit({ type: "agent_end", willRetry: true });
+          current.emit({ type: "auto_retry_start", attempt: 1, maxAttempts: 1, delayMs: 0, errorMessage: failed.errorMessage });
+        } else {
+          current.emit({ type: "agent_end", willRetry: false });
+          current.emit({ type: "auto_retry_end", success: false, attempt: 1, finalError: failed.errorMessage });
+        }
+      }
+    }, routes[0]);
+    const result = await managerWithSessions([session], {}, tracked).dispatch(
+      { ...TEST_ROUTE, task: "three route recovery", type: "general" }, context(cwd, routes), undefined,
+    );
+    assert.equal(prompts, 3, `both exhausted routes run before the successful route: ${result.thread.outcomeReason ?? "no failure"}`);
+    assert.equal(result.episode.model, "last/three");
+    assert.equal(result.episode.status, unrelated ? "failed" : "ok");
+    assert.equal(published, unrelated ? 0 : 1);
+    if (unrelated) assert.match(result.thread.outcomeReason ?? "", /unrelated included failure/);
+    else assert.equal(result.thread.outcomeReason, undefined);
+  });
 });
 
 test("caller cancellation stops logical recovery after retry exhaustion", { timeout: 1000 }, async (t) => {
