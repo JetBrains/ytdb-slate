@@ -3260,18 +3260,39 @@ verbatim retention of every tool result.`);
 				gr: "275af27cfca56a905dc72b6c73ec484e6533d1e8e15e8b363d812c1e62bfb2ef",
 				uf: "d63fddb00199e3c8c4a4081d8c79c45f4032b36c1ca2be9618dd05af9caaa9fd",
 			});
+			const approvedContentDigests = Object.freeze({
+				ri: "c23a1624fa6910fa914743a4daf3d406431ce17360e4ef1e94ba12fde3ab60a9",
+				cn: "9353b4d0727cc6643c3a87fdf6065683e9afaf6937a5d1a63d91668f0c51dd5a",
+				du: "c071f183e9800ae2bc1f5699cd082b4c8db257254b1d11bb5db3f27fa352a116",
+				se: "7ae8a9e8f634eb0b89ea1d93696a3980c0b9a6fae07a55367dba23c3a195cdca",
+				pf: "937a95ce4d39fc87838af1ff5395784ed2513eb8ddb17f13db2930afea9793a4",
+				tq: "6bf2cf6a0dbeaca34ae3f1863a74c7439f5e4eea20214b468dad4ccb16c2b909",
+				pl: "6071f77d0d16ffbbd1c2d6ce983e550d196975cd8198033585bebb0240eaeedb",
+				lx: "b4901530603b43fc77c0c95d2ad441571e9f0cebb55341e3cddf36aac361d1a3",
+				nl: "74260f79d168799b366bd09d81f4c0aeaa0f8e0a718e501f8adb4c9adf27e5c6",
+				cb: "16ad62095e4ec3f10f2c1f8695b6ae79eef5fa84207acb48d2a5c6eef6caf340",
+				gr: "d5fad1c142feb9f6e6f5c7df417fa3912d682ad51778209a2fd96dca24eaacd6",
+				uf: "efb19733563bb215894cd47cbdc5fa2ac36e1bb064c290df528243cd03b2ca5e",
+			});
 			const roles = reviewPerspectives?.REVIEW_PERSPECTIVES ?? [];
 			const roleFiles = Object.fromEntries(roles.map((role) => { let content = ""; try { content = readFileSync(role.file, "utf8"); } catch { /* contract-review-structure reports the missing file */ } return [role.prefix.toLowerCase(), content]; }));
 			const shippedIds = existsSync(join(REPO, "docs", "review-perspectives"))
 				? readdirSync(join(REPO, "docs", "review-perspectives")).sort() : [];
 			const expectedIds = Object.keys(approvedDigests).map((id) => `${id}.md`).sort();
 			const hash = (text) => createHash("sha256").update(normalizeText(text)).digest("hex");
-			checkAll("contract-review-structure", "each roster role has one shipped charter and definition, no extra file, and the approved Track 1 content matches independent snapshots", [
+			const hasQuestions = (source) => {
+				const [before, after, ...extra] = source.split("**Design-quality questions**\n\n");
+				return extra.length === 0 && !!after && before.includes("**Charter.**")
+					&& /^1\. \S[^\n]*\?$/m.test(after.split("\n\n**")[0] ?? "");
+			};
+			const withoutQuestions = (roleFiles.ri ?? "").replace(/(?<=\*\*Design-quality questions\*\*\n\n)1\. [^\n]+(?:\n[2-9]\d*\. [^\n]+)*/, "");
+			checkAll("contract-review-structure", "each roster role has one shipped charter, definition and question, no extra file, and the approved charter content matches independent snapshots", [
 				["twelve unique code-listed roles and paths", roles.length === 12 && new Set(roles.map((role) => role.name)).size === 12 && new Set(roles.map((role) => role.file)).size === 12, roles],
 				["all and only listed files ship", JSON.stringify(shippedIds) === JSON.stringify(expectedIds) && roles.every((role) => role.file === join(REPO, "docs", "review-perspectives", `${role.prefix.toLowerCase()}.md`)), { shippedIds, expectedIds }],
 				["each file contains its named heading, definition and charter", roles.every((role) => { const source = roleFiles[role.prefix.toLowerCase()]; return source?.startsWith(`# ${role.name}\n\n**Definition.** `) && /\n\n\*\*Charter\.\*\*\s+\S/.test(source); }), Object.keys(roleFiles)],
-				["all definitions and charters match approved independent snapshots", Object.entries(approvedDigests).every(([id, expected]) => hash(roleFiles[id] ?? "") === expected), Object.fromEntries(Object.entries(roleFiles).map(([id, content]) => [id, hash(content)]))],
-				["no Track 2 content", Object.values(roleFiles).every((text) => !/Design-quality questions|Examples of useful evidence/.test(text)), "Track 1 only"],
+				["all definitions and charters match approved independent snapshots", Object.entries(approvedDigests).every(([id, expected]) => hash((roleFiles[id] ?? "").split("\n\n**Design-quality questions**")[0]) === expected), Object.fromEntries(Object.entries(roleFiles).map(([id, content]) => [id, hash(content.split("\n\n**Design-quality questions**")[0])]))],
+				["every charter has at least one design-quality question", roles.every((role) => hasQuestions(roleFiles[role.prefix.toLowerCase()] ?? "")), roles.map((role) => role.prefix)],
+				["removing every question fails, without requiring evidence examples", withoutQuestions !== roleFiles.ri && !hasQuestions(withoutQuestions) && hasQuestions((roleFiles.ri ?? "").split("**Examples of useful evidence**")[0]), { changed: withoutQuestions !== roleFiles.ri, questionAbsent: !hasQuestions(withoutQuestions) }],
 			]);
 			const expectedPerspectiveFocus = [
 				["concurrency defect", "one area reviewer for concurrency", "Concurrency reviewer", "CN"],
@@ -3288,12 +3309,16 @@ verbatim retention of every tool result.`);
 			];
 			const perspectiveBlastRows = [...block(blast, "focus-area-table").text.matchAll(/^\| (\d+) \| ([^|]+) \| ([^|]+) \|/gm)].map((match) => [match[2].trim(), match[3].trim()]);
 			const indexRows = [...reviews.matchAll(/^\| (.*?) \| ([A-Z]{2}) \| (.*?) \| \[([^\]]+)\]\(review-perspectives\/([a-z]+)\.md\) \|$/gm)].map((match) => [match[1].trim(), match[2], match[3].trim(), match[5]]);
+			const authorGuidelines = readFileSync(join(REPO, "docs", "design-principles.md"), "utf8");
+			const authorPrinciple = authorGuidelines.match(/^- \*\*P13 —[\s\S]*?(?=^## 5\.)/m)?.[0].trim() ?? "";
+			const authorRow = "| P13 risk-based focus-area authorship | no runtime code home for author research or approval. Focus definitions, reviewer content, the code roster, and structure and agreement checks apply the rule. |";
 			checkAll("contract-review-agreement", "runtime names, prefixes and focus areas agree with the canonical focus table and linked index; Reviewer I has no focus row", [
 				["canonical eleven focus rows and reviewer labels are exact", JSON.stringify(perspectiveBlastRows) === JSON.stringify(expectedPerspectiveFocus.map((row) => row.slice(0, 2))), perspectiveBlastRows],
 				["all specialists map to matching focus row and prefix", expectedPerspectiveFocus.every(([area, , name, prefix], i) => roles[i + 1]?.name === name && roles[i + 1]?.prefix === prefix && roles[i + 1]?.focusArea === area), roles],
 				["general reviewer is outside focus table", roles[0]?.name === "Reviewer I" && roles[0]?.prefix === "RI" && roles[0]?.focusArea === null && !perspectiveBlastRows.some(([area]) => area === "Reviewer I"), roles[0]],
 				["index includes each runtime selector, prefix and focus once", JSON.stringify(indexRows) === JSON.stringify(roles.map((role) => [role.name, role.prefix, role.focusArea ?? "none", role.prefix.toLowerCase()])), indexRows],
 				["regression-gate prefix stays outside roster", !roles.some((role) => role.prefix === "RG") && reviews.includes("RG is a regression-gate prefix and not a perspective"), roles.map((role) => role.prefix)],
+				["on-demand P13 follows P12 and has its approved content and table row", authorGuidelines.indexOf("**P12 —") < authorGuidelines.indexOf("**P13 —") && authorGuidelines.split("**P13 —").length === 2 && hash(authorPrinciple) === "a719dc2ab687caab2fe67e89e4b3746cf9506caf1ce95bb02cc40e3df3107adf" && Buffer.byteLength(authorPrinciple, "utf8") === 2167 && authorGuidelines.split(authorRow).length === 2, { bytes: Buffer.byteLength(authorPrinciple, "utf8"), digest: hash(authorPrinciple) }],
 			]);
 			checkAll("contract-review-charters", "Reviewer I keeps bounded duties, conditional composition and independent dispatch; specialist limits and prefixes stay exact", [
 				["Reviewer I names its five local duties and evidence boundaries", ["maintainability", "concretely harmful antipatterns", "responsibility distribution", "completeness against the approved current-track requirements", "ordinary local correctness", "adverse effect", "unjustified coupling", "responsibility placed in a component"].every((term) => normalizeText(reviewerICharter).includes(term)), reviewerICharter],
@@ -3308,10 +3333,10 @@ verbatim retention of every tool result.`);
 
 			const dispatchReference = "Research log: the current `slate-changes/<change>/research-log.md` remains the retained full record. The dispatch names its exact path and the implementer's `slate-changes/<change>/track-<number>-implementer-report.md` path. Use the references and excerpts supplied for this action. Read more history only when a relevant question remains unresolved.\n";
 			const boundedCharters = [
-				["non-local logic defect reviewer charter", "nl", 1443, "Non-local logic defect reviewer"],
-				["consumer contract break reviewer charter", "cb", 1773, "Consumer contract break reviewer"],
-				["governing-rule defect reviewer charter", "gr", 1756, "Governing-rule defect reviewer"],
-				["unreported failure reviewer charter", "uf", 1311, "Unreported failure reviewer"],
+				["non-local logic defect reviewer charter", "nl", 2464, "Non-local logic defect reviewer"],
+				["consumer contract break reviewer charter", "cb", 2748, "Consumer contract break reviewer"],
+				["governing-rule defect reviewer charter", "gr", 2857, "Governing-rule defect reviewer"],
+				["unreported failure reviewer charter", "uf", 2389, "Unreported failure reviewer"],
 			];
 			const measureCharter = (source, heading) => ({
 				count: (source.match(new RegExp("^# " + heading + "$", "gm")) ?? []).length === 1 && source.includes("**Charter.**") ? 1 : 0,
@@ -3326,12 +3351,12 @@ verbatim retention of every tool result.`);
 			].join("\n");
 			const contextBudget = readFileSync(join(REPO, "docs", "context-budget.md"), "utf8");
 			const expectedInjected = [
-				["Reviewer I", 5536, 5413], ["Concurrency reviewer", 4333, 4210],
-				["Data loss and recovery reviewer", 4385, 4262], ["Security reviewer", 4447, 4324],
-				["Performance reviewer", 4369, 4246], ["Test-quality and structure reviewer", 5587, 5464],
-				["Prose reviewer", 4515, 4392], ["Licensing reviewer", 4404, 4281],
-				["Non-local logic defect reviewer", 5456, 5333], ["Consumer contract break reviewer", 5786, 5663],
-				["Governing-rule defect reviewer", 5769, 5646], ["Unreported failure reviewer", 5324, 5201],
+				["Reviewer I", 8575, 8452], ["Concurrency reviewer", 7329, 7206],
+				["Data loss and recovery reviewer", 7524, 7401], ["Security reviewer", 7471, 7348],
+				["Performance reviewer", 7526, 7403], ["Test-quality and structure reviewer", 8780, 8657],
+				["Prose reviewer", 7738, 7615], ["Licensing reviewer", 7469, 7346],
+				["Non-local logic defect reviewer", 8466, 8343], ["Consumer contract break reviewer", 8750, 8627],
+				["Governing-rule defect reviewer", 8859, 8736], ["Unreported failure reviewer", 8391, 8268],
 			];
 			const docsPrefix = paths.REVIEW_RULES_DOC.slice(0, -"review-rules.md".length);
 			const extensionPrefix = paths.WRITING_CHECKER.slice(0, -"writing-check.mjs".length);
@@ -3344,7 +3369,8 @@ verbatim retention of every tool result.`);
 			checkAll("contract-review-sizes", "production-rendered per-perspective injected bytes, portable path basis, and published table match exact independent pins", [
 				["all twelve portable sizes are exact and rendered bytes add both installed path prefixes", injected.every(([, rendered, portable], i) => portable === expectedInjected[i][2] && rendered === portable + Buffer.byteLength(docsPrefix, "utf8") + Buffer.byteLength(extensionPrefix, "utf8")), injected],
 				["all twelve published rows match the measured installation and portable pins", JSON.stringify(publishedInjected) === JSON.stringify(expectedInjected), publishedInjected],
-				["common and implementation text keep independent approved snapshots", hash(readFileSync(paths.REVIEW_COMMON_POLICY_DOC, "utf8")) === "809e2b2eed0fbbb6f7519b3299b3c75cb8c5e3718b259be0f1e82e3c2e45321f" && hash(readFileSync(paths.REVIEW_IMPLEMENTATION_INPUT_DOC, "utf8")) === "8d23a6c5a10ddc8d497fcd3f555a426d8b78b437903d4335f85c1dcbbee810dc", "two shared source files"],
+				["all approved perspective content matches independent snapshots", Object.entries(approvedContentDigests).every(([id, expected]) => hash(roleFiles[id] ?? "") === expected), Object.fromEntries(Object.entries(roleFiles).map(([id, content]) => [id, hash(content)]))],
+				["common and implementation text keep independent approved snapshots", hash(readFileSync(paths.REVIEW_COMMON_POLICY_DOC, "utf8")) === "809e2b2eed0fbbb6f7519b3299b3c75cb8c5e3718b259be0f1e82e3c2e45321f" && hash(readFileSync(paths.REVIEW_IMPLEMENTATION_INPUT_DOC, "utf8")) === "e8bbe7a6b03f175a41cb25af633e8fc32e0bce17c85b4db5061d508bc10b0872", "two shared source files"],
 			]);
 
 			// Complete owned policy units use independent expectations. Exact equality is

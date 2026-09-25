@@ -315,45 +315,52 @@ logical appearances.
 The implementation reference is one exact block in each implementation dispatch.
 Each of the four specialist charter figures measures its complete shipped file,
 including the level-one heading and final line feed. An automatic implementation
-review loads the common policy and implementation input once. It then loads each
-selected perspective once in selection order.
+review loads the common policy and implementation input once. The input file includes
+one shared design-quality rule after the input restrictions. Slate then loads each
+selected perspective once in selection order. Each perspective file includes its
+questions and examples of useful evidence.
 
 | bounded block | exact UTF-8 bytes |
 | --- | ---: |
 | implementation-dispatch focused-context reference | 351 |
-| non-local logic defect reviewer charter | 1,443 |
-| consumer contract break reviewer charter | 1,773 |
-| governing-rule defect reviewer charter | 1,756 |
-| unreported failure reviewer charter | 1,311 |
+| non-local logic defect reviewer charter | 2,464 |
+| consumer contract break reviewer charter | 2,748 |
+| governing-rule defect reviewer charter | 2,857 |
+| unreported failure reviewer charter | 2,389 |
 
 Production-rendered injected text replaces the two installed-path placeholders
 with absolute shipped paths. The path-normalized count removes the exact
 installed `docs/` and `extension/` directory prefixes and keeps each filename.
 The generic reviewer evidence charter, task, provider framing, and manually supplied review data are
 outside these figures. Counts are UTF-8 bytes, not token or billing estimates.
-The two shared files appear once in each total. A merged specialist review adds
-each selected file once and does not repeat the shared files.
+The two shared files appear once in each total. The shared design-quality rule
+appears once inside the implementation input file. Each selected file contributes
+its questions and evidence examples once. A merged specialist review adds each
+selected file once and does not repeat the shared files.
 
 | selected perspective | rendered injected bytes | path-normalized injected bytes |
 | --- | ---: | ---: |
-| Reviewer I | 5,536 | 5,413 |
-| Concurrency reviewer | 4,333 | 4,210 |
-| Data loss and recovery reviewer | 4,385 | 4,262 |
-| Security reviewer | 4,447 | 4,324 |
-| Performance reviewer | 4,369 | 4,246 |
-| Test-quality and structure reviewer | 5,587 | 5,464 |
-| Prose reviewer | 4,515 | 4,392 |
-| Licensing reviewer | 4,404 | 4,281 |
-| Non-local logic defect reviewer | 5,456 | 5,333 |
-| Consumer contract break reviewer | 5,786 | 5,663 |
-| Governing-rule defect reviewer | 5,769 | 5,646 |
-| Unreported failure reviewer | 5,324 | 5,201 |
+| Reviewer I | 8,575 | 8,452 |
+| Concurrency reviewer | 7,329 | 7,206 |
+| Data loss and recovery reviewer | 7,524 | 7,401 |
+| Security reviewer | 7,471 | 7,348 |
+| Performance reviewer | 7,526 | 7,403 |
+| Test-quality and structure reviewer | 8,780 | 8,657 |
+| Prose reviewer | 7,738 | 7,615 |
+| Licensing reviewer | 7,469 | 7,346 |
+| Non-local logic defect reviewer | 8,466 | 8,343 |
+| Consumer contract break reviewer | 8,750 | 8,627 |
+| Governing-rule defect reviewer | 8,859 | 8,736 |
+| Unreported failure reviewer | 8,391 | 8,268 |
 
 The focused-reference figure measures one reference copy in one implementation
 dispatch. It excludes the research log and every other task input. Worker history
 can resend that reference in later model requests. The figure is not a total
 conversation-size or billing promise. Each charter row measures one role file.
-These figures add no runtime limit and raise no existing budget.
+These figures add no runtime limit and raise no existing budget. The on-demand
+P13 author guideline contains 2,167 UTF-8 bytes. Its separate principle-table
+row contains 201 bytes. Neither enters injected totals or the always-loaded
+principle subset.
 
 ## Using GPT-5.6's full 1.05M window
 

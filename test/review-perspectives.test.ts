@@ -78,7 +78,7 @@ test("selected guidance reaches the worker system blocks in selection order, onc
     .replaceAll("<installed-writing-checker>", WRITING_CHECKER)
     .replaceAll("<installed-writing-guidance>", WRITING_GUIDANCE_DOC);
   const input = readFileSync(REVIEW_IMPLEMENTATION_INPUT_DOC, "utf8").trim();
-  for (const selected of [["Reviewer I"], ["Consumer contract break reviewer", "Non-local logic defect reviewer"]] as const) {
+  for (const selected of [["Reviewer I"], ["Consumer contract break reviewer", "Non-local logic defect reviewer"], ["Unreported failure reviewer"]] as const) {
     const { manager, calls } = harness();
     await manager.dispatch({ ...base, reviewPerspectives: [...selected] }, ctx, undefined);
     assert.equal(calls.length, 1);
@@ -89,13 +89,27 @@ test("selected guidance reaches the worker system blocks in selection order, onc
     assert.equal(occurrences(blocks.join("\n\n"), REVIEWER_CHARTER.trim().slice(0, 22)), 1);
     assert.equal(occurrences(expected, "## Common review policy"), 1);
     assert.equal(occurrences(expected, "## Implementation-review inputs"), 1);
-    for (const name of selected) assert.equal(occurrences(expected, `# ${name}\n`), 1);
+    assert.equal(occurrences(expected, "### Implementation design quality"), 1);
+    assert.ok(expected.indexOf("### Implementation design quality") > expected.indexOf("## Common review policy"));
+    for (const name of selected) {
+      assert.equal(occurrences(expected, `# ${name}\n`), 1);
+      assert.ok(expected.indexOf("### Implementation design quality") < expected.indexOf(`# ${name}\n`));
+      const charter = readFileSync(REVIEW_PERSPECTIVES.find((role) => role.name === name)!.file, "utf8");
+      assert.ok(charter.indexOf("**Charter.**") < charter.indexOf("**Design-quality questions**"));
+      assert.ok(charter.indexOf("**Design-quality questions**") < charter.indexOf("**Examples of useful evidence**"));
+    }
     // These independent duties fail when the source is lost, even if both generated copies agree.
     assert.match(expected, /Do not seek these private sources/);
+    assert.match(expected, /A design concern is a finding only when evidence links it to a concrete adverse effect/);
+    assert.match(expected, /These questions change no trigger, boundary, reviewer count, merge rule, gate, or user authority/);
     if (selected[0] === "Reviewer I") assert.match(expected, /does not absorb an absent specialist charter/);
-    else {
+    if (selected[0] === "Consumer contract break reviewer") {
       assert.match(expected, /record written by the review base and read by the candidate/);
       assert.match(expected, /first run, a repeat run, an interrupted run and a restart/);
+    }
+    if (selected[0] === "Unreported failure reviewer") {
+      assert.match(expected, /Can a fallback, retry, default, partial result, ignored status, or unchecked effect appear to be full success\?/);
+      assert.match(expected, /These are examples, not required checks or artifacts/);
     }
   }
 });
@@ -107,4 +121,5 @@ test("omitted selection preserves the manual route without automatic policy", { 
   assert.equal(calls.length, 1);
   assert.equal(calls[0]!.guidance, undefined);
   assert.deepEqual(workerSystemPromptBlocks(true, true, calls[0]!.guidance, []), [workerPreamble(true, true)]);
+  assert.doesNotMatch(workerSystemPromptBlocks(true, true, calls[0]!.guidance, []).join("\n"), /Implementation design quality|Design-quality questions/);
 });

@@ -197,13 +197,20 @@ test("public dispatch delivers selected guidance to the worker loader and leaves
       )].join("\n\n");
       assert.deepEqual(blocks, expected === undefined ? [workerPreamble(true, true)] : [workerPreamble(true, true), expected]);
       assert.equal((blocks?.[0]?.split(REVIEWER_CHARTER).length ?? 0) - 1, 1);
+      if (selected === undefined) assert.doesNotMatch(blocks?.join("\n") ?? "", /Implementation design quality|Design-quality questions/);
       if (selected !== undefined && expected !== undefined) {
+        assert.equal(expected.split("### Implementation design quality").length - 1, 1);
+        assert.ok(expected.indexOf("### Implementation design quality") > expected.indexOf("## Common review policy"));
+        assert.ok(expected.indexOf("### Implementation design quality") < expected.indexOf(`# ${selected[0]}\n`));
         assert.equal(expected.split(common).length - 1, 1);
         assert.equal(expected.split(input).length - 1, 1);
         for (const name of selected) {
           const charter = readFileSync(REVIEW_PERSPECTIVES.find((role) => role.name === name)!.file, "utf8").trim();
           assert.equal(expected.split(charter).length - 1, 1);
+          assert.match(charter, /\*\*Design-quality questions\*\*[\s\S]*?1\. /);
+          assert.match(charter, /\*\*Examples of useful evidence\*\*/);
         }
+        if (selected[0] === "Reviewer I") assert.match(expected, /without speculative layers or duplicated paths/);
       }
       assert.equal(store.episodes.size, 0);
     }

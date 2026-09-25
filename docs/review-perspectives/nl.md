@@ -14,3 +14,18 @@ The non-local logic defect area owns an agreement between places that an executi
 6. Check the order of effects inside one execution when a place outside the change can observe that order.
 7. Check that the implemented decisions agree with the stated intent of the track.
 8. Check error and failure paths that cross the agreements above.
+
+**Design-quality questions**
+
+1. What shared relation joins the places, and which place owns each fact, transition, read, or write?
+2. Does the representation make required matching edits and exhaustive handling visible, or can one place drift silently?
+3. Can the relation be made easier to verify through a proportionate mechanism, for example a shared type, helper, schema, validation boundary, or generated copy?
+4. Is the remaining distribution necessary for the approved behavior, and can a maintainer see what work keeps the places in agreement?
+5. Does the structure of failure paths make the shared relation harder to preserve than on the successful path?
+
+**Examples of useful evidence**
+
+These are examples, not required checks or artifacts. Use evidence relevant to the approved requirement and charter.
+
+- Complete place rosters, relation and transition tables, cross-place traces, and stored-format comparisons.
+- Exhaustive handling checks, generated-copy checks, restart tests, and concrete drift cases.
