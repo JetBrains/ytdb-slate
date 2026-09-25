@@ -4,7 +4,7 @@
 
 This repo is a [pi package](https://pi.dev/docs/latest/packages). It provides the **slate** extension for thread-weaving orchestration in pi. The orchestrator dispatches bounded actions to persistent worker threads. Results return as compressed episodes.
 
-The shipped doctrine uses eleven risk-defined focus areas as workflow triggers. User-approved proofs select gates and routine implementation reviewers. A track with at least one proved area gets one general Reviewer I plus its required specialists. A track with no proved area gets no routine implementation reviewer. Draft pull request publishing is optional.
+The shipped doctrine uses eleven risk-defined focus areas as workflow triggers. User-approved proofs select gates and routine implementation reviewers. A track with at least one proved area gets one general Reviewer I plus its required specialists. An implementer's approximate size above 100 counted lines also adds Reviewer I, except on documentation-only tracks. Before implementation, an orchestrator estimate above 100 counted lines requires a high-level design even for documentation-only tracks. Counted lines exclude lockfiles, migration files and generated output. With neither review trigger, a track gets no routine implementation reviewer. Draft pull request publishing is optional.
 
 Dispatch uses **logical-model routing and common recovery**. `router.models` defines provider-free action choices, fixed effort, ratings, guidance, cautions, and exact physical permissions. `router.compressor.models` is an independent ordered list. Slate resolves one immutable trusted parent-session policy. Dispatch, compression, main recovery, handoff, doctrine, and effective output share it. Reference: `docs/model-routing.md`.
 

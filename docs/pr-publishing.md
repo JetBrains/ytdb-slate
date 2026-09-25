@@ -35,8 +35,8 @@ before implementation.
 
 For a change without a high-level design, create the pull request after the
 confirmation gate and before implementation. If the change later requires a
-high-level design, keep the existing draft. Follow the late-area approval route
-in track-workflow.md and synchronize the description. Do not recreate the pull
+high-level design, keep the existing draft. Follow the size or late-area design route in track-workflow.md and synchronize
+the description. Do not recreate the pull
 request or apply its creation timing retrospectively.
 
 Every creation path keeps these safeguards:

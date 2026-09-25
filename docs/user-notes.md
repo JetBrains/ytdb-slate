@@ -195,8 +195,9 @@ entry carries the identifier, location and one-line summary.
 The durable record gives routine implementation review and user-requested-fix
 verification as separate verdicts. The routine line concludes whether the full
 required reviewer set covered the range. It states `NOT REQUIRED` when the
-track has no proved area and does not claim Reviewer I coverage. When a
-user-requested-fix range exists, another line gives its dedicated gate verdict.
+track has neither a proved area nor a size-triggered Reviewer I. It does not
+claim Reviewer I coverage for that track. When a user-requested-fix range
+exists, another line gives its dedicated gate verdict.
 
 The coverage register stays in the research log. Neither its entries nor its
 size enter a user-facing package. The detailed register never leaves the

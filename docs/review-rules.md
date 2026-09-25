@@ -1,7 +1,7 @@
 # Slate review rules
 
 These rules govern machine review of worker-produced changes. Review threads
-are created dynamically. The orchestrator composes them from the track's proved focus areas.
+are created dynamically. The orchestrator composes them from the track's proved focus areas and the implementer's approximate track size.
 
 Every review uses a fresh thread with type `reviewer` or `adversarial`. A
 reviewer is read-only. Independent reviewers run in parallel.
@@ -90,12 +90,15 @@ duty in their charters.
 | track | required routine implementation-review set |
 | --- | --- |
 | one or more proved areas | exactly one Reviewer I plus one specialist for every proved area whose canonical gate runs per track |
-| no proved area | none; report routine implementation review as `NOT REQUIRED` |
+| no proved area, more than 100 counted lines, not documentation-only | exactly one Reviewer I |
+| no proved area, at most 100 counted lines or documentation-only | none; report routine implementation review as `NOT REQUIRED` |
 
-`NAMED` and `SKIPPED` areas do not select reviewers. Code, mixed, and
-documentation-only status do not select reviewers. Every required perspective
-is dispatched exactly once. Do not dispatch a duplicate action for the same
-required perspective.
+`NAMED` and `SKIPPED` areas do not select reviewers. An implementer's approximate
+size above 100 counted lines selects Reviewer I for a code or mixed track, but
+not for a documentation-only track. Counted lines and the separate design
+estimate are defined in [track-workflow.md](track-workflow.md) § Track size and
+split. Every required perspective is dispatched exactly once. Do not dispatch a
+duplicate action for the same required perspective.
 
 Reviewer I always runs in its own fresh thread. It never merges with any
 specialist, including on documentation-only work. Every specialist also runs in
@@ -112,10 +115,10 @@ this cap. The test-quality and structure reviewer, prose reviewer, and licensing
 reviewer are additional and never count against that cap.
 
 A documentation-only track changes only documents. Every changed file must
-neither ship as code nor run. Documentation-only status does not trigger
-Reviewer I or any specialist. When
-unreadable user-facing prose is proved, Reviewer I and the prose specialist use
-two separate threads. A proved licensing area adds another separate specialist
+neither ship as code nor run. Documentation-only status prevents size alone from triggering Reviewer I.
+It adds no specialist. A proved area still adds Reviewer I and its specialist.
+When unreadable user-facing prose is proved, Reviewer I and the prose specialist
+use two separate threads. A proved licensing area adds another separate specialist
 unless a specialist-only merge rule applies.
 
 A model may cover more than one merge-eligible specialist charter only under

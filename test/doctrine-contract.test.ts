@@ -123,12 +123,12 @@ test("logical doctrine production renders match published portable measurements"
   ], paths: [], toolNames: [] };
   const metric = (text: string) => ({ portable: text.split(docsDirectory).join("").length, lines: text.split("\n").length, paths: text.split(docsDirectory).length - 1 });
   assert.deepEqual(metric(runtime.promptText()!), { portable: 3892, lines: 11, paths: 0 });
-  assert.deepEqual(metric(await renderDoctrine(runtime)), { portable: 8683, lines: 85, paths: 5 });
-  assert.deepEqual(metric(await renderDoctrine(runtime, {}, false)), { portable: 2694, lines: 44, paths: 4 });
-  assert.deepEqual(metric(await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped)), { portable: 10272, lines: 98, paths: 6 });
+  assert.deepEqual(metric(await renderDoctrine(runtime)), { portable: 8764, lines: 88, paths: 5 });
+  assert.deepEqual(metric(await renderDoctrine(runtime, {}, false)), { portable: 2775, lines: 47, paths: 4 });
+  assert.deepEqual(metric(await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped)), { portable: 10353, lines: 101, paths: 6 });
   const change = { current: `change-20260101T000000Z-${"a".repeat(32)}`, source: `change-20260101T000001Z-${"b".repeat(32)}`, legacy: true };
   const linked = await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped, change);
-  assert.deepEqual(metric(linked), { portable: 10700, lines: 101, paths: 6 });
+  assert.deepEqual(metric(linked), { portable: 10781, lines: 104, paths: 6 });
   assert.ok(metric(linked).portable * 1.05 < 26300);
   assert.match(linked, /Follow each log's first entry to read the full source chain and accounting/);
   assert.match(linked, /Read-only legacy root log: research-log.md/);
@@ -331,32 +331,40 @@ test("single-action doctrine requires new threads and episode references", { tim
 
 test("doctrine uses approved focus states, the four-part proof, and effective gates", { timeout: 5000 }, async () => {
   const doctrine = (await renderDoctrine()).replace(/\s+/g, " ");
-  assert.ok(doctrine.includes("Only focus areas trigger workflow. Classes: DESIGN-TRIGGERING and REVIEWER-ONLY."));
-  assert.ok(doctrine.includes("Keep separate eleven-line change and track records. They may cite one applicable approval."));
-  assert.ok(doctrine.includes("NAMED submits defect, place, consequence, and review contribution. User approval proves it. Rejection means SKIPPED."));
-  assert.ok(doctrine.includes("Only proved areas add gates/reviewers: one Reviewer I separate from area reviewers."));
+  assert.ok(doctrine.includes("Keep separate change/track records. NAMED: defect, place, consequence, review contribution. User approval proves it. Rejection is SKIPPED."));
+  assert.ok(doctrine.includes("Proved areas add specialists and one Reviewer I."));
+  assert.ok(doctrine.includes("Above 100 counted lines requires design before work, even documentation-only."));
+  assert.ok(doctrine.includes("Implementer reports approximate size in response and report. Above 100 adds Reviewer I except documentation-only."));
+  assert.ok(doctrine.includes("Size adds no specialist, design adversary or track acceptance."));
+  assert.ok(doctrine.includes("If size crosses 100 late, add Reviewer I unless documentation-only. No late design. Use larger size later."));
+  assert.doesNotMatch(doctrine, /Every track (?:also )?gets Reviewer I\./);
+  assert.ok(doctrine.includes("Late areas add only specialists if Reviewer I ran."));
+  const workflow = readFileSync(TRACK_WORKFLOW_DOC, "utf8");
+  assert.match(workflow, /Counted lines are\s+added plus removed lines, excluding lockfiles, migration files, and generated\s+output/);
+  assert.match(workflow, /Neither role needs an exact line counter/);
   assert.doesNotMatch(doctrine, /Reviewer I remains required on every track|Review every track with Reviewer I/);
-  assert.ok(doctrine.includes("User judges proofs and solution simplicity."));
   assert.ok(doctrine.includes(`Definitions: ${BLAST_RADIUS_DOC}. Lifecycle: ${TRACK_WORKFLOW_DOC}.`));
   assert.doesNotMatch(doctrine, /Concurrency defect|Data loss|Security weakness|Licensing exposure/);
-  assert.ok(doctrine.includes(`Lifecycle: ${TRACK_WORKFLOW_DOC}. Read only as needed.`));
-  assert.ok(doctrine.includes("Before edits, get user approval for each NAMED proof and finish its gates."));
+  assert.ok(doctrine.includes("Approve proofs before edits."));
+  assert.ok(doctrine.includes("User judges proofs and simplicity."));
 });
 
 test("doctrine reuses known facts and only applicable user authorization", { timeout: 5000 }, async () => {
   const doctrine = (await renderDoctrine()).replace(/\s+/g, " ");
-  assert.ok(doctrine.includes("Before asking, apply evidence and answers."));
-  assert.ok(doctrine.includes("Do not re-ask known facts."));
+  assert.ok(doctrine.includes("Apply evidence and prior answers before asking."));
   assert.ok(doctrine.includes("Evidence cannot authorize."));
-  assert.ok(doctrine.includes("Reuse authorization only for a covered decision with current conditions and every prerequisite complete when answered."));
-  assert.ok(doctrine.includes("Ask only unresolved or changed parts. Explain material changes."));
-  assert.ok(doctrine.includes("Preserve gate order, reviews, reassessment, and final acceptance."));
+  assert.ok(doctrine.includes("Reuse approvals only for covered decisions with current conditions and prerequisites complete when answered."));
+  assert.ok(doctrine.includes("Ask only unresolved parts. Explain changes. Preserve gates and reviews."));
+  const workflow = readFileSync(TRACK_WORKFLOW_DOC, "utf8");
+  assert.match(workflow, /Reassess evidence and answer applicability at every existing reassessment\s+boundary/);
+  assert.match(workflow, /Do not ask the user for that fact\s+again while its source remains applicable/);
+  assert.match(workflow, /Reopen only the part\s+that the material change affects, and explain that change before asking again/);
   assert.doesNotMatch(doctrine, /prior required gates hold/);
 });
 
 test("design gates state validation, adversarial review, and final approval as one ordered contract", { timeout: 5000 }, async () => {
   const doctrine = (await renderDoctrine()).replace(/\s+/g, " ");
-  assert.ok(doctrine.includes("Each proved DESIGN-TRIGGERING area requires design, user validation, focus reconfirmation before its adversarial design review, final design approval, and blocking track acceptance."));
+  assert.ok(doctrine.includes("Each proved DESIGN-TRIGGERING area requires design, user validation, focus reconfirmation, adversarial design review, final approval, and blocking track acceptance."));
   assert.doesNotMatch(doctrine, /final design approval before.*adversarial design review/);
 });
 
