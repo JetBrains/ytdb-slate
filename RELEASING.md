@@ -18,11 +18,76 @@ OpenID Connect trusted publishing remains the only package-upload authority. The
 
 Repository collaborators who may merge remain the trusted set. Existing collaborator, npm-writer, and Git version-tag authority outside this workflow is an accepted scope limit.
 
+## Draft the release notes
+
+The release agent drafts the notes before it starts `prepare`. Use the latest version tag as the start of the change list:
+
+```sh
+git fetch origin --tags
+git tag -l 'v*' --sort=-v:refname | head -n 1
+git log --first-parent --format='%h %s' v<last>..origin/main
+```
+
+The `git tag` command prints the latest version tag. Replace `v<last>` with that tag. Each squash-merge title ends with a pull request number in the form `(#NNN)`. A title can contain more than one number. Use `gh pr view <number>` to check which pull request describes the change. Read the pull request when its title does not explain the effect for users.
+
+If a commit title has no pull request number, read the change with `git show <commit>`. Include that commit when it changes behavior for users.
+
+Find configuration changes in the same range:
+
+```sh
+git diff --name-status v<last>..origin/main -- .pi/slate.json extension/ docs/ README.md
+git diff v<last>..origin/main -- docs/configuration.md
+```
+
+Read relevant diffs under `extension/` and `docs/`. `docs/configuration.md` lists configuration keys and defaults. Look for added, removed, renamed, or ignored keys and changed defaults. State any action users need to take to keep Slate working.
+
+Check the package manifest for pi software development kit (SDK) changes:
+
+```sh
+git diff v<last>..origin/main -- package.json
+```
+
+Read the exact SDK pins in `devDependencies`. The SDK entries in `peerDependencies` use `*`. A changed pin alone does not prove a minimum working pi version. State a minimum version only when tests provide evidence for it.
+
+Read the previous notes as an example with `gh release view v<last> --json body`. On `main`, only the latest release keeps its request under `release/requests/<version>/`. Use the GitHub release for earlier notes.
+
+Write the notes in Markdown with this structure. Include `Fixes` only when the release has fixes. Include `Breaking changes` only when the release has them. Number each breaking change and give its required user action.
+
+```markdown
+# ytdb-slate <version>
+
+<Short introduction.>
+
+## Highlights
+
+<Notable changes for users.>
+
+## Fixes
+
+<Fixes, when present.>
+
+## Breaking changes
+
+1. <Change.> Action: <What the user must do.>
+
+## Compatibility
+
+<Effects on existing users and any required configuration actions.>
+
+## SDK compatibility
+
+<Supported SDK information backed by evidence.>
+```
+
+Follow the writing convention in `AGENTS.md` and `docs/writing-guidance.md`. Release notes may describe removals as change records. Keep tokens out of the notes as required in **One-time setup**. The workflow checks only that the notes are not empty. The structure above is a rule for the release agent, not a workflow format check.
+
+Show the complete notes to the user. Wait for explicit approval before running `prepare`. Enter the approved text unchanged in the `notes` input. The notes hash becomes part of the request identity, so the notes cannot change after preparation.
+
 ## Start a release
 
 1. Open the **Release** workflow on branch `main`.
 2. Choose `prepare`.
-3. Enter one unused semantic version and the Markdown release notes.
+3. Enter one unused semantic version and the approved Markdown release notes from **Draft the release notes**.
 4. Run the workflow once. Leave the authorization identity input empty for preparation.
 
 Each preparation dispatch creates a new authorization generation. A rerun of that same workflow run keeps the generation. Preparation checks the full release-state history at the commit named by its write lease. It refuses any identity that has ended, including one from an earlier run. A history read failure also stops preparation. A later dispatch creates a new request identity even when the version, notes, and base are unchanged.
@@ -52,6 +117,14 @@ The workflow performs these actions in order:
 The internal npm tag is an automation pointer, not a consumer guarantee. Before proof, the version can be reached by exact version, by the internal tag, and by matching ranges that do not select the current `latest`. Default `latest` selection is the protection boundary.
 
 npm distribution-tag writes are unconditional. The workflow serializes and fences its own writers. It refuses a conflict that it observes and never rolls back another observed selection. It cannot close the race with an independent npm writer between its reads and write. The operating rule against manual `latest` changes reduces this accepted risk but does not provide global compare-and-swap protection.
+
+## Announce the release
+
+The release agent writes an announcement only after a successful release. Confirm that promotion of npm `latest` is verified and that the Git version tag exists. Confirm the GitHub release with `gh release view v<version> --json url`.
+
+Write a short message for social networks. Name the notable changes from `Highlights` and `Breaking changes`, when present. Link to the release notes at `https://github.com/JetBrains/ytdb-slate/releases/tag/v<version>`. Follow the writing convention in `AGENTS.md` and `docs/writing-guidance.md`.
+
+Give the message to the user. Do not post it. Do not write an announcement for a failed, retired, or closed release.
 
 ## Failure, retirement, and recovery
 
