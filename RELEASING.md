@@ -132,7 +132,9 @@ Read the failed job and the `release-state` history before acting. Download reta
 
 ### Before upload
 
-A branch-creation retry for the exact same prepared request is idempotent. Copy the exact request identity from the active `release-state` record into the workflow authorization identity input. Choose `abandon` only for an unmerged prepared request with no upload attempt. The workflow checks all matching pull requests, closes an open one, tolerates a missing branch, and records abandonment. Do not close or delete the branch first.
+A branch-creation retry for the exact same prepared request is idempotent. Copy the exact request identity from the active `release-state` record into the workflow authorization identity input. Choose `abandon` only for an unmerged prepared request with no upload attempt. The workflow reads every page of GitHub pull requests. It accepts only pull requests from this repository and the identity-bound branch into `main`. It refuses a merged match or an incomplete or malformed read. It closes only open exact matches. It also accepts no match or several unmerged matches. It tolerates a missing branch and records abandonment. Do not close or delete the branch first.
+
+Do not rerun an abandonment run that started before pull request #458 merged. Start a new abandonment dispatch from `main` instead.
 
 After a merged authorization fails before upload, correct the cause in normal development. Re-run the failed workflow jobs when that is enough. If the authorization must be revoked, enter its exact version and request identity, then choose `retire`. A prepared request needs exactly one merged pull request into `main` from this repository and its identity-bound branch. A failed or malformed GitHub read leaves the state unchanged. An unmerged prepared request can only be abandoned. Retirement also accepts an exact claimed authorization with no upload attempt. Retirement uses the current control code for a prepared request. It keeps empty claim fields, preserves history, and permanently revokes that identity.
 

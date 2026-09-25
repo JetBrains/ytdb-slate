@@ -495,14 +495,23 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { ref: release-state, fetch-depth: 0 }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { ref: '${{ github.sha }}', path: current-control }
       - name: Abandon only an unmerged preparation
         env: { GH_TOKEN: '${{ github.token }}', VERSION: '${{ github.event.inputs.version }}', IDENTITY: '${{ github.event.inputs.identity }}' }
         run: |
           set -euo pipefail; test "$(node -p 'require("./state.json").version')" = "$VERSION"; test "$(node -p 'require("./state.json").identity')" = "$IDENTITY"; identity=$(node -p 'require("./state.json").identity'); branch="release/v$VERSION-${identity:0:12}"
           status=$(node -p 'require("./state.json").status'); if test "$status" = abandoned; then echo 'Preparation is already abandoned.'; exit 0; fi
-          prs=$(gh pr list --repo "$GITHUB_REPOSITORY" --state all --head "$branch" --json number,mergedAt,state); merged=$(node -e 'const p=JSON.parse(process.argv[1]);process.stdout.write(String(p.some(x=>x.mergedAt)))' "$prs")
-          node verification/release-control.mjs abandon --state state.json --merged "$merged" --identity "$IDENTITY" --version "$VERSION" --out next.json
-          node -e 'for(const p of JSON.parse(process.argv[1]))if(!p.mergedAt&&p.state==="OPEN")console.log(p.number)' "$prs" | while read -r pr; do gh pr close "$pr" --repo "$GITHUB_REPOSITORY" --comment 'Release preparation abandoned before merge and upload.'; done
+          root=$(mktemp -d "$RUNNER_TEMP/abandon.XXXXXX")
+          owner=${GITHUB_REPOSITORY%%/*}
+          gh api --paginate "repos/$GITHUB_REPOSITORY/pulls?state=all&head=$owner:$branch&per_page=100" --jq 'tojson' >"$root/prs.jsonl" || { echo 'Cannot read preparation pull requests.' >&2; exit 2; }
+          node --input-type=module - "$root/prs.jsonl" "$GITHUB_REPOSITORY" "$branch" >"$root/open.txt" <<'NODE'
+          import {readFileSync} from 'node:fs';
+          import {abandonPullRequests} from './current-control/verification/release-control.mjs';
+          for(const number of abandonPullRequests(readFileSync(process.argv[2],'utf8'),{repository:process.argv[3],branch:process.argv[4]}))console.log(number);
+          NODE
+          node verification/release-control.mjs abandon --state state.json --merged false --identity "$IDENTITY" --version "$VERSION" --out next.json
+          while read -r pr; do gh pr close "$pr" --repo "$GITHUB_REPOSITORY" --comment 'Release preparation abandoned before merge and upload.'; done <"$root/open.txt"
           if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then git push origin --delete "$branch"; fi
           old=$(git rev-parse HEAD); mv next.json state.json; git config user.name github-actions[bot]; git config user.email 41898282+github-actions[bot]@users.noreply.github.com; git add state.json; git commit -m "Abandon release $VERSION"; git push origin HEAD:release-state --force-with-lease="refs/heads/release-state:$old"
 
