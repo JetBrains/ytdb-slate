@@ -373,26 +373,42 @@ capture keeps a bounded suffix of the newest facts in completion order. It
 bounds each fact while it traverses the input and before aggregate serialization.
 One marker states when older facts or fact content were omitted or truncated.
 Mutable Pi message history is not the retention authority. Managed-operation
-bookkeeping contains active operations only. A settled operation leaves that set.
+bookkeeping tracks active operations and keeps the first failure signal for the
+action. A settled operation leaves the active set. Pi command errors reported
+during the action fail it, including an ordinary command that replies before it
+throws and a command deferred by Pi. Slate reads the command error event, not
+the text of the warning.
 
-The pre-finalization worker execution starts with worker startup. It includes
-ordinary prompting, retry, recovery, Pi message calls made by worker extensions,
-later turns and worker history reduction started by those calls, and Pi idle
-confirmation. It excludes capture freeze, outcome classification, compression,
-episode write, final state save, worker shutdown, and disposal. Independent
-background tasks are also excluded.
+The pre-finalization worker execution starts with worker startup. Message calls
+admitted during startup, including calls started by those calls, finish before
+the ordinary action starts. Startup replies remain completed facts but do not
+decide the ordinary action result. The execution includes prompting, retry and
+recovery. It also includes extension message calls, later turns, history
+reduction started by those calls and Pi idle confirmation. It excludes capture
+freeze, final outcome classification, compression, episode write, final state
+save, worker shutdown, and disposal. Independent background tasks are also
+excluded.
 
 A terminal transition closes managed-operation and provider-request admission
 before it requests abort. Slate then awaits the pre-finalization worker execution.
 Every included operation admitted before closure remains joined. A post-closure
 operation does not invoke Pi and does not create a route-contract refusal. Slate
-freezes completed facts once after that settlement. All terminal callers share
-one finalization outcome.
+freezes completed facts once after that settlement. The check before settlement
+decides only retry and recovery. Slate records terminal assistant failures as
+they occur, even when Pi later removes a turn from its projected history. A Pi
+retry replaces its own failed attempt when a new assistant response arrives.
+A cancelled retry without a new response keeps that failure. A successful
+overflow continuation replaces only its own failed attempt. Successful logical
+recovery replaces the original failed attempt and the exhausted recovery routes
+in the same chain. Failed included turns outside that chain and command errors
+remain failures when a later turn succeeds. All terminal callers share one
+finalization outcome.
 
-After freeze, Slate classifies the outcome, compresses the bounded record or
-builds its bounded fallback, writes episode bytes, saves the state reference,
-and only then emits worker shutdown and disposes the session. Manager teardown
-starts or joins finalization from outside the pre-finalization worker execution.
+After freeze, Slate classifies the outcome and saves the worker route provider
+preference only when the final outcome is ok. Slate then compresses the bounded
+record or builds its bounded fallback. Slate writes episode bytes and saves the
+state reference before worker shutdown and disposal. Manager teardown starts
+or joins finalization from outside the pre-finalization worker execution.
 It awaits the whole sequence without making that execution wait for its own
 finalization. Episode write, final state save, shutdown, and disposal each run at
 most once for that outcome. Independent failures remain visible. Compression

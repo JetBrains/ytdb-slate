@@ -341,6 +341,13 @@ type MatrixScenario =
 	| "startup-caller-cancel-no-fact"
 	| "startup-caller-cancel-fact-and-failure"
 	| "startup-assistant-then-command-error"
+	| "startup-unawaited-then-command-error"
+	| "startup-unawaited-then-ordinary-success"
+	| "included-command-error"
+	| "deferred-command-error"
+	| "ordinary-reply-then-command-error"
+	| "included-retry-success"
+	| "included-rejected-call"
 	| "startup-assistant-then-ordinary-success"
 	| "compaction-then-cancel"
 	| "recovery-compaction-refusal";
@@ -366,6 +373,13 @@ interface MatrixState {
 	/** Event barriers that hold the ordinary response after startup completes. */
 	ordinaryRequestEntered?: () => void;
 	ordinaryRequestGate?: Promise<void>;
+	startupReplyEntered?: () => void;
+	startupReplyGate?: Promise<void>;
+	commandRan?: boolean;
+	includedScheduled?: boolean;
+	rejectedSubmitted?: boolean;
+	resolveOrdinaryReply?: () => void;
+	ordinaryInputStarted?: boolean;
 	/** Event barriers for the continuation that follows a successful history rewrite. */
 	postCompactionEntered?: () => void;
 	postCompactionGate?: Promise<void>;
@@ -469,6 +483,7 @@ function matrixProvider(state: MatrixState, provider: string, id: string) {
 		}
 		let kind: "tool" | "error" | "overflow" | "text" | "summary" = summarizing ? "summary" : "text";
 		if (!summarizing && state.scenario === "recovery-effort" && provider === "matrix-primary") kind = "error";
+		if (!summarizing && state.scenario === "included-retry-success" && provider === "matrix-primary" && state.primaryCalls === 2) kind = "error";
 		if (!summarizing && state.scenario === "recovery-compaction-refusal") {
 			// The primary route exhausts its retries. The accepted fallback answers once,
 			// and its follow-up request overflows the window, so Pi starts compaction.
@@ -491,7 +506,7 @@ function matrixProvider(state: MatrixState, provider: string, id: string) {
 		}
 		const responseText = summarizing
 			? summaryKind === "turn-prefix" ? "matrix turn prefix summary" : "matrix history summary"
-			: !summarizing && state.scenario === "startup-assistant-then-ordinary-success" && provider === "matrix-primary"
+			: !summarizing && (state.scenario === "startup-assistant-then-ordinary-success" || state.scenario === "startup-unawaited-then-ordinary-success") && provider === "matrix-primary"
 				? state.primaryCalls === 1 ? "startup completed fact" : "ordinary action success"
 				: undefined;
 		const output = matrixMessage(requestModel, kind, responseText);
@@ -501,10 +516,13 @@ function matrixProvider(state: MatrixState, provider: string, id: string) {
 			events.push({ type: "done", reason: output.stopReason, message: output } as never);
 			events.end();
 		};
-		if (!summarizing && state.scenario === "startup-teardown-completed-tool" && provider === "matrix-primary" && state.primaryCalls === 2) {
+		if (!summarizing && (state.scenario === "startup-unawaited-then-command-error" || state.scenario === "startup-unawaited-then-ordinary-success") && provider === "matrix-primary" && state.primaryCalls === 1) {
+			state.startupReplyEntered?.();
+			void state.startupReplyGate?.then(() => queueMicrotask(publish));
+		} else if (!summarizing && state.scenario === "startup-teardown-completed-tool" && provider === "matrix-primary" && state.primaryCalls === 2) {
 			state.secondRequestEntered?.();
 			void state.secondRequestGate?.then(() => queueMicrotask(publish));
-		} else if (!summarizing && state.scenario === "startup-assistant-then-ordinary-success" && provider === "matrix-primary" && state.primaryCalls === 2) {
+		} else if (!summarizing && (state.scenario === "startup-assistant-then-ordinary-success" || state.scenario === "startup-unawaited-then-ordinary-success") && provider === "matrix-primary" && state.primaryCalls === 2) {
 			state.ordinaryRequestEntered?.();
 			void state.ordinaryRequestGate?.then(() => queueMicrotask(publish));
 		} else if (!summarizing && state.scenario === "compaction-then-cancel" && provider === "matrix-primary" && state.primaryCalls >= 4) {
@@ -671,7 +689,7 @@ async function runWorkerRequestMatrixScenario(scenario: MatrixScenario) {
 	mkdirSync(agent, { recursive: true });
 	mkdirSync(home, { recursive: true });
 	const settings = {
-		retry: { enabled: true, maxRetries: scenario === "recovery-effort" || scenario === "recovery-compaction-refusal" ? 1 : 0, baseDelayMs: 0 },
+		retry: { enabled: true, maxRetries: scenario === "recovery-effort" || scenario === "recovery-compaction-refusal" || scenario === "included-retry-success" ? 1 : 0, baseDelayMs: 0 },
 		compaction: scenario === "compaction" || scenario === "compaction-refusal" || scenario === "recovery-compaction-refusal" || scenario === "compaction-then-cancel"
 			? { enabled: true, reserveTokens: 50, keepRecentTokens: 20 }
 			: { enabled: false },
@@ -686,6 +704,8 @@ async function runWorkerRequestMatrixScenario(scenario: MatrixScenario) {
 	const startupToolEventGate = deferred();
 	const ordinaryRequestEntered = deferred();
 	const ordinaryRequestGate = deferred();
+	const startupReplyEntered = deferred();
+	const startupReplyGate = deferred();
 	const postCompactionEntered = deferred();
 	const postCompactionGate = deferred();
 	const cancelController = new AbortController();
@@ -717,7 +737,14 @@ async function runWorkerRequestMatrixScenario(scenario: MatrixScenario) {
 				startupToolEventGate: startupToolEventGate.promise,
 			} : {}),
 		} : {}),
-		...(scenario === "startup-assistant-then-ordinary-success" ? {
+		...(scenario === "included-command-error" || scenario === "deferred-command-error" || scenario === "ordinary-reply-then-command-error" ? { commandRan: false } : {}),
+		...(scenario === "startup-unawaited-then-command-error" || scenario === "startup-unawaited-then-ordinary-success" ? {
+			startupReplyEntered: startupReplyEntered.resolve,
+			startupReplyGate: startupReplyGate.promise,
+			commandRan: false,
+			ordinaryInputStarted: false,
+		} : {}),
+		...(scenario === "startup-assistant-then-ordinary-success" || scenario === "startup-unawaited-then-ordinary-success" ? {
 			ordinaryRequestEntered: ordinaryRequestEntered.resolve,
 			ordinaryRequestGate: ordinaryRequestGate.promise,
 		} : {}),
@@ -742,16 +769,28 @@ async function runWorkerRequestMatrixScenario(scenario: MatrixScenario) {
 import type { ExtensionAPI } from ${JSON.stringify("@earendil-works/pi-coding-agent")};
 const state = (globalThis as any)[Symbol.for(${JSON.stringify(stateKey)})];
 export default function (pi: ExtensionAPI) {
+  pi.on("input", (event) => {
+    if (state.scenario === "startup-unawaited-then-ordinary-success" && event.source === "interactive") state.ordinaryInputStarted = true;
+  });
   pi.on("session_before_compact", (event) => {
     state.compactionEvents.push({ phase: "start", reason: event.reason, willRetry: event.willRetry });
   });
   pi.on("session_compact", (event) => {
     state.compactionEvents.push({ phase: "success", reason: event.reason, willRetry: event.willRetry });
   });
-  if (state.scenario === "startup-assistant-then-command-error") {
+  if (state.scenario === "startup-assistant-then-command-error" || state.scenario === "startup-unawaited-then-command-error" || state.scenario === "included-command-error" || state.scenario === "deferred-command-error" || state.scenario === "ordinary-reply-then-command-error") {
     pi.registerCommand("boom", {
       description: "Throw one attributed command failure.",
-      handler() { throw new Error("matrix command exploded"); },
+      async handler() {
+        state.commandRan = true;
+        if (state.scenario === "ordinary-reply-then-command-error") {
+          await new Promise((resolve) => {
+            state.resolveOrdinaryReply = resolve;
+            pi.sendUserMessage("reply before throwing");
+          });
+        }
+        throw new Error("matrix command exploded");
+      },
     });
   }
   pi.registerTool({
@@ -764,6 +803,10 @@ export default function (pi: ExtensionAPI) {
     },
   });
   pi.on("before_agent_start", async (event, ctx) => {
+    if (state.scenario === "included-rejected-call" && !state.rejectedSubmitted) {
+      state.rejectedSubmitted = true;
+      pi.sendUserMessage("rejected while streaming without deliverAs");
+    }
     if (state.scenario === "preflight-effort") pi.setThinkingLevel("low");
     if (state.scenario === "preflight-model" || state.scenario === "preflight-provider") {
       if (!ctx.model) throw new Error("matrix live model is missing");
@@ -790,6 +833,11 @@ export default function (pi: ExtensionAPI) {
     await new Promise((resolve) => setImmediate(resolve));
   }
   pi.on("session_start", async () => {
+    if (state.scenario === "startup-unawaited-then-command-error" || state.scenario === "startup-unawaited-then-ordinary-success") {
+      pi.setThinkingLevel("max");
+      pi.sendUserMessage("unawaited startup assistant fact");
+      return;
+    }
     if (state.scenario === "startup-assistant-then-command-error" || state.scenario === "startup-assistant-then-ordinary-success") {
       pi.setThinkingLevel("max");
       await settleStartupRun(() => { pi.sendUserMessage("accepted startup assistant fact"); });
@@ -845,6 +893,10 @@ export default function (pi: ExtensionAPI) {
     await state.startupToolEventGate;
   });
   pi.on("agent_settled", () => {
+    if ((state.scenario === "deferred-command-error" || state.scenario === "included-retry-success") && !state.includedScheduled) {
+      state.includedScheduled = true;
+      pi.sendUserMessage(state.scenario === "deferred-command-error" ? "/boom" : "included request with Pi retry", { expandPromptTemplates: true });
+    }
     if (state.scenario !== "startup-teardown-completed-tool") return;
     state.recursiveAttempts += 1;
     pi.sendUserMessage("post-closure recursive request must not reach Pi");
@@ -855,6 +907,14 @@ export default function (pi: ExtensionAPI) {
     throw new Error("independent shutdown cleanup failed");
   });
   pi.on("agent_end", () => {
+    if (state.scenario === "ordinary-reply-then-command-error" && state.resolveOrdinaryReply) {
+      state.resolveOrdinaryReply();
+      state.resolveOrdinaryReply = undefined;
+    }
+    if (state.scenario === "included-command-error" && !state.commandRan) {
+      pi.sendUserMessage("/boom", { expandPromptTemplates: true });
+    }
+    if (state.scenario === "startup-unawaited-then-ordinary-success") state.startupRunEnded = true;
     if (state.scenario === "startup-refusal" || state.scenario === "startup-accepted-then-refused" || state.scenario === "startup-rejected-open" || state.scenario === "startup-assistant-then-command-error" || state.scenario === "startup-assistant-then-ordinary-success") {
       if (state.resolveStartupRun) {
         state.startupRunEnded = true;
@@ -922,9 +982,9 @@ export default function (pi: ExtensionAPI) {
 				model: "matrix",
 				reason: `real Pi ${scenario}`,
 				type: "general",
-				task: scenario === "startup-assistant-then-command-error"
+				task: scenario === "startup-assistant-then-command-error" || scenario === "startup-unawaited-then-command-error" || scenario === "ordinary-reply-then-command-error"
 					? "/boom"
-					: scenario === "startup-assistant-then-ordinary-success"
+					: scenario === "startup-assistant-then-ordinary-success" || scenario === "startup-unawaited-then-ordinary-success"
 						? "ordinary action after startup"
 						: `run ${scenario}`,
 			},
@@ -955,6 +1015,24 @@ export default function (pi: ExtensionAPI) {
 			startupOpenGate.resolve();
 			result = await within(dispatch, `${scenario} production ThreadManager dispatch`, 8_000);
 			await within(teardown, "manager teardown after durable startup retention", 5_000);
+		} else if (scenario === "startup-unawaited-then-command-error") {
+			await within(startupReplyEntered.promise, "unawaited startup provider call", 5_000);
+			await Promise.resolve();
+			assert.equal(state.commandRan, false, "the command cannot start before startup output settles");
+			assert.equal(dispatchSettled, false);
+			startupReplyGate.resolve();
+			result = await within(dispatch, `${scenario} production ThreadManager dispatch`, 8_000);
+			await manager.disposeAll();
+		} else if (scenario === "startup-unawaited-then-ordinary-success") {
+			await within(startupReplyEntered.promise, "unawaited startup provider call before ordinary prompt", 5_000);
+			await new Promise<void>((resolve) => setImmediate(resolve));
+			assert.equal(state.ordinaryInputStarted, false, "the ordinary input must wait for startup output");
+			startupReplyGate.resolve();
+			await within(ordinaryRequestEntered.promise, "the ordinary provider request after startup completion", 5_000);
+			assert.equal(state.startupRunEnded, true);
+			ordinaryRequestGate.resolve();
+			result = await within(dispatch, `${scenario} production ThreadManager dispatch`, 8_000);
+			await manager.disposeAll();
 		} else if (scenario === "startup-assistant-then-ordinary-success") {
 			await within(ordinaryRequestEntered.promise, "the ordinary provider request after startup completion", 5_000);
 			assert.equal(state.startupRunEnded, true, "the startup operation ends before the ordinary provider request starts");
@@ -1080,6 +1158,7 @@ export default function (pi: ExtensionAPI) {
 		startupOpenGate.resolve();
 		startupToolEventGate.resolve();
 		ordinaryRequestGate.resolve();
+		startupReplyGate.resolve();
 		postCompactionGate.resolve();
 		if (manager) await manager.disposeAll();
 		if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
@@ -1266,6 +1345,63 @@ test("production ThreadManager and real Pi workers guard preflight, later-turn, 
 		const restoredEpisode = restored.episodes.get(result.episode.id);
 		assert.equal(restoredEpisode?.status, "ok");
 		assert.equal(restored.threads.get(result.thread.id)?.status, "successful");
+	});
+
+	await t.test("unawaited startup output settles before an ordinary prompt", { timeout: 15_000 }, async () => {
+		const { result, state, episodeBytes } = await runWorkerRequestMatrixScenario("startup-unawaited-then-ordinary-success");
+		assert.equal(state.primaryCalls, 2);
+		assert.equal(result.episode.status, "ok");
+		assert.match(episodeBytes, /startup completed fact/);
+		assert.match(episodeBytes, /ordinary action success/);
+	});
+
+	await t.test("an included command error without a reply fails the real action", { timeout: 15_000 }, async () => {
+		const { result, state } = await runWorkerRequestMatrixScenario("included-command-error");
+		assert.equal(state.commandRan, true);
+		assert.equal(state.primaryCalls, 1);
+		assert.equal(result.episode.status, "failed");
+		assert.match(result.thread.outcomeReason ?? "", /matrix command exploded/);
+	});
+
+	await t.test("a Pi-retried included error recovers without failing the action", { timeout: 15_000 }, async () => {
+		const { result, state } = await runWorkerRequestMatrixScenario("included-retry-success");
+		assert.equal(state.primaryCalls, 3, "ordinary request, included error, and included retry all ran");
+		assert.equal(result.episode.status, "ok");
+		assert.equal(result.thread.outcomeReason, undefined);
+	});
+
+	await t.test("a rejected included message call fails despite a successful ordinary reply", { timeout: 15_000 }, async () => {
+		const { result, state } = await runWorkerRequestMatrixScenario("included-rejected-call");
+		assert.equal(state.rejectedSubmitted, true);
+		assert.equal(state.primaryCalls, 1, "the rejected call starts no extra provider request");
+		assert.equal(result.episode.status, "failed");
+		assert.match(result.thread.outcomeReason ?? "", /included message call failed: Agent is already processing a prompt/);
+	});
+
+	await t.test("a deferred agent_settled command error fails without relying on a warning pattern", { timeout: 15_000 }, async () => {
+		const { result, state } = await runWorkerRequestMatrixScenario("deferred-command-error");
+		assert.equal(state.commandRan, true);
+		assert.equal(state.primaryCalls, 1);
+		assert.equal(result.episode.status, "failed");
+		assert.match(result.thread.outcomeReason ?? "", /matrix command exploded/);
+	});
+
+	await t.test("an ordinary command that replies before throwing fails the action", { timeout: 15_000 }, async () => {
+		const { result, state } = await runWorkerRequestMatrixScenario("ordinary-reply-then-command-error");
+		assert.equal(state.commandRan, true);
+		assert.equal(state.primaryCalls, 1, "the command produced one provider reply before it threw");
+		assert.equal(result.episode.status, "failed");
+		assert.match(result.thread.outcomeReason ?? "", /matrix command exploded/);
+	});
+
+	await t.test("unawaited startup output settles before a failing no-response command", { timeout: 15_000 }, async () => {
+		const { result, state, episodeBytes } = await runWorkerRequestMatrixScenario("startup-unawaited-then-command-error");
+		assert.equal(state.commandRan, true);
+		assert.equal(state.primaryCalls, 1);
+		assert.equal(result.episode.status, "failed");
+		assert.match(result.thread.outcomeReason ?? "", /worker produced no assistant message/);
+		assert.match(episodeBytes, /matrix done/);
+		assert.match(episodeBytes, /STATUS: FAILED/);
 	});
 
 	await t.test("startup assistant output cannot turn a throwing no-response slash command into success", { timeout: 15_000 }, async () => {

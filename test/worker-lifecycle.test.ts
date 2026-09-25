@@ -228,6 +228,9 @@ export default function (pi) {
     await operationEntered;
     assert.equal(session.activeManagedOperationCount(), 1, "only the held operation remains active");
 
+    let abortCalls = 0;
+    const originalAbort = session.abort.bind(session);
+    session.abort = async () => { abortCalls++; await originalAbort(); };
     let settlementFinished = false;
     const settlement = session.settleManagedOperations().then(() => { settlementFinished = true; });
     await Promise.resolve();
@@ -240,8 +243,110 @@ export default function (pi) {
     release();
     await held;
     await settlement;
+    assert.equal(abortCalls, 1, "settlement requests the real Pi abort before it finishes");
     assert.equal(session.activeManagedOperationCount(), 0);
     await session.shutdownWorker();
+  });
+});
+
+test("startup waits for an unawaited admitted message call and cancellation joins the wait", { timeout: 10000 }, async (t) => {
+  await isolatedWorkerTest(t, async (root) => {
+    const path = fixture(root, `export default function (pi) {
+  pi.on("session_start", () => { pi.sendUserMessage("unawaited startup turn"); });
+}`);
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => { entered = resolve; });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let created!: WorkerSession;
+    const opening = openWorkerSession({
+      ctx: context(root), extensionPaths: [path],
+      onCreated(session) {
+        created = session;
+        session.prompt = async () => { entered(); await gate; };
+        const abort = session.abort.bind(session);
+        session.abort = async () => { release(); await abort(); };
+      },
+    });
+    try {
+      await started;
+      let returned = false;
+      void opening.then(() => { returned = true; }, () => { returned = true; });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal(returned, false, "startup may not return while its unawaited call runs");
+      assert.equal(created.activeManagedOperationCount(), 1, "the admitted startup call remains live behind the gate");
+      created.closeManagedOperations();
+      await created.settleManagedOperations();
+      assert.equal(returned, true, "abort releases the waiting startup call");
+      const session = await opening;
+      assert.equal(session.activeManagedOperationCount(), 0);
+      await session.shutdownWorker();
+    } finally {
+      release();
+      await created.shutdownWorker();
+    }
+  });
+});
+
+test("startup drains a message call admitted by a completed startup call", { timeout: 10000 }, async (t) => {
+  await isolatedWorkerTest(t, async (root) => {
+    const path = fixture(root, `export default function (pi) {
+  pi.on("session_start", () => { pi.sendUserMessage("first startup call"); });
+  pi.on("agent_end", () => { pi.sendUserMessage("chained startup call"); });
+}`);
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    let releaseSecond!: () => void;
+    const secondGate = new Promise<void>((resolve) => { releaseSecond = resolve; });
+    let secondEntered!: () => void;
+    const chained = new Promise<void>((resolve) => { secondEntered = resolve; });
+    let created!: WorkerSession;
+    let prompts = 0;
+    const opening = openWorkerSession({
+      ctx: context(root), extensionPaths: [path],
+      onCreated(session) {
+        created = session;
+        // The first idle observation admits a further call through agent_end.
+        // A single snapshot cannot include that call before Pi announces idle.
+        let notified = false;
+        session.waitForIdle = async () => {
+          if (!notified) {
+            notified = true;
+            await session.extensionRunner.emit({ type: "agent_end", messages: [] });
+          }
+        };
+        session.prompt = async () => {
+          prompts++;
+          if (prompts === 1) {
+            await firstGate;
+          } else {
+            secondEntered();
+            await secondGate;
+          }
+        };
+        const abort = session.abort.bind(session);
+        session.abort = async () => { releaseFirst(); releaseSecond(); await abort(); };
+      },
+    });
+    try {
+      releaseFirst();
+      await chained;
+      assert.equal(prompts, 2, "agent_end admitted a further startup call");
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal(created.activeManagedOperationCount(), 1, "the chained call stays active");
+      let opened = false;
+      void opening.then(() => { opened = true; }, () => { opened = true; });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal(opened, false, "opening waits for the chained operation");
+      releaseSecond();
+      const session = await opening;
+      assert.equal(session.activeManagedOperationCount(), 0);
+      await session.shutdownWorker();
+    } finally {
+      releaseFirst();
+      releaseSecond();
+      await created.shutdownWorker();
+    }
   });
 });
 

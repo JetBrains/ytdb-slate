@@ -698,12 +698,19 @@ export class ThreadManager {
 			reportedRefusal === undefined;
 		let completedWorkerText: string | undefined;
 		let latestAssistant: WorkerAssistantMsg | undefined;
+		// Keep observed errors outside Pi's projected history. A retry or a successful
+		// overflow continuation supersedes only the attempt it actually replaces.
+		const terminalCandidates: WorkerAssistantMsg[] = [];
+		let overflowContinuation: WorkerAssistantMsg | undefined;
+		let retryingCandidate: WorkerAssistantMsg | undefined;
 		let captureExecutionReports = false;
 		let executionReport: string | undefined;
 		const completedFacts = createCompletedFactRecorder();
 		let frozenCompletedFacts: FrozenCompletedFacts | undefined;
 		let status: "ok" | "failed" = "ok";
 		let diagnostics: string | undefined;
+		let ordinarySucceededBeforeSettlement = false;
+		let settlementRefusal: string | undefined;
 		/** The selected logical route. It changes only after proved physical exhaustion. */
 		let logicalRoute = initialRoute;
 		let lastExecution: { model: { provider: string; id: string }; effort: LogicalModelEffort } | undefined;
@@ -742,12 +749,10 @@ export class ThreadManager {
 			}
 			return reportedRefusal;
 		};
-		// AF3: status/diagnostics derive from the FINAL assistant message of this
-		// action after prompt() settles — not from a sticky message_end flag. This
-		// fixes a latent bug: pi retries transient provider errors internally and
-		// strips the recovered errored attempts from session.messages, so an
-		// errored message_end mid-run does NOT mean the action failed. Thrown
-		// prompt() exceptions and orchestrator aborts still mean failed.
+		// The early check uses the final assistant after prompt settles to decide
+		// recovery. Pi strips recovered transient errors from session.messages.
+		// Terminal failures retained from included work take precedence at freeze.
+		// Thrown prompts and orchestrator aborts also fail the action.
 		const deriveOutcome = (thrown?: { error: unknown }) => {
 			const final = latestAssistant ?? lastAssistantMessage(session ? session.messages.slice(messagesBefore) : []);
 			if (signal?.aborted) {
@@ -785,8 +790,18 @@ export class ThreadManager {
 			} else if (event.type === "tool_execution_end") {
 				const tool = event as unknown as { toolName: string; result: unknown; isError: boolean };
 				completedFacts.addTool(tool.toolName, tool.result, tool.isError);
+			} else if (event.type === "auto_retry_start") {
+				// Keep the failed attempt until another assistant response actually replaces it.
+				// Pi can cancel during backoff without producing a replacement message.
+				retryingCandidate = terminalCandidates.at(-1) === latestAssistant ? latestAssistant : undefined;
+			} else if (event.type === "auto_retry_end") {
+				retryingCandidate = undefined;
 			} else if (event.type === "compaction_end") {
 				if (event.result !== undefined && event.aborted !== true) actionCompacted = true;
+				if (event.reason === "overflow" && event.willRetry === true && event.result !== undefined &&
+					terminalCandidates.at(-1) === latestAssistant) {
+					overflowContinuation = latestAssistant;
+				}
 				if (seenCompactionEvents.has(event)) return;
 				seenCompactionEvents.add(event);
 				const compactionEvent = event as unknown as {
@@ -798,6 +813,17 @@ export class ThreadManager {
 				const msg = (event as unknown as { message: WorkerAssistantMsg }).message;
 				if (msg.role !== "assistant") return;
 				latestAssistant = msg;
+				if (retryingCandidate !== undefined && retryingCandidate !== msg) {
+					const replaced = terminalCandidates.indexOf(retryingCandidate);
+					if (replaced !== -1) terminalCandidates.splice(replaced, 1);
+					retryingCandidate = undefined;
+				}
+				if (overflowContinuation !== undefined) {
+					const replaced = terminalCandidates.indexOf(overflowContinuation);
+					if (replaced !== -1) terminalCandidates.splice(replaced, 1);
+					overflowContinuation = undefined;
+				}
+				if (msg.stopReason === "error" || msg.stopReason === "aborted") terminalCandidates.push(msg);
 				const emittedText = completedFacts.addAssistant(msg.content, msg.stopReason);
 				if (/\S/u.test(emittedText)) completedWorkerText = emittedText;
 				usage.turns++;
@@ -900,6 +926,10 @@ export class ThreadManager {
 			// classify the ordinary task or a slash command that returns no response.
 			latestAssistant = undefined;
 			executionReport = undefined;
+			terminalCandidates.length = 0;
+			overflowContinuation = undefined;
+			retryingCandidate = undefined;
+			session.resetIncludedOperationFailure?.();
 			// Test doubles that bypass openWorkerFor's callback still receive capture.
 			if (unsubscribe === undefined) unsubscribe = session.subscribe(observeWorkerEvent);
 
@@ -952,10 +982,10 @@ export class ThreadManager {
 						aborted: isAborted(),
 						contextWindow: recoverySession.model?.contextWindow,
 					});
-			if (initialAttempt.kind === "success") {
-				this.logicalRuntime.publishProvider(admission, logicalRoute.logicalModel, logicalRoute.provider);
-			} else if (initialAttempt.kind === "retry-exhausted") {
+			if (initialAttempt.kind === "retry-exhausted") {
 				const retainedToolResults = recoverySession.messages.slice(messagesBefore).filter((message) => (message as { role?: unknown }).role === "toolResult");
+				const recoveryAttempts = new Set<WorkerAssistantMsg>();
+				if (outcome.final !== undefined) recoveryAttempts.add(outcome.final);
 				const recovery = await executeRecovery({
 					candidates: this.logicalRuntime.planOrdinary(logicalRoute.logicalModel, admission.snapshot, logicalRoute),
 					retainedToolResults,
@@ -987,32 +1017,41 @@ export class ThreadManager {
 						lastExecution = requestContract.latestAccepted();
 						const retryOutcome = deriveOutcome(retryThrow);
 						outcome = retryOutcome;
+						// Recovery may replace failures in its ordinary attempt chain, not
+						// other included turns. Wait for proved recovery success below.
 						// A refused recovery request, including a refused compaction inside
 						// this prompt, ends the operation. No further candidate may replace it.
 						const refusedRecovery = captureRefusal();
 						if (refusedRecovery !== undefined) return { kind: "terminal-fault" as const, reason: refusedRecovery };
 						if (retryThrow !== undefined && !isAborted()) return { kind: "unknown" as const, reason: "The recovery prompt threw without cancellation evidence." };
-						return retryEvidence.classify({
+						const classified = retryEvidence.classify({
 							final: retryOutcome.final,
 							value: retryOutcome.final,
 							actualEffort: recoveryApplied.effort,
 							aborted: isAborted(),
 							contextWindow: recoverySession.model?.contextWindow,
 						});
+						if (classified.kind === "retry-exhausted" && retryOutcome.final !== undefined) recoveryAttempts.add(retryOutcome.final);
+						return classified;
 					},
 				});
 				if (recovery.kind === "success") {
+					// Every exhausted route is one attempt in this ordinary recovery chain.
+					// Leave failures from other included work in their observed order.
+					for (const recoveredAttempt of recoveryAttempts) {
+						const replaced = terminalCandidates.indexOf(recoveredAttempt);
+						if (replaced !== -1) terminalCandidates.splice(replaced, 1);
+					}
 					logicalRoute = recovery.candidate;
 					status = "ok";
 					diagnostics = undefined;
-					this.logicalRuntime.publishProvider(admission, recovery.candidate.logicalModel, recovery.candidate.provider);
 				} else {
 					status = "failed";
 					diagnostics = recovery.kind === "unknown" || recovery.kind === "terminal-fault"
 						? recovery.reason
 						: recovery.kind === "cancelled" ? "logical recovery was cancelled" : "all permitted logical recovery routes were exhausted";
 				}
-			} else {
+			} else if (initialAttempt.kind !== "success") {
 				status = "failed";
 				diagnostics = initialAttempt.kind === "unknown"
 					? initialAttempt.reason
@@ -1055,21 +1094,39 @@ export class ThreadManager {
 				if (session === undefined) session = startupSession;
 			}
 		} finally {
-			captureExecutionReports = false;
+			ordinarySucceededBeforeSettlement = workerCallStarted && status === "ok";
 			const ownedSession = session ?? startupSession;
 			requestContract.invalidate();
 			ownedSession?.closeManagedOperations?.();
 			await ownedSession?.settleManagedOperations?.();
 			if (session === undefined) session = startupSession;
 			if (lastExecution === undefined) lastExecution = requestContract.latestAccepted();
-			const settledRefusal = captureRefusal();
-			if (settledRefusal !== undefined) {
+			settlementRefusal = captureRefusal();
+			if (settlementRefusal !== undefined) {
 				status = "failed";
-				diagnostics = diagnostics === undefined || diagnostics.includes(settledRefusal)
-					? diagnostics ?? settledRefusal
-					: `${diagnostics}; ${settledRefusal}`;
+				diagnostics = diagnostics === undefined || diagnostics.includes(settlementRefusal)
+					? diagnostics ?? settlementRefusal
+					: `${diagnostics}; ${settlementRefusal}`;
 			}
 			frozenCompletedFacts = completedFacts.freeze();
+			// Only the settled, frozen action gets a stored outcome. The early
+			// outcome above decides retry and recovery, not durable success.
+			if (workerCallStarted && status === "ok") {
+				const terminal = terminalCandidates[0];
+				const failure = ownedSession?.includedOperationFailure?.() ??
+					(terminal?.errorMessage ?? (terminal ? `worker stopReason: ${terminal.stopReason}` : undefined));
+				if (failure !== undefined) {
+					status = "failed";
+					diagnostics = failure;
+				} else {
+					const settled = deriveOutcome();
+					if (settled.status === "failed") {
+						status = "failed";
+						diagnostics = settled.diagnostics;
+					}
+				}
+			}
+			captureExecutionReports = false;
 			unsubscribe?.();
 			if (onAbort) signal?.removeEventListener("abort", onAbort);
 		}
@@ -1105,7 +1162,8 @@ export class ThreadManager {
 		if (cancelledAction && frozenCompletedFacts?.hasFacts) {
 			status = "failed";
 			if (cancelledDuringStartup) diagnostics = cancellationReason();
-			else diagnostics ??= signal?.aborted === true ? "cancelled by the caller" : "cancelled during session teardown";
+			else if (ordinarySucceededBeforeSettlement && settlementRefusal === undefined) diagnostics = cancellationReason();
+			else diagnostics ??= cancellationReason();
 		}
 		if (cancelledAction && !frozenCompletedFacts?.hasFacts) {
 			const reason = cancelledDuringStartup ? cancellationReason() : signal?.aborted === true ? "cancelled by the caller" : "cancelled during session teardown";
@@ -1126,6 +1184,9 @@ export class ThreadManager {
 			throw new Error(appendLifecycleWarnings(`Thread ${thread.id} was ${reason}. No episode was recorded.`));
 		}
 
+		if (status === "ok" && admission && logicalRoute) {
+			this.logicalRuntime!.publishProvider(admission, logicalRoute.logicalModel, logicalRoute.provider);
+		}
 		const actionMessages = session ? session.messages.slice(messagesBefore) : [];
 		if (workerReminderDeliveryMissing(
 			actionMessages,
