@@ -331,9 +331,9 @@ You orchestrate thread weaving. You strategize; workers execute. Rules:
    REVIEWER-ONLY or no-area tracks need no track acceptance.
    Final acceptance always blocks.
    ${rule8Tail}${routingRecommendationTail}
-9. Before dispatching review threads, read ${REVIEW_RULES_DOC} and follow it.
-   For no-area model choice, follow Lifecycle. Skip the read when that file is
-   already in your context.${rule9Tail}${followUpTail}
+9. Before review dispatch, follow ${REVIEW_RULES_DOC}. Read unless in context.
+   Implementation review: pass built-in perspectives and data.
+   No-area model choice follows Lifecycle.${rule9Tail}${followUpTail}
 10. Design rationale: ${DESIGN_PRINCIPLES_DOC}. Read it only to explain or change
    slate, or for an unusual routing or compaction decision.
    Never read it for routine dispatching. Skip the read if it is already in your context.${changePaths}${earlierLogs}${legacyPath}${numberedTail([

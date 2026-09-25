@@ -138,6 +138,10 @@ export function workerPreamble(trusted: boolean, reviewerCharter: boolean): stri
 	return reviewerCharter === true ? `${prose}\n${REVIEWER_CHARTER}` : prose;
 }
 
+export function workerSystemPromptBlocks(trusted: boolean, reviewerCharter: boolean, reviewGuidance: string | undefined, promptDocs: string[]): string[] {
+	return [workerPreamble(trusted, reviewerCharter), ...(reviewGuidance === undefined ? [] : [reviewGuidance]), ...promptDocs];
+}
+
 export function threadsDir(cwd: string, runtimeFolder = defaultArtifactFolder()): string {
 	return resolve(cwd, CONFIG_DIR_NAME, "slate", runtimeFolder, "threads");
 }
@@ -429,6 +433,7 @@ export async function openWorkerSession(opts: {
 	extensionPaths?: string[]; // absolute worker-extension load units (package dirs or entry files); default none
 	extensionToolNames?: string[]; // host-selected names, including tools registered during host session_start
 	reviewerCharter?: boolean; // thread-role decision from ThreadManager; only literal true enables the charter
+	reviewGuidance?: string; // complete selected implementation instructions, loaded before thread creation
 	promptCacheKey?: string; // the main session's shared OpenAI Responses cache-routing key
 	requestThrottle?: RequestThrottle; // the main session's shared per-model request throttle
 	requestContract?: WorkerRequestContract; // action-local expected pair and accepted attribution
@@ -516,7 +521,7 @@ export async function openWorkerSession(opts: {
 		noThemes: true,
 		// Writing guidance follows permitted Slate settings. The reviewer
 		// charter is not trust-gated because it is slate's own constant.
-		appendSystemPrompt: [workerPreamble(configPermitted, opts.reviewerCharter === true), ...promptDocs],
+		appendSystemPrompt: workerSystemPromptBlocks(configPermitted, opts.reviewerCharter === true, opts.reviewGuidance, promptDocs),
 	});
 	await loader.reload();
 	const loaded = loader.getExtensions();

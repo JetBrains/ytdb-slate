@@ -49,6 +49,7 @@ interface RegisteredThreadTool {
   parameters: {
     properties: {
       type: { description: string };
+      reviewPerspectives: { description: string; items: { type: string; description: string } };
     };
   };
   execute(
@@ -106,11 +107,18 @@ test("thread tool enforces the creation type and publishes the closed vocabulary
   assert.equal(routeProperties.effort, undefined);
   assert.equal(routeProperties.reason?.type, "string");
   assert.equal(routeProperties.reason?.maxLength, 200);
+  assert.match(tool.parameters.properties.reviewPerspectives.description, /implementation review only/);
+  assert.equal(tool.parameters.properties.reviewPerspectives.items.type, "string");
+  assert.equal(tool.parameters.properties.reviewPerspectives.items.description, `Names: ${[
+    "Reviewer I", "Concurrency reviewer", "Data loss and recovery reviewer", "Security reviewer",
+    "Performance reviewer", "Test-quality and structure reviewer", "Prose reviewer", "Licensing reviewer",
+    "Non-local logic defect reviewer", "Consumer contract break reviewer", "Governing-rule defect reviewer", "Unreported failure reviewer",
+  ].join(", ")}`);
   assert.equal(descriptionBytes, 973, "thread description byte budget changed; update docs/context-budget.md in the same commit");
-  assert.equal(parameterSchemaBytes, 1_324, "thread parameter schema byte budget changed; update docs/context-budget.md in the same commit");
+  assert.equal(parameterSchemaBytes, 1_921, "thread parameter schema byte budget changed; update docs/context-budget.md in the same commit");
   assert.equal(
     descriptionBytes + parameterSchemaBytes,
-    2_297,
+    2_894,
     "thread combined byte budget changed; update docs/context-budget.md in the same commit",
   );
 
@@ -127,6 +135,8 @@ test("thread tool enforces the creation type and publishes the closed vocabulary
     await tool.execute(type, { ...TEST_ROUTE, task: `create ${type}`, type }, undefined, undefined, ctx);
   }
   assert.deepEqual(calls.map((call) => call.type), [...THREAD_TYPES]);
+  await tool.execute("selected", { ...TEST_ROUTE, task: "review", type: "reviewer", reviewPerspectives: ["Security reviewer"] }, undefined, undefined, ctx);
+  assert.deepEqual(calls.at(-1)?.reviewPerspectives, ["Security reviewer"]);
 });
 
 test("thread tool returns a failed episode with failed status", async () => {

@@ -78,6 +78,7 @@ const writingLoad = await tryImport("extension/writing.ts");
 const reminderLoad = await tryImport("extension/writing-reminder.ts");
 const handoffLoad = await tryImport("extension/handoff.ts");
 const workerLoad = await tryImport("extension/worker.ts");
+const reviewPerspectivesLoad = await tryImport("extension/review-perspectives.ts");
 const workerReminderLoad = await tryImport("extension/worker-reminder.ts");
 const logicalDefinitionsLoad = await tryImport("extension/logical-model-definitions.ts");
 const logicalResolverLoad = await tryImport("extension/logical-model-resolver.ts");
@@ -95,6 +96,7 @@ const writing = writingLoad.module;
 const reminder = reminderLoad.module;
 const handoff = handoffLoad.module;
 const worker = workerLoad.module;
+const reviewPerspectives = reviewPerspectivesLoad.module;
 const workerReminder = workerReminderLoad.module;
 const logicalDefinitions = logicalDefinitionsLoad.module;
 const logicalResolver = logicalResolverLoad.module;
@@ -360,6 +362,9 @@ const DOCTRINE_CONTRACT_IDS = [
 	"contract-escalation-routing",
 	"contract-requirement-investigation",
 	"contract-test-composite",
+	"contract-review-structure",
+	"contract-review-agreement",
+	"contract-review-sizes",
 	"contract-delivery-packages",
 	"contract-review-charters",
 	"contract-size-review-copies",
@@ -3210,146 +3215,109 @@ verbatim retention of every tool result.`);
 				["benign text before and after each terminal unit changes neither unit", investigationBenign.every(({ unit, expected }) => unit.count === 1 && unit.text === expected), investigationBenign],
 			]);
 
-			const composite = reviews.match(/^### Test-quality and structure reviewer\n([\s\S]*?)(?=^### Prose reviewer)/m)?.[1] ?? "";
-			const behavioral = composite.match(/^#### Behavioral effectiveness\n([\s\S]*?)(?=^#### Structure and isolation)/m)?.[1] ?? "";
-			const structural = composite.match(/^#### Structure and isolation\n([\s\S]*)/m)?.[1] ?? "";
+			const tqFile = join(REPO, "docs", "review-perspectives", "tq.md");
+			const composite = existsSync(tqFile) ? readFileSync(tqFile, "utf8") : "";
+			const behavioral = composite.match(/^\*\*Behavioral effectiveness\*\*\n([\s\S]*?)(?=^\*\*Structure and isolation\*\*)/m)?.[1] ?? "";
+			const structural = composite.match(/^\*\*Structure and isolation\*\*\n([\s\S]*)/m)?.[1] ?? "";
 			const behaviorTerms = ["test locations", "behavior or regression", "minimum production path", "branches and failure paths", "assertion and observable outcome", "mock or stub", "behavior-breaking counterfactual", "tests run and results", "coverage gaps", "absent, constant, tautological, or unrelated assertions", "Coverage is not evidence by itself"];
 			const structureTerms = ["fixture, snapshot, and golden-data", "shared state", "setup and cleanup", "resource lifecycle", "order dependence", "isolation and parallel safety", "mock and stub ownership and reset", "test-to-production integration", "coverage gaps"];
-			checkAll("contract-test-composite", "the composite reviewer has both mandatory final-response sections and every behavioral and structure evidence field", [
+			checkAll("contract-test-composite", "the shipped test charter keeps both mandatory response sections and every evidence field", [
 				["behavioral section complete", behavioral !== "" && behaviorTerms.every((term) => behavioral.includes(term)), behaviorTerms.filter((term) => !behavioral.includes(term))],
 				["structure section complete", structural !== "" && structureTerms.every((term) => structural.includes(term)), structureTerms.filter((term) => !structural.includes(term))],
 				["not-applicable requires artifact reason", /not applicable only with an artifact-specific\s+reason/.test(composite), composite.slice(0, 500)],
 				["missing either is incomplete even with No findings", /Missing either section makes the review incomplete/.test(composite) && /No findings\./.test(composite), composite.slice(0, 500)],
-				["read-only with no episode or proof", /receives no implementer episode or area proof[\s\S]*?read-only/.test(composite), composite.slice(0, 500)],
+				["read-only with no episode or proof", /Receive no implementer episode or area proof[\s\S]*?Remain read-only/.test(composite), composite.slice(0, 500)],
 			]);
 
-			const reviewerICharter = reviews.match(/^\*\*Reviewer I\*\*[\s\S]*?(?=^\| track)/m)?.[0] ?? "";
+			const reviewerICharter = readFileSync(join(REPO, "docs", "review-perspectives", "ri.md"), "utf8");
 			const reviewRows = [...reviews.matchAll(/^\| (?:one or more proved areas|no proved area, more than 100 counted lines, not documentation-only|no proved area, at most 100 counted lines or documentation-only) \| (.+) \|$/gm)].map((match) => match[1]);
-			const productionCharters = reviews.match(/^### Production area charters\n([\s\S]*?)(?=^### Test-quality and structure reviewer)/m)?.[1]?.trim() ?? "";
-			const expectedProductionCharters = `- **concurrency:** interleavings, shared state, atomicity, cancellation,
-  ordering, lifecycle, and deadlock.
-- **data loss and recovery:** persistence, migration, corruption, retry,
-  recovery, and transactional guarantees.
-- **security:** trust boundaries, authentication, authorization, secrets,
-  untrusted input, sandboxing, and user-data exposure.
-- **performance:** asymptotic growth, hot paths, input/output, allocation,
-  synchronization, caching, batching, and benchmark evidence.
-
-#### Non-local logic defect reviewer
-
-The code reviewer is read-only and reports inside this area only. Prefix \`NL\`.
-
-The non-local logic defect area owns an agreement between places that an
-execution reads. The governing-rule defect area owns agreement between rule
-documents.
-
-1. List every fact outside the changed lines that the correctness verdict
-   depends on. For each fact, state where it lives and how you checked it.
-2. Name each rule that two or more places must apply in the same way. List every
-   place that must apply it. Check each place against the rule.
-3. Name each state or history that an earlier execution can leave. Cover a
-   first run, a repeat run, an interrupted run and a restart.
-4. Name each pair or group of conditions that must hold at the same time to
-   reach the forbidden result. Check that each combination is intended.
-5. Name each matching edit that the change owes to a place it does not touch.
-   Report a missing matching edit as a defect.
-6. Check the order of effects inside one execution when a place outside the
-   change can observe that order.
-7. Check that the implemented decisions agree with the stated intent of the
-   track.
-8. Check error and failure paths that cross the agreements above.
-
-
-#### Consumer contract break reviewer
-
-The code reviewer is read-only and reports inside this area only. Prefix \`CB\`.
-
-1. List every consumer-reachable surface the change touches: an exported name, a command argument or option, an exit status, a machine-readable output shape, a configuration key together with the value used when that key is absent, a written or read record, and a shipped statement about accepted input or produced output.
-2. For each listed surface, state what an unchanged consumer gets from the review base and what it gets from the candidate. Name the concrete invocation, configuration file or stored record that you used as the example.
-3. Check every default that the change adds, moves or withdraws. Report a default whose candidate value changes the result for a consumer that set nothing in the review base.
-4. Check the records the change writes or reads in both directions: a record written by the review base and read by the candidate, and a record written by the candidate and read by the review base.
-5. Report every withdrawal, rename or narrowing that ships no route for the base use. State which route exists, from an accepted base form, a default, an alias, a reserved identifier, a reader for the base format or a warning window, and state whether the change shows that the route works.
-6. Check that shipped documents state the same accepted input, produced output, exit statuses and defaults as the code. Report a newly published surface that ships with no statement of which parts a consumer may rely on.
-
-#### Governing-rule defect reviewer
-
-The code reviewer is read-only and reports inside this area only. Prefix \`GR\`. The governing-rule defect area owns agreement between rule documents. The non-local logic defect area owns an agreement between places that an execution reads.
-
-1. List every rule that the change adds, alters or removes. For each rule, state where it lives, who must obey it, and what the reader must now do differently.
-2. Check agreement between rule documents. Compare each changed rule against every other rule document, every marked duplicate block and every shipped copy that states the same rule. Report each case where two of them tell one reader two different things.
-3. Apply each changed rule as a first-time reader with only the change in front of you. Report each term, threshold, name or path that leaves the rule impossible to apply, and say which decision the reader cannot reach.
-4. Trace each changed rule to the check, the gate or the script that enforces it. Report each place where the rule and its enforcer now permit different work, and report a rule whose stated enforcement no longer exists.
-5. Walk the governed sequence from its start to its declared completion. Report a required step that a reader can pass with no recorded decision, a required step that no route reaches, and a step that can run after completion.
-6. Check every list that tells a reader when to act, for example a re-run trigger list, a required-check table, a phase order or a gate table. Report each entry that the change makes stale, missing or wrong.
-
-#### Unreported failure reviewer
-
-The code reviewer is read-only. It reports inside this area only. Prefix \`UF\`.
-
-1. Enumerate every in-scope failure mode of the changed behaviour, and name the exact signal that detects each one. Record a mode with no signal as a defect. This duty is the clause the retired general reviewer carried.
-2. For each failure mode, name the place that owes the report and the observable form of that report, for example the exit status, the stream, the stated rejection reason, the failing check or the recorded event.
-3. Check every caught error, every discarded error, every ignored return status and every empty handler on the changed paths. Report a discarded failure that produces no other signal.
-4. Check every effect the change performs and does not verify, for example a write, a delete, a send or a settings update. State what proceeds when the effect fails.
-5. Check every fallback, default, retry and partial result the change adds. Report a case where the substitute result is indistinguishable from success.
-6. Check every report the change removes, narrows, hides or downgrades. Require evidence that the failure it reported can no longer happen.`;
-			const retiredCharters = ["behavioural correctness", "contract", "silent failure"];
-			const retiredPrefixes = ["BC", "CT", "SF"];
-			const standaloneTestStructureRole = /\btest[- ]structure specialist\b/i;
-			const activePrefixPhrase = "Active built-in prefixes are `RI`, `CN`,\n`DU`, `SE`, `PF`, `TQ`, `PL`, `LX`, `NL`, `CB`, `GR`, `UF`, and `RG`.";
-			const reviewPolicy = (source) => {
+			const reviewPolicy = (source, ri = reviewerICharter) => {
 				const flat = normalizeText(source);
 				const rows = [...source.matchAll(/^\| (?:one or more proved areas|no proved area, more than 100 counted lines, not documentation-only|no proved area, at most 100 counted lines or documentation-only) \| (.+) \|$/gm)].map((match) => match[1]);
-				return rows.length === 3 && rows[0].startsWith("exactly one Reviewer I plus one specialist for every proved area") && rows[1] === "exactly one Reviewer I" && rows[2] === "none; report routine implementation review as `NOT REQUIRED`" && flat.includes("Reviewer I always runs in its own fresh thread") && flat.includes("It never merges with any specialist") && flat.includes("does not absorb an absent specialist charter");
+				return rows.length === 3 && rows[0].startsWith("exactly one Reviewer I plus one specialist for every proved area") && rows[1] === "exactly one Reviewer I" && rows[2] === "none; report routine implementation review as `NOT REQUIRED`" && flat.includes("Reviewer I always runs in its own fresh thread") && flat.includes("It never merges with any specialist") && ri.includes("does not absorb an absent specialist charter");
 			};
 			const reviewPolicyMutations = [
-				reviews.replace("exactly one Reviewer I", "no Reviewer I"),
-				reviews.replace("exactly one Reviewer I", "exactly two Reviewer I reviewers"),
-				reviews.replace("It never merges with any\nspecialist", "It may merge with a specialist"),
-				reviews.replace("does not absorb an absent specialist charter", "absorbs an absent specialist charter"),
-				reviews.replace("none; report routine implementation review as `NOT REQUIRED`", "exactly one Reviewer I"),
-				reviews.replace("more than 100 counted lines, not documentation-only", "more than 101 counted lines, not documentation-only"),
-				reviews.replace("at most 100 counted lines or documentation-only", "at most 99 counted lines or documentation-only"),
-				reviews.replace("at most 100 counted lines or documentation-only", "at most 100 counted lines"),
+				[reviews.replace("exactly one Reviewer I", "no Reviewer I"), reviewerICharter],
+				[reviews.replace("exactly one Reviewer I", "exactly two Reviewer I reviewers"), reviewerICharter],
+				[reviews.replace("It never merges with any\nspecialist", "It may merge with a specialist"), reviewerICharter],
+				[reviews, reviewerICharter.replace("does not absorb an absent specialist charter", "absorbs an absent specialist charter")],
+				[reviews.replace("none; report routine implementation review as `NOT REQUIRED`", "exactly one Reviewer I"), reviewerICharter],
+				[reviews.replace("more than 100 counted lines, not documentation-only", "more than 101 counted lines, not documentation-only"), reviewerICharter],
+				[reviews.replace("at most 100 counted lines or documentation-only", "at most 99 counted lines or documentation-only"), reviewerICharter],
+				[reviews.replace("at most 100 counted lines or documentation-only", "at most 100 counted lines"), reviewerICharter],
 			];
-			checkAll("contract-review-charters", "Reviewer I has a bounded local charter, conditional composition and independent dispatch. All four production defect charters and cap classes remain exact, and retired roles and prefixes remain absent", [
-				["Reviewer I names its five local duties and concrete evidence boundaries", ["maintainability", "concretely harmful antipatterns", "responsibility distribution", "completeness against the approved current-track requirements", "ordinary local correctness", "adverse effect", "unjustified coupling", "responsibility placed in a component"].every((term) => normalizeText(reviewerICharter).includes(term)), reviewerICharter],
+			const approvedDigests = Object.freeze({
+				ri: "380d8d974d4460ccdcd3ab5029ad3cf190449806f0989d5315b8b96ddbbd7ab3",
+				cn: "fb2eaf412ddcc6797701ac8c4c05fcd8c634819b22a0b69d9b292c4dc4dd2ae8",
+				du: "5f98a4e3bcffb695991f5392abb713de9f11454e3248656ad85ee4c2e1494ba2",
+				se: "e5ae88718099d595c980f69656360a139e211be350aba99ea7e355c09b68741b",
+				pf: "af38f563163b97f67efe45abc46c5e1bdce68776693afa9844db183c64975b0a",
+				tq: "43c7a1c5a9dcac5231418f9b6ab62a939d58c4ff57271f32885f285ecf05aa6f",
+				pl: "3703addd5b7a2053b5ccf6690d9d667f0960c0a3262a90f429d60e8af41fb3f0",
+				lx: "8ffe81106b898339eb8c7e16e4e9038990d507c998237ee8090f7ad4df3690bd",
+				nl: "9d051b97359b808c194f7d54b0a089aefff36cea079dd30434a10bb083e24ecd",
+				cb: "44f92af0aeffa0291865155b25ee684bf196609ce7236b761aaf7ecc1eb9ba66",
+				gr: "275af27cfca56a905dc72b6c73ec484e6533d1e8e15e8b363d812c1e62bfb2ef",
+				uf: "d63fddb00199e3c8c4a4081d8c79c45f4032b36c1ca2be9618dd05af9caaa9fd",
+			});
+			const roles = reviewPerspectives?.REVIEW_PERSPECTIVES ?? [];
+			const roleFiles = Object.fromEntries(roles.map((role) => { let content = ""; try { content = readFileSync(role.file, "utf8"); } catch { /* contract-review-structure reports the missing file */ } return [role.prefix.toLowerCase(), content]; }));
+			const shippedIds = existsSync(join(REPO, "docs", "review-perspectives"))
+				? readdirSync(join(REPO, "docs", "review-perspectives")).sort() : [];
+			const expectedIds = Object.keys(approvedDigests).map((id) => `${id}.md`).sort();
+			const hash = (text) => createHash("sha256").update(normalizeText(text)).digest("hex");
+			checkAll("contract-review-structure", "each roster role has one shipped charter and definition, no extra file, and the approved Track 1 content matches independent snapshots", [
+				["twelve unique code-listed roles and paths", roles.length === 12 && new Set(roles.map((role) => role.name)).size === 12 && new Set(roles.map((role) => role.file)).size === 12, roles],
+				["all and only listed files ship", JSON.stringify(shippedIds) === JSON.stringify(expectedIds) && roles.every((role) => role.file === join(REPO, "docs", "review-perspectives", `${role.prefix.toLowerCase()}.md`)), { shippedIds, expectedIds }],
+				["each file contains its named heading, definition and charter", roles.every((role) => { const source = roleFiles[role.prefix.toLowerCase()]; return source?.startsWith(`# ${role.name}\n\n**Definition.** `) && /\n\n\*\*Charter\.\*\*\s+\S/.test(source); }), Object.keys(roleFiles)],
+				["all definitions and charters match approved independent snapshots", Object.entries(approvedDigests).every(([id, expected]) => hash(roleFiles[id] ?? "") === expected), Object.fromEntries(Object.entries(roleFiles).map(([id, content]) => [id, hash(content)]))],
+				["no Track 2 content", Object.values(roleFiles).every((text) => !/Design-quality questions|Examples of useful evidence/.test(text)), "Track 1 only"],
+			]);
+			const expectedPerspectiveFocus = [
+				["concurrency defect", "one area reviewer for concurrency", "Concurrency reviewer", "CN"],
+				["data loss", "one area reviewer for data loss and recovery", "Data loss and recovery reviewer", "DU"],
+				["security weakness", "one area reviewer for security", "Security reviewer", "SE"],
+				["performance degradation", "one area reviewer for performance", "Performance reviewer", "PF"],
+				["test-quality defect", "one test-quality and structure reviewer", "Test-quality and structure reviewer", "TQ"],
+				["unreadable user-facing prose", "one prose reviewer", "Prose reviewer", "PL"],
+				["licensing exposure", "one licensing reviewer", "Licensing reviewer", "LX"],
+				["non-local logic defect", "one area reviewer for non-local logic defects", "Non-local logic defect reviewer", "NL"],
+				["consumer contract break", "one area reviewer for consumer contract breaks", "Consumer contract break reviewer", "CB"],
+				["governing-rule defect", "one area reviewer for governing-rule defects", "Governing-rule defect reviewer", "GR"],
+				["unreported failure", "one area reviewer for unreported failures", "Unreported failure reviewer", "UF"],
+			];
+			const perspectiveBlastRows = [...block(blast, "focus-area-table").text.matchAll(/^\| (\d+) \| ([^|]+) \| ([^|]+) \|/gm)].map((match) => [match[2].trim(), match[3].trim()]);
+			const indexRows = [...reviews.matchAll(/^\| (.*?) \| ([A-Z]{2}) \| (.*?) \| \[([^\]]+)\]\(review-perspectives\/([a-z]+)\.md\) \|$/gm)].map((match) => [match[1].trim(), match[2], match[3].trim(), match[5]]);
+			checkAll("contract-review-agreement", "runtime names, prefixes and focus areas agree with the canonical focus table and linked index; Reviewer I has no focus row", [
+				["canonical eleven focus rows and reviewer labels are exact", JSON.stringify(perspectiveBlastRows) === JSON.stringify(expectedPerspectiveFocus.map((row) => row.slice(0, 2))), perspectiveBlastRows],
+				["all specialists map to matching focus row and prefix", expectedPerspectiveFocus.every(([area, , name, prefix], i) => roles[i + 1]?.name === name && roles[i + 1]?.prefix === prefix && roles[i + 1]?.focusArea === area), roles],
+				["general reviewer is outside focus table", roles[0]?.name === "Reviewer I" && roles[0]?.prefix === "RI" && roles[0]?.focusArea === null && !perspectiveBlastRows.some(([area]) => area === "Reviewer I"), roles[0]],
+				["index includes each runtime selector, prefix and focus once", JSON.stringify(indexRows) === JSON.stringify(roles.map((role) => [role.name, role.prefix, role.focusArea ?? "none", role.prefix.toLowerCase()])), indexRows],
+				["regression-gate prefix stays outside roster", !roles.some((role) => role.prefix === "RG") && reviews.includes("RG is a regression-gate prefix and not a perspective"), roles.map((role) => role.prefix)],
+			]);
+			checkAll("contract-review-charters", "Reviewer I keeps bounded duties, conditional composition and independent dispatch; specialist limits and prefixes stay exact", [
+				["Reviewer I names its five local duties and evidence boundaries", ["maintainability", "concretely harmful antipatterns", "responsibility distribution", "completeness against the approved current-track requirements", "ordinary local correctness", "adverse effect", "unjustified coupling", "responsibility placed in a component"].every((term) => normalizeText(reviewerICharter).includes(term)), reviewerICharter],
 				["Reviewer I cannot take specialist or proof duties", ["does not absorb an absent specialist charter", "does not judge or reject area proofs", "does not search for missing focus areas", "does not add gates", "does not replace a specialist"].every((term) => normalizeText(reviewerICharter).includes(term)), reviewerICharter],
-				["the composition rows discriminate proved, 100-line, 101-line and documentation-only tracks", reviewRows.length === 3 && reviewRows[0].startsWith("exactly one Reviewer I plus one specialist for every proved area") && reviewRows[1] === "exactly one Reviewer I" && reviewRows[2] === "none; report routine implementation review as `NOT REQUIRED`" && [
-					{ counted: 100, docsOnly: false, area: false, expected: "none; report routine implementation review as `NOT REQUIRED`" },
-					{ counted: 101, docsOnly: false, area: false, expected: "exactly one Reviewer I" },
-					{ counted: 101, docsOnly: true, area: false, expected: "none; report routine implementation review as `NOT REQUIRED`" },
-					{ counted: 101, docsOnly: true, area: true, expected: "exactly one Reviewer I plus one specialist for every proved area whose canonical gate runs per track" },
-				].every(({ counted, docsOnly, area, expected }) => expected === reviewRows[area ? 0 : counted > 100 && !docsOnly ? 1 : 2]), reviewRows],
-				["all four production defect reviewers are inside the production cap", /The non-local logic defect, consumer contract break, governing-rule defect and\nunreported failure reviewers are production area reviewers and count against\nthis cap\./.test(reviews), reviews.slice(0, 3000)],
-				["test, prose, and licensing are outside the production cap", /test-quality and structure reviewer, prose reviewer, and licensing\nreviewer are additional and never count against that cap/.test(reviews), reviews.slice(0, 2500)],
-				["Reviewer I never merges with a specialist and every required perspective is unique", /Reviewer I always runs in its own fresh thread/.test(reviews) && /never merges with any\s+specialist/.test(reviews) && /Every required perspective\s+is dispatched exactly once/.test(reviews) && /Do not dispatch a\s+duplicate action/.test(reviews), reviews.slice(0, 4000)],
-				["specialist-only merges remain possible under their exact scope and evidence rule", normalizeText(reviews).includes("merge rules may combine specialist duties only with other specialist duties when both the code scope and required evidence are the same"), reviews.slice(0, 4000)],
-				["documentation-only classification excludes only the size trigger", /changes only documents/.test(reviews) && /must\s+neither ship as code nor run/.test(reviews) && /Documentation-only status prevents size alone from triggering Reviewer I/.test(reviews), reviews.slice(0, 4000)],
-				["proved prose on documentation-only work uses separate RI and prose threads", /Reviewer I and the prose specialist\s+use two separate threads/.test(reviews), reviews.slice(0, 4000)],
-				["missing RI, duplicate RI, RI-specialist merge, specialist takeover, and unconditional RI mutations all fail", reviewPolicy(reviews) && reviewPolicyMutations.every((source) => !reviewPolicy(source)) && reviewPolicyMutations.every((source) => source !== reviews), reviewPolicyMutations.map(reviewPolicy)],
-				["no standalone test-structure specialist role", !standaloneTestStructureRole.test(reviews), reviews.match(standaloneTestStructureRole)?.[0]],
-				["prose and licensing charters are separate", /^### Prose reviewer$/m.test(reviews) && /^### Licensing reviewer$/m.test(reviews) && !/^### Prose and licensing reviewer$/m.test(reviews), reviews.match(/^### (?:Prose|Licensing).*$/gm)],
-				["production charter block is exact", productionCharters === expectedProductionCharters, productionCharters],
-				["the current charters name only areas in the current eleven-area roster", /#### Consumer contract break reviewer/.test(productionCharters) && /#### Governing-rule defect reviewer/.test(productionCharters) && /#### Unreported failure reviewer/.test(productionCharters), productionCharters],
-				["retired production charters are absent", retiredCharters.every((name) => !new RegExp(`^- \\*\\*${name}:`, "m").test(reviews)), retiredCharters.filter((name) => new RegExp(`^- \\*\\*${name}:`, "m").test(reviews))],
-				["active prefix list is unique and exact", reviews.split(activePrefixPhrase).length - 1 === 1 && (reviews.match(/Active built-in prefixes/g) ?? []).length === 1, reviews.match(/Active built-in prefixes[^.]*\./gs)],
-				["retired prefixes are absent from the active list", retiredPrefixes.every((prefix) => !new RegExp(`Active built-in prefixes[^.]*\\b${prefix}\\b`, "s").test(reviews)), retiredPrefixes],
+				["conditional composition is exact", reviewRows.join("|") === ["exactly one Reviewer I plus one specialist for every proved area whose canonical gate runs per track", "exactly one Reviewer I", "none; report routine implementation review as `NOT REQUIRED`"].join("|"), reviewRows],
+				["production and non-production cap classes stay exact", /The non-local logic defect, consumer contract break, governing-rule defect and\nunreported failure reviewers are production area reviewers and count against\nthis cap\./.test(reviews) && /test-quality and structure reviewer, prose reviewer, and licensing\nreviewer are additional and never count against that cap/.test(reviews), "cap classes"],
+				["independent and merged routes stay distinct", /Reviewer I always runs in its own fresh thread/.test(reviews) && /never merges with any\s+specialist/.test(reviews) && normalizeText(reviews).includes("merge rules may combine specialist duties only with other specialist duties when both the code scope and required evidence are the same"), "merge rule"],
+				["size trigger excludes documentation-only and no-area action", /Documentation-only status prevents size alone from triggering Reviewer I/.test(reviews) && /Do not dispatch a\s+duplicate action/.test(reviews), "size rule"],
+				["all conditional-policy mutations fail", reviewPolicy(reviews) && reviewPolicyMutations.every(([source, ri]) => !reviewPolicy(source, ri)) && reviewPolicyMutations.every(([source, ri]) => source !== reviews || ri !== reviewerICharter), reviewPolicyMutations.map(([source, ri]) => reviewPolicy(source, ri))],
+				["perspectives remain separate and retired prefixes absent", roles.length === 12 && !roles.some((role) => ["BC", "CT", "SF", "RG"].includes(role.prefix)), roles.map((role) => role.prefix)],
 			]);
 
 			const dispatchReference = "Research log: the current `slate-changes/<change>/research-log.md` remains the retained full record. The dispatch names its exact path and the implementer's `slate-changes/<change>/track-<number>-implementer-report.md` path. Use the references and excerpts supplied for this action. Read more history only when a relevant question remains unresolved.\n";
 			const boundedCharters = [
-				["non-local logic defect reviewer charter", /^#### Non-local logic defect reviewer\n[\s\S]*?(?=^#### Consumer contract break reviewer)/m, 1245],
-				["consumer contract break reviewer charter", /^#### Consumer contract break reviewer\n[\s\S]*?(?=^#### Governing-rule defect reviewer)/m, 1547],
-				["governing-rule defect reviewer charter", /^#### Governing-rule defect reviewer\n[\s\S]*?(?=^#### Unreported failure reviewer)/m, 1568],
-				["unreported failure reviewer charter", /^#### Unreported failure reviewer\n[\s\S]*?(?=^### Test-quality and structure reviewer)/m, 1190],
+				["non-local logic defect reviewer charter", "nl", 1443, "Non-local logic defect reviewer"],
+				["consumer contract break reviewer charter", "cb", 1773, "Consumer contract break reviewer"],
+				["governing-rule defect reviewer charter", "gr", 1756, "Governing-rule defect reviewer"],
+				["unreported failure reviewer charter", "uf", 1311, "Unreported failure reviewer"],
 			];
-			const measureCharter = (source, pattern) => {
-				const flags = pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`;
-				const matches = [...source.matchAll(new RegExp(pattern.source, flags))];
-				if (matches.length !== 1) return { count: matches.length, bytes: 0 };
-				return { count: 1, bytes: Buffer.byteLength(`${matches[0][0].trim()}\n`, "utf8") };
-			};
-			const charterMeasures = boundedCharters.map(([name, pattern, bytes]) => ({ name, bytes, ...measureCharter(reviews, pattern) }));
+			const measureCharter = (source, heading) => ({
+				count: (source.match(new RegExp("^# " + heading + "$", "gm")) ?? []).length === 1 && source.includes("**Charter.**") ? 1 : 0,
+				bytes: Buffer.byteLength(source, "utf8"),
+			});
+			const charterMeasures = boundedCharters.map(([name, id, bytes, heading]) => ({ name, bytes, ...measureCharter(roleFiles[id] ?? "", heading) }));
 			const measurementTable = [
 				"| bounded block | exact UTF-8 bytes |",
 				"| --- | ---: |",
@@ -3357,6 +3325,27 @@ The code reviewer is read-only. It reports inside this area only. Prefix \`UF\`.
 				...charterMeasures.map(({ name, bytes }) => `| ${name} | ${bytes.toLocaleString("en-US")} |`),
 			].join("\n");
 			const contextBudget = readFileSync(join(REPO, "docs", "context-budget.md"), "utf8");
+			const expectedInjected = [
+				["Reviewer I", 5536, 5413], ["Concurrency reviewer", 4333, 4210],
+				["Data loss and recovery reviewer", 4385, 4262], ["Security reviewer", 4447, 4324],
+				["Performance reviewer", 4369, 4246], ["Test-quality and structure reviewer", 5587, 5464],
+				["Prose reviewer", 4515, 4392], ["Licensing reviewer", 4404, 4281],
+				["Non-local logic defect reviewer", 5456, 5333], ["Consumer contract break reviewer", 5786, 5663],
+				["Governing-rule defect reviewer", 5769, 5646], ["Unreported failure reviewer", 5324, 5201],
+			];
+			const docsPrefix = paths.REVIEW_RULES_DOC.slice(0, -"review-rules.md".length);
+			const extensionPrefix = paths.WRITING_CHECKER.slice(0, -"writing-check.mjs".length);
+			const injected = expectedInjected.map(([name]) => {
+				const text = reviewPerspectives?.loadImplementationReviewGuidance([name]) ?? "";
+				return [name, Buffer.byteLength(text, "utf8"), Buffer.byteLength(text.split(docsPrefix).join("").split(extensionPrefix).join(""), "utf8")];
+			});
+			const publishedInjected = [...contextBudget.matchAll(/^\| (Reviewer I|[^|]+ reviewer) \| ([\d,]+) \| ([\d,]+) \|$/gm)]
+				.map((match) => [match[1], Number(match[2].replaceAll(",", "")), Number(match[3].replaceAll(",", ""))]);
+			checkAll("contract-review-sizes", "production-rendered per-perspective injected bytes, portable path basis, and published table match exact independent pins", [
+				["all twelve portable sizes are exact and rendered bytes add both installed path prefixes", injected.every(([, rendered, portable], i) => portable === expectedInjected[i][2] && rendered === portable + Buffer.byteLength(docsPrefix, "utf8") + Buffer.byteLength(extensionPrefix, "utf8")), injected],
+				["all twelve published rows match the measured installation and portable pins", JSON.stringify(publishedInjected) === JSON.stringify(expectedInjected), publishedInjected],
+				["common and implementation text keep independent approved snapshots", hash(readFileSync(paths.REVIEW_COMMON_POLICY_DOC, "utf8")) === "809e2b2eed0fbbb6f7519b3299b3c75cb8c5e3718b259be0f1e82e3c2e45321f" && hash(readFileSync(paths.REVIEW_IMPLEMENTATION_INPUT_DOC, "utf8")) === "8d23a6c5a10ddc8d497fcd3f555a426d8b78b437903d4335f85c1dcbbee810dc", "two shared source files"],
+			]);
 
 			// Complete owned policy units use independent expectations. Exact equality is
 			// deliberate. It rejects an addition inside a unit without pretending to
@@ -3467,8 +3456,8 @@ The ordinary budget permits one consultation. A second requires an explicit user
 			const benignWorkflow = `${workflow}\n\n<!-- resolver benign dispatch-context control -->`;
 			const benignReviews = `${reviews}\n\n## Editorial appendix\n\nThis note changes no dispatch policy.`;
 			const benignOutcomes = resolveDispatchUnits(benignWorkflow, benignReviews);
-			const duplicatedCharters = `${reviews}\n${reviews}`;
-			const missingBoundary = reviews.replace("#### Consumer contract break reviewer", "### Consumer contract break reviewer");
+			const duplicatedCharters = `${roleFiles.nl}\n${roleFiles.nl}`;
+			const missingBoundary = roleFiles.nl.replace("**Charter.**", "**Task.**");
 			checkAll("contract-dispatch-context", "four complete dispatch-policy units resolve exactly once and equal independent expectations. They cover the focused implementation-context obligation, research-log lifecycle, reviewer-input contract, and stuck-fix policy. Counterfactuals reject missing current-context inputs, a restored mandatory whole-log read, other policy weakening, or additions inside a unit, while benign text outside the units remains accepted. Five bounded UTF-8 measurements remain exact", [
 				["later report-location and fork-ownership rules match independent exact pins", acceptsLateRules(workflow), { report: reportRule(workflow), fork: forkRule(workflow) }],
 				["root-report, same-folder fork, and unconditional report mutations each break their pin", rootReport !== workflow && reusedFork !== workflow && unconditionalReport !== workflow && !acceptsLateRules(rootReport) && !acceptsLateRules(reusedFork) && !acceptsLateRules(unconditionalReport), { root: acceptsLateRules(rootReport), fork: acceptsLateRules(reusedFork), unconditional: acceptsLateRules(unconditionalReport) }],
@@ -3481,9 +3470,9 @@ The ordinary budget permits one consultation. A second requires an explicit user
 				["duplicated owned units fail exact-once resolution", duplicateUnitOutcomes.every(({ count }) => count === 2), duplicateUnitOutcomes.map(({ id, count }) => ({ id, count }))],
 				["benign changes outside every owned unit leave all expectations exact", benignWorkflow !== workflow && benignReviews !== reviews && benignOutcomes.every(({ count, text, expected }) => count === 1 && text === expected), benignOutcomes.map(({ id, count }) => ({ id, count }))],
 				["all four charter regions resolve once at their current exact UTF-8 sizes", charterMeasures.every(({ count, bytes, name }) => count === 1 && bytes === boundedCharters.find(([candidate]) => candidate === name)?.[2]), charterMeasures],
-				["a duplicated charter and a shifted boundary fail closed", measureCharter(duplicatedCharters, boundedCharters[0][1]).count === 2 && measureCharter(missingBoundary, boundedCharters[0][1]).count === 0, { duplicate: measureCharter(duplicatedCharters, boundedCharters[0][1]), shifted: measureCharter(missingBoundary, boundedCharters[0][1]) }],
+				["a duplicated charter and a shifted boundary fail closed", (duplicatedCharters.match(/^# Non-local logic defect reviewer$/gm) ?? []).length === 2 && measureCharter(missingBoundary, boundedCharters[0][3]).count === 0, { duplicateCount: (duplicatedCharters.match(/^# Non-local logic defect reviewer$/gm) ?? []).length, shifted: measureCharter(missingBoundary, boundedCharters[0][3]) }],
 				["the published measurement table occurs exactly once", contextBudget.split(measurementTable).length - 1 === 1, measurementTable],
-				["the published scope states one dispatch copy, possible history resend, separate charters, and no total-cost or runtime-limit promise", /The focused-reference figure measures one reference copy in one implementation\s+dispatch/.test(contextBudget) && /Worker history\s+can\s+resend that reference/.test(contextBudget) && /do not imply that one\s+reviewer receives all four charters/.test(contextBudget) && /not a total\s+conversation-size or billing promise/.test(contextBudget) && /add no runtime limit/.test(contextBudget), contextBudget.match(/### Implementation reference[\s\S]*?(?=^## Using GPT)/m)?.[0]],
+				["the published scope states one dispatch copy, possible history resend, separate charters, and no total-cost or runtime-limit promise", /The focused-reference figure measures one reference copy in one implementation\s+dispatch/.test(contextBudget) && /Worker history\s+can\s+resend that reference/.test(contextBudget) && /Each charter row measures one role file/.test(contextBudget) && /not a total\s+conversation-size or billing promise/.test(contextBudget) && /add no runtime limit/.test(contextBudget), contextBudget.match(/### Implementation reference[\s\S]*?(?=^## Using GPT)/m)?.[0]],
 			]);
 
 			const packageContract = block(deliveryPackages, "delivery-package-contract");
@@ -3891,7 +3880,7 @@ verification of that body. The accounting covers:`),
 				["false trust omits writing guidance with or without the reviewer charter", worker.workerPreamble(false, false) === commonPreamble && !worker.workerPreamble(false, true).includes(currentGuidance), { plain: worker.workerPreamble(false, false), reviewer: worker.workerPreamble(false, true) }],
 				["true trust enables the current 1097-byte preamble with writing guidance", worker.WORKER_WRITING_GUIDANCE === currentGuidance && worker.workerPreamble(true, false) === `${commonPreamble} ${currentGuidance}` && Buffer.byteLength(worker.workerPreamble(true, false)) === 1097, worker.workerPreamble(true, false)],
 				["reviewer variants match the current measured byte boundaries", Buffer.byteLength(worker.workerPreamble(false, true)) === 2699 && Buffer.byteLength(worker.workerPreamble(true, true)) === 3252, { reviewer: Buffer.byteLength(worker.workerPreamble(false, true)), both: Buffer.byteLength(worker.workerPreamble(true, true)) }],
-				["worker prompt uses permitted Slate configuration and keeps the charter as the second argument", /const configPermitted = permitsSlateConfig\(opts\.config, trusted\)/.test(workerSource) && /appendSystemPrompt\s*:\s*\[\s*workerPreamble\(configPermitted\s*,\s*opts\.reviewerCharter\s*===\s*true\)\s*,/.test(workerSource), workerSource.match(/appendSystemPrompt\s*:\s*\[[^\]]{0,180}/)?.[0] ?? "not found"],
+				["worker prompt uses permitted Slate configuration and passes charter and selected guidance to the system blocks", /const configPermitted = permitsSlateConfig\(opts\.config, trusted\)/.test(workerSource) && /appendSystemPrompt\s*:\s*workerSystemPromptBlocks\(configPermitted\s*,\s*opts\.reviewerCharter\s*===\s*true\s*,\s*opts\.reviewGuidance\s*,\s*promptDocs\)/.test(workerSource), workerSource.match(/appendSystemPrompt\s*:\s*\[[^\]]{0,180}/)?.[0] ?? "not found"],
 				["the removed writingCheck parameter and dispatch field are absent", !/writingCheck/.test(workerSource) && !/writingCheck/.test(threadsSource), { worker: workerSource.match(/writingCheck/)?.[0] ?? "absent", threads: threadsSource.match(/writingCheck/)?.[0] ?? "absent" }],
 				["ThreadManager derives the charter switch from effective thread type through the shared judgement-type predicate", /effectiveThreadType\(args\.thread\s*,\s*args\.report\)/.test(threadsSource) && /reviewerCharter\s*:\s*isJudgementThreadType\(type\)/.test(threadsSource) && worker.JUDGEMENT_THREAD_TYPES?.join(",") === "reviewer,adversarial", { typeRead: threadsSource.match(/effectiveThreadType\([^)]*\)/)?.[0] ?? "not found", charter: threadsSource.match(/reviewerCharter\s*:[^,\n]*/)?.[0] ?? "not found", judgementTypes: worker.JUDGEMENT_THREAD_TYPES }],
 				["the dispatch routes an unrecognised-type report through its user-visible warning channel", /report\s*:\s*routeWarn/.test(threadsSource), threadsSource.match(/report\s*:[^,\n]*/)?.[0] ?? "not found"],

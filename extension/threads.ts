@@ -50,6 +50,7 @@ import {
 } from "./worker.ts";
 import { EMPTY_WORKER_EXTENSION_SET, type WorkerExtensionSet } from "./worker-extensions.ts";
 import { isWorkerReminderMessage, workerReminderDeliveryMissing } from "./worker-reminder.ts";
+import { loadImplementationReviewGuidance, validateReviewPerspectives, type ReviewFileReader } from "./review-perspectives.ts";
 
 /**
  * One prompt-cache key for ONE main slate session.
@@ -111,6 +112,8 @@ export interface DispatchOptions {
 	effort?: unknown;
 	reason?: string; // sanitized dispatch rationale, required and at most 200 characters
 	tools?: string[];
+	/** Optional built-in implementation-review selection. Never persisted. */
+	reviewPerspectives?: unknown;
 }
 
 /**
@@ -262,6 +265,7 @@ export class ThreadManager {
 	private sessionScope: ThreadSessionScope;
 	/** Captured by value so an older dispatch never writes into a replacement session's folder. */
 	private readonly runtimeFolder: string;
+	private readonly readReviewFile: ReviewFileReader;
 
 	constructor(
 		store: SlateStore,
@@ -272,6 +276,7 @@ export class ThreadManager {
 		compressorRetryPolicy?: CompressorRetryPolicy,
 		// Shared cache key and request throttle for this parent session.
 		sessionScope: ThreadSessionScope = {},
+		readReviewFile?: ReviewFileReader,
 	) {
 		this.store = store;
 		this.runtimeFolder = store.runtimeFolder;
@@ -280,6 +285,7 @@ export class ThreadManager {
 		this.logicalRuntime = logicalRuntime;
 		this.compressorRetryPolicy = compressorRetryPolicy;
 		this.sessionScope = sessionScope;
+		this.readReviewFile = readReviewFile ?? ((file) => readFileSync(file, "utf8"));
 		// Action concurrency and request pacing limit different quantities.
 		this.semaphore = new Semaphore(config.maxConcurrent ?? 4);
 	}
@@ -310,6 +316,7 @@ export class ThreadManager {
 		if (opts.freshContext !== undefined) {
 			throw new Error('The "freshContext" field was removed. Pass earlier episode ids through "context".');
 		}
+		const selected = validateReviewPerspectives(opts.reviewPerspectives, opts.type);
 		if (typeof opts.task !== "string" || opts.task.trim() === "") {
 			throw new Error("task must be a non-empty string.");
 		}
@@ -331,8 +338,9 @@ export class ThreadManager {
 		const contextEpisodeIds = normalizeContextEpisodeIds(opts.contextEpisodeIds);
 		const accepted: DispatchOptions = { ...opts, reason, type, contextEpisodeIds };
 		const prompt = this.buildPrompt(accepted, ctx.cwd);
+		const reviewGuidance = selected === undefined ? undefined : loadImplementationReviewGuidance(selected, this.readReviewFile);
 		const thread = this.createThread(accepted);
-		return this.runDispatch(thread, accepted, prompt, ctx, signal, onProgress, admission, initialRoute);
+		return this.runDispatch(thread, accepted, prompt, ctx, signal, onProgress, admission, initialRoute, reviewGuidance);
 	}
 
 	private createThread(opts: DispatchOptions): ThreadRecord {
@@ -396,6 +404,7 @@ export class ThreadManager {
 		tools: string[] | undefined;
 		report: (message: string) => void;
 		requestContract: WorkerRequestContract;
+		reviewGuidance?: string;
 		/**
 		 * Report the created worker session to the action that owns it.
 		 *
@@ -438,6 +447,7 @@ export class ThreadManager {
 					extensionPaths: extensions.paths,
 					extensionToolNames: extensions.toolNames,
 					reviewerCharter: isJudgementThreadType(type),
+					reviewGuidance: args.reviewGuidance,
 					report: args.report,
 					onCreated: (created) => {
 						opening = created;
@@ -563,6 +573,7 @@ export class ThreadManager {
 		onProgress?: (p: DispatchProgress) => void,
 		admission?: RecoveryAdmission,
 		initialRoute?: RecoveryCandidate,
+		reviewGuidance?: string,
 	): Promise<DispatchResult> {
 		const episodeId = slateEpisodeId(thread.id)!;
 		// Enroll synchronously before the semaphore can suspend this action. Manager
@@ -581,7 +592,7 @@ export class ThreadManager {
 			const lease = this.logicalRuntime?.ownership.acquire(thread.id);
 			if (lease?.kind === "busy") throw new Error(`Thread ${thread.id} cannot start because its recovery owner is busy.`);
 			try {
-				return await this.runDispatchInner(thread, opts, prompt, episodeId, ctx, signal, onProgress, admission, initialRoute);
+				return await this.runDispatchInner(thread, opts, prompt, episodeId, ctx, signal, onProgress, admission, initialRoute, reviewGuidance);
 			} finally {
 				if (lease?.kind === "acquired") lease.lease.release();
 			}
@@ -602,6 +613,7 @@ export class ThreadManager {
 		onProgress?: (p: DispatchProgress) => void,
 		admission?: RecoveryAdmission,
 		initialRoute?: RecoveryCandidate,
+		reviewGuidance?: string,
 	): Promise<DispatchResult> {
 		const usage: UsageStats = { turns: 0, input: 0, output: 0, cost: 0, contextTokens: 0 };
 		let workerCostUsd: number | undefined;
@@ -848,6 +860,7 @@ export class ThreadManager {
 					tools: thread.tools,
 					report: routeWarn,
 					requestContract,
+					reviewGuidance,
 					observeStartupFailure: (detail) => {
 						if (this.teardownStarted) observeCancellation("session teardown");
 						observeStartupFailure();

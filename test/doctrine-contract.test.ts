@@ -114,6 +114,15 @@ test("logical doctrine uses the cached static runtime policy without physical ro
   assert.match(doctrine, /orchestrator selects the model for a no-area track under the same ordinary guidance/);
 });
 
+test("rule 9 directs built-in implementation reviews without growing doctrine", { timeout: 5000 }, async () => {
+  const doctrine = await renderDoctrine();
+  const rule = doctrine.match(/9\. Before review dispatch, follow [^\n]+\n   Implementation review: pass built-in perspectives and data\.\n   No-area model choice follows Lifecycle\./)?.[0];
+  assert.ok(rule);
+  assert.ok(rule.includes(REVIEW_RULES_DOC));
+  assert.equal(rule.split(REVIEW_RULES_DOC).join("review-rules.md").length, 180);
+  assert.equal(rule.split("\n").length, 3);
+});
+
 test("logical doctrine production renders match published portable measurements", { timeout: 5000 }, async () => {
   const docsDirectory = TRACK_WORKFLOW_DOC.slice(0, -"track-workflow.md".length);
   const runtime = createLogicalRuntime({ trusted: true, documentationDirectory: docsDirectory });
@@ -377,9 +386,9 @@ test("design gates state validation, adversarial review, and final approval as o
 // and wiring, which stays here.
 test("doctrine states research-log, packet, and reviewer rules", { timeout: 5000 }, async () => {
   const doctrine = (await renderDoctrine()).replace(/\s+/g, " ");
-  assert.ok(doctrine.includes(`Before dispatching review threads, read ${REVIEW_RULES_DOC} and follow it.`));
-  assert.ok(doctrine.includes("For no-area model choice, follow Lifecycle."));
-  assert.ok(doctrine.includes("Skip the read when that file is already in your context."));
+  assert.ok(doctrine.includes(`Before review dispatch, follow ${REVIEW_RULES_DOC}. Read unless in context.`));
+  assert.ok(doctrine.includes("Implementation review: pass built-in perspectives and data."));
+  assert.ok(doctrine.includes("No-area model choice follows Lifecycle."));
   assert.doesNotMatch(doctrine, /Verification or gate machinery receives the general implementation reviewer|engaged focus areas|Review every track with Reviewer I/);
 });
 

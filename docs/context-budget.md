@@ -148,10 +148,10 @@ reminder fires. Later requests resend it with the rest of the conversation.
 ## What always-loaded tool definitions cost the budget
 
 The registered `thread` tool description is 973 UTF-8 bytes. Its serialized
-parameter schema is 1,324 bytes from `JSON.stringify(parameters)`. The schema
+parameter schema is 1,921 bytes from `JSON.stringify(parameters)`. The schema
 requires logical `model` and `reason`. It includes the bounded `context` list,
-the optional implementer `trackNumber`, and the 200-character reason limit.
-The two values total 2,297 bytes before provider
+the optional implementer `trackNumber`, the built-in `reviewPerspectives` list,
+and the 200-character reason limit. The two values total 2,894 bytes before provider
 framing. The figure excludes the tool name, prompt text, and outer serialization.
 
 ## Compaction policy
@@ -313,28 +313,47 @@ logical appearances.
 ### Implementation reference and specialist charters
 
 The implementation reference is one exact block in each implementation dispatch.
-Each charter is one bounded section in `review-rules.md`. The byte count includes
-the heading and one final line-feed byte. The extraction starts at the named
-level-four heading and ends immediately before the next named reviewer heading.
+Each of the four specialist charter figures measures its complete shipped file,
+including the level-one heading and final line feed. An automatic implementation
+review loads the common policy and implementation input once. It then loads each
+selected perspective once in selection order.
 
 | bounded block | exact UTF-8 bytes |
 | --- | ---: |
 | implementation-dispatch focused-context reference | 351 |
-| non-local logic defect reviewer charter | 1,245 |
-| consumer contract break reviewer charter | 1,547 |
-| governing-rule defect reviewer charter | 1,568 |
-| unreported failure reviewer charter | 1,190 |
+| non-local logic defect reviewer charter | 1,443 |
+| consumer contract break reviewer charter | 1,773 |
+| governing-rule defect reviewer charter | 1,756 |
+| unreported failure reviewer charter | 1,311 |
+
+Production-rendered injected text replaces the two installed-path placeholders
+with absolute shipped paths. The path-normalized count removes the exact
+installed `docs/` and `extension/` directory prefixes and keeps each filename.
+The generic reviewer evidence charter, task, provider framing, and manually supplied review data are
+outside these figures. Counts are UTF-8 bytes, not token or billing estimates.
+The two shared files appear once in each total. A merged specialist review adds
+each selected file once and does not repeat the shared files.
+
+| selected perspective | rendered injected bytes | path-normalized injected bytes |
+| --- | ---: | ---: |
+| Reviewer I | 5,536 | 5,413 |
+| Concurrency reviewer | 4,333 | 4,210 |
+| Data loss and recovery reviewer | 4,385 | 4,262 |
+| Security reviewer | 4,447 | 4,324 |
+| Performance reviewer | 4,369 | 4,246 |
+| Test-quality and structure reviewer | 5,587 | 5,464 |
+| Prose reviewer | 4,515 | 4,392 |
+| Licensing reviewer | 4,404 | 4,281 |
+| Non-local logic defect reviewer | 5,456 | 5,333 |
+| Consumer contract break reviewer | 5,786 | 5,663 |
+| Governing-rule defect reviewer | 5,769 | 5,646 |
+| Unreported failure reviewer | 5,324 | 5,201 |
 
 The focused-reference figure measures one reference copy in one implementation
 dispatch. It excludes the research log and every other task input. Worker history
 can resend that reference in later model requests. The figure is not a total
-conversation-size or billing promise.
-
-The four charter rows measure separate role blocks. They do not imply that one
-reviewer receives all four charters. They exclude the generic reviewer charter,
-role inputs, review range, output contract, ordinary evidence, and provider
-framing. These rows record bounded text measurements. They add no runtime limit
-and raise no existing budget.
+conversation-size or billing promise. Each charter row measures one role file.
+These figures add no runtime limit and raise no existing budget.
 
 ## Using GPT-5.6's full 1.05M window
 

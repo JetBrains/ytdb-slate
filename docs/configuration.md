@@ -98,6 +98,12 @@ The `docs/agents/...` values below are placeholders. Point them at Markdown file
 
 Remove `writing.check` and `writing.remind` when copying an older configuration. Current Slate reports these ignored writing keys.
 
+## Built-in implementation review
+
+Pass the optional `reviewPerspectives` list to `thread` with type `reviewer` for a built-in implementation review. Use the perspective names in [review-rules.md](review-rules.md) § Built-in implementation perspectives. The list must be nonempty and contain distinct names. Reviewer I and Test-quality and structure reviewer each run alone. Other specialists may share a list only when their code scope and required evidence match.
+
+Slate loads the shared policy, implementation inputs, and selected charters before opening a worker. An invalid list or a missing, unreadable, or blank required file refuses dispatch before worker creation. An omitted list keeps the manual review route. The list does not enter saved thread state. Prefixes identify findings and do not select perspectives.
+
 ## Document path warning
 
 > **Silent skip:** document-path errors produce no warning. Slate skips missing, unreadable, or empty files selected by `orchestratorPromptDocs`, `workerPromptDocs`, and `doctrineExtraPath`. For `reviewPerspectivesPath`, Slate omits the pointer only when the file is missing. Slate does not read that file at injection time, so an unreadable or empty file is still cited. Verify your paths after copying the example.
