@@ -525,12 +525,20 @@ export function registerSlateMode(
 		console.warn(message);
 	};
 	const showSummary = (ctx: ExtensionContext) => {
-		const lines = renderStartupSummary();
 		if (ctx.mode === "tui") {
+			const theme = ctx.ui.theme;
+			const lines = theme ? renderStartupSummary((kind, text) => {
+				if (kind === "heading") return theme.bold(theme.fg("accent", text));
+				if (kind === "action") return theme.bold(theme.fg("warning", text));
+				return theme.fg(kind === "command" ? "mdCode" : "dim", text);
+			}) : renderStartupSummary();
 			ctx.ui.setWidget(SUMMARY_WIDGET_KEY, lines);
 			summaryVisible = true;
-		} else if (ctx.hasUI) ctx.ui.notify(lines.join("\n"), "info");
-		else console.log(lines.join("\n"));
+		} else {
+			const lines = renderStartupSummary();
+			if (ctx.hasUI) ctx.ui.notify(lines.join("\n"), "info");
+			else console.log(lines.join("\n"));
+		}
 	};
 	const displaySummary = (ctx: ExtensionContext) => {
 		try { showSummary(ctx); }
