@@ -94,15 +94,20 @@ function unsupportedFolderFlush(error: unknown): boolean {
 	return ["ENOTSUP", "EOPNOTSUPP", "EINVAL", "EISDIR"].includes((error as NodeJS.ErrnoException).code ?? "");
 }
 
-export function renderStartupSummary(): string[] {
-	return [
-		"What Slate does, step by step:",
-		"1. Research: Slate studies your request and the code through worker threads.",
-		"2. Risk approval: Slate lists the risks of the change, and you approve or reject each one.",
-		"3. Design: when a risk needs it, Slate writes a design, you check it, reviewers test it, and you approve it.",
-		"4. Tracks: Slate splits the work into tracks, workers implement and check each track, and reviewers review it when a risk needs it.",
-		"5. Final acceptance: you review the whole change and accept it.",
-		"6. Delivery: Slate prepares the final commit, or a pull request that only you merge.",
-		"Run /slate summary off or /slate summary on to hide or show this summary when orchestrator mode starts.",
+type SummaryStyleKind = "heading" | "action" | "command" | "dim";
+type SummaryStyle = (kind: SummaryStyleKind, text: string) => string;
+type SummaryPart = [text: string, kind?: SummaryStyleKind];
+
+export function renderStartupSummary(style?: SummaryStyle): string[] {
+	const lines: SummaryPart[][] = [
+		[["What Slate does, step by step:", "heading"]],
+		[["1. Research:", "heading"], [" Slate studies your request and the code through worker threads."]],
+		[["2. Risk approval:", "heading"], [" Slate lists the risks of the change, and "], ["you approve or reject", "action"], [" each one."]],
+		[["3. Design:", "heading"], [" when a risk needs it, Slate writes a design, "], ["you check it", "action"], [", reviewers test it, and "], ["you approve it", "action"], ["."]],
+		[["4. Tracks:", "heading"], [" Slate splits the work into tracks, workers implement and check each track, and reviewers review it when a risk needs it."]],
+		[["5. Final acceptance:", "heading"], [" you review the whole change and "], ["accept it", "action"], ["."]],
+		[["6. Delivery:", "heading"], [" Slate prepares the final commit, or a pull request that "], ["only you merge", "action"], ["."]],
+		[["Run ", "dim"], ["/slate summary off", "command"], [" or ", "dim"], ["/slate summary on", "command"], [" to hide or show this summary when orchestrator mode starts.", "dim"]],
 	];
+	return lines.map((parts) => parts.map(([text, kind]) => kind && style ? style(kind, text) : text).join(""));
 }

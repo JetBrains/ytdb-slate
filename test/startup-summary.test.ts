@@ -157,6 +157,9 @@ function harness(t: test.TestContext) {
 	let hasUI = true;
 	let brokenWidget = false;
 	let brokenClear = false;
+	let brokenTheme = false;
+	let missingTheme = false;
+	let brokenFg = false;
 	let sessionId = "successor";
 	const api = {
 		on(name: string, fn: (event: unknown, ctx: ExtensionContext) => unknown) { events.set(name, [...(events.get(name) ?? []), fn]); },
@@ -171,6 +174,17 @@ function harness(t: test.TestContext) {
 		isProjectTrusted: () => true,
 		sessionManager: { getBranch: () => branch, getEntries: () => branch, getSessionId: () => sessionId },
 		ui: {
+			get theme() {
+				if (brokenTheme) throw new Error("theme failed");
+				if (missingTheme) return undefined;
+				return {
+					fg(color: string, text: string) {
+						if (brokenFg) throw new Error("color failed");
+						return `<${color}>${text}</${color}>`;
+					},
+					bold: (text: string) => `<b>${text}</b>`,
+				};
+			},
 			notify(text: string, type: string) { notices.push({ text, type }); chatStatus = text; },
 			setWidget(key: string, lines: string[] | undefined) {
 				if (brokenWidget && key === SUMMARY_WIDGET_KEY && lines) throw new Error("render failed");
@@ -213,6 +227,9 @@ function harness(t: test.TestContext) {
 		session(value: string) { sessionId = value; },
 		breakWidget(value: boolean) { brokenWidget = value; },
 		breakClear(value: boolean) { brokenClear = value; },
+		breakTheme(value: boolean) { brokenTheme = value; },
+		missTheme(value: boolean) { missingTheme = value; },
+		breakFg(value: boolean) { brokenFg = value; },
 		resetUI() { widgets.clear(); chatStatus = undefined; },
 	};
 }
@@ -233,18 +250,29 @@ const PANEL = [
 	"Run /slate summary off or /slate summary on to hide or show this summary when orchestrator mode starts.",
 ];
 
+const STYLED_PANEL = [
+	"<b><accent>What Slate does, step by step:</accent></b>",
+	"<b><accent>1. Research:</accent></b> Slate studies your request and the code through worker threads.",
+	"<b><accent>2. Risk approval:</accent></b> Slate lists the risks of the change, and <b><warning>you approve or reject</warning></b> each one.",
+	"<b><accent>3. Design:</accent></b> when a risk needs it, Slate writes a design, <b><warning>you check it</warning></b>, reviewers test it, and <b><warning>you approve it</warning></b>.",
+	"<b><accent>4. Tracks:</accent></b> Slate splits the work into tracks, workers implement and check each track, and reviewers review it when a risk needs it.",
+	"<b><accent>5. Final acceptance:</accent></b> you review the whole change and <b><warning>accept it</warning></b>.",
+	"<b><accent>6. Delivery:</accent></b> Slate prepares the final commit, or a pull request that <b><warning>only you merge</warning></b>.",
+	"<dim>Run </dim><mdCode>/slate summary off</mdCode><dim> or </dim><mdCode>/slate summary on</mdCode><dim> to hide or show this summary when orchestrator mode starts.</dim>",
+];
+
 test("reload keeps the summary panel and restores the mode status", { timeout: 10000 }, async (t) => {
 	const f = harness(t);
 	f.snapshot(snapshot("change-20260924T105757Z-ab29a0b2cdd1cdc0fa26d66bc4718dc9", "parent"));
 	await f.start();
-	assert.deepEqual(f.widgets.get(SUMMARY_WIDGET_KEY), PANEL);
+	assert.deepEqual(f.widgets.get(SUMMARY_WIDGET_KEY), STYLED_PANEL);
 	assert.equal(f.widgets.has("slate"), false, "orchestrator status needs no widget");
 	f.resetUI(); // Pi resetExtensionUI clears widgets before session_start on reload.
 	assert.equal(f.widgets.has(SUMMARY_WIDGET_KEY), false);
 	await f.start("reload");
 	f.reloadStatus(); // Pi's status replaces a chat notice after session_start.
-	assert.deepEqual(f.widgets.get(SUMMARY_WIDGET_KEY), PANEL);
-	assert.ok(f.frame().includes(PANEL[0]!));
+	assert.deepEqual(f.widgets.get(SUMMARY_WIDGET_KEY), STYLED_PANEL);
+	assert.ok(f.frame().includes(STYLED_PANEL[0]!));
 	assert.ok(f.frame().some((line) => line.startsWith("Reloaded keybindings")));
 	assert.equal(f.frame().length >= PANEL.length, true);
 	assert.match(f.commands.get("slate")!.description, /summary/);
@@ -256,7 +284,7 @@ test("fresh terminal mode seeding displays the panel after restore, but an expli
 	assert.equal(f.widgets.has(SUMMARY_WIDGET_KEY), false, "fresh normal mode has no panel");
 	writeFileSync(join(f.project, ".pi", "slate.json"), '{"orchestratorModeDefault":true}');
 	await f.start("reload");
-	assert.deepEqual(f.widgets.get(SUMMARY_WIDGET_KEY), PANEL, "fresh mode seed precedes display");
+	assert.deepEqual(f.widgets.get(SUMMARY_WIDGET_KEY), STYLED_PANEL, "fresh mode seed precedes display");
 	f.snapshot(snapshot(undefined, undefined, false));
 	f.resetUI();
 	await f.start("reload");
@@ -272,19 +300,19 @@ test("normal mode stays clear through reload status, while toggles and repeat on
 	await f.start("reload");
 	f.reloadStatus();
 	assert.equal(f.widgets.has(SUMMARY_WIDGET_KEY), false);
-	assert.equal(f.frame().some((line) => line === PANEL[0]), false);
+	assert.equal(f.frame().some((line) => line === STYLED_PANEL[0]), false);
 	await f.submit("/slate on");
-	assert.deepEqual(f.widgets.get(SUMMARY_WIDGET_KEY), PANEL);
+	assert.deepEqual(f.widgets.get(SUMMARY_WIDGET_KEY), STYLED_PANEL);
 	await f.submit("/slate off");
 	assert.equal(f.widgets.has(SUMMARY_WIDGET_KEY), false);
 	await f.submit("/slate on");
-	assert.deepEqual(f.widgets.get(SUMMARY_WIDGET_KEY), PANEL, "each on shows it again");
+	assert.deepEqual(f.widgets.get(SUMMARY_WIDGET_KEY), STYLED_PANEL, "each on shows it again");
 	await f.submit("/slate");
 	assert.equal(f.widgets.has(SUMMARY_WIDGET_KEY), false, "toggle off clears it");
 	await f.submit("/slate");
-	assert.deepEqual(f.widgets.get(SUMMARY_WIDGET_KEY), PANEL, "toggle on shows it");
+	assert.deepEqual(f.widgets.get(SUMMARY_WIDGET_KEY), STYLED_PANEL, "toggle on shows it");
 	await f.submit("/slate on");
-	assert.deepEqual(f.widgets.get(SUMMARY_WIDGET_KEY), PANEL, "explicit on shows it again");
+	assert.deepEqual(f.widgets.get(SUMMARY_WIDGET_KEY), STYLED_PANEL, "explicit on shows it again");
 });
 
 test("the saved off choice suppresses automatic display, not manual display in either mode", { timeout: 10000 }, async (t) => {
@@ -295,16 +323,16 @@ test("the saved off choice suppresses automatic display, not manual display in e
 	await f.command("on");
 	assert.equal(f.widgets.has(SUMMARY_WIDGET_KEY), false);
 	await f.command("summary");
-	assert.deepEqual(f.widgets.get(SUMMARY_WIDGET_KEY), PANEL);
+	assert.deepEqual(f.widgets.get(SUMMARY_WIDGET_KEY), STYLED_PANEL);
 	await f.command("off");
 	assert.equal(f.widgets.has(SUMMARY_WIDGET_KEY), false);
 	await f.command("summary");
-	assert.deepEqual(f.widgets.get(SUMMARY_WIDGET_KEY), PANEL);
+	assert.deepEqual(f.widgets.get(SUMMARY_WIDGET_KEY), STYLED_PANEL);
 	await f.command("summary off");
 	assert.equal(f.widgets.has(SUMMARY_WIDGET_KEY), false);
 	await f.command("summary on");
 	await f.command("on");
-	assert.deepEqual(f.widgets.get(SUMMARY_WIDGET_KEY), PANEL);
+	assert.deepEqual(f.widgets.get(SUMMARY_WIDGET_KEY), STYLED_PANEL);
 });
 
 test("the first terminal prompt clears only the summary widget without changing model input", { timeout: 10000 }, async (t) => {
@@ -312,7 +340,7 @@ test("the first terminal prompt clears only the summary widget without changing 
 	f.snapshot(snapshot());
 	await f.start();
 	const lines = f.widgets.get(SUMMARY_WIDGET_KEY)!;
-	assert.ok(lines);
+	assert.deepEqual(lines, STYLED_PANEL);
 	assert.deepEqual(await f.submit("/slate effective"), { command: true });
 	assert.deepEqual(f.widgets.get(SUMMARY_WIDGET_KEY), lines, "slash commands keep the panel");
 	const injected = await f.submit("extension message", "extension");
@@ -374,7 +402,8 @@ test("command validation and mode gating do not toggle orchestrator mode", { tim
 	await f.start("reload");
 	assert.equal(f.widgets.has(SUMMARY_WIDGET_KEY), false);
 	await f.command("summary");
-	assert.match(f.notices.at(-1)!.text, /What Slate does, step by step/);
+	assert.equal(f.notices.at(-1)!.text, PANEL.join("\n"));
+	assert.equal(f.notices.at(-1)!.type, "info");
 	assert.equal(f.widgets.has(SUMMARY_WIDGET_KEY), false);
 	writeFileSync(f.path, '{"startupSummary":true}');
 	await f.command("on");
@@ -385,6 +414,15 @@ test("command validation and mode gating do not toggle orchestrator mode", { tim
 	await f.command("off");
 	await f.command("on");
 	assert.equal(f.widgets.has(SUMMARY_WIDGET_KEY), false, "print on never creates a panel");
+	const printed: string[] = [];
+	const originalLog = console.log;
+	try {
+		console.log = (text: string) => { printed.push(text); };
+		await f.command("summary");
+	} finally {
+		console.log = originalLog;
+	}
+	assert.deepEqual(printed, [PANEL.join("\n")]);
 });
 
 test("folder-flush failure gives a command warning instead of plain success", { timeout: 10000 }, async (t) => {
@@ -428,6 +466,38 @@ test("startup errors warn once and do not stop the session", { timeout: 10000 },
 	await f.start("reload");
 	assert.match(f.notices.at(-1)!.text, /could not show the workflow summary/);
 	assert.equal(f.notices.at(-1)!.type, "warning");
+});
+
+test("a terminal fixture without a theme keeps its plain widget", { timeout: 10000 }, async (t) => {
+	const f = harness(t);
+	f.snapshot(snapshot());
+	f.missTheme(true);
+	await f.start();
+	assert.deepEqual(f.widgets.get(SUMMARY_WIDGET_KEY), PANEL);
+	assert.equal(f.notices.filter((notice) => notice.type === "warning").length, 0);
+	f.missTheme(false);
+	await f.command("summary");
+	assert.deepEqual(f.widgets.get(SUMMARY_WIDGET_KEY), STYLED_PANEL);
+});
+
+test("theme failures warn without breaking terminal startup", { timeout: 10000 }, async (t) => {
+	const f = harness(t);
+	f.snapshot(snapshot());
+	f.breakTheme(true);
+	await f.start();
+	assert.equal(f.widgets.has(SUMMARY_WIDGET_KEY), false);
+	assert.equal(f.notices.at(-1)!.type, "warning");
+	assert.match(f.notices.at(-1)!.text, /could not show the workflow summary: Error: theme failed/);
+	f.breakTheme(false);
+	f.breakFg(true);
+	f.notices.length = 0;
+	await f.command("summary");
+	assert.equal(f.widgets.has(SUMMARY_WIDGET_KEY), false);
+	assert.equal(f.notices.at(-1)!.type, "warning");
+	assert.match(f.notices.at(-1)!.text, /could not show the workflow summary: Error: color failed/);
+	f.breakFg(false);
+	await f.command("summary");
+	assert.deepEqual(f.widgets.get(SUMMARY_WIDGET_KEY), STYLED_PANEL);
 });
 
 test("the short phase list follows all nine lifecycle phases in the shipped document", () => {
