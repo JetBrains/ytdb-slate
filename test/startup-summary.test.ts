@@ -152,7 +152,9 @@ function harness(t: test.TestContext) {
 	const notices: Array<{ text: string; type: string }> = [];
 	let chatStatus: string | undefined;
 	let active = ["read", "thread", "slate_change"];
-	let branch: Array<{ type: string; customType: string; data: SlateSnapshot }> = [];
+	let branch: Array<{ type: string; customType: string; data: unknown }> = [];
+	let successorEntry: Record<string, unknown> | undefined;
+	let failNextSave = false;
 	let mode = "tui";
 	let hasUI = true;
 	let brokenWidget = false;
@@ -167,12 +169,26 @@ function harness(t: test.TestContext) {
 		getActiveTools: () => active, setActiveTools(names: string[]) { active = names; },
 		getAllTools: () => [{ name: "read" }, { name: "thread" }, { name: "slate_change" }],
 		getThinkingLevel: () => undefined, sendMessage() {},
-		appendEntry(name: string, data: SlateSnapshot) { branch.push({ type: "custom", customType: name, data: structuredClone(data) }); },
+		appendEntry(name: string, data: SlateSnapshot) {
+			if (name === "slate-state" && failNextSave) {
+				failNextSave = false;
+				throw new Error("injected handoff save failure");
+			}
+			branch.push({ type: "custom", customType: name, data: structuredClone(data) });
+		},
 	};
 	const ctx = {
 		cwd: f.project, get mode() { return mode; }, get hasUI() { return hasUI; }, model: undefined, modelRegistry: {},
 		isProjectTrusted: () => true,
-		sessionManager: { getBranch: () => branch, getEntries: () => branch, getSessionId: () => sessionId },
+		sessionManager: { getBranch: () => branch, getEntries: () => branch, getSessionId: () => sessionId, getSessionFile: () => undefined },
+		waitForIdle: async () => {},
+		newSession: async (options: { setup: (successor: { getSessionId: () => string; appendCustomEntry: (name: string, data: Record<string, unknown>) => void }) => Promise<void> }) => {
+			await options.setup({ getSessionId: () => "successor", appendCustomEntry(name, data) {
+				assert.equal(name, "slate-handoff");
+				successorEntry = structuredClone(data);
+			} });
+			return { cancelled: false };
+		},
 		ui: {
 			get theme() {
 				if (brokenTheme) throw new Error("theme failed");
@@ -223,8 +239,14 @@ function harness(t: test.TestContext) {
 			return { event, result, prompt: prompt.systemPrompt };
 		},
 		snapshot(data: SlateSnapshot) { branch = [{ type: "custom", customType: "slate-state", data }]; },
+		handoff(data: Record<string, unknown>, savedState?: SlateSnapshot) {
+			branch = [{ type: "custom", customType: "slate-handoff", data },
+				...(savedState ? [{ type: "custom", customType: "slate-state", data: savedState }] : [])];
+		},
+		successorEntry: () => successorEntry,
 		mode(value: string, ui = true) { mode = value; hasUI = ui; },
 		session(value: string) { sessionId = value; },
+		failNextSave() { failNextSave = true; },
 		breakWidget(value: boolean) { brokenWidget = value; },
 		breakClear(value: boolean) { brokenClear = value; },
 		breakTheme(value: boolean) { brokenTheme = value; },
@@ -276,6 +298,123 @@ test("reload keeps the summary panel and restores the mode status", { timeout: 1
 	assert.ok(f.frame().some((line) => line.startsWith("Reloaded keybindings")));
 	assert.equal(f.frame().length >= PANEL.length, true);
 	assert.match(f.commands.get("slate")!.description, /summary/);
+});
+
+test("a visible parent panel stays visible through handoff even with the saved preference off", { timeout: 10000 }, async (t) => {
+	const parent = harness(t);
+	parent.snapshot(snapshot());
+	await parent.start();
+	assert.deepEqual(parent.widgets.get(SUMMARY_WIDGET_KEY), STYLED_PANEL);
+	await parent.command("summary off");
+	await parent.command("summary");
+	assert.deepEqual(parent.widgets.get(SUMMARY_WIDGET_KEY), STYLED_PANEL);
+	await parent.command("handoff");
+	const entry = parent.successorEntry()!;
+	assert.equal(entry.summaryVisible, true);
+	assert.equal((entry.snapshot as SlateSnapshot).format, snapshot().format);
+	assert.equal("summaryVisible" in (entry.snapshot as SlateSnapshot), false);
+	const successor = harness(t);
+	saveStartupSummary(false);
+	successor.handoff(entry);
+	await successor.start("new");
+	assert.deepEqual(successor.widgets.get(SUMMARY_WIDGET_KEY), STYLED_PANEL);
+	assert.equal(readStartupSummary().enabled, false, "handoff does not change the preference");
+});
+
+test("an interactive prompt hides the panel in the successor despite automatic display being on", { timeout: 10000 }, async (t) => {
+	const parent = harness(t);
+	parent.snapshot(snapshot());
+	await parent.start();
+	await parent.submit("Hide this panel.");
+	assert.equal(parent.widgets.has(SUMMARY_WIDGET_KEY), false);
+	await parent.command("handoff");
+	const entry = parent.successorEntry()!;
+	assert.equal(entry.summaryVisible, false);
+	const successor = harness(t);
+	successor.handoff(entry);
+	await successor.start("new");
+	assert.equal(readStartupSummary().enabled, true);
+	assert.equal(successor.active().includes("slate_change"), true, "the successor has orchestrator tools");
+	assert.equal(successor.widgets.has(SUMMARY_WIDGET_KEY), false);
+	successor.resetUI();
+	await successor.start("reload");
+	assert.deepEqual(successor.widgets.get(SUMMARY_WIDGET_KEY), STYLED_PANEL, "reload uses the automatic rule");
+});
+
+test("carried panel visibility reports broken preferences without changing the panel", { timeout: 10000 }, async (t) => {
+	for (const [visible, text, warning] of [
+		[true, "{broken", /Cannot read or parse/],
+		[false, '{"startupSummary":1}', /needs a boolean startupSummary value/],
+	] as const) {
+		await t.test(visible ? "visible" : "hidden", async (caseT) => {
+			const f = harness(caseT);
+			mkdirSync(f.agent);
+			writeFileSync(f.path, text);
+			f.handoff({ sessionId: "successor", summaryVisible: visible, snapshot: snapshot() });
+			await f.start("new");
+			const preferenceWarnings = f.notices.filter((notice) => notice.type === "warning" && notice.text.includes(f.path));
+			assert.equal(preferenceWarnings.length, 1);
+			assert.match(preferenceWarnings[0]!.text, warning);
+			assert.equal(readStartupSummary().enabled, true, "a broken preference defaults to on");
+			if (visible) assert.deepEqual(f.widgets.get(SUMMARY_WIDGET_KEY), STYLED_PANEL);
+			else assert.equal(f.widgets.has(SUMMARY_WIDGET_KEY), false, "carried hidden state overrides the default");
+		});
+	}
+});
+
+test("handoff entries without visibility retain the automatic display rule", { timeout: 10000 }, async (t) => {
+	for (const enabled of [false, true]) {
+		await t.test(`startup preference ${enabled ? "on" : "off"}`, async (caseT) => {
+			const f = harness(caseT);
+			saveStartupSummary(enabled);
+			f.handoff({ sessionId: "successor", snapshot: snapshot() });
+			await f.start("new");
+			assert.equal(readStartupSummary().enabled, enabled);
+			if (enabled) assert.deepEqual(f.widgets.get(SUMMARY_WIDGET_KEY), STYLED_PANEL);
+			else assert.equal(f.widgets.has(SUMMARY_WIDGET_KEY), false);
+		});
+	}
+});
+
+test("invalid handoff snapshot does not carry a visible panel", { timeout: 10000 }, async (t) => {
+	const f = harness(t);
+	f.handoff({ sessionId: "successor", summaryVisible: true, snapshot: { format: "invalid" } });
+	await f.start("new");
+	assert.match(f.notices.at(-1)!.text, /invalid successor handoff state/);
+	assert.equal(readStartupSummary().enabled, true);
+	assert.equal(f.widgets.has(SUMMARY_WIDGET_KEY), false, "no mode was adopted, so automatic display stays off");
+});
+
+test("failed handoff save does not carry a hidden panel", { timeout: 10000 }, async (t) => {
+	const f = harness(t);
+	f.handoff({ sessionId: "successor", summaryVisible: false, snapshot: snapshot() });
+	f.failNextSave();
+	await f.start("new");
+	assert.match(f.notices.at(-1)!.text, /could not persist restored handoff state.*injected handoff save failure/);
+	assert.equal(readStartupSummary().enabled, true);
+	assert.deepEqual(f.widgets.get(SUMMARY_WIDGET_KEY), STYLED_PANEL, "adopted mode uses the automatic display rule after a failed save");
+});
+
+test("copied and already restored handoff entries do not change automatic display", { timeout: 10000 }, async (t) => {
+	const f = harness(t);
+	writeFileSync(join(f.project, ".pi", "slate.json"), '{"orchestratorModeDefault":true}');
+	f.handoff({ sessionId: "original", summaryVisible: false, snapshot: snapshot() });
+	await f.start("fork");
+	assert.deepEqual(f.widgets.get(SUMMARY_WIDGET_KEY), STYLED_PANEL, "a copied entry belongs to the original session");
+	f.resetUI();
+	f.handoff({ sessionId: "successor", summaryVisible: false, snapshot: snapshot() }, snapshot());
+	await f.start("reload");
+	assert.deepEqual(f.widgets.get(SUMMARY_WIDGET_KEY), STYLED_PANEL, "saved slate state prevents readoption");
+});
+
+test("a failed carried panel update warns through the summary channel", { timeout: 10000 }, async (t) => {
+	const f = harness(t);
+	f.handoff({ sessionId: "successor", summaryVisible: true, snapshot: snapshot() });
+	f.breakWidget(true);
+	await f.start("new");
+	assert.equal(f.widgets.has(SUMMARY_WIDGET_KEY), false);
+	assert.match(f.notices.at(-1)!.text, /could not show the workflow summary: Error: render failed/);
+	assert.equal(f.notices.at(-1)!.type, "warning");
 });
 
 test("fresh terminal mode seeding displays the panel after restore, but an explicit off state does not", { timeout: 10000 }, async (t) => {
