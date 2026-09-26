@@ -759,12 +759,13 @@ active. The findings-off session proves that the findings section disappears whe
 disabled. Measurement continues in the disabled case. The fake model advertises a 1,000,000-token
 window. The canary completes a finding-heavy first turn. The controller records the event position before each command. It waits only for events after that position, including `agent_settled` between prompts.
 
-The canary registers an in-process fake provider and one real tool. The main
-provider response emits two parallel calls to that tool. Both executions append
-a marker. Each persisted tool result must contain exactly one text block, no
-extra block or key, and the text `CANARY_TOOL_RESULT_ONLY`. Slate's real
-turn-end path selects steer delivery for the tool-result turn and next-turn
-delivery for the later tool-free turn.
+The canary registers an in-process fake provider. The main provider response
+emits two parallel calls to the built-in `read` tool. Each call reads a separate
+fixture file whose exact content is `CANARY_TOOL_RESULT_ONLY`. The canary uses
+`read` because orchestrator mode refuses tools outside its allowed list. Each
+persisted tool result must contain exactly one text block, no extra block or key,
+and the exact fixture text. Slate's real turn-end path selects steer delivery
+for the tool-result turn and next-turn delivery for the later tool-free turn.
 
 The main session runs six provider calls and persists two reminders. The
 trigger-off and findings-off sessions run five calls and persist one cadence
@@ -797,8 +798,8 @@ The checks assert all of these facts:
 
 A clean run removes its physical scratch directory. A failure keeps the
 directory, prints its path, and inlines pi stderr and stdout. The directory also
-contains the raw RPC stream, session JSONL, provider evidence, tool marker and
-parsed analysis.
+contains the raw RPC stream, session JSONL, provider evidence and parsed
+analysis.
 
 ## Boundary and re-run rules
 
@@ -834,7 +835,7 @@ wiring, doctrine rendering, or handoff ordering contract.
 | file | role |
 | --- | --- |
 | `run-writing-reminder-check.sh` | driver, environment isolation, real pi session, evidence parser, assertions, roster, and artifact policy |
-| `writing-reminder-canary.mjs` | real canary tool, offline provider, pre-normalization hook observation, and provider evidence |
+| `writing-reminder-canary.mjs` | built-in read calls, offline provider, pre-normalization hook observation, and provider evidence |
 
 # Worker-reminder integration check — `run-worker-reminder-check.sh`
 

@@ -72,6 +72,10 @@ run_scenario() {
 }
 JSON
 	[ "$?" = 0 ] || return 125
+	if [ "$scenario" = main ]; then
+		printf '%s' 'CANARY_TOOL_RESULT_ONLY' > "$project/reminder-alpha.txt" || return 125
+		printf '%s' 'CANARY_TOOL_RESULT_ONLY' > "$project/reminder-beta.txt" || return 125
+	fi
 	printf '%s\n' '{"id":"commands","type":"get_commands"}' '{"id":"mode","type":"prompt","message":"/slate on"}' > "$LAB/$scenario.rpc.in" || return 125
 	for prompt in 1 2 3 4 5; do
 		printf '{"id":"turn-%s","type":"prompt","message":"Run writing reminder canary turn %s."}\n' "$prompt" "$prompt" >> "$LAB/$scenario.rpc.in" || return 125
@@ -85,7 +89,6 @@ JSON
 			PI_CODING_AGENT_DIR="$agent" PI_OFFLINE=1 \
 			HTTP_PROXY="$DEAD_PROXY" HTTPS_PROXY="$DEAD_PROXY" ALL_PROXY="$DEAD_PROXY" NO_PROXY="" \
 			SLATE_REMINDER_SCENARIO="$scenario" SLATE_REMINDER_EVIDENCE="$LAB/$scenario.evidence.json" \
-			SLATE_REMINDER_TOOL_MARKER="$LAB/$scenario.tool.txt" \
 			node - "$LAB/$scenario.rpc.in" "$PI" "$REPO" "$CANARY" <<'NODE'
 const fs = require("node:fs");
 const { spawn } = require("node:child_process");
@@ -160,7 +163,7 @@ function jsonFile(file) { try { return JSON.parse(fs.readFileSync(file, "utf8"))
 function sessionFacts(file) {
   const parsed = jsonLines(file);
   const custom = parsed.values.filter((e) => e?.type === "custom_message" && e.customType === "slate-writing-reminder");
-  const tools = parsed.values.filter((e) => e?.type === "message" && e.message?.role === "toolResult" && e.message.toolName === "writing_reminder_canary");
+  const tools = parsed.values.filter((e) => e?.type === "message" && e.message?.role === "toolResult");
   const assistants = parsed.values.filter((e) => e?.type === "message" && e.message?.role === "assistant");
   return { parsed, custom, tools, assistants };
 }
@@ -201,7 +204,8 @@ const allCustom = sessions.flatMap((session) => session.custom);
 const finalProviderContents = [mainContents, triggerOffContents, findingsOffContents];
 const safeIds = allCustom.every((e) => Number.isSafeInteger(e.details?.deliveryId) && e.details.deliveryId > 0);
 const persisted = sessions.every((session, i) => session.custom.length === finalProviderContents[i].length && session.custom.every((entry, j) => entry.content === finalProviderContents[i][j]));
-const cleanTools = sessions.flatMap((session) => session.tools).every((entry) => {
+const allTools = sessions.flatMap((session) => session.tools);
+const cleanTools = allTools.length === 2 && allTools.every((entry) => {
   const c = entry.message.content;
   return Array.isArray(c) && c.length === 1 && c[0] && typeof c[0] === "object" && Object.keys(c[0]).sort().join(",") === "text,type" && c[0].type === "text" && c[0].text === "CANARY_TOOL_RESULT_ONLY";
 });
@@ -213,7 +217,10 @@ const result = {
   workingTree: rpcs.every((rpc) => rpc.slatePath === repo || rpc.slatePath.startsWith(repo + "/")),
   slatePaths: rpcs.map((rpc) => rpc.slatePath),
   trustedConfig: evidence.every((item, i) => item?.trusted === true && item?.cwd === `${lab}/project-${names[i]}`),
-  toolExecuted: fs.existsSync(`${lab}/main.tool.txt`) && fs.readFileSync(`${lab}/main.tool.txt`, "utf8") === "executed\n".repeat(2) && !fs.existsSync(`${lab}/trigger-off.tool.txt`) && !fs.existsSync(`${lab}/findings-off.tool.txt`) && mainSession.tools.length === 2 && triggerOffSession.tools.length === 0 && findingsOffSession.tools.length === 0,
+  toolExecuted: mainSession.tools.length === 2 &&
+    ["writing-reminder-1-1", "writing-reminder-1-2"].every((id) => mainSession.tools.filter((entry) => entry.message.toolCallId === id).length === 1) &&
+    mainSession.tools.every((entry) => entry.message.toolName === "read" && entry.message.isError !== true) &&
+    triggerOffSession.tools.length === 0 && findingsOffSession.tools.length === 0,
   providerCalls: main?.calls === 6 && triggerOff?.calls === 5 && findingsOff?.calls === 5 && mainSession.assistants.length === 6 && triggerOffSession.assistants.length === 5 && findingsOffSession.assistants.length === 5,
   triggerPosition: JSON.stringify(counts(main)) === JSON.stringify([0, 1, 1, 1, 1, 2]),
   cadencePosition: JSON.stringify(counts(triggerOff)) === JSON.stringify([0, 0, 0, 0, 1]) && JSON.stringify(counts(findingsOff)) === JSON.stringify([0, 0, 0, 0, 1]),
@@ -254,7 +261,7 @@ if [ "$ANALYZE_RC" = 0 ] && [ -f "$ANALYSIS" ] && [ "$(value rpcBad)" = '[]' ] &
 if [ "$(value extensionErrors)" = '[]' ]; then report hook-errors PASS "pi emitted no extension_error event"; else report hook-errors FAIL "extension errors: $(value extensionErrors)"; fi
 check_true working-tree workingTree "all /slate commands are attributed inside the checkout under test" "a /slate source path is outside the checkout: $(value slatePaths)"
 check_true trusted-config trustedConfig "all canaries observed their trusted scratch project and config" "provider evidence did not confirm every trusted scratch project"
-check_true tool-executed toolExecuted "the two parallel real canary tools executed and persisted only in the main session" "tool markers or persisted tool results are wrong"
+check_true tool-executed toolExecuted "two built-in read calls executed and persisted only in the main session" "the built-in read results, ids, or session counts are wrong"
 check_true provider-calls providerCalls "provider and persisted assistant call counts are exactly 6, 5, and 5" "provider or assistant call count is wrong: $(value counts)"
 check_true trigger-position triggerPosition "the first reminder is absent from call 1, appears in call 2, and no second reminder appears before call 6" "finding-trigger positions are wrong: $(value counts)"
 check_true cadence-position cadencePosition "both switch sessions stay silent through call 4 and receive the cadence reminder in call 5" "four-turn cadence positions are wrong: $(value counts)"
@@ -275,7 +282,7 @@ check_true findings-off-measurement findingsOffMeasuredInput "the findings-off s
 check_true advisory-hidden advisoryHidden "the advisory passive-rule excerpt is absent from the findings reminder" "an advisory-rule finding reached the reminder"
 check_true message-bound messageBound "the delivered findings reminder stays within the 2000-byte bound" "the findings reminder is empty or exceeds 2000 bytes"
 check_true delivery-details-hidden detailsHidden "provider contexts contain reminder text without hidden delivery details" "provider reminder details leaked across the API boundary"
-check_true tool-result-clean toolResultClean "all toolResults equal one exact text block with no extra keys or blocks" "a canary toolResult differs from the expected content shape"
+check_true tool-result-clean toolResultClean "both read results equal one exact text block with no extra keys or blocks" "a read result is missing or differs from the expected content shape"
 
 ROSTER_OK=1
 for id in $EXPECTED; do [ "${SEEN[$id]:-0}" = 1 ] || ROSTER_OK=0; done
