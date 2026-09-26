@@ -1,11 +1,9 @@
-import { appendFileSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
-import { Type } from "typebox";
 
 const EVIDENCE = process.env.SLATE_REMINDER_EVIDENCE;
-const TOOL_MARKER = process.env.SLATE_REMINDER_TOOL_MARKER;
 const SCENARIO = process.env.SLATE_REMINDER_SCENARIO;
-const TOOL_NAME = "writing_reminder_canary";
 const CUSTOM_TYPE = "slate-writing-reminder";
 const HEADER = "[slate] Reminder:";
 const FINDINGS_HEADING = "Recent writing findings:";
@@ -71,11 +69,11 @@ function completedStream(output) {
 	return stream;
 }
 
-function findingToolCalls(model, call) {
+function findingToolCalls(model, call, cwd) {
 	return message(model, [
 		{ type: "text", text: FINDING_TEXT },
-		{ type: "toolCall", id: `writing-reminder-${call}-1`, name: TOOL_NAME, arguments: {} },
-		{ type: "toolCall", id: `writing-reminder-${call}-2`, name: TOOL_NAME, arguments: {} },
+		{ type: "toolCall", id: `writing-reminder-${call}-1`, name: "read", arguments: { path: join(cwd, "reminder-alpha.txt") } },
+		{ type: "toolCall", id: `writing-reminder-${call}-2`, name: "read", arguments: { path: join(cwd, "reminder-beta.txt") } },
 	], "toolUse", call);
 }
 
@@ -103,22 +101,6 @@ export default function reminderCanary(pi) {
 		if (item?.role === "custom" && item.customType === CUSTOM_TYPE) {
 			customMessages.push({ content: textOf(item.content), deliveryId: item.details?.deliveryId });
 		}
-	});
-
-	pi.registerTool({
-		name: TOOL_NAME,
-		label: "Writing reminder integration canary",
-		description: "Execute the deterministic writing-reminder integration canary.",
-		parameters: Type.Object({}),
-		async execute() {
-			appendFileSync(TOOL_MARKER, "executed\n");
-			return { content: [{ type: "text", text: "CANARY_TOOL_RESULT_ONLY" }], details: { canary: true } };
-		},
-	});
-
-	pi.on("before_agent_start", () => {
-		const active = pi.getActiveTools();
-		if (!active.includes(TOOL_NAME)) pi.setActiveTools([...active, TOOL_NAME]);
 	});
 
 	pi.registerProvider("slate-reminder-fake", {
@@ -153,7 +135,7 @@ export default function reminderCanary(pi) {
 				customMessages,
 			}, null, 2));
 
-			if (SCENARIO === "main" && calls === 1) return completedStream(findingToolCalls(model, calls));
+			if (SCENARIO === "main" && calls === 1) return completedStream(findingToolCalls(model, calls, sessionMeta.cwd));
 			if (SCENARIO !== "main" && calls === 1) return completedStream(message(model, [{ type: "text", text: FINDING_TEXT }], "stop", calls));
 			return completedStream(message(model, [{ type: "text", text: CLEAN_TEXT }], "stop", calls));
 		},
