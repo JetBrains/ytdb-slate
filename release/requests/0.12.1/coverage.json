@@ -1,0 +1,12 @@
+{
+  "schema": 2,
+  "parentPolicy": "exact-release-parent",
+  "allowedPaths": [
+    "package-lock.json",
+    "package.json",
+    "release/requests/0.12.1/coverage.json",
+    "release/requests/0.12.1/notes.md",
+    "release/requests/0.12.1/request.json"
+  ],
+  "verdict": "WARN"
+}
