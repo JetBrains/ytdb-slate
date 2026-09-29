@@ -1,41 +1,40 @@
-# ytdb-slate 0.11.0
+# ytdb-slate 0.12.0
 
-This release changes how Slate selects models, how it runs worker threads, and how the workflow decides which gates and reviews a change needs. Several configuration keys changed. Read the breaking changes below before you upgrade.
+This release gives built-in reviewers design-quality questions for their focus areas. It also adds a record folder for each workflow change and a startup workflow summary. It changes where Slate stores runtime files and handoff state. Read the breaking changes below before you upgrade.
 
 ## Highlights
 
-- **Logical-model routing.** Slate uses logical models for routing now. A logical model is a name that does not depend on a provider. It has a fixed effort and a list of the exact provider models that it permits. Every `thread` call must name a logical `model` and give a short `reason`. One shared recovery policy covers dispatch, compression and failover. The shipped logical models are `luna-6`, `sol-6`, `gemini-3.8-flash`, `claude-sonnet-5`, `claude-opus-5.5` and `gpt-6-astra`. See `docs/model-routing.md`.
-- **One action per thread.** Every `thread` call creates a new thread for one action. To continue earlier work, pass the earlier episode ids in `context`. An episode is the compressed record of one worker action.
-- **Focus areas decide the workflow.** Eleven focus areas replace the size grades. A focus area is a type of risk, and the user must approve that a change has it. Only approved focus areas add design gates and reviewers. A track with no approved focus area gets no routine implementation review. A track is one part of a change that can be merged on its own.
-- **Home preferences.** You can put an optional `slate.json` file in the pi agent directory. It also applies in untrusted projects. The values of a trusted project override it.
-- **Request pacing for workers.** Slate limits OpenAI Responses requests from workers. The default limit is 12 requests per model in each rolling minute. Use the `requestThrottle.*` keys to change the limit. All worker requests share one cache key now.
-- **Writing reminders count turns.** Writing reminders now come every `writing.remindTurns` completed turns. The default is 4. A reminder can also come at once when the writing checker finds a problem. Checker findings go into hidden reminders that the model can read.
-- **Worker reminder for parallel tool calls.** A hidden reminder tells workers to make independent tool calls together. Compressed episodes do not include the reminder text.
-- **Optional routing recommendations.** When `workflow.routingRecommendations` is `true`, Slate gives advice about model routing at the end of a change. The advice is based on evidence. The default is `false`. Slate never edits the routing configuration itself.
-- **Workflow guidance.** The workflow prefers the simplest solution. It reuses facts and user answers that still apply. A change with more than one track stops for a user decision before each implementation phase. After two repair rounds fail on the same requirement, the workflow asks for a wider investigation and a new user approval. A new guideline keeps each track at about 400 changed lines, and this limit is not strict.
+- **Reviewers judge design quality in their focus areas.** A focus area is a type of risk, for example concurrency, security or data loss. The user approves which focus areas a change has. Each built-in implementation reviewer covers one focus area. Reviewer I is a general reviewer, and the Test-quality and structure reviewer checks tests. Each built-in reviewer now receives design-quality questions for its own area. The questions ask whether the code structure serves the approved requirement simply, is easy to maintain and fits the surrounding system. For example, the Concurrency reviewer asks whether the coordination makes required safety and progress clear and enforceable. The orchestrator selects reviewers with the new `reviewPerspectives` field of the `thread` tool. Slate then gives each reviewer its instructions and questions automatically. Reviewers report a design problem only when they can show that it causes real harm, such as a bug, extra maintenance work or a broken caller. Reviewers do not report personal style preferences.
+- **Change records and the `slate_change` tool.** A change is one unit of work that the workflow tracks from start to delivery. The orchestrator starts a change with `slate_change start` and ends it with `slate_change close`. Slate keeps the records of each change in its own `slate-changes/<change>/` folder. While a change is open, an implementer `thread` call must give the track number in `trackNumber`. A track is one part of a change that can be merged on its own.
+- **One umbrella draft pull request.** When `workflow.draftPRs` is `true`, Slate publishes one draft pull request for the whole change. Slate no longer asks which publishing mode to use.
+- **Startup workflow summary.** An interactive orchestrator session shows a short summary of the Slate workflow when it starts. The summary uses the colors of the active terminal theme. Use `/slate summary off` to hide it, `/slate summary on` to show it again, and `/slate summary` to switch between the two states. Slate saves the choice as `startupSummary` in `slate-preferences.json` in the pi agent directory.
+- **Status line.** The status line is the line of Slate status text in the terminal. It now uses the colors of the active theme. Writing statistics are hidden by default. Set `writing.showStatus` to `true` in `slate.json` to show them. Writing measurement and writing reminders stay active when the statistics are hidden.
+- **Size rules for design and review.** When the orchestrator estimates a track at more than 100 counted lines, the track needs a high-level design before implementation. When an implementer reports a track above 100 counted lines, the track gets Reviewer I. Documentation-only tracks do not get Reviewer I for size.
 
 ## Fixes
 
-- Workers now receive the provider registrations of the main session. An extension that only adds a provider therefore works without an entry in `workerExtensions`.
-- Worker extensions now run their startup code before an action and their shutdown code before the worker closes.
-- When a cancellation happens first, Slate reports it as the main cause, even if startup fails later. Slate reports cleanup, save and progress failures separately.
-- A handoff can now save project state before it finishes. A handoff moves the orchestrator to a new session when its context fills.
-- Observation files keep up to 65,536 bytes of the final worker response. Before this fix, they kept only the last 8,000 characters.
+- A worker episode now reports a failure when a turn or a command fails after the worker starts. An episode is the compressed record of one worker action. Before this fix, such an episode could record an `ok` result.
+- Orchestrator mode now blocks tools that another extension activates later. When orchestrator mode ends, Slate restores the tools that are allowed.
+- After a handoff, the new session shows or hides the workflow summary in the same way as the earlier session. A handoff moves the orchestrator to a new session when its context fills.
+- Episode compression now works with providers that an extension registers in the pi model registry.
 
 ## Breaking changes
 
-1. **Routing configuration.** `router.models` uses the object form of logical models now. Slate ignores `modelFailover`, `episodeModel`, `router.allowUnmeasuredEffort` and `router.showWarnings`, shows a notice, and does not convert them. Configure the compression models in `router.compressor.models`.
-2. **Removed logical model names.** Rename `gpt-5.6-luna` to `luna-6`, `gpt-5.6-sol` to `sol-6` and `claude-opus-5` to `claude-opus-5.5`. `gpt-5.6-terra` has no replacement. Slate provides no alias names. A reference to a removed name stops routing until you fix it.
-3. **Thread calls.** The `freshContext` field and thread continuation are removed. Slate does not convert thread state that an older version saved.
-4. **Ignored configuration keys.** Slate ignores `cacheKeyShards`, `writing.check`, `writing.remind` and `writing.remindPercent`. Remove them. Use `writing.remindTurns` in place of `writing.remindPercent`.
-5. **Size grades are removed.** The size-grade command is removed. New work uses focus areas. Work that was approved under the earlier workflow can finish under the rules that it recorded.
+1. **New runtime folder for each session start.** Slate writes new episodes, observations and worker transcripts to a separate folder for each session start, under `.pi/slate/<runtime folder>/`. Slate still reads files from the earlier flat folders but does not write to them. Action: Update any external tool that reads the earlier flat folders. Do not go back to an earlier Slate version with a session that holds the new records, because the earlier version can lose the saved references to them.
+2. **New handoff storage.** Slate saves handoff state in an entry of the new session. Slate 0.12.0 does not use a pending handoff file that an earlier version saved. Action: Complete an unfinished handoff before you upgrade, or start a new handoff after you upgrade.
+3. **Workflow records need an open change.** Workflow records move into `slate-changes/<change>/`. An implementer `thread` call in an open change must give `trackNumber`. Action: Use `slate_change start` before the first implementation action of a change. Use `slate_change close` after delivery or abandonment.
+4. **Per-track draft pull requests are removed.** `workflow.draftPRs` keeps its name and its default value `false`. When it is `true`, Slate now creates one umbrella draft pull request for the change. Action: Finish work that depends on separate pull requests for each track before you upgrade, or change that work to one umbrella pull request.
+5. **The thread widget is removed.** Slate no longer shows the thread widget. The paused state now appears in the status line. Action: Use `/slate` or the `threads` tool to inspect threads.
+6. **Compression uses the pi model runtime only.** Episode compression no longer uses provider overrides that existed only for compatibility. It also no longer uses credentials that exist only as request headers, because the pi runtime rejects them. Action: Give each compression model credentials that the pi model runtime accepts.
 
 ## Compatibility
 
-Slate 0.11.0 does not support Slate sessions that an earlier version started. To migrate, start a new Slate session. Then ask the orchestrator to import the work of the earlier session.
+This release does not add, remove or rename any key in `slate.json`. It adds the optional key `writing.showStatus`, and the default is `false`. The new `startupSummary` preference is stored in `slate-preferences.json`, not in `slate.json`. It has no effect in `slate.json`.
 
-Restart the pi session after you change `slate.json`. An invalid home `slate.json` stops logical routing until you fix it.
+Slate still ignores `cacheKeyShards`, `writing.check`, `writing.remind` and `writing.remindPercent`, as in 0.11.0. Remove them from your configuration. Use `writing.remindTurns` in place of `writing.remindPercent`.
+
+Restart the pi session after you change `slate.json`.
 
 ## SDK compatibility
 
-Slate 0.11.0 requires pi 0.87.1 or later. It was developed and tested against pi 0.87.1 and TypeBox 1.3.27. The pi software development kit (SDK) packages are still peer dependencies with the range `*`.
+The pi software development kit (SDK) pins did not change in this release. Slate 0.12.0 was developed and tested against pi 0.87.1 and TypeBox 1.3.27. The SDK packages are still peer dependencies with the range `*`.
