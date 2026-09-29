@@ -1,6 +1,8 @@
-# ytdb-slate 0.12.0
+# ytdb-slate 0.12.1
 
 This release gives built-in reviewers design-quality questions for their focus areas. It also adds a record folder for each workflow change and a startup workflow summary. It changes where Slate stores runtime files and handoff state. Read the breaking changes below before you upgrade.
+
+Version 0.12.0 was uploaded to npm, but it was never released as `latest`. Version 0.12.1 contains the same changes as 0.12.0. Install 0.12.1, not 0.12.0.
 
 ## Highlights
 
@@ -21,7 +23,7 @@ This release gives built-in reviewers design-quality questions for their focus a
 ## Breaking changes
 
 1. **New runtime folder for each session start.** Slate writes new episodes, observations and worker transcripts to a separate folder for each session start, under `.pi/slate/<runtime folder>/`. Slate still reads files from the earlier flat folders but does not write to them. Action: Update any external tool that reads the earlier flat folders. Do not go back to an earlier Slate version with a session that holds the new records, because the earlier version can lose the saved references to them.
-2. **New handoff storage.** Slate saves handoff state in an entry of the new session. Slate 0.12.0 does not use a pending handoff file that an earlier version saved. Action: Complete an unfinished handoff before you upgrade, or start a new handoff after you upgrade.
+2. **New handoff storage.** Slate saves handoff state in an entry of the new session. Slate 0.12.1 does not use a pending handoff file that an earlier version saved. Action: Complete an unfinished handoff before you upgrade, or start a new handoff after you upgrade.
 3. **Workflow records need an open change.** Workflow records move into `slate-changes/<change>/`. An implementer `thread` call in an open change must give `trackNumber`. Action: Use `slate_change start` before the first implementation action of a change. Use `slate_change close` after delivery or abandonment.
 4. **Per-track draft pull requests are removed.** `workflow.draftPRs` keeps its name and its default value `false`. When it is `true`, Slate now creates one umbrella draft pull request for the change. Action: Finish work that depends on separate pull requests for each track before you upgrade, or change that work to one umbrella pull request.
 5. **The thread widget is removed.** Slate no longer shows the thread widget. The paused state now appears in the status line. Action: Use `/slate` or the `threads` tool to inspect threads.
@@ -37,4 +39,4 @@ Restart the pi session after you change `slate.json`.
 
 ## SDK compatibility
 
-The pi software development kit (SDK) pins did not change in this release. Slate 0.12.0 was developed and tested against pi 0.87.1 and TypeBox 1.3.27. The SDK packages are still peer dependencies with the range `*`.
+The pi software development kit (SDK) pins did not change in this release. Slate 0.12.1 was developed and tested against pi 0.87.1 and TypeBox 1.3.27. The SDK packages are still peer dependencies with the range `*`.
