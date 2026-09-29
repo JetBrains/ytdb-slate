@@ -2,16 +2,16 @@
   "schema": 2,
   "version": "0.12.0",
   "identity": "7a5cf669fb78f1f0eeef6e6e4ddcdc92816c787930255aae4aa0108b6495b4c5",
-  "status": "promotion-unknown",
+  "status": "proved",
   "upload": "verified",
-  "promotion": "unknown",
+  "promotion": "superseded",
   "requestBaseSha": "ecd299fad2ed62497c7bbc19956d4594a1c5acf4",
   "releaseSha": "b43e5276baf935603f3c6c2bc413f23d08027fef",
   "releaseParent": "ecd299fad2ed62497c7bbc19956d4594a1c5acf4",
   "pullRequest": 470,
   "claimExecution": "36531871506:1",
   "uploadExecution": "36531871506:1",
-  "promoterExecution": "36531871506:1",
+  "promoterExecution": null,
   "artifact": {
     "file": "ytdb-slate-0.12.0.tgz",
     "sha256": "59d736fa20ef312bbe8e5f57af2f668da32defe86ccd75e2c6ae1bba5600428b",
@@ -46,10 +46,13 @@
     "releaseSha": "b43e5276baf935603f3c6c2bc413f23d08027fef",
     "execution": "36531871506:1",
     "expectedLatest": "0.11.0",
-    "intentAt": "2026-09-29T06:47:07.834Z"
+    "intentAt": "2026-09-29T06:47:07.834Z",
+    "result": "superseded",
+    "before": "0.11.0",
+    "after": "0.11.0"
   },
   "tag": "v0.12.0",
   "internalTag": "slate-candidate",
   "createdAt": "2026-09-29T06:20:47.569Z",
-  "updatedAt": "2026-09-29T06:47:07.834Z"
+  "updatedAt": "2026-09-29T07:00:41.046Z"
 }
