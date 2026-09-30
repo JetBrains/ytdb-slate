@@ -4,9 +4,9 @@ A workflow file is one YAML 1.2 document. YAML is a text format for mappings and
 
 A workflow author writes this file to declare the parts of a change process that the validator can check. A lifecycle is a state machine with a starting state. A state is a named stage in that machine.
 
-A trigger names an event that can select a transition. A transition links one state to another. A condition names a fact that a transition can test. A guard can name one condition or combine conditions and other guards. A branch uses a guard or condition to choose a destination state.
+A trigger names an event that can select a transition. A transition links one state to another. A condition names a fact that a transition can test. A guard can name one condition or combine conditions and other guards. A branch chooses a destination state. A branch may name a guard or condition in `when`. A single branch may omit `when`. A final `else` branch has no `when`.
 
-A section points to a heading in a guidance document. A state can point to a section. A prompt addition points to a section that supplies text for a prompt. Configuration declares keys that can control steps. A step attaches to a state and names a trigger for its completion.
+A section points to a heading in a guidance document. A state can point to a section. A prompt is instruction text that Slate gives to a model. The model can be the orchestrator, which plans the work, or a worker thread of a given type. A prompt addition points to a section that supplies text for a prompt. Configuration declares keys that can control steps. A step attaches to a state and names a trigger for its completion.
 
 A handler declaration names source code for events. A provider is a function the caller supplies to return document or handler source text. The validator checks these declarations and their references. It does not run a state machine or a handler. No command, tool, file reader, or handler execution uses this validator module.
 
@@ -186,7 +186,7 @@ Fenced code is text between lines of three or more backticks or tildes. HTML (Hy
 
 The validator does not select files or confine document paths. The caller supplies the provider.
 
-`orchestrator` is a list of prompt additions. An addition has `{ id, section, priority }`. The section must exist. The priority is a safe integer no greater than 9007199254740991. It can be zero or negative. Each `threadTypes` entry has an ID, description, and list of additions under `prompt`.
+The top-level `orchestrator` list declares additions for the orchestrator prompt. An addition has `{ id, section, priority }`. The section must exist. The priority is a safe integer no greater than 9007199254740991. It can be zero or negative. Each `threadTypes` entry has an ID, description, and `prompt` list. That list declares additions for that worker thread type.
 
 A `focusAreas` entry has an ID, a `design-triggering` or `reviewer-only` class, a description, a definition section, and a charter addition. The validator checks section references. It does not assemble prompts.
 
