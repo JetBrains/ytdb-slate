@@ -48,7 +48,7 @@ test("handler export inspection accepts only literal export and never imports co
   assert.deepEqual(checkHandlerExports(handler.replace("function rootStart() {}", "if (false) {\nfunction rootStart() {}\n}")), []);
   const result = validateWorkflow(good, { ...providers, handlerSource: () => "export default {}" });
   assert.equal(result.problems.length, REQUIRED_WORKFLOW_EVENTS.length);
-  assert.match(result.problems[0]!.message, /declared handler export form.*reads the declared form only, so a crafted file can pass it/);
+  assert.match(result.problems[0]!.message, /Declare root.start in export const handlers = \{.*text check cannot prove JavaScript meaning/);
 });
 
 test("section lookup skips fenced headings and stops at same-level heading", () => {
@@ -128,7 +128,7 @@ test("a single YAML document accepts comments and a YAML directive before its st
 
 test("trigger usage is independent of guard and condition usage", () => {
   const input = good.replace("      step_completed: { id: 13, description: Complete step }", "      step_completed: { id: 13, description: Complete step }\n      ready: { id: 18, description: Unused trigger }");
-  assert.deepEqual(validateWorkflow(input, providers).problems, [{ path: '$.lifecycles["change"].triggers["ready"]', message: "trigger is unused; reference it in a transition or step", severity: "warning" }]);
+  assert.deepEqual(validateWorkflow(input, providers).problems, [{ path: '$.lifecycles["change"].triggers["ready"]', message: "Use this trigger in on, anyState, or a step completedBy.", severity: "warning" }]);
 });
 
 test("control characters from input and provider failures are escaped in every problem", () => {
@@ -141,13 +141,13 @@ test("control characters from input and provider failures are escaped in every p
 });
 
 test("size and nesting limits reject hostile YAML before conversion", () => {
-  assert.match(validateWorkflow(" ".repeat(MAX_WORKFLOW_BYTES + 1), providers).problems[0]!.message, /byte limit/);
-  assert.match(validateWorkflow("[".repeat(70) + "]".repeat(70), providers).problems[0]!.message, /nesting limit/);
+  assert.match(validateWorkflow(" ".repeat(MAX_WORKFLOW_BYTES + 1), providers).problems[0]!.message, /131072 UTF-8 bytes/);
+  assert.match(validateWorkflow("[".repeat(70) + "]".repeat(70), providers).problems[0]!.message, /64 opening/);
   assert.ok(validateWorkflow("a: &a [*a]", providers).problems.some(p => /anchors/.test(p.message)));
 });
 
 test("version check binds the exact file text and number", () => {
-  const pin = { version: 1, fingerprint: "5d215153182fdf58b041830b4416c3e8bb929e72ca5fcd95ae91772dda5c0192" };
+  const pin = { version: 1, fingerprint: "e68e8a55658098191cac3ad70bf3777ee0543ffde17ed4d0a01ce2eff1fb9856" };
   assert.equal(workflowFingerprint(good), pin.fingerprint);
   assert.equal(checkWorkflowVersion(good, 1, pin), true);
   assert.equal(checkWorkflowVersion(good + "\n", 1, pin), false);

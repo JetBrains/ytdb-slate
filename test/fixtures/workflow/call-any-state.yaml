@@ -5,7 +5,7 @@ description: A call can leave through anyState
 useWhen: Test a call transition
 root: change
 handlers: test-handler
-progressRecord: '{root:log}'
+progressRecord: '{root:research_log}'
 configuration: {}
 sections: {}
 orchestrator: []

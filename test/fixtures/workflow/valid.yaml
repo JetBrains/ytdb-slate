@@ -5,7 +5,7 @@ description: Test workflow
 useWhen: Test changes
 root: change
 handlers: test-handler
-progressRecord: '{root:log}'
+progressRecord: '{root:research_log}'
 configuration:
   workflow.draftPRs: { id: 1, type: boolean, description: Open draft }
 sections:
