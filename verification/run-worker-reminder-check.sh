@@ -85,12 +85,12 @@ cat > "$PROJECT/.pi/slate.json" <<'JSON' || die "could not write scratch slate c
         "cautions": []
       }],
       "replace": [{
-        "model": "claude-sonnet-5",
+        "model": "claude-sonnet-5.5",
         "preferredProvider": "slate-worker-reminder-fake",
         "providers": { "slate-worker-reminder-fake": "worker-reminder-model" }
       }]
     },
-    "compressor": { "models": [{ "model": "claude-sonnet-5", "effort": "off" }] }
+    "compressor": { "models": [{ "model": "claude-sonnet-5.5", "effort": "off" }] }
   },
   "workerExtensions": [],
   "cacheKeyEnabled": false,
@@ -222,7 +222,7 @@ const result={
   episodeClean:typeof episodeFile==="string"&&/^runtime-\d{8}T\d{6}Z-[0-9a-f]{32}\/episodes\/t\d+\.e1\.md$/.test(episodeFile.slice((project+"/.pi/slate/").length))&&episodeFile.startsWith(project+"/.pi/slate/")&&episodeText.length>0&&
     !containsReminder(episodeText),
   configBoundary:Array.isArray(config.workerExtensions)&&config.workerExtensions.length===0&&config.cacheKeyEnabled===false&&
-    config.router?.models?.add?.[0]?.model==="worker-reminder-canary"&&config.router?.compressor?.models?.[0]?.model==="claude-sonnet-5"&&
+    config.router?.models?.add?.[0]?.model==="worker-reminder-canary"&&config.router?.compressor?.models?.[0]?.model==="claude-sonnet-5.5"&&
     !Object.hasOwn(config,"episodeModel")&&!Object.hasOwn(config,"modelFailover")&&customEntries.length===1,
   hostSuccess:hostCalls.length===2&&textOf(host.values.filter((entry)=>entry?.type==="message"&&entry.message?.role==="assistant").at(-1)?.message?.content)
     .includes("WORKER_REMINDER_DISPATCH_OK_51c824"),

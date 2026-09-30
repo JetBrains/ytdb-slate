@@ -182,8 +182,8 @@ function store(): InstanceType<typeof SlateStore> {
 
 function fixtureRuntime() {
   return createLogicalRuntime({ trusted: true, projectConfig: { router: {
-    models: { include: [], add: [{ model: "fixture", capabilityRating: 50, effort: "off", costRating: 50, preferredProvider: "test", providers: { test: "worker" }, guidelines: [], cautions: [] }], replace: [{ model: "claude-sonnet-5", preferredProvider: "test", providers: { test: "compressor" } }] },
-    compressor: { models: [{ model: "claude-sonnet-5", effort: "medium" }] },
+    models: { include: [], add: [{ model: "fixture", capabilityRating: 50, effort: "off", costRating: 50, preferredProvider: "test", providers: { test: "worker" }, guidelines: [], cautions: [] }], replace: [{ model: "claude-sonnet-5.5", preferredProvider: "test", providers: { test: "compressor" } }] },
+    compressor: { models: [{ model: "claude-sonnet-5.5", effort: "medium" }] },
   } } });
 }
 
@@ -2122,7 +2122,7 @@ test("caller cancellation stops logical recovery after retry exhaustion", { time
   const cwd = temporaryProject(t);
   const controller = new AbortController();
   const primary = model("test", "primary");
-  const fallback = model("anthropic", "claude-sonnet-5");
+  const fallback = model("anthropic", "claude-sonnet-5-5");
   const compressor = model("test", "compressor");
   let prompts = 0;
   const session = fakeSession((current) => {
@@ -2144,10 +2144,10 @@ test("caller cancellation stops logical recovery after retry exhaustion", { time
   const runtime = createLogicalRuntime({ trusted: true, projectConfig: { router: {
     models: {
       include: [],
-      add: [{ model: "fixture", capabilityRating: 50, effort: "off", costRating: 50, preferredProvider: "test", providers: { test: "primary", anthropic: "claude-sonnet-5" }, guidelines: [], cautions: [] }],
-      replace: [{ model: "claude-sonnet-5", preferredProvider: "test", providers: { test: "compressor" } }],
+      add: [{ model: "fixture", capabilityRating: 50, effort: "off", costRating: 50, preferredProvider: "test", providers: { test: "primary", anthropic: "claude-sonnet-5-5" }, guidelines: [], cautions: [] }],
+      replace: [{ model: "claude-sonnet-5.5", preferredProvider: "test", providers: { test: "compressor" } }],
     },
-    compressor: { models: [{ model: "claude-sonnet-5", effort: "medium" }] },
+    compressor: { models: [{ model: "claude-sonnet-5.5", effort: "medium" }] },
   } } });
   const manager = managerWithSessions([session], {}, runtime);
 
@@ -2337,7 +2337,7 @@ test("snapshot sanitizer loads old records without accounting fields", () => {
 test("worker failover preserves requested metadata when the fallback succeeds or fails", { timeout: 1000 }, async (t) => {
   const cwd = temporaryProject(t);
   const primary = model("test", "primary");
-  const fallback = model("anthropic", "claude-sonnet-5");
+  const fallback = model("anthropic", "claude-sonnet-5-5");
   const compressor = model("test", "compressor");
   compressorStub.complete = async () => completeResponse({});
   for (const secondAttempt of ["success", "failure"] as const) {
@@ -2357,7 +2357,7 @@ test("worker failover preserves requested metadata when the fallback succeeds or
       if (secondAttempt === "failure") throw new Error("fallback failed before response");
       return successfulPrompt([{ input: 1, output: 1 }])(current, "retry");
     }, primary);
-    const runtime = createLogicalRuntime({ trusted: true, projectConfig: { router: { models: { include: [], add: [{ model: "fixture", capabilityRating: 50, effort: "off", costRating: 50, preferredProvider: "test", providers: { test: "primary", anthropic: "claude-sonnet-5" }, guidelines: [], cautions: [] }], replace: [{ model: "claude-sonnet-5", preferredProvider: "test", providers: { test: "compressor" } }] }, compressor: { models: [{ model: "claude-sonnet-5", effort: "medium" }] } } } });
+    const runtime = createLogicalRuntime({ trusted: true, projectConfig: { router: { models: { include: [], add: [{ model: "fixture", capabilityRating: 50, effort: "off", costRating: 50, preferredProvider: "test", providers: { test: "primary", anthropic: "claude-sonnet-5-5" }, guidelines: [], cautions: [] }], replace: [{ model: "claude-sonnet-5.5", preferredProvider: "test", providers: { test: "compressor" } }] }, compressor: { models: [{ model: "claude-sonnet-5.5", effort: "medium" }] } } } });
     const manager = managerWithSessions([session], {}, runtime);
     const result = await manager.dispatch(
       { model: "fixture", reason: `failover ${secondAttempt} canary`, task: `fallback ${secondAttempt}`, type: "general" },
@@ -2368,7 +2368,7 @@ test("worker failover preserves requested metadata when the fallback succeeds or
     assert.equal(result.episode.requestedModel, "test/primary");
     assert.equal(result.episode.requestedEffort, "off");
     assert.equal(result.episode.reason, `failover ${secondAttempt} canary`);
-    assert.equal(result.episode.model, "anthropic/claude-sonnet-5");
+    assert.equal(result.episode.model, "anthropic/claude-sonnet-5-5");
     assert.equal(result.episode.effort, "off");
     assert.equal(result.episode.status, secondAttempt === "success" ? "ok" : "failed");
   }
@@ -2407,7 +2407,7 @@ test("request metadata stays out of first, reused-context, and compressor prompt
     compressorPrompts.push(JSON.stringify(args[1]));
     return completeResponse({});
   };
-  const runtime = createLogicalRuntime({ trusted: true, projectConfig: { router: { models: { include: [], add: [{ model: "fixture", capabilityRating: 50, effort: "off", costRating: 50, preferredProvider: "request-canary", providers: { "request-canary": "secret-model", actual: "safe-model" }, guidelines: [], cautions: [] }], replace: [{ model: "claude-sonnet-5", preferredProvider: "test", providers: { test: "compressor" } }] }, compressor: { models: [{ model: "claude-sonnet-5", effort: "medium" }] } } } });
+  const runtime = createLogicalRuntime({ trusted: true, projectConfig: { router: { models: { include: [], add: [{ model: "fixture", capabilityRating: 50, effort: "off", costRating: 50, preferredProvider: "request-canary", providers: { "request-canary": "secret-model", actual: "safe-model" }, guidelines: [], cautions: [] }], replace: [{ model: "claude-sonnet-5.5", preferredProvider: "test", providers: { test: "compressor" } }] }, compressor: { models: [{ model: "claude-sonnet-5.5", effort: "medium" }] } } } });
   const manager = managerWithSessions(sessions, {}, runtime);
   const ctx = context(cwd, [requested, actual, compressor]);
   const first = await manager.dispatch(
@@ -2511,10 +2511,10 @@ test("logical compressor uses production retries, moves forward, attributes usag
     trusted: true,
     projectConfig: { router: {
       models: { replace: [
-        { model: "claude-sonnet-5", preferredProvider: "first", providers: { first: "compress-1", backup: "compress-1b" } },
+        { model: "claude-sonnet-5.5", preferredProvider: "first", providers: { first: "compress-1", backup: "compress-1b" } },
         { model: "luna-6", preferredProvider: "second", providers: { second: "compress-2", "second-backup": "compress-2b" } },
       ] },
-      compressor: { models: [{ model: "claude-sonnet-5", effort: "medium" }, { model: "luna-6", effort: "low" }] },
+      compressor: { models: [{ model: "claude-sonnet-5.5", effort: "medium" }, { model: "luna-6", effort: "low" }] },
     } },
   });
   const admission = runtime.admit();
@@ -2562,7 +2562,7 @@ test("logical compressor production pipeline succeeds after Pi retries the same 
   const cwd = temporaryProject(t);
   const runtime = createLogicalRuntime({
     trusted: true,
-    projectConfig: { router: { models: { replace: [{ model: "claude-sonnet-5", preferredProvider: "retry", providers: { retry: "compress" } }] } } },
+    projectConfig: { router: { models: { replace: [{ model: "claude-sonnet-5.5", preferredProvider: "retry", providers: { retry: "compress" } }] } } },
   });
   const admission = runtime.admit(); assert.ok(admission);
   const compressor = { ...model("retry", "compress"), reasoning: true, thinkingLevelMap: { medium: "medium" } };
@@ -2584,7 +2584,7 @@ test("logical compressor retains bounded completed output for disabled, cancelle
   const cwd = temporaryProject(t);
   const runtime = createLogicalRuntime({
     trusted: true,
-    projectConfig: { router: { models: { replace: [{ model: "claude-sonnet-5", preferredProvider: "only", providers: { only: "compress" } }] } } },
+    projectConfig: { router: { models: { replace: [{ model: "claude-sonnet-5.5", preferredProvider: "only", providers: { only: "compress" } }] } } },
   });
   const compressor = { ...model("only", "compress"), reasoning: true, thinkingLevelMap: { medium: "medium" } };
   const scenarios = [

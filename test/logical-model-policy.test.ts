@@ -18,6 +18,8 @@ const SOURCE = {
   costRating: { publisher: "DeepSWE/DataCurve", retrieved: "2026-09-11", sourceUrl: "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json", basis: "Project judgment informed by DeepSWE v1.1 and reviewed supporting evidence" },
   guidelines: { publisher: "DeepSWE/DataCurve", retrieved: "2026-09-11", sourceUrl: "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json", basis: "Project judgment informed by DeepSWE v1.1 and reviewed supporting evidence" },
 };
+const PROJECT_RATING_SOURCE = { publisher: "Slate project", decided: "2026-09-30", basis: "Project judgment set on 2026-09-30 without new benchmark evidence" };
+const PROJECT_SOURCE = { capabilityRating: PROJECT_RATING_SOURCE, costRating: PROJECT_RATING_SOURCE, guidelines: SOURCE.guidelines };
 const EXPECTED_GUIDANCE_MEANING = "Guidance and cautions direct selection, but Slate does not enforce them at runtime. Shipped preferences are not rigid rankings and do not guarantee quality. Apply a more specific active guideline when it states an exception to a general preference. A reference to another model describes a conditional preference and does not require selecting an excluded model. Trusted project definitions can replace shipped guidance, and custom model definitions remain supported. Guidance and cautions create no runtime eligibility or rejection rules.";
 const EXPECTED_ROUTER_PROMPT_INSTRUCTIONS = [
   `Select a logical model for the current action. Use action fit, relevant area guidance, behavioral cautions, capability evidence, and a lower supported cost rating. A higher capability rating or higher cost rating is not enough by itself. Reassess after each episode. Change models only when there is a concrete reason and an expected benefit. Keep quality redispatch separate from transient recovery. ${EXPECTED_GUIDANCE_MEANING}`,
@@ -30,22 +32,22 @@ const EXPECTED_DEFAULT_PROMPT_LINES = [
   "| logical model | capability rating | cost rating | guidelines | cautions |",
   "| --- | ---: | ---: | --- | --- |",
   "| luna-6 | 45 | 5 | auxiliary tasks only, such as file location, check-result collection, or routine text management such as modifying research logs / never primary research, implementation, design, or review / consumer-contract work only when auxiliary | May treat supplied repair context as permission to implement despite explicit task limits. Restrict write access for record-only work and verify the changed files. / Do not use Luna to handle complex texts. |",
-  "| claude-sonnet-5 | 40 | 90 | none | May exceed explicit scope or infer permission from earlier requests. Check changes against stated exclusions and approval requirements. |",
-  "| sol-6 | 58 | 20 | default thread choice | When blocked, may substitute unapproved resources or perform destructive cleanup. Require permission before either action. |",
+  "| claude-sonnet-5.5 | 45 | 54 | none | May exceed explicit scope or infer permission from earlier requests. Check changes against stated exclusions and approval requirements. |",
+  "| sol-6.1 | 85 | 20 | default thread choice | When blocked, may substitute unapproved resources or perform destructive cleanup. Require permission before either action. |",
   "| gemini-3.8-flash | 55 | 30 | default thread choice / generally prefer over Luna when available / a more specific active guideline overrides this general Flash preference | Do not use as a reviewer. It relies too much on passing tests and exact-size assertions. Verify source citations and distinguish proposed behavior from existing behavior. |",
-  "| claude-opus-5.5 | 90 | 65 | concurrency work / data-loss work / performance work / prefer over Astra for code reviews of focus areas that require high-level design, except non-local logic / Do not select Opus 5.5 as the default implementer. If a lower-capability model repeatedly fails at implementation, first ask Opus 5.5 to investigate and provide detailed repair instructions. Let the implementer try those instructions. Use Opus 5.5 as the implementer only if that guided attempt also fails. Treat that use as an exception. Select another suitable model for later implementation work. Existing approval requirements and repair limits still apply. | May exceed explicit scope or infer permission from earlier requests. Check changes against stated exclusions and approval requirements. |",
-  "| gpt-6-astra | 86 | 60 | prefer when available for design reviews of all focus areas that require high-level design / prefer for code reviews of non-local logic defects / security work / performance work / Do not select Astra as the default implementer. Use Astra for review only when assigned to a specific focus area. Use Astra for research when appropriate. | none |",
+  "| claude-opus-5.5 | 90 | 65 | Use Opus 5.5 only as a reviewer, or as an implementer under the exception rule. / concurrency work / data-loss work / performance work / Do not select Opus 5.5 as the default implementer. If a lower-capability model repeatedly fails at implementation, first ask Opus 5.5 to investigate and provide detailed repair instructions. Let the implementer try those instructions. Use Opus 5.5 as the implementer only if that guided attempt also fails. Treat that use as an exception. Select another suitable model for later implementation work. Existing approval requirements and repair limits still apply. | May exceed explicit scope or infer permission from earlier requests. Check changes against stated exclusions and approval requirements. |",
+  "| gpt-6-astra | 86 | 60 | Do not select Astra as the default implementer. / Prefer Sol 6.1 over Astra. | none |",
 ] as const;
 
 function plain<T>(value: T): T { return JSON.parse(JSON.stringify(value)) as T; }
 
 const COMPLETE_DEFAULTS = [
   { model: "luna-6", capabilityRating: 45, effort: "max", costRating: 5, preferredProvider: "openai", providers: { openai: "gpt-6-luna" }, guidelines: ["auxiliary tasks only, such as file location, check-result collection, or routine text management such as modifying research logs", "never primary research, implementation, design, or review", "consumer-contract work only when auxiliary"], cautions: ["May treat supplied repair context as permission to implement despite explicit task limits. Restrict write access for record-only work and verify the changed files.", "Do not use Luna to handle complex texts."], source: SOURCE },
-  { model: "claude-sonnet-5", capabilityRating: 40, effort: "high", costRating: 90, preferredProvider: "anthropic", providers: { anthropic: "claude-sonnet-5" }, guidelines: [], cautions: ["May exceed explicit scope or infer permission from earlier requests. Check changes against stated exclusions and approval requirements."], source: SOURCE },
-  { model: "sol-6", capabilityRating: 58, effort: "high", costRating: 20, preferredProvider: "openai", providers: { openai: "gpt-6-sol" }, guidelines: ["default thread choice"], cautions: ["When blocked, may substitute unapproved resources or perform destructive cleanup. Require permission before either action."], source: SOURCE },
+  { model: "claude-sonnet-5.5", capabilityRating: 45, effort: "high", costRating: 54, preferredProvider: "anthropic", providers: { anthropic: "claude-sonnet-5-5" }, guidelines: [], cautions: ["May exceed explicit scope or infer permission from earlier requests. Check changes against stated exclusions and approval requirements."], source: PROJECT_SOURCE },
+  { model: "sol-6.1", capabilityRating: 85, effort: "high", costRating: 20, preferredProvider: "openai", providers: { openai: "gpt-6.1-sol" }, guidelines: ["default thread choice"], cautions: ["When blocked, may substitute unapproved resources or perform destructive cleanup. Require permission before either action."], source: PROJECT_SOURCE },
   { model: "gemini-3.8-flash", capabilityRating: 55, effort: "medium", costRating: 30, preferredProvider: "google-vertex", providers: { "google-vertex": "gemini-3.8-flash" }, guidelines: ["default thread choice", "generally prefer over Luna when available", "a more specific active guideline overrides this general Flash preference"], cautions: ["Do not use as a reviewer. It relies too much on passing tests and exact-size assertions. Verify source citations and distinguish proposed behavior from existing behavior."], source: SOURCE },
-  { model: "claude-opus-5.5", capabilityRating: 90, effort: "high", costRating: 65, preferredProvider: "anthropic", providers: { anthropic: "claude-opus-5-5" }, guidelines: ["concurrency work", "data-loss work", "performance work", "prefer over Astra for code reviews of focus areas that require high-level design, except non-local logic", "Do not select Opus 5.5 as the default implementer. If a lower-capability model repeatedly fails at implementation, first ask Opus 5.5 to investigate and provide detailed repair instructions. Let the implementer try those instructions. Use Opus 5.5 as the implementer only if that guided attempt also fails. Treat that use as an exception. Select another suitable model for later implementation work. Existing approval requirements and repair limits still apply."], cautions: ["May exceed explicit scope or infer permission from earlier requests. Check changes against stated exclusions and approval requirements."], source: SOURCE },
-  { model: "gpt-6-astra", capabilityRating: 86, effort: "medium", costRating: 60, preferredProvider: "openai", providers: { openai: "gpt-6-astra" }, guidelines: ["prefer when available for design reviews of all focus areas that require high-level design", "prefer for code reviews of non-local logic defects", "security work", "performance work", "Do not select Astra as the default implementer. Use Astra for review only when assigned to a specific focus area. Use Astra for research when appropriate."], cautions: [], source: SOURCE },
+  { model: "claude-opus-5.5", capabilityRating: 90, effort: "high", costRating: 65, preferredProvider: "anthropic", providers: { anthropic: "claude-opus-5-5" }, guidelines: ["Use Opus 5.5 only as a reviewer, or as an implementer under the exception rule.", "concurrency work", "data-loss work", "performance work", "Do not select Opus 5.5 as the default implementer. If a lower-capability model repeatedly fails at implementation, first ask Opus 5.5 to investigate and provide detailed repair instructions. Let the implementer try those instructions. Use Opus 5.5 as the implementer only if that guided attempt also fails. Treat that use as an exception. Select another suitable model for later implementation work. Existing approval requirements and repair limits still apply."], cautions: ["May exceed explicit scope or infer permission from earlier requests. Check changes against stated exclusions and approval requirements."], source: SOURCE },
+  { model: "gpt-6-astra", capabilityRating: 86, effort: "medium", costRating: 60, preferredProvider: "openai", providers: { openai: "gpt-6-astra" }, guidelines: ["Do not select Astra as the default implementer.", "Prefer Sol 6.1 over Astra."], cautions: [], source: SOURCE },
 ];
 
 test("project configuration selects the exact approved logical defaults", () => {
@@ -55,13 +57,13 @@ test("project configuration selects the exact approved logical defaults", () => 
     workflow: { draftPRs: true, routingRecommendations: true },
     router: {
       models: { include: COMPLETE_DEFAULTS.map((row) => row.model) },
-      compressor: { models: [{ model: "claude-sonnet-5", effort: "medium" }] },
+      compressor: { models: [{ model: "claude-sonnet-5.5", effort: "medium" }] },
     },
     workerExtensions: ["pi-smart-fetch", "pi-web-search"],
   });
   const resolution = resolve(config);
   assert.deepEqual(resolution.policy?.ordinary.map((row) => row.model), COMPLETE_DEFAULTS.map((row) => row.model));
-  assert.deepEqual(resolution.policy?.compressor, [{ model: "claude-sonnet-5", effort: "medium" }]);
+  assert.deepEqual(resolution.policy?.compressor, [{ model: "claude-sonnet-5.5", effort: "medium" }]);
 });
 
 test("documented add and replace JSON examples resolve through production policy", () => {
@@ -82,13 +84,13 @@ test("documented add and replace JSON examples resolve through production policy
 
   const replaced = resolve(example("replace"));
   assert.deepEqual(replaced.errors, []);
-  assert.deepEqual(plain(replaced.policy?.definitions["sol-6"]), {
-    model: "sol-6",
-    capabilityRating: 58,
+  assert.deepEqual(plain(replaced.policy?.definitions["sol-6.1"]), {
+    model: "sol-6.1",
+    capabilityRating: 85,
     effort: "max",
     costRating: 20,
     preferredProvider: "gateway",
-    providers: { gateway: "openai/gpt-6-sol" },
+    providers: { gateway: "openai/gpt-6.1-sol" },
     guidelines: ["repository-wide implementation"],
     cautions: [],
   });
@@ -96,7 +98,7 @@ test("documented add and replace JSON examples resolve through production policy
 
 test("shipped definitions match the complete approved literal", () => {
   assert.deepEqual(plain(SHIPPED_LOGICAL_MODELS), COMPLETE_DEFAULTS);
-  assert.deepEqual(SHIPPED_COMPRESSOR_MODELS, [{ model: "claude-sonnet-5", effort: "medium" }]);
+  assert.deepEqual(SHIPPED_COMPRESSOR_MODELS, [{ model: "claude-sonnet-5.5", effort: "medium" }]);
   assert.equal(SHIPPED_LOGICAL_MODELS.some((row) => row.model.includes("fable")), false);
   assert.equal(SHIPPED_LOGICAL_MODELS.every((row) => Object.isFrozen(row) && Object.isFrozen(row.providers) && Object.isFrozen(row.guidelines) && Object.isFrozen(row.cautions) && Object.isFrozen(row.source) && Object.isFrozen(row.source?.capabilityRating)), true);
 });
@@ -109,10 +111,10 @@ test("default ratings remain fixed and the policy is deeply immutable", () => {
 });
 
 test("trusted membership applies include then add then exclusion while compressors stay independent", () => {
-  const result = resolve({ router: { models: { include: ["sol-6"], add: [validCustom], exclude: ["sol-6"] }, compressor: { models: [{ model: "claude-sonnet-5", effort: "medium" }, { model: "custom-model", effort: "high" }] } } });
+  const result = resolve({ router: { models: { include: ["sol-6.1"], add: [validCustom], exclude: ["sol-6.1"] }, compressor: { models: [{ model: "claude-sonnet-5.5", effort: "medium" }, { model: "custom-model", effort: "high" }] } } });
   assert.deepEqual(result.policy?.ordinary.map((row) => row.model), ["custom-model"]);
   assert.deepEqual(result.policy?.ordinary.map((row) => [row.capabilityRating, row.costRating]), [[52, 25]]);
-  assert.deepEqual(result.policy?.compressor, [{ model: "claude-sonnet-5", effort: "medium" }, { model: "custom-model", effort: "high" }]);
+  assert.deepEqual(result.policy?.compressor, [{ model: "claude-sonnet-5.5", effort: "medium" }, { model: "custom-model", effort: "high" }]);
 });
 
 test("include empty is distinct from omission and add still applies", () => {
@@ -122,11 +124,11 @@ test("include empty is distinct from omission and add still applies", () => {
 });
 
 test("replace inherits fields and replaces maps and lists as whole values", () => {
-  const result = resolve({ router: { models: { replace: [{ model: "sol-6", preferredProvider: "gateway", providers: { gateway: "openai/gpt-6-sol" }, guidelines: ["new guide"], cautions: [] }] } } });
-  const row = result.policy?.definitions["sol-6"];
+  const result = resolve({ router: { models: { replace: [{ model: "sol-6.1", preferredProvider: "gateway", providers: { gateway: "openai/gpt-6.1-sol" }, guidelines: ["new guide"], cautions: [] }] } } });
+  const row = result.policy?.definitions["sol-6.1"];
   assert.ok(row);
-  assert.deepEqual([row.capabilityRating, row.effort, row.costRating], [58, "high", 20]);
-  assert.deepEqual({ ...row.providers }, { gateway: "openai/gpt-6-sol" });
+  assert.deepEqual([row.capabilityRating, row.effort, row.costRating], [85, "high", 20]);
+  assert.deepEqual({ ...row.providers }, { gateway: "openai/gpt-6.1-sol" });
   assert.deepEqual(row.guidelines, ["new guide"]);
   assert.deepEqual(row.cautions, []);
   assert.ok(row.source?.capabilityRating && row.source.costRating);
@@ -135,29 +137,29 @@ test("replace inherits fields and replaces maps and lists as whole values", () =
 
 test("field attribution survives equal and unrelated replacements and clears only changed facts", () => {
   const cases = [
-    [{ preferredProvider: "gateway", providers: { gateway: "sol-6" } }, [true, true, true]],
+    [{ preferredProvider: "gateway", providers: { gateway: "sol-6.1" } }, [true, true, true]],
     [{ cautions: ["changed"] }, [true, true, true]],
     [{ guidelines: ["default thread choice"] }, [true, true, true]],
-    [{ capabilityRating: 58 }, [true, true, true]],
+    [{ capabilityRating: 85 }, [true, true, true]],
     [{ costRating: 20 }, [true, true, true]],
     [{ capabilityRating: 59 }, [false, true, true]],
     [{ costRating: 21 }, [true, false, true]],
     [{ guidelines: ["changed"] }, [true, true, false]],
-    [{ effort: "max", capabilityRating: 58, costRating: 20 }, [false, false, true]],
+    [{ effort: "max", capabilityRating: 85, costRating: 20 }, [false, false, true]],
   ] as const;
   for (const [change, expected] of cases) {
-    const row = resolve({ router: { models: { replace: [{ model: "sol-6", ...change }] } } }).policy?.definitions["sol-6"];
+    const row = resolve({ router: { models: { replace: [{ model: "sol-6.1", ...change }] } } }).policy?.definitions["sol-6.1"];
     assert.ok(row, JSON.stringify(change));
     assert.deepEqual([!!row.source?.capabilityRating, !!row.source?.costRating, !!row.source?.guidelines], expected, JSON.stringify(change));
   }
 });
 
 test("repeated effort needs no ratings while an actual change needs both", () => {
-  assert.equal(resolve({ router: { models: { replace: [{ model: "sol-6", effort: "high" }] } } }).policy?.definitions["sol-6"]?.effort, "high");
-  const bad = resolve({ router: { models: { replace: [{ model: "sol-6", effort: "max" }] } } });
+  assert.equal(resolve({ router: { models: { replace: [{ model: "sol-6.1", effort: "high" }] } } }).policy?.definitions["sol-6.1"]?.effort, "high");
+  const bad = resolve({ router: { models: { replace: [{ model: "sol-6.1", effort: "max" }] } } });
   assert.equal(bad.policy, undefined);
   assert.deepEqual(bad.errors.filter((error) => error.includes("changes effort")), ["router.models.replace[0] changes effort and must also supply capabilityRating and costRating."]);
-  assert.equal(resolve({ router: { models: { replace: [{ model: "sol-6", effort: "max", capabilityRating: 59, costRating: 21 }] } } }).policy?.definitions["sol-6"]?.effort, "max");
+  assert.equal(resolve({ router: { models: { replace: [{ model: "sol-6.1", effort: "max", capabilityRating: 59, costRating: 21 }] } } }).policy?.definitions["sol-6.1"]?.effort, "max");
 });
 
 test("one-defect definition fixtures independently block each validation rule", () => {
@@ -188,9 +190,9 @@ test("unknown fields at every router level independently block", () => {
     ["router models typo", { router: { modles: {} } }, "router has unknown field \"modles\"."],
     ["router compressor typo", { router: { compresor: {} } }, "router has unknown field \"compresor\"."],
     ["complete add", { router: { models: { add: [{ ...validCustom, unexpected: true }] } } }, "router.models.add[0] has unknown field \"unexpected\"."],
-    ["partial replace", { router: { models: { replace: [{ model: "sol-6", unexpected: true }] } } }, "router.models.replace[0] has unknown field \"unexpected\"."],
+    ["partial replace", { router: { models: { replace: [{ model: "sol-6.1", unexpected: true }] } } }, "router.models.replace[0] has unknown field \"unexpected\"."],
     ["models section", { router: { models: { unexpected: true } } }, "router.models has unknown field \"unexpected\"."],
-    ["compressor entry", { router: { compressor: { models: [{ model: "claude-sonnet-5", effort: "medium", unexpected: true }] } } }, "router.compressor.models[0] has unknown field \"unexpected\"."],
+    ["compressor entry", { router: { compressor: { models: [{ model: "claude-sonnet-5.5", effort: "medium", unexpected: true }] } } }, "router.compressor.models[0] has unknown field \"unexpected\"."],
   ] as const;
   for (const [label, config, expected] of cases) {
     const result = resolve(config);
@@ -203,9 +205,9 @@ test("one-defect membership and compressor fixtures independently block", () => 
   const cases: [string, unknown, RegExp][] = [
     ["unknown include", { router: { models: { include: ["absent"] } } }, /include references unknown model/],
     ["unknown exclude", { router: { models: { exclude: ["absent"] } } }, /exclude references unknown model/],
-    ["duplicate include", { router: { models: { include: ["sol-6", "sol-6"] } } }, /contains duplicate model/],
+    ["duplicate include", { router: { models: { include: ["sol-6.1", "sol-6.1"] } } }, /contains duplicate model/],
     ["duplicate add", { router: { models: { add: [validCustom, validCustom] } } }, /contains duplicate model/],
-    ["existing add", { router: { models: { add: [{ ...validCustom, model: "sol-6" }] } } }, /cannot replace existing model/],
+    ["existing add", { router: { models: { add: [{ ...validCustom, model: "sol-6.1" }] } } }, /cannot replace existing model/],
     ["unknown replace", { router: { models: { replace: [{ model: "absent", guidelines: [] }] } } }, /replace targets unknown model/],
     ["ambiguous add replace", { router: { models: { add: [validCustom], replace: [{ model: "custom-model", guidelines: [] }] } } }, /both add and replace/],
     ["empty compressor", { router: { compressor: { models: [] } } }, /compressor.models must not be empty/],
@@ -219,7 +221,7 @@ test("one-defect membership and compressor fixtures independently block", () => 
 });
 
 test("withdrawn shipped references report exact errors while custom add stays available", () => {
-  const retired = ["gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra", "claude-opus-5"];
+  const retired = ["gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra", "claude-opus-5", "sol-6", "claude-sonnet-5"];
   for (const model of retired) {
     const cases = [
       [resolve({ router: { models: { include: [model] } } }), [`router.models.include references unknown model "${model}".`]],
@@ -248,15 +250,15 @@ test("null-prototype dictionaries survive every clone and index build", () => {
 });
 
 test("legacy keys warn visibly and current configuration wins without migration", () => {
-  const result = resolve({ modelFailover: {}, episodeModel: "old", router: { allowUnmeasuredEffort: true, showWarnings: false, models: { include: ["sol-6"] } } });
-  assert.deepEqual(result.policy?.ordinary.map((row) => row.model), ["sol-6"]);
+  const result = resolve({ modelFailover: {}, episodeModel: "old", router: { allowUnmeasuredEffort: true, showWarnings: false, models: { include: ["sol-6.1"] } } });
+  assert.deepEqual(result.policy?.ordinary.map((row) => row.model), ["sol-6.1"]);
   assert.deepEqual(result.warnings, [
     "Legacy key modelFailover is ignored. Use router.models or router.compressor.models. No automatic migration is performed.",
     "Legacy key episodeModel is ignored. Use router.models or router.compressor.models. No automatic migration is performed.",
     "Legacy key router.allowUnmeasuredEffort is ignored. No automatic migration is performed.",
     "Legacy key router.showWarnings is ignored. No automatic migration is performed.",
   ]);
-  const array = resolve({ router: { models: ["openai/gpt-6-sol"] } });
+  const array = resolve({ router: { models: ["openai/gpt-6.1-sol"] } });
   assert.ok(array.policy);
   assert.match(array.warnings.join("\n"), /array form is not migrated/);
 });
@@ -279,7 +281,7 @@ test("the default prompt equals one complete independent literal for every row a
 });
 
 test("prompt rendering pins exact instructions, columns, sanitation, and determinism", () => {
-  const result = resolve({ router: { models: { replace: [{ model: "sol-6", guidelines: ["safe | forged\n| row | <tag> `code` \u202esecret"], cautions: [] }] } } });
+  const result = resolve({ router: { models: { replace: [{ model: "sol-6.1", guidelines: ["safe | forged\n| row | <tag> `code` \u202esecret"], cautions: [] }] } } });
   const first = renderLogicalModelPrompt(result.policy!);
   assert.deepEqual(first, renderLogicalModelPrompt(result.policy!));
   assert.ok(first.text);
@@ -290,7 +292,7 @@ test("prompt rendering pins exact instructions, columns, sanitation, and determi
 });
 
 test("trusted replacements remove shipped model rules from prompt and effective output", () => {
-  const replacements = ["luna-6", "sol-6", "gemini-3.8-flash", "gpt-6-astra"].map((model) => ({ model, guidelines: [`custom guidance for ${model}`] }));
+  const replacements = ["luna-6", "sol-6.1", "gemini-3.8-flash", "gpt-6-astra"].map((model) => ({ model, guidelines: [`custom guidance for ${model}`] }));
   const resolution = resolve({ router: { models: { replace: replacements } } });
   assert.ok(resolution.policy);
   const prompt = renderLogicalModelPrompt(resolution.policy).text;
@@ -313,22 +315,22 @@ test("trusted replacements remove shipped model rules from prompt and effective 
 });
 
 test("remaining active guidance may refer to an excluded model without selecting it", () => {
-  const resolution = resolve({ router: { models: { include: ["claude-opus-5.5"], exclude: ["gpt-6-astra"] } } });
+  const resolution = resolve({ router: { models: { include: ["gpt-6-astra"], exclude: ["sol-6.1"] } } });
   assert.ok(resolution.policy);
   const prompt = renderLogicalModelPrompt(resolution.policy).text;
   const effective = renderEffectiveLogicalModelPolicy(resolution);
   assert.ok(prompt);
-  assert.match(prompt, /prefer over Astra for code reviews/);
-  assert.match(effective, /prefer over Astra for code reviews/);
-  assert.equal(prompt.includes("| gpt-6-astra |"), false);
-  assert.equal(effective.includes("- gpt-6-astra:"), false);
+  assert.match(prompt, /Prefer Sol 6\.1 over Astra\./);
+  assert.match(effective, /Prefer Sol 6\.1 over Astra\./);
+  assert.equal(prompt.includes("| sol-6.1 |"), false);
+  assert.equal(effective.includes("- sol-6.1:"), false);
 });
 
 function clonePolicy(policy: LogicalModelPolicy, ordinary: LogicalModelDefinition[]): LogicalModelPolicy {
   return { definitions: policy.definitions, ordinary, compressor: policy.compressor };
 }
 function paddedPolicy(target: number): LogicalModelPolicy {
-  const base = resolve({ router: { models: { include: ["sol-6"] } } }).policy!;
+  const base = resolve({ router: { models: { include: ["sol-6.1"] } } }).policy!;
   const row = base.ordinary[0]!;
   const zero = renderLogicalModelPrompt(clonePolicy(base, [{ ...row, guidelines: ["x"] }]));
   const padding = target - zero.portableCharacters + 1;
@@ -343,7 +345,7 @@ test("prompt character budget accepts 19400 and rejects 19401 with sanitized att
   const rejected = renderLogicalModelPrompt(paddedPolicy(19_401));
   assert.equal(rejected.portableCharacters, 19_401);
   assert.equal(rejected.text, undefined);
-  assert.equal(rejected.responsibleField, "sol-6.guidelines");
+  assert.equal(rejected.responsibleField, "sol-6.1.guidelines");
   assert.match(rejected.error ?? "", /Nothing was truncated/);
 });
 
@@ -365,24 +367,24 @@ test("prompt line budget accepts 105 and rejects 106 with membership attribution
 });
 
 test("effective output is a complete literal for success and compressor-only permission", () => {
-  const resolution = resolve({ modelFailover: {}, router: { models: { include: ["sol-6"] } } });
-  assert.equal(renderEffectiveLogicalModelPolicy(resolution, { providers: { "sol-6": "openai" }, compressorModel: "claude-sonnet-5" }), `Effective logical model policy
+  const resolution = resolve({ modelFailover: {}, router: { models: { include: ["sol-6.1"] } } });
+  assert.equal(renderEffectiveLogicalModelPolicy(resolution, { providers: { "sol-6.1": "openai" }, compressorModel: "claude-sonnet-5.5" }), `Effective logical model policy
 Status: usable.
 Warnings and ignored legacy keys:
 - Legacy key modelFailover is ignored. Use router.models or router.compressor.models. No automatic migration is performed.
-Ordinary membership in configured order after exclusion: sol-6
+Ordinary membership in configured order after exclusion: sol-6.1
 Definitions used by ordinary or compressor policy:
-- sol-6: capabilityRating=58; costRating=20; fixedEffort=high; preferredProvider=openai; rememberedProvider=openai
-  permission openai/gpt-6-sol
+- sol-6.1: capabilityRating=85; costRating=20; fixedEffort=high; preferredProvider=openai; rememberedProvider=openai
+  permission openai/gpt-6.1-sol
   guidelines: default thread choice
   cautions: When blocked, may substitute unapproved resources or perform destructive cleanup. Require permission before either action.
-- claude-sonnet-5: capabilityRating=40; costRating=90; fixedEffort=high; preferredProvider=anthropic; rememberedProvider=none
-  permission anthropic/claude-sonnet-5
+- claude-sonnet-5.5: capabilityRating=45; costRating=54; fixedEffort=high; preferredProvider=anthropic; rememberedProvider=none
+  permission anthropic/claude-sonnet-5-5
   guidelines: none
   cautions: May exceed explicit scope or infer permission from earlier requests. Check changes against stated exclusions and approval requirements.
 Compressor order is independent from ordinary membership:
-1. claude-sonnet-5 @ medium
-Remembered compressor selection: claude-sonnet-5
+1. claude-sonnet-5.5 @ medium
+Remembered compressor selection: claude-sonnet-5.5
 Remembered selections are runtime facts. Static preferred providers are configuration facts.
 ${EXPECTED_GUIDANCE_MEANING}
 Rating meaning: capability and cost ratings are fixed project judgments expressed as integers from 1 through 100. Higher capability means stronger expected capability. Higher cost means greater expected expense. Ratings stay fixed when membership changes. Ties are valid, and ratings form no fixed groups.
@@ -407,23 +409,23 @@ Runtime evidence limits: static policy does not prove task quality, registry pre
 });
 
 test("effective output is a complete literal for invalid remembered values", () => {
-  const resolution = resolve({ router: { models: { include: ["sol-6"] } } });
-  const text = renderEffectiveLogicalModelPolicy(resolution, { providers: { "sol-6": "secret; forged=value" }, compressorModel: "secret-compressor" });
+  const resolution = resolve({ router: { models: { include: ["sol-6.1"] } } });
+  const text = renderEffectiveLogicalModelPolicy(resolution, { providers: { "sol-6.1": "secret; forged=value" }, compressorModel: "secret-compressor" });
   assert.equal(text, `Effective logical model policy
 Status: usable.
 Warnings: none.
-Ordinary membership in configured order after exclusion: sol-6
+Ordinary membership in configured order after exclusion: sol-6.1
 Definitions used by ordinary or compressor policy:
-- sol-6: capabilityRating=58; costRating=20; fixedEffort=high; preferredProvider=openai; rememberedProvider=invalid or unavailable
-  permission openai/gpt-6-sol
+- sol-6.1: capabilityRating=85; costRating=20; fixedEffort=high; preferredProvider=openai; rememberedProvider=invalid or unavailable
+  permission openai/gpt-6.1-sol
   guidelines: default thread choice
   cautions: When blocked, may substitute unapproved resources or perform destructive cleanup. Require permission before either action.
-- claude-sonnet-5: capabilityRating=40; costRating=90; fixedEffort=high; preferredProvider=anthropic; rememberedProvider=none
-  permission anthropic/claude-sonnet-5
+- claude-sonnet-5.5: capabilityRating=45; costRating=54; fixedEffort=high; preferredProvider=anthropic; rememberedProvider=none
+  permission anthropic/claude-sonnet-5-5
   guidelines: none
   cautions: May exceed explicit scope or infer permission from earlier requests. Check changes against stated exclusions and approval requirements.
 Compressor order is independent from ordinary membership:
-1. claude-sonnet-5 @ medium
+1. claude-sonnet-5.5 @ medium
 Remembered compressor selection: invalid or unavailable
 Remembered selections are runtime facts. Static preferred providers are configuration facts.
 ${EXPECTED_GUIDANCE_MEANING}

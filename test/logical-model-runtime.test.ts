@@ -57,8 +57,8 @@ test("runtime freezes one usable policy and keeps prompt, effective view, and de
 	assert.ok(Object.isFrozen(runtime.policy));
 	assert.deepEqual(runtime.criticalErrors, []);
 	assert.equal(runtime.policy?.ordinary.length, 6);
-	assert.equal(runtime.definition("sol-6")?.capabilityRating, 58);
-	assert.equal(runtime.effortFor("claude-sonnet-5"), "high");
+	assert.equal(runtime.definition("sol-6.1")?.capabilityRating, 85);
+	assert.equal(runtime.effortFor("claude-sonnet-5.5"), "high");
 	assert.match(runtime.promptText() ?? "", /gpt-6-astra/);
 	assert.match(runtime.effectiveText(), /fixedEffort=max/);
 	assert.equal(warnings.length, 1);
@@ -113,8 +113,8 @@ test("routes use remembered, preferred, then declared providers and publish only
 test("reverse mapping reports zero, one, and many and accepts only a matching trusted identity", () => {
 	const ordinary = createLogicalRuntime({ trusted: true });
 	assert.deepEqual(ordinary.reverseMap({ provider: "absent", model: "none" }), { kind: "none" });
-	assert.deepEqual(ordinary.reverseMap({ provider: "openai", model: "gpt-6-sol" }), {
-		kind: "one", logicalModel: "sol-6", source: "exact-route",
+	assert.deepEqual(ordinary.reverseMap({ provider: "openai", model: "gpt-6.1-sol" }), {
+		kind: "one", logicalModel: "sol-6.1", source: "exact-route",
 	});
 	const shared = createLogicalRuntime({ trusted: true, projectConfig: policyWithSharedRoute() });
 	const ambiguous = shared.reverseMap({ provider: "openai", model: "gpt-6-luna" });
@@ -232,8 +232,8 @@ test("logical action history preserves every resolver-accepted name and rejects 
 	assert.equal(longRuntime.definition(longName)?.model, longName, "the resolver accepts the 201-character name");
 	const physical = {
 		id: "t1.e1", threadId: "t1", task: "work", status: "ok", file: "/tmp/e.md",
-		logicalModel: longName, requestedModel: "openai/gpt-6-sol", requestedEffort: "high",
-		model: "openai/gpt-6-sol", effort: "high", createdAt: 1,
+		logicalModel: longName, requestedModel: "openai/gpt-6.1-sol", requestedEffort: "high",
+		model: "openai/gpt-6.1-sol", effort: "high", createdAt: 1,
 	};
 	const repairs: string[] = [];
 	assert.deepEqual(sanitizeEpisodeRecord(physical, repairs), physical);
