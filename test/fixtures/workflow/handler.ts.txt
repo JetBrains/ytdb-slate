@@ -1,0 +1,15 @@
+export const handlers = {
+  "root.start": rootStart,
+  "root.ownerChanged": rootOwnerChanged,
+  "root.close": rootClose,
+  "dispatch.validate": dispatchValidate,
+  "dispatch.prepare": dispatchPrepare,
+  "episode.received": episodeReceived,
+};
+function rootStart() {}
+function rootOwnerChanged() {}
+function rootClose() {}
+function dispatchValidate() {}
+function dispatchPrepare() {}
+function episodeReceived() {}
+throw new Error("Handler must never execute during validation");

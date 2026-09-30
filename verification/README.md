@@ -924,6 +924,7 @@ The first layer reads the shape of `package.json`:
 - the `pi-package` keyword, which the pi.dev gallery listing needs;
 - each pi-bundled SDK package, which must be a peer at `"*"` and absent from
   `dependencies`;
+- exact numeric versions for runtime dependencies;
 - the absence of an install-time lifecycle script.
 
 The second layer reads the real file list from `npm pack --dry-run`. It permits
@@ -963,18 +964,18 @@ The harness prints one line for each check, then a summary:
 ```
 CHECK files-exact                      PASS — files is exactly ["extension","docs","README.md","LICENSE"] (order included), got ["extension","docs","README.md","LICENSE"]
 CHECK pack-doctrine-docs               PASS — every doctrine doc derived from extension/*.ts via DOCS_DIR ships: design-principles.md, model-routing.md, pr-publishing.md, review-rules.md, track-workflow.md, writing-guidance.md — missing: none
-== summary: 16 pass, 0 fail ==
+== summary: 17 pass, 0 fail ==
 ```
 
-`--self-test` prints the same 16 ids with the prefix `self-`. The verdict column
-holds the meaning: PASS says that the guard rejected its mutated input, which is
-the required result.
+`--self-test` prints the 17 guard ids with the prefix `self-`. It also tests
+removal of `yaml` and addition of an extra runtime dependency. The verdict
+column holds the meaning: PASS says that the guard rejected its mutated input.
 
 ```
 == self-test: each guard must reject a real input carrying one violating mutation ==
 CHECK self-files-exact                 PASS — mutated the real manifest: pushed "verification" onto files → the guard rejected it, as required
 CHECK self-pack-doctrine-docs          PASS — not manifest-shaped, so mutated the REAL pack list: dropped docs/design-principles.md from the shipped paths → the guard rejected it, as required
-== summary: 16 pass, 0 fail ==
+== summary: 19 pass, 0 fail ==
 ```
 
 Exit status: **0** every check passed · **1** a check failed · **2** the harness
@@ -987,7 +988,7 @@ proves that result.
 
 ## What it covers
 
-The harness runs 16 checks. Twelve checks read the manifest, and four checks read
+The harness runs 17 checks. Thirteen checks read the manifest, and four checks read
 the real pack output.
 
 | id | what it proves |
@@ -999,6 +1000,7 @@ the real pack output.
 | `peer-pi-agent` / `nodep-pi-agent` | the same for `@earendil-works/pi-coding-agent` |
 | `peer-pi-tui` / `nodep-pi-tui` | the same for `@earendil-works/pi-tui` |
 | `peer-typebox` / `nodep-typebox` | the same for `typebox` |
+| `runtime-dependencies-exact` | `dependencies` is exactly `{ "yaml": "2.9.0" }`. The self-test checks a range, a missing `yaml`, and an extra dependency |
 | `no-install-scripts` | `scripts` declares none of `prepare`, `postinstall`, `install` and `preinstall`. npm runs each of them on **every consumer install** |
 | `pack-allowed` | every shipped path is one of `package.json`, `README.md`, `LICENSE`, `docs/**/*.md`, `extension/**/*.ts` and `extension/**/*.mjs`. This is the guard against the recursive expansion, and the only guard that covers a doc which prose alone references. The `.mjs` kind is a **runtime** kind, not a harness one: the shipped writing checker (`extension/writing-check.mjs`) is dependency-free plain JavaScript, because it runs both as a command and inside a synchronous turn hook with no transpiler in either path |
 | `pack-no-junk` | no shipped path matches `.env* *.log *.pem *.key *.p12 *secret* *credential* node_modules/** *.tgz .git* *.local.*`. The match ignores case, and a pattern without `/` matches the basename at any depth |

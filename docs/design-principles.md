@@ -180,6 +180,18 @@ required reviews, ordered gates, user authority, or final acceptance.
   reference. Accept the repeated subject and its word cost. Avoid disconnected
   fragments. The configured limit controls the sentence-length finding.
 
+The workflow design applies four additional principles:
+
+- **W1 — Separate strategy and tactics.** The orchestrator plans, decides,
+  routes and combines results. Threads carry out bounded actions.
+- **W2 — Separate the core and workflows.** The core owns threads, episodes,
+  model routing and the workflow mechanism. Each workflow owns its own
+  concepts in its YAML file and handler module.
+- **W3 — Put workflow checks in code.** Use code for rules that do not need
+  model judgment. Load text for the current step when it is needed.
+- **W4 — Migrate stored formats.** A change to a stored format includes a
+  migration step for existing records.
+
 - **P13 — Research and define built-in focus areas by risk.** *(Repo-local note, not from the report.)* When proposing a new built-in focus area and its reviewer, apply these rules:
 
   0. Research external sources before defining the area or writing reviewer questions. Standards, research papers, and established engineering guides are possible sources. Keep a corpus of findings, meaning a collection of source summaries, in the proposing tracker issue or pull request. Do not ship the corpus. Each entry links its source and states its support for the area and its applicability limits. State what the source does not prove. Copy no source text. Use the corpus as evidence for judgment in rules 1, 2, 3, and 6. The user still approves the area.
@@ -210,6 +222,10 @@ required reviews, ordered gates, user authority, or final acceptance.
 | P11 proportional process | no code home; the shipped workflow documents apply it to gates, artifacts and review actions |
 | P12 reader understanding | `writing-check.mjs` reports sentence-length findings; the writing guidance and review rules apply it to project prose |
 | P13 risk-based focus-area authorship | no runtime code home for author research or approval. Focus definitions, reviewer content, the code roster, and structure and agreement checks apply the rule. |
+| W1 strategy and tactics | the orchestrator chooses work; worker threads complete bounded actions |
+| W2 core and workflows | `workflow-validation.ts` validates workflow definitions; each workflow names its own concepts |
+| W3 checks in code | `workflow-validation.ts` checks file rules without loading handler code |
+| W4 format migration | a stored format change includes a migration step |
 
 Repo-local note (not from the report): the `maxConcurrent` cap defaults
 to 4. Its failure modes are asymmetric: excess dispatches wait for a

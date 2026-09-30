@@ -1,0 +1,41 @@
+format: 1
+workflowId: slate-track
+workflowVersion: 1
+description: A call can leave through anyState
+useWhen: Test a call transition
+root: change
+handlers: test-handler
+progressRecord: '{root:log}'
+configuration: {}
+sections: {}
+orchestrator: []
+workflowArgs: {}
+threadTypes: {}
+focusAreas: {}
+lifecycles:
+  change:
+    id: 1
+    description: Caller
+    initialState: waiting
+    conditions: {}
+    guards: {}
+    triggers:
+      finish: { id: 2, description: Finish the caller }
+    states:
+      waiting:
+        id: 3
+        description: Call the child
+        call: child
+      done: { id: 4, description: Done, terminal: true }
+    anyState:
+      finish:
+        - { id: 5, to: done }
+  child:
+    id: 6
+    description: Child
+    initialState: complete
+    conditions: {}
+    guards: {}
+    triggers: {}
+    states:
+      complete: { id: 7, description: Complete, terminal: true }

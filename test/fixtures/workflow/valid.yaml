@@ -1,0 +1,58 @@
+format: 1
+workflowId: slate-track
+workflowVersion: 1
+description: Test workflow
+useWhen: Test changes
+root: change
+handlers: test-handler
+progressRecord: '{root:log}'
+configuration:
+  workflow.draftPRs: { id: 1, type: boolean, description: Open draft }
+sections:
+  rules: { id: 2, document: rules, heading: Rules, description: Step rules }
+orchestrator:
+  - { id: 3, section: rules, priority: 1 }
+workflowArgs:
+  number: { id: 4, type: integer, description: Number }
+threadTypes:
+  reviewer:
+    id: 5
+    description: Reviews work
+    prompt:
+      - { id: 6, section: rules, priority: 2 }
+focusAreas:
+  security:
+    id: 7
+    class: reviewer-only
+    description: Reviews security
+    definition: rules
+    charter: { id: 8, section: rules, priority: 3 }
+lifecycles:
+  change:
+    id: 9
+    description: A change
+    initialState: work
+    conditions:
+      done: { id: 10, description: Work done }
+    guards:
+      ready: { id: 11, description: Can finish, expr: done }
+    triggers:
+      finish: { id: 12, description: Finish }
+      step_completed: { id: 13, description: Complete step }
+    states:
+      work:
+        id: 14
+        description: Work in progress
+        section: rules
+        on:
+          finish:
+            - { id: 15, to: finished, when: ready }
+      finished: { id: 16, description: Finished, terminal: true }
+    steps:
+      draft:
+        id: 17
+        description: Prepare draft
+        attachTo: work
+        when: { key: workflow.draftPRs, equals: true }
+        section: rules
+        completedBy: step_completed

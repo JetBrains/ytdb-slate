@@ -220,6 +220,15 @@ for (const { short, name } of SDK) {
 	});
 }
 
+const RUNTIME_DEPENDENCIES_EXACT = { yaml: "2.9.0" };
+MANIFEST.set("runtime-dependencies-exact", (m) => {
+	const deps = m.dependencies;
+	const ok = deps !== null && typeof deps === "object" && !Array.isArray(deps) &&
+		Object.keys(deps).length === Object.keys(RUNTIME_DEPENDENCIES_EXACT).length &&
+		Object.entries(RUNTIME_DEPENDENCIES_EXACT).every(([name, version]) => deps[name] === version);
+	return { ok, detail: `dependencies is exactly ${JSON.stringify(RUNTIME_DEPENDENCIES_EXACT)}, got ${JSON.stringify(deps ?? null)}` };
+});
+
 MANIFEST.set("no-install-scripts", (m) => {
 	const scripts = m.scripts ?? {};
 	const offenders = INSTALL_SCRIPTS.filter((s) => s in scripts);
@@ -236,6 +245,12 @@ for (const { short, name } of SDK) {
 	MUTATE.set(`peer-${short}`, (m) => ((m.peerDependencies = { ...(m.peerDependencies ?? {}), [name]: "^1.0.0" }), `set peerDependencies["${name}"] to "^1.0.0"`));
 	MUTATE.set(`nodep-${short}`, (m) => ((m.dependencies = { ...(m.dependencies ?? {}), [name]: "^1.0.0" }), `added "${name}" to dependencies`));
 }
+MUTATE.set("runtime-dependencies-exact", (m) => ((m.dependencies = { ...(m.dependencies ?? {}), yaml: "^2.9.0" }), 'changed yaml to "^2.9.0"'));
+// The same exact-set guard must reject both a missing import and an unreviewed extra.
+const RUNTIME_MUTATIONS = new Map([
+	["runtime-dependency-removed", (m) => ((m.dependencies = { ...(m.dependencies ?? {}) }), delete m.dependencies.yaml, 'removed yaml from dependencies')],
+	["runtime-dependency-extra", (m) => ((m.dependencies = { ...(m.dependencies ?? {}), extra: "1.0.0" }), 'added extra dependency')],
+]);
 MUTATE.set("no-install-scripts", (m) => ((m.scripts = { ...(m.scripts ?? {}), prepare: "echo pwned" }), 'added a "prepare" script'));
 
 // ---------------------------------------------------- pack-output assertions --
@@ -306,6 +321,13 @@ if (!SELF_TEST) {
 		const what = MUTATE.get(id)(clone);
 		const changed = JSON.stringify(clone) !== JSON.stringify(manifest);
 		const r = assertion(clone);
+		check(`self-${id}`, changed && !r.ok, `mutated the real manifest: ${what} → ${rejected(changed, r.ok, "manifest")}`);
+	}
+	for (const [id, mutate] of RUNTIME_MUTATIONS) {
+		const clone = structuredClone(manifest);
+		const what = mutate(clone);
+		const changed = JSON.stringify(clone) !== JSON.stringify(manifest);
+		const r = MANIFEST.get("runtime-dependencies-exact")(clone);
 		check(`self-${id}`, changed && !r.ok, `mutated the real manifest: ${what} → ${rejected(changed, r.ok, "manifest")}`);
 	}
 	for (const [id, assertion] of PACK) {
