@@ -74,12 +74,14 @@ function escapedMessages(text: string): string[] {
 test("workflow guidance examples stay valid and wrong examples retain their stated problems", () => {
   const guide = readFileSync(fileURLToPath(new URL("../docs/workflow-guidance.md", import.meta.url)), "utf8");
   const examples = new Map([...guide.matchAll(/<!-- workflow-example: ([a-z-]+) -->\s*```yaml\n([\s\S]*?)\n```/g)].map(match => [match[1]!, match[2]!]));
-  const expected = ["complete", "format", "wrong-placeholder", "correct-placeholder", "identity", "declarations", "enum", "sections", "prompts", "guard", "transition", "wrong-else", "correct-else", "step", "wrong-step", "handler", "usage"];
+  const expected = ["complete", "format", "wrong-placeholder", "correct-placeholder", "identity", "declarations", "enum", "wrong-configuration", "correct-configuration", "sections", "prompts", "guard", "transition", "wrong-else", "correct-else", "step", "wrong-step", "handler", "usage"];
   assert.deepEqual([...examples.keys()], expected);
-  const handler = guide.match(/## Handler declaration[\s\S]*?```typescript\n([\s\S]*?)\n```/);
+  const sourceExamples = new Map([...guide.matchAll(/<!-- workflow-example: ([a-z-]+) -->\s*```typescript\n([\s\S]*?)\n```/g)].map(match => [match[1]!, match[2]!]));
+  assert.deepEqual([...sourceExamples.keys()], ["handler-source", "wrong-handler", "correct-handler"]);
+  const handler = sourceExamples.get("handler-source");
   assert.ok(handler, "handler source example");
   const guideProviders = { document: (name: string) => { assert.equal(name, "rules"); return "# Rules\nStep rules\n"; },
-    handlerSource: (name: string) => { assert.equal(name, "test-handler"); return handler[1]! + "\n"; } };
+    handlerSource: (name: string) => { assert.equal(name, "test-handler"); return handler + "\n"; } };
   const sample = (name: string) => { const text = examples.get(name); assert.ok(text, name); return text; };
   const indent = (text: string, spaces: number) => text.split("\n").map(line => " ".repeat(spaces) + line).join("\n");
   const replace = (base: string, oldText: string, newText: string) => {
@@ -94,6 +96,7 @@ test("workflow guidance examples stay valid and wrong examples retain their stat
     ["identity", "workflowId: slate-track\nworkflowVersion: 1", "workflowId: slate-track\nworkflowVersion: 1", 0],
     ["correct-placeholder", "description: Test workflow", sample("correct-placeholder"), 0],
     ["enum", "workflow.draftPRs: { id: 1, type: boolean, description: Open draft }", sample("enum"), 2],
+    ["correct-configuration", "workflow.draftPRs: { id: 1, type: boolean, description: Open draft }", sample("correct-configuration"), 2],
     ["sections", sample("sections"), sample("sections"), 0],
     ["prompts", sample("prompts"), sample("prompts"), 0],
     ["transition", "on:\n  finish:\n    - { id: 15, to: finished, when: ready }", sample("transition"), 8],
@@ -114,6 +117,7 @@ test("workflow guidance examples stay valid and wrong examples retain their stat
   }
   const wrong: [string, string, string, number, string, string][] = [
     ["wrong-placeholder", "description: Test workflow", sample("wrong-placeholder"), 0, "$.description", 'Placeholder {config:workflow.absent} must name a declared configuration key. Declared keys: "workflow.draftPRs".'],
+    ["wrong-configuration", "workflow.draftPRs: { id: 1, type: boolean, description: Open draft }", sample("wrong-configuration"), 2, '$.configuration["workflow.draftPRs"].values', "values are allowed only for enum configuration"],
     ["wrong-else", "- { id: 15, to: finished, when: ready }", sample("wrong-else"), 12, '$.lifecycles["change"].states["work"].on["finish"][0]', "else must be last after a guarded branch"],
     ["wrong-step", "when: { key: workflow.draftPRs, equals: true }", sample("wrong-step"), 8, '$.lifecycles["change"].steps["draft"].when', "Boolean step condition must use { key, equals: true or false }."],
   ];
@@ -121,6 +125,20 @@ test("workflow guidance examples stay valid and wrong examples retain their stat
     const input = replace(validExample, indent(before, spaces), indent(after, spaces));
     assert.deepEqual(validateWorkflow(input, guideProviders).problems, [{ path, message, severity: "error" }], label);
     assert.ok(guide.includes(`The error at \`${path}\` is \`${message}\``), `guide must show ${label} result`);
+  }
+  const correctEntry = sourceExamples.get("correct-handler");
+  const wrongEntry = sourceExamples.get("wrong-handler");
+  assert.ok(correctEntry && wrongEntry);
+  assert.equal(handler.split(correctEntry).length, 2, "handler source contains the corrected entry once");
+  assert.deepEqual(validateWorkflow(validExample, { ...guideProviders, handlerSource: () => handler + "\n" }).problems, []);
+  const handlerErrors = validateWorkflow(validExample, { ...guideProviders, handlerSource: () => handler.replace(correctEntry, wrongEntry) + "\n" }).problems;
+  assert.deepEqual(handlerErrors.map(problem => problem.path), Array(6).fill("$.handlers"));
+  assert.deepEqual(handlerErrors.map(problem => problem.severity), Array(6).fill("error"));
+  const events = ["root.start", "root.ownerChanged", "root.close", "dispatch.validate", "dispatch.prepare", "episode.received"];
+  for (const [index, event] of events.entries()) {
+    const message = `Declare ${event} in export const handlers = { with a two-space-indented quoted key and a function name. End every entry, including the last, with a comma. Close with a closing brace and semicolon on its own line and define function name( at column zero. Use LF or CRLF and at most 131072 UTF-8 bytes. This text check cannot prove JavaScript meaning.`;
+    assert.equal(handlerErrors[index]?.message, message);
+    if (index === 0) assert.ok(guide.includes(`The error at \`$.handlers\` is \`${message}\``));
   }
 });
 

@@ -1,12 +1,14 @@
 # Workflow guidance
 
-A workflow file is one YAML 1.2 document. YAML is a text format for mappings and lists. A workflow author writes this file to declare the parts of a change process that the validator can check. A lifecycle is a state machine with a starting state. A state is a named stage in that machine.
+A workflow file is one YAML 1.2 document. YAML is a text format for mappings and lists. A mapping pairs a key with a value. A list holds ordered values. A scalar is one value, such as text or a number.
 
-A trigger names an event that can select a transition. A transition links one state to another. A condition names a fact that a transition can test. A guard combines conditions and other guards. A branch uses a guard or condition to choose a destination state.
+A workflow author writes this file to declare the parts of a change process that the validator can check. A lifecycle is a state machine with a starting state. A state is a named stage in that machine.
 
-A section points to a heading in a guidance document. A state can point to a section. Prompt additions also point to sections. Configuration declares keys that can control steps. A step attaches to a state and names a trigger for its completion.
+A trigger names an event that can select a transition. A transition links one state to another. A condition names a fact that a transition can test. A guard can name one condition or combine conditions and other guards. A branch uses a guard or condition to choose a destination state.
 
-A handler declaration names a source module for events. The validator checks these declarations and their references. It does not run a state machine or a handler. No command, tool, file reader, or handler execution uses this validator module.
+A section points to a heading in a guidance document. A state can point to a section. A prompt addition points to a section that supplies text for a prompt. Configuration declares keys that can control steps. A step attaches to a state and names a trigger for its completion.
+
+A handler declaration names source code for events. A provider is a function the caller supplies to return document or handler source text. The validator checks these declarations and their references. It does not run a state machine or a handler. No command, tool, file reader, or handler execution uses this validator module.
 
 ## Complete workflow example
 
@@ -76,9 +78,11 @@ lifecycles:
 
 ## Input and limits
 
-The validator reads workflow text as one YAML document. It accepts the core YAML schema. It requires unique mapping keys and plain or quoted text keys. It rejects anchors, aliases, explicit tags, and merge keys. Parser warnings count as errors, even for a stream with no documents.
+The validator reads workflow text as one YAML document. The core YAML schema interprets plain values such as `true`, `null`, and `1` as typed values. Mapping keys must be unique plain or quoted text. An anchor labels a value for reuse. An alias refers to an anchored value. An explicit tag assigns a value a type in the source.
 
-The workflow text limit is 131072 UTF-8 bytes. The parsed tree limit is 64 node levels. A line cannot have more than 128 leading spaces. A line also cannot have more than 64 combined opening `[` or `{` characters and compact `-` or `?` block markers. A compact marker starts line content after indentation or after a `: ` value indicator.
+A merge key (`<<`) copies entries into a mapping. The validator rejects anchors, aliases, explicit tags, and merge keys. A parser is the code that reads YAML. Its warnings count as errors, even when the input has no document.
+
+The workflow text limit is 131072 bytes in UTF-8, an encoding that stores text as bytes. The parsed tree limit is 64 node levels. A node level counts one step down through a mapping key, mapping value, or list item. A line cannot have more than 128 leading spaces. A line also cannot have more than 64 combined opening `[` or `{` characters and compact `-` or `?` block markers. A compact marker starts line content after indentation or after a `: ` value indicator.
 
 The run `- - - item` counts three markers. That run after `: ` also counts three markers. A hyphen between words does not count. The raw-line limits can reject a shallow document with many delimiters on one line. A parser `RESOURCE_EXHAUSTION` error asks the author to reduce nesting to at most 64 node levels.
 
@@ -93,15 +97,15 @@ format: 1
 
 ## Required fields and names
 
-The top-level mapping identifies the workflow and links its declarations. It requires `format: 1` and a positive safe integer `workflowVersion` no greater than 9007199254740991. It requires a lower-case hyphenated `workflowId`. It requires nonempty `description`, `useWhen`, and `progressRecord` text. It also requires `root`, `handlers`, `configuration`, `sections`, `orchestrator`, `workflowArgs`, `threadTypes`, `focusAreas`, and `lifecycles`.
+The top-level mapping identifies the workflow and links its declarations. It requires `format: 1` and a positive safe integer `workflowVersion` no greater than 9007199254740991. A safe integer is a whole number that JavaScript represents exactly. It requires a lower-case hyphenated `workflowId`. It requires nonempty `description`, `useWhen`, and `progressRecord` text. It also requires `root`, `handlers`, `configuration`, `sections`, `orchestrator`, `workflowArgs`, `threadTypes`, `focusAreas`, and `lifecycles`.
 
 Unknown fields are errors.
 
-Every entity ID is a positive safe integer no greater than 9007199254740991. Each ID must be unique across the workflow. Entity names use lower-case words separated by `_`. Workflow IDs, section names, and document names use lower-case words separated by `-`. A handler name may end with a dot and another hyphenated word.
+An entity ID (identifier) is a positive safe integer no greater than 9007199254740991. Each ID must be unique across the workflow. Entity names use lower-case words separated by `_`. Workflow IDs, section names, and document names use lower-case words separated by `-`. A handler name may end with a dot and another hyphenated word.
 
 Configuration keys use dot-separated segments. Each segment starts with a lower-case letter, followed by letters or digits. The validator reserves `free`, `declare`, `override`, `__proto__`, `constructor`, and `prototype` where it checks entity names.
 
-A description or prompt addition can contain `{config:key}`. The key must be declared in `configuration`. A `{root:name}` placeholder needs a lower-case entity name separated by `_`. The six reserved names above are not root names.
+A placeholder is a marked name inside text. Descriptions and text in a section used by a prompt addition can contain `{config:key}`. The addition itself has only `id`, `section`, and `priority`. The key must be declared in `configuration`. A `{root:name}` placeholder needs a lower-case entity name separated by `_`. The six reserved names above are not root names.
 
 The validator checks the form of a root name, not whether handler data contains it. Run-time code owns name resolution. The validator reports an incomplete `{config:` or `{root:` placeholder up to the end of its line. The message requests a closing brace.
 
@@ -121,7 +125,9 @@ The error at `$.description` is `Placeholder {config:workflow.absent} must name 
 description: '{config:workflow.draftPRs}'
 ```
 
-Each variable part of a problem message, including a name, path, placeholder, or provider error, shows at most 1024 source characters before `...[truncated]`. A list of declared configuration keys or enum values shows at most eight names. Each name uses at most 96 characters after JSON escaping. A truncated list has one marker and counts all omitted names.
+Each variable part of a problem message, including a name, path, placeholder, or provider error, shows at most 1024 source characters before `...[truncated]`. An enum limits a value to one item from a declared list. A list of declared configuration keys or enum values shows at most eight names. Each name uses at most 96 characters after JSON (JavaScript Object Notation) escaping. JSON is a text format for values. Escaping writes special characters as visible sequences.
+
+A truncated list has one marker and counts all omitted names.
 
 The complete example identifies its workflow with these fields:
 
@@ -156,11 +162,27 @@ This enum declaration can replace the boolean declaration in the example when it
 workflow.draftPRs: { id: 1, type: enum, values: [red, blue], description: Open draft }
 ```
 
+A boolean configuration entry cannot declare enum `values`. This entry is wrong:
+
+<!-- workflow-example: wrong-configuration -->
+```yaml
+workflow.draftPRs: { id: 1, type: boolean, values: [red], description: Open draft }
+```
+
+The error at `$.configuration["workflow.draftPRs"].values` is `values are allowed only for enum configuration`. Remove `values` to correct it:
+
+<!-- workflow-example: correct-configuration -->
+```yaml
+workflow.draftPRs: { id: 1, type: boolean, description: Open draft }
+```
+
 ## Documents, additions, and focus areas
 
 A section links a name in the workflow to a heading in supplied document text. A prompt addition links a section to a prompt declaration. A focus area links a definition section and a charter addition.
 
-Each section has `{ id, document, heading, description }`. A document provider supplies the named document as text. The heading must occur exactly once. It starts with one to six `#` characters at the start of its line. A heading inside fenced code or a multiline HTML comment does not count. The section ends at the next heading of the same or a higher level, or at the end of the document.
+Each section has `{ id, document, heading, description }`. A document provider supplies the named document as text. The heading must occur exactly once. It starts with one to six `#` characters at the start of its line.
+
+Fenced code is text between lines of three or more backticks or tildes. HTML (Hypertext Markup Language) is a text format for documents. An HTML comment starts with `<!--` and ends with `-->`. A heading inside fenced code or a multiline HTML comment does not count. The section ends at the next heading of the same or a higher level, or at the end of the document.
 
 The validator does not select files or confine document paths. The caller supplies the provider.
 
@@ -269,10 +291,11 @@ The error at `$.lifecycles["change"].steps["draft"].when` is `Boolean step condi
 
 ## Handler declaration
 
-The `handlers` field names source text supplied by the handler source provider. The static check looks for one column-zero `export const handlers = {` line. It requires two-space-indented double-quoted event keys with identifier values. Every entry ends with a comma, including the last. The block closes with `};` on its own line. Each value needs a column-zero `function name(` declaration.
+The `handlers` field names source text supplied by the handler source provider. The static check looks for one `export const handlers = {` line at column zero, the first character of the line. It requires two-space-indented double-quoted event keys with source-code name values. Every entry ends with a comma, including the last. The block closes with `};` on its own line. Each value needs a column-zero `function name(` declaration.
 
 The provider for the complete example can return this source text:
 
+<!-- workflow-example: handler-source -->
 ```typescript
 export const handlers = {
   "root.start": rootStart,
@@ -290,7 +313,23 @@ function dispatchPrepare() {}
 function episodeReceived() {}
 ```
 
-The six event keys above are required. LF and CRLF line endings work. A block comment, backtick, lone carriage return, or extra column-zero export is unsupported. The check reads text only. It does not execute handlers or prove JavaScript meaning. A crafted file can pass the text check without usable exports.
+The six event keys above are required. LF means a line-feed character at a line end. CRLF means a carriage return followed by a line feed. Both line endings work. A block comment, backtick, lone carriage return, or extra column-zero export is unsupported.
+
+The check reads text only. It does not execute handlers or prove JavaScript meaning. A crafted file can pass the text check without usable exports.
+
+This last entry is wrong because it has no comma:
+
+<!-- workflow-example: wrong-handler -->
+```typescript
+  "episode.received": episodeReceived
+```
+
+The validator reports six errors at `$.handlers`, one for each required event. The error at `$.handlers` is `Declare root.start in export const handlers = { with a two-space-indented quoted key and a function name. End every entry, including the last, with a comma. Close with a closing brace and semicolon on its own line and define function name( at column zero. Use LF or CRLF and at most 131072 UTF-8 bytes. This text check cannot prove JavaScript meaning.` The corrected last entry ends in a comma:
+
+<!-- workflow-example: correct-handler -->
+```typescript
+  "episode.received": episodeReceived,
+```
 
 This field in the complete example selects the provider source:
 
@@ -301,7 +340,9 @@ handlers: test-handler
 
 ## Problems and scope
 
-Validation reports a field path, message, and severity for each problem. An unused trigger, condition, or guard produces a warning. Other invalid declarations produce errors. Paths and messages escape control characters, bidirectional formatting characters, and Unicode line separators. The complete example uses its `finish` trigger and `ready` guard, so it has no unused-declaration warning:
+Validation reports a field path, message, and severity for each problem. A problem path starts at `$`, the whole workflow mapping. A dot names a field, brackets with a quoted key name a mapping entry, and brackets with a number name a list item. For example, `$.lifecycles["change"].states["work"].on["finish"][0]` points to the first `- { id: 15, to: finished, when: ready }` line under `finish` in the complete example.
+
+An unused trigger, condition, or guard produces a warning only if its lifecycle has no errors. Other invalid declarations produce errors. Paths and messages escape control characters, bidirectional formatting characters, and Unicode line separators. The complete example uses its `finish` trigger and `ready` guard, so it has no unused-declaration warning:
 
 <!-- workflow-example: usage -->
 ```yaml
