@@ -61,7 +61,7 @@ const limitedNames = (names: string[]): string => {
 // The adapters M3, M4, M8, M27, M30 and M58 retain external diagnostic detail.
 const rules = {
   M1: { allowed: "131072 UTF-8 bytes", message: () => "Workflow text must be at most 131072 UTF-8 bytes." },
-  M2: { allowed: "64 node levels, 128 leading spaces per line, or 64 opening [ or { characters and compact - or ? block markers combined per line (compact markers start the line content)", message: () => "Workflow nesting must not exceed 64 node levels, 128 leading spaces per line, or 64 opening [ or { characters and compact - or ? block markers combined per line (compact markers start the line content)." },
+  M2: { allowed: "64 node levels, 128 leading spaces per line, or 64 opening [ or { characters and compact - or ? block markers combined per line (compact markers start the line content after indentation or a `: ` value indicator)", message: () => "Workflow nesting must not exceed 64 node levels, 128 leading spaces per line, or 64 opening [ or { characters and compact - or ? block markers combined per line (compact markers start the line content after indentation or a `: ` value indicator)." },
   M3: { allowed: "one valid YAML 1.2 document", message: (a: string) => `Use one valid YAML 1.2 document. Parser refused input: ${a}.` },
   M4: { allowed: "one valid YAML 1.2 document with unique keys, no aliases, anchors or tags", message: (a: string, b: string) => `Use one valid YAML 1.2 document with unique keys, no aliases, anchors or tags. Parser ${a}: ${b}` },
   M5: { allowed: "exactly one YAML document", message: () => "workflow must contain exactly one YAML document" },

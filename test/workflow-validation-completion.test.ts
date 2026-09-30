@@ -329,9 +329,15 @@ test("prose hyphens do not count as compact block markers", () => {
 test("compact block nesting stops at the raw validator limit", () => {
   for (const marker of ["- ", "? "]) {
     one(marker.repeat(65) + "x", "$", workflowRuleDescriptions()[1]!.sample);
-    one("? k\n: " + marker.repeat(1000) + "x", "$", workflowRuleDescriptions()[1]!.sample);
     assert.notEqual(problems(marker.repeat(64) + "x")[0]?.message, workflowRuleDescriptions()[1]!.sample);
   }
+});
+
+test("compact markers after a value indicator report the exact M2 message", () => {
+  const allowed = "64 node levels, 128 leading spaces per line, or 64 opening [ or { characters and compact - or ? block markers combined per line (compact markers start the line content after indentation or a `: ` value indicator)";
+  assert.equal(workflowRuleDescriptions()[1]!.allowed, allowed);
+  const message = `Workflow nesting must not exceed ${allowed}.`;
+  for (const marker of ["- ", "? "]) one("? k\n: " + marker.repeat(1000) + "x", "$", message);
 });
 
 test("resource exhaustion parser errors name the nesting correction", async () => {
