@@ -1,14 +1,22 @@
 # Workflow guidance
 
-A workflow file describes a change process, such as how work moves from research to delivery, so the validator can check its declarations. The file is one YAML 1.2 document. YAML is a text format for mappings and lists. A mapping pairs a key with a value. A list holds ordered values. A scalar is one value, such as text or a number.
+A workflow file describes a work process, for example how a change moves from research to delivery. The file is one YAML 1.2 document. YAML is a text format that builds data from three kinds of values. A mapping pairs keys with values. A list holds values in order. A scalar is one value, such as a text or a number.
 
-A workflow contains lifecycles, each a state machine that starts in its initial state. Each state is a named stage, and a transition links one state to another. When a trigger names an event that can select a transition, the state lists the trigger under `on` with branches. Each branch chooses the next state and can use `when` to name a condition or guard. A condition names a fact that the transition can test, while a guard can name one condition or combine conditions and other guards. A single branch can omit `when`, and a final `else` branch has no `when`.
+The main part of a workflow is its lifecycles. A lifecycle is a state machine. It starts in its initial state. From there, it moves from state to state. Each state is a named stage of the work. A move from one state to another is a transition. A terminal state is a final state, and it has no transitions.
 
-A section points to a heading in a guidance document, and a state can point to a section. A prompt is instruction text that Slate gives to a model. The model works as the orchestrator, which plans the work, or as a worker thread of a given type. A prompt addition names a section whose text a prompt can use.
+A trigger names an event that can cause a transition, for example that the research is complete. A state lists the triggers that it accepts under `on`. A lifecycle can also list triggers under `anyState`. These triggers apply in every state that is not terminal. For each trigger, the file gives a list of branches. Each branch names one possible next state.
 
-Configuration declares keys that can control steps. A step attaches to a state and names a trigger for its completion. Its configuration condition decides when the step applies to that state. A handler declaration names source code for events.
+A branch can also depend on a fact. A condition names such a fact, for example that the user approved the design. A guard names one condition, or it combines conditions and other guards. A branch names its condition or guard in `when`. A trigger with a single non-`else` branch can omit `when`. When a trigger has several branches, each branch needs `when`. The only exception is a final `else` branch, which has no `when`.
 
-The validator checks the workflow file, its declarations and their references. To read a guidance document or handler source, it uses providers, which are functions the caller supplies to return source text. It does not run a state machine or handler code. No command, tool, file reader or handler execution uses this validator module. The next section shows a complete workflow example, and later sections explain each part.
+A state can also use guidance for the work in that stage. Guidance documents hold this text. In these documents, each heading line starts with `#`. A section points to one heading in a guidance document. A state can name a section.
+
+Sections can also supply text for prompts. A prompt is instruction text that Slate gives to a model. The model works as the orchestrator, which plans the work, or as a worker thread of a given type. A prompt addition names a section whose text a prompt can use.
+
+Some work applies only when a project enables it. For this case, the file declares configuration keys. A step uses one of these keys. A step attaches to a state. Its configuration condition decides whether the step applies to that state. The step also names the trigger that marks it as complete.
+
+Finally, a handler declaration names source code that handles events.
+
+The validator checks the file, its declarations and the references between them. The validator does not read files itself. The caller supplies providers, which are functions that return the text of a guidance document or of handler source code. The validator does not run a state machine or handler code. No command, tool, file reader or handler execution uses the validator module. The next section shows a complete workflow example. The later sections explain each part.
 
 ## Complete workflow example
 
