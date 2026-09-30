@@ -136,7 +136,7 @@ type RuleId = keyof typeof rules;
 const problemRules = new WeakMap<WorkflowProblem, RuleId>();
 // Tests inspect rule identity without changing the problem fields.
 export function workflowProblemRule(problem: WorkflowProblem): string | undefined { return problemRules.get(problem); }
-// Read-only descriptions support tests and the human-written format reference.
+// Read-only descriptions support tests and the human-written workflow guidance.
 export function workflowRuleDescriptions(): ReadonlyArray<Readonly<{ id: RuleId; allowed: string; sample: string }>> {
   return Object.freeze(Object.entries(rules).map(([id, rule]) => Object.freeze({
     id: id as RuleId, allowed: rule.allowed,

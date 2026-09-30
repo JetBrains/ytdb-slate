@@ -71,6 +71,59 @@ function escapedMessages(text: string): string[] {
   return violations;
 }
 
+test("workflow guidance examples stay valid and wrong examples retain their stated problems", () => {
+  const guide = readFileSync(fileURLToPath(new URL("../docs/workflow-guidance.md", import.meta.url)), "utf8");
+  const examples = new Map([...guide.matchAll(/<!-- workflow-example: ([a-z-]+) -->\s*```yaml\n([\s\S]*?)\n```/g)].map(match => [match[1]!, match[2]!]));
+  const expected = ["complete", "format", "wrong-placeholder", "correct-placeholder", "identity", "declarations", "enum", "sections", "prompts", "guard", "transition", "wrong-else", "correct-else", "step", "wrong-step", "handler", "usage"];
+  assert.deepEqual([...examples.keys()], expected);
+  const handler = guide.match(/## Handler declaration[\s\S]*?```typescript\n([\s\S]*?)\n```/);
+  assert.ok(handler, "handler source example");
+  const guideProviders = { document: (name: string) => { assert.equal(name, "rules"); return "# Rules\nStep rules\n"; },
+    handlerSource: (name: string) => { assert.equal(name, "test-handler"); return handler[1]! + "\n"; } };
+  const sample = (name: string) => { const text = examples.get(name); assert.ok(text, name); return text; };
+  const indent = (text: string, spaces: number) => text.split("\n").map(line => " ".repeat(spaces) + line).join("\n");
+  const replace = (base: string, oldText: string, newText: string) => {
+    assert.equal(base.split(oldText).length, 2, `unique replacement: ${oldText}`);
+    return base.replace(oldText, newText);
+  };
+  const validExample = sample("complete") + "\n";
+  assert.equal(validExample, valid, "the complete guide example matches the valid test fixture");
+  assert.deepEqual(validateWorkflow(validExample, guideProviders).problems, []);
+  const cases: [string, string, string, number][] = [
+    ["format", "format: 1", "format: 1", 0],
+    ["identity", "workflowId: slate-track\nworkflowVersion: 1", "workflowId: slate-track\nworkflowVersion: 1", 0],
+    ["correct-placeholder", "description: Test workflow", sample("correct-placeholder"), 0],
+    ["enum", "workflow.draftPRs: { id: 1, type: boolean, description: Open draft }", sample("enum"), 2],
+    ["sections", sample("sections"), sample("sections"), 0],
+    ["prompts", sample("prompts"), sample("prompts"), 0],
+    ["transition", "on:\n  finish:\n    - { id: 15, to: finished, when: ready }", sample("transition"), 8],
+    ["guard", sample("guard"), sample("guard"), 4],
+    ["correct-else", "- { id: 15, to: finished, when: ready }", sample("correct-else"), 12],
+    ["step", sample("step"), sample("step"), 8],
+    ["handler", sample("handler"), sample("handler"), 0],
+    ["usage", sample("usage"), sample("usage"), 10],
+  ];
+  // The declarations example contains two separate top-level mappings.
+  const [config, args] = sample("declarations").split("\nworkflowArgs:\n");
+  assert.ok(config && args);
+  cases.push(["declarations configuration", config, config, 0], ["declarations arguments", "workflowArgs:\n" + args, "workflowArgs:\n" + args, 0]);
+  for (const [label, before, after, spaces] of cases) {
+    let input = replace(validExample, indent(before, spaces), indent(after, spaces));
+    if (label === "enum") input = replace(input, "equals: true", "equals: red");
+    assert.deepEqual(validateWorkflow(input, guideProviders).problems, [], label);
+  }
+  const wrong: [string, string, string, number, string, string][] = [
+    ["wrong-placeholder", "description: Test workflow", sample("wrong-placeholder"), 0, "$.description", 'Placeholder {config:workflow.absent} must name a declared configuration key. Declared keys: "workflow.draftPRs".'],
+    ["wrong-else", "- { id: 15, to: finished, when: ready }", sample("wrong-else"), 12, '$.lifecycles["change"].states["work"].on["finish"][0]', "else must be last after a guarded branch"],
+    ["wrong-step", "when: { key: workflow.draftPRs, equals: true }", sample("wrong-step"), 8, '$.lifecycles["change"].steps["draft"].when', "Boolean step condition must use { key, equals: true or false }."],
+  ];
+  for (const [label, before, after, spaces, path, message] of wrong) {
+    const input = replace(validExample, indent(before, spaces), indent(after, spaces));
+    assert.deepEqual(validateWorkflow(input, guideProviders).problems, [{ path, message, severity: "error" }], label);
+    assert.ok(guide.includes(`The error at \`${path}\` is \`${message}\``), `guide must show ${label} result`);
+  }
+});
+
 test("each rule has a stable ID, an allowed form, a rendered sample, and a closed emission path", () => {
   const rules = workflowRuleDescriptions();
   const expected = [...Array.from({ length: 58 }, (_, i) => `M${i + 1}`), ...Array.from({ length: 13 }, (_, i) => `T${i + 1}`)];
