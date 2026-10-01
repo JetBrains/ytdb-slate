@@ -1385,14 +1385,14 @@ try {
 			dogfood: metrics(await doctrine(dogExtensions, () => dogRuntime, true, dogConfig)),
 		};
 		const exact = {
-			prompt: { portable: 3612, lines: 11, paths: 0 }, trusted: { portable: 8484, lines: 88, paths: 5 },
-			untrusted: { portable: 2775, lines: 47, paths: 4 }, draft: { portable: 8559, lines: 89, paths: 6 },
-			extensions: { portable: 9831, lines: 98, paths: 5 }, allTails: { portable: 9906, lines: 99, paths: 6 },
-			followUp: { portable: 9905, lines: 99, paths: 5 }, routing: { portable: 9928, lines: 99, paths: 5 },
-			draftFollowUp: { portable: 9980, lines: 100, paths: 6 }, draftRouting: { portable: 9999, lines: 100, paths: 6 },
-			followUpRouting: { portable: 10002, lines: 100, paths: 5 }, maximal: { portable: 10073, lines: 101, paths: 6 },
-			maximalOpen: { portable: 10271, lines: 102, paths: 6 }, maximalLinked: { portable: 10501, lines: 104, paths: 6 },
-			dogfood: { portable: 9198, lines: 100, paths: 6 },
+			prompt: { portable: 3596, lines: 11, paths: 0 }, trusted: { portable: 8468, lines: 88, paths: 5 },
+			untrusted: { portable: 2775, lines: 47, paths: 4 }, draft: { portable: 8543, lines: 89, paths: 6 },
+			extensions: { portable: 9815, lines: 98, paths: 5 }, allTails: { portable: 9890, lines: 99, paths: 6 },
+			followUp: { portable: 9889, lines: 99, paths: 5 }, routing: { portable: 9912, lines: 99, paths: 5 },
+			draftFollowUp: { portable: 9964, lines: 100, paths: 6 }, draftRouting: { portable: 9983, lines: 100, paths: 6 },
+			followUpRouting: { portable: 9986, lines: 100, paths: 5 }, maximal: { portable: 10057, lines: 101, paths: 6 },
+			maximalOpen: { portable: 10255, lines: 102, paths: 6 }, maximalLinked: { portable: 10485, lines: 104, paths: 6 },
+			dogfood: { portable: 9182, lines: 100, paths: 6 },
 		};
 		const doctrineBaselines = Object.values(rendered);
 		checkAll("doctrine-budget", "exact production renders match published portable baselines and every current baseline keeps five-percent reserve", [
@@ -1436,7 +1436,7 @@ try {
 			["whole-doctrine equality is accepted and first-over-limit is rejected", portable(wholeAt) === DOCTRINE_LIMITS.maximalChars && portable(wholeAbove) === DOCTRINE_LIMITS.maximalChars + 1, { at: portable(wholeAt), above: portable(wholeAbove), ceiling: DOCTRINE_LIMITS.maximalChars }],
 			["boundary compositions stay exact and below whole-doctrine cap", portable(featureOffDraft) === 26122 && portable(featureOffTight) === 26196 && portable(routingWithoutDrafts) === 26144 && portable(routingWithFollowUp) === 26218 && portable(routing) === 26215 && portable(deferred) === 26289 && [featureOffDraft, featureOffTight, routingWithoutDrafts, routingWithFollowUp, routing, deferred].every((text) => portable(text) <= DOCTRINE_LIMITS.maximalChars), { featureOffDraft: portable(featureOffDraft), featureOffTight: portable(featureOffTight), routingWithoutDrafts: portable(routingWithoutDrafts), routingWithFollowUp: portable(routingWithFollowUp), routing: portable(routing), deferred: portable(deferred) }],
 			["boundary composition line counts match the published tables", featureOffDraft.split("\n").length === 102 && featureOffTight.split("\n").length === 103 && routingWithoutDrafts.split("\n").length === 102 && routingWithFollowUp.split("\n").length === 103 && routing.split("\n").length === 103 && deferred.split("\n").length === 104, { featureOffDraft: featureOffDraft.split("\n").length, featureOffTight: featureOffTight.split("\n").length, routingWithoutDrafts: routingWithoutDrafts.split("\n").length, routingWithFollowUp: routingWithFollowUp.split("\n").length, routing: routing.split("\n").length, deferred: deferred.split("\n").length }],
-			["fresh valid-router over-cap control reaches whole-doctrine guard", portable(over) === 28175 && portable(over) > DOCTRINE_LIMITS.maximalChars, portable(over)],
+			["fresh valid-router over-cap control reaches whole-doctrine guard", portable(over) === 28159 && portable(over) > DOCTRINE_LIMITS.maximalChars, portable(over)],
 		]);
 	});
 
@@ -1672,7 +1672,7 @@ try {
 				"| claude-sonnet-5.5 | 45 | 54 | none | May exceed explicit scope or infer permission from earlier requests. Check changes against stated exclusions and approval requirements. |",
 				"| sol-6.1 | 85 | 20 | default thread choice | When blocked, may substitute unapproved resources or perform destructive cleanup. Require permission before either action. |",
 				"| gemini-3.8-flash | 55 | 30 | default thread choice / generally prefer over Luna when available / a more specific active guideline overrides this general Flash preference | Do not use as a reviewer. It relies too much on passing tests and exact-size assertions. Verify source citations and distinguish proposed behavior from existing behavior. |",
-				"| claude-opus-5.5 | 90 | 65 | Use Opus 5.5 only as a reviewer, or as an implementer under the exception rule. / concurrency work / data-loss work / performance work / Do not select Opus 5.5 as the default implementer. If a lower-capability model repeatedly fails at implementation, first ask Opus 5.5 to investigate and provide detailed repair instructions. Let the implementer try those instructions. Use Opus 5.5 as the implementer only if that guided attempt also fails. Treat that use as an exception. Select another suitable model for later implementation work. Existing approval requirements and repair limits still apply. | May exceed explicit scope or infer permission from earlier requests. Check changes against stated exclusions and approval requirements. |",
+				"| claude-opus-5.5 | 90 | 65 | Reviewer for each proved DESIGN-TRIGGERING focus area, in adversarial design review and in implementation area review. / Do not select Opus 5.5 as the default implementer. If a lower-capability model repeatedly fails at implementation, first ask Opus 5.5 to investigate and provide detailed repair instructions. Let the implementer try those instructions. Use Opus 5.5 as the implementer only if that guided attempt also fails. Treat that use as an exception. Select another suitable model for later implementation work. Existing approval requirements and repair limits still apply. | May exceed explicit scope or infer permission from earlier requests. Check changes against stated exclusions and approval requirements. |",
 				"| gpt-6-astra | 86 | 60 | Do not select Astra as the default implementer. / Prefer Sol 6.1 over Astra. | none |",
 			];
 			const replacementConfig = { router: { models: { replace: ["luna-6", "sol-6.1", "gemini-3.8-flash", "claude-opus-5.5", "gpt-6-astra"].map((model) => ({ model, guidelines: [`custom guidance for ${model}`] })) } } };

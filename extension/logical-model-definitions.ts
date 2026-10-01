@@ -103,7 +103,7 @@ const SHIPPED_DEFINITIONS: LogicalModelDefinition[] = [
 	{
 		model: "claude-opus-5.5", capabilityRating: 90, effort: "high", costRating: 65,
 		preferredProvider: "anthropic", providers: providers("anthropic", "claude-opus-5-5"),
-		guidelines: ["Use Opus 5.5 only as a reviewer, or as an implementer under the exception rule.", "concurrency work", "data-loss work", "performance work", "Do not select Opus 5.5 as the default implementer. If a lower-capability model repeatedly fails at implementation, first ask Opus 5.5 to investigate and provide detailed repair instructions. Let the implementer try those instructions. Use Opus 5.5 as the implementer only if that guided attempt also fails. Treat that use as an exception. Select another suitable model for later implementation work. Existing approval requirements and repair limits still apply."], cautions: [SONNET_OPUS_CAUTION], source: source(),
+		guidelines: ["Reviewer for each proved DESIGN-TRIGGERING focus area, in adversarial design review and in implementation area review.", "Do not select Opus 5.5 as the default implementer. If a lower-capability model repeatedly fails at implementation, first ask Opus 5.5 to investigate and provide detailed repair instructions. Let the implementer try those instructions. Use Opus 5.5 as the implementer only if that guided attempt also fails. Treat that use as an exception. Select another suitable model for later implementation work. Existing approval requirements and repair limits still apply."], cautions: [SONNET_OPUS_CAUTION], source: source(),
 	},
 	{
 		model: "gpt-6-astra", capabilityRating: 86, effort: "medium", costRating: 60,
