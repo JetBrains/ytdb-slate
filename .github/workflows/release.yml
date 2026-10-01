@@ -4,10 +4,10 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: Prepare, recover, abandon, retire, or close one release
+        description: Prepare, publish, recover, abandon, retire, or close one release
         type: choice
         required: true
-        options: [prepare, recover, abandon, retire, close]
+        options: [prepare, publish, recover, abandon, retire, close]
       version:
         description: Exact semantic version
         type: string
@@ -17,7 +17,7 @@ on:
         type: string
         required: false
       identity:
-        description: Exact authorization identity for recover, abandon, retire, or close
+        description: Exact request identity for publish, recover, abandon, retire, or close
         type: string
         required: false
   push:
@@ -48,36 +48,51 @@ jobs:
           set -euo pipefail
           test -n "$NOTES"
           root=$(mktemp -d); printf '%s\n' "$NOTES" >"$root/notes.md"
-          current=$(node -p 'require("./package.json").version')
-          node verification/release-control.mjs make-request --version "$VERSION" --base "$(git rev-parse HEAD)" --current-version "$current" --authorization "$GITHUB_RUN_ID" --notes "$root/notes.md" --out "$root/request.json"
-          identity=$(node -p 'require(process.argv[1]).identity' "$root/request.json")
-          published=$(npm view ytdb-slate versions time --json --cache "$root/npm-cache" --registry "$REGISTRY") || { echo 'Cannot read the full npm package document for preparation.' >&2; exit 2; }
-          node --input-type=module -e 'import {versionUsage} from "./verification/release-control.mjs"; if(versionUsage(JSON.parse(process.argv[1]),process.argv[2]))throw Error(`${process.argv[2]} is already used by npm`)' "$published" "$VERSION"
-          git config user.name github-actions[bot]; git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          node --input-type=module -e 'import {assertVersion} from "./verification/release-control.mjs";assertVersion(process.argv[1])' "$VERSION"
+          line=$(node --input-type=module -e 'import {targetBranch} from "./verification/release-control.mjs";console.log(targetBranch(process.argv[1]))' "$VERSION")
+          target=main; base=$(git rev-parse HEAD)
+          if git ls-remote --exit-code --heads origin "$line" >"$root/target.txt"; then
+            target=$line; base=$(node -e 'const fs=require("fs"),line=fs.readFileSync(process.argv[1],"utf8").trim().split("\n");if(line.length!==1)throw Error("target branch has more than one remote match");const [sha,ref]=line[0].split("\t");if(!/^[0-9a-f]{40}$/.test(sha)||ref!==`refs/heads/${process.argv[2]}`)throw Error("target branch read does not match the exact ref");console.log(sha)' "$root/target.txt" "$line"); git fetch origin "$line"
+          else
+            probe_status=$?; test "$probe_status" -eq 2 || { echo 'The target branch could not be read.' >&2; exit 2; }
+          fi
           old=
-          if git ls-remote --exit-code --heads origin "$STATE_BRANCH" >/dev/null 2>&1; then
+          if git ls-remote --exit-code --heads origin "$STATE_BRANCH" >/dev/null; then
             git fetch origin "$STATE_BRANCH"; old=$(git rev-parse "origin/$STATE_BRANCH")
             git show "$old:state.json" >"$root/old-state.json"
-            node --input-type=module - "$old" "$identity" <<'NODE'
+            node --input-type=module - "$old" "$GITHUB_RUN_ID" >"$root/generation.json" <<'NODE'
           import {execFileSync} from 'node:child_process';
-          import {assertNoEndedIdentity} from './verification/release-control.mjs';
-          const [head,identity]=process.argv.slice(2);
+          import {generationRecord,TERMINAL,validateState} from './verification/release-control.mjs';
+          const [head,generation]=process.argv.slice(2);
           const git=(...args)=>execFileSync('git',args,{encoding:'utf8',maxBuffer:64*1024*1024});
-          const commits=git('rev-list',head).trim().split('\n');
-          assertNoEndedIdentity(commits.map(sha=>JSON.parse(git('show',`${sha}:state.json`))),identity);
+          const records=git('rev-list',head).trim().split('\n').map(sha=>({state:validateState(JSON.parse(git('show',`${sha}:state.json`))),request:JSON.parse(git('show',`${sha}:request.json`))}));
+          const found=generationRecord(records,generation),latest=records[0].state;
+          if(!found&&!TERMINAL.includes(latest.status))throw Error(`unfinished release ${latest.version} already owns the lane`);
+          if(found&&(latest.status!=='prepared'||latest.identity!==found.identity))throw Error('This generation no longer owns a prepared request. Start a new prepare dispatch.');
+          process.stdout.write(JSON.stringify(found));
           NODE
-            status=$(node -p 'require(process.argv[1]).status' "$root/old-state.json")
-            old_identity=$(node -p 'require(process.argv[1]).identity' "$root/old-state.json")
-            if test "$old_identity" = "$identity" && test "$status" != prepared; then echo 'This authorization is terminal. Start a new prepare dispatch.' >&2; exit 2; fi
-            if test "$status" = prepared && test "$old_identity" = "$identity"; then
-              echo 'Preparation already owns this exact request. Continuing idempotently.'
-            else
-              node --input-type=module -e 'import {TERMINAL} from "./verification/release-control.mjs"; import {readFileSync} from "node:fs"; const s=JSON.parse(readFileSync(process.argv[1],"utf8"));if(!TERMINAL.includes(s.status))throw Error(`unfinished release ${s.version} already owns the lane`)' "$root/old-state.json"
+            if test "$(node -p 'require(process.argv[1])?.identity||""' "$root/generation.json")" != ''; then
+              target=$(node -p 'require(process.argv[1]).targetBranch||"main"' "$root/generation.json")
+              recorded_base=$(node -p 'require(process.argv[1]).baseSha' "$root/generation.json")
+              test "$target" = main && test "$recorded_base" = "$(git rev-parse HEAD)" || test "$target" = "$line" && test "$recorded_base" = "$base" || { echo 'The prepared target moved. Abandon and start a new dispatch.' >&2; exit 2; }
+              base=$recorded_base
+            elif test "$GITHUB_RUN_ATTEMPT" != 1 && test "$target" != main; then echo 'Repeated preparation has no recorded release-branch base. Start a new dispatch.' >&2; exit 2
             fi
           else
-            probe_status=$?
-            if test "$probe_status" -ne 2; then echo 'The release-state branch could not be read.' >&2; exit 2; fi
+            probe_status=$?; test "$probe_status" -eq 2 || { echo 'The release-state branch could not be read.' >&2; exit 2; }
+            if test "$GITHUB_RUN_ATTEMPT" != 1 && test "$target" != main; then echo 'Repeated preparation has no recorded base. Start a new dispatch.' >&2; exit 2; fi
           fi
+          if test "$target" = main; then current=$(node -p 'require("./package.json").version'); else current=$(git show "$base:package.json" | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>console.log(JSON.parse(s).version))'); fi
+          node verification/release-control.mjs make-request --version "$VERSION" --base "$base" --target "$target" --current-version "$current" --authorization "$GITHUB_RUN_ID" --notes "$root/notes.md" --out "$root/request.json"
+          identity=$(node -p 'require(process.argv[1]).identity' "$root/request.json")
+          if test -f "$root/generation.json" && test "$(node -p 'require(process.argv[1])?.identity||""' "$root/generation.json")" != ''; then
+            test "$identity" = "$(node -p 'require(process.argv[1]).identity' "$root/generation.json")" || { echo 'One generation cannot create another identity.' >&2; exit 2; }
+          fi
+          if ! test -f "$root/old-state.json" || test "$(node -p 'require(process.argv[1]).identity' "$root/old-state.json")" != "$identity"; then
+            published=$(npm view ytdb-slate versions time --json --cache "$root/npm-cache" --registry "$REGISTRY") || { echo 'Cannot read the full npm package document for preparation.' >&2; exit 2; }
+            node --input-type=module -e 'import {assertNewerVersion} from "./verification/release-control.mjs";assertNewerVersion(JSON.parse(process.argv[1]),process.argv[2])' "$published" "$VERSION"
+          else echo 'Preparation already owns this exact request. Continuing idempotently.'; fi
+          git config user.name github-actions[bot]; git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           if ! test -f "$root/old-state.json" || test "$(node -p 'require(process.argv[1]).identity' "$root/old-state.json")" != "$identity"; then
             node verification/release-control.mjs state-init --request "$root/request.json" --out "$root/state.json"
             state_tree=$(mktemp -d); cp "$root/state.json" "$root/request.json" "$root/notes.md" "$state_tree/"; mkdir "$state_tree/verification"; cp verification/release-control.mjs verification/release-job.mjs "$state_tree/verification/"
@@ -87,11 +102,12 @@ jobs:
           fi
           branch="release/v$VERSION-${identity:0:12}"
           if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
-            echo "Prepared branch already exists: $branch"; exit 0
+            echo "Target branch: $target"; echo "Prepared branch already exists: $branch"; exit 0
           else
             probe_status=$?
             if test "$probe_status" -ne 2; then echo 'The prepared branch could not be read.' >&2; exit 2; fi
           fi
+          git switch --detach "$base"
           mkdir -p "release/requests/$VERSION"; cp "$root/notes.md" "release/requests/$VERSION/notes.md"; cp "$root/request.json" "release/requests/$VERSION/request.json"
           node -e 'const fs=require("fs"),r=require(process.argv[1]);fs.writeFileSync(process.argv[2],JSON.stringify({schema:r.schema,parentPolicy:r.coverageDisposition.parentPolicy,allowedPaths:r.coverageDisposition.allowedPaths,verdict:"WARN"},null,2)+"\n")' "$root/request.json" "release/requests/$VERSION/coverage.json"
           if test "$current" != "$VERSION"; then
@@ -99,22 +115,25 @@ jobs:
             node -e 'const fs=require("fs"),p="package-lock.json",x=JSON.parse(fs.readFileSync(p));x.version=process.argv[1];x.packages[""].version=process.argv[1];fs.writeFileSync(p,JSON.stringify(x,null,2)+"\n")' "$VERSION"
           fi
           git switch -c "$branch"; git add package.json package-lock.json "release/requests/$VERSION"; git commit -m "Prepare ytdb-slate $VERSION"; git push origin "$branch"
-          echo "Create the pull request: https://github.com/${GITHUB_REPOSITORY}/compare/main...$branch?expand=1"
+          echo "Target branch: $target"
+          echo "Create the pull request: https://github.com/${GITHUB_REPOSITORY}/compare/$target...$branch?expand=1"
 
   identify:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'publish' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
     outputs:
-      release_sha: ${{ steps.candidate.outputs.release_sha }}
-      parent_sha: ${{ steps.candidate.outputs.parent_sha }}
-      version: ${{ steps.candidate.outputs.version }}
-      request_path: ${{ steps.candidate.outputs.request_path }}
-      pull_request: ${{ steps.find.outputs.pull_request }}
-      identity: ${{ steps.find.outputs.identity }}
+      release_sha: ${{ steps.candidate.outputs.release_sha || steps.publish.outputs.release_sha }}
+      parent_sha: ${{ steps.candidate.outputs.parent_sha || steps.publish.outputs.parent_sha }}
+      version: ${{ steps.candidate.outputs.version || steps.publish.outputs.version }}
+      request_path: ${{ steps.candidate.outputs.request_path || steps.publish.outputs.request_path }}
+      pull_request: ${{ steps.find.outputs.pull_request || steps.publish.outputs.pull_request }}
+      identity: ${{ steps.find.outputs.identity || steps.publish.outputs.identity }}
+      publish: ${{ steps.publish.outputs.release_sha != '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with: { fetch-depth: 0 }
+        with: { fetch-depth: 0, persist-credentials: false }
       - id: candidate
+        if: github.event_name == 'push'
         env: { BEFORE: '${{ github.event.before }}', AFTER: '${{ github.sha }}' }
         run: |
           set -euo pipefail
@@ -130,10 +149,10 @@ jobs:
           test "$found" -eq 1 || echo 'Push contains no release candidate.'
       - if: steps.candidate.outputs.release_sha != ''
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with: { ref: release-state, path: durable }
+        with: { ref: release-state, path: durable, persist-credentials: false }
       - if: steps.candidate.outputs.release_sha != ''
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with: { ref: '${{ steps.candidate.outputs.release_sha }}', path: release-code }
+        with: { ref: '${{ steps.candidate.outputs.release_sha }}', path: release-code, persist-credentials: false }
       - id: find
         if: steps.candidate.outputs.release_sha != ''
         env:
@@ -154,22 +173,81 @@ jobs:
           const [d,sha,parent,raw]=process.argv.slice(2),request=JSON.parse(fs.readFileSync(`${d}/request.json`)),durableRequest=JSON.parse(fs.readFileSync('durable/request.json')),version=request.version;
           const pathBytes=fs.readFileSync(`${d}/paths`),changedPaths=pathBytes.length?pathBytes.toString('utf8').split('\0').slice(0,-1):[];
           const associatedPullRequests=JSON.parse(raw).map(p=>({number:p.number,merged:p.merged_at!==null,mergeCommitSha:p.merge_commit_sha,baseRefName:p.base.ref}));
-          const x=verifyReleaseIdentity({request,durableRequest,coverageRecord:JSON.parse(fs.readFileSync(`${d}/coverage.json`)),notes:fs.readFileSync(`${d}/notes.md`,'utf8'),releaseSha:sha,parentSha:parent,changedPaths,manifestVersion:JSON.parse(fs.readFileSync(`${d}/package.json`)).version,associatedPullRequests});
+          const x=verifyReleaseIdentity({request,durableRequest,coverageRecord:JSON.parse(fs.readFileSync(`${d}/coverage.json`)),notes:fs.readFileSync(`${d}/notes.md`,'utf8'),releaseSha:sha,parentSha:parent,changedPaths,manifestVersion:JSON.parse(fs.readFileSync(`${d}/package.json`)).version,associatedPullRequests,pushedBranch:'main'});
           process.stdout.write(JSON.stringify(x));
           NODE
           )
           echo "pull_request=$(node -p 'JSON.parse(process.argv[1]).pullRequest' "$result")" >>"$GITHUB_OUTPUT"; echo "identity=$(node -p 'JSON.parse(process.argv[1]).identity' "$result")" >>"$GITHUB_OUTPUT"
+      - if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'publish'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { ref: release-state, path: durable, persist-credentials: false }
+      - id: publish
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'publish'
+        env:
+          VERSION: '${{ github.event.inputs.version }}'
+          IDENTITY: '${{ github.event.inputs.identity }}'
+          GH_TOKEN: '${{ github.token }}'
+        run: |
+          set -euo pipefail
+          root=$(mktemp -d)
+          node --input-type=module - "$VERSION" "$IDENTITY" "$GITHUB_RUN_ID" <<'NODE'
+          import fs from 'node:fs';import {publishAdmission} from './durable/verification/release-control.mjs';
+          const [version,identity,runId]=process.argv.slice(2),state=JSON.parse(fs.readFileSync('durable/state.json')),request=JSON.parse(fs.readFileSync('durable/request.json'));
+          if(state.status==='prepared'){
+            if(state.identity!==identity||request.identity!==identity||state.version!==version)throw Error('publish inputs differ from durable request');
+          }else publishAdmission({state,request,version,identity,runId});
+          NODE
+          status=$(node -p 'require("./durable/state.json").status')
+          if test "$status" = prepared; then
+            branch="release/v$VERSION-${IDENTITY:0:12}"
+            owner=${GITHUB_REPOSITORY%%/*}
+            gh api --paginate "repos/$GITHUB_REPOSITORY/pulls?state=all&head=$owner:$branch&per_page=100" --jq 'tojson' >"$root/prs.jsonl" || { echo 'Cannot read all release pull requests.' >&2; exit 2; }
+            node --input-type=module - "$root/prs.jsonl" >"$root/candidate.json" <<'NODE'
+          import fs from 'node:fs';import {publishCandidate} from './durable/verification/release-control.mjs';
+          const request=JSON.parse(fs.readFileSync('durable/request.json'));console.log(JSON.stringify(publishCandidate(fs.readFileSync(process.argv[2],'utf8'),request)));
+          NODE
+            sha=$(node -p 'require(process.argv[1]).releaseSha' "$root/candidate.json")
+            target=$(node -p 'require("./durable/request.json").targetBranch')
+            git fetch origin "$target" "$sha"
+            git ls-remote --exit-code --heads origin "$target" >"$root/target-head"
+            head=$(node -e 'const fs=require("fs"),line=fs.readFileSync(process.argv[1],"utf8").trim().split("\n");if(line.length!==1)throw Error("target head is ambiguous");const [sha,ref]=line[0].split("\t");if(!/^[0-9a-f]{40}$/.test(sha)||ref!==`refs/heads/${process.argv[2]}`)throw Error("target head differs from bound branch");console.log(sha)' "$root/target-head" "$target")
+            git fetch origin "$head"
+            git rev-list --first-parent "$head" >"$root/first-parent"
+            parent=$(git rev-parse "$sha^1")
+            git show "$sha:release/requests/$VERSION/request.json" >"$root/request.json"
+            git show "$sha:release/requests/$VERSION/notes.md" >"$root/notes.md"
+            git show "$sha:release/requests/$VERSION/coverage.json" >"$root/coverage.json"
+            git show "$sha:package.json" >"$root/package.json"
+            git diff-tree --no-commit-id --no-renames --name-only -z -r "$sha" >"$root/paths"
+            git merge-base --is-ancestor "$(node -p 'require("./durable/request.json").baseSha')" "$parent"
+            node --input-type=module - "$root" "$VERSION" "$IDENTITY" "$GITHUB_RUN_ID" "$sha" "$parent" <<'NODE'
+          import fs from 'node:fs';import {publishAdmission,verifyReleaseIdentity} from './durable/verification/release-control.mjs';
+          const [root,version,identity,runId,releaseSha,parentSha]=process.argv.slice(2),read=p=>fs.readFileSync(`${root}/${p}`),json=p=>JSON.parse(read(p));
+          const request=json('request.json'),durableRequest=JSON.parse(fs.readFileSync('durable/request.json'));
+          const admitted=publishAdmission({state:JSON.parse(fs.readFileSync('durable/state.json')),request:durableRequest,version,identity,runId,pages:read('prs.jsonl').toString(),firstParentShas:read('first-parent').toString().trim().split('\n'),releaseSha,parentSha});
+          const raw=read('paths'),changedPaths=raw.length?raw.toString().split('\0').slice(0,-1):[];
+          const verified=verifyReleaseIdentity({request,durableRequest,coverageRecord:json('coverage.json'),notes:read('notes.md').toString(),releaseSha,parentSha,changedPaths,manifestVersion:json('package.json').version,associatedPullRequests:[{number:admitted.pullRequest,merged:true,mergeCommitSha:releaseSha,baseRefName:admitted.target}]});
+          if(verified.identity!==identity)throw Error('publish identity mismatch');
+          NODE
+          else
+            sha=$(node -p 'require("./durable/state.json").releaseSha')
+            parent=$(node -p 'require("./durable/state.json").releaseParent')
+          fi
+          pr=$(test "$status" = prepared && node -p 'require(process.argv[1]).pullRequest' "$root/candidate.json" || node -p 'require("./durable/state.json").pullRequest')
+          echo "release_sha=$sha" >>"$GITHUB_OUTPUT"; echo "parent_sha=$parent" >>"$GITHUB_OUTPUT"
+          echo "pull_request=$pr" >>"$GITHUB_OUTPUT"; echo "identity=$IDENTITY" >>"$GITHUB_OUTPUT"
+          echo "version=$VERSION" >>"$GITHUB_OUTPUT"; echo "request_path=release/requests/$VERSION/request.json" >>"$GITHUB_OUTPUT"
 
   claim:
     needs: identify
-    if: needs.identify.outputs.release_sha != ''
+    if: ${{ !cancelled() && needs.identify.result == 'success' && needs.identify.outputs.release_sha != '' }}
     runs-on: ubuntu-latest
     permissions: { contents: write }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { ref: release-state, fetch-depth: 0, path: state }
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with: { ref: '${{ needs.identify.outputs.release_sha }}', path: control }
+        with: { ref: "${{ fromJSON(needs.identify.outputs.publish) && 'release-state' || needs.identify.outputs.release_sha }}", path: control, persist-credentials: false }
       - name: Claim exact identity idempotently
         env:
           LAUNCH_IDENTITY: ${{ needs.identify.outputs.identity }}
@@ -184,29 +262,56 @@ jobs:
 
   checks:
     needs: [identify, claim]
+    if: ${{ !cancelled() && needs.identify.result == 'success' && needs.claim.result == 'success' }}
     runs-on: ubuntu-latest
     permissions: { contents: read }
     timeout-minutes: 20
     strategy: { fail-fast: false, matrix: { node: ['22.23.1', '24.18.0'] } }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with: { ref: '${{ needs.identify.outputs.release_sha }}', fetch-depth: 0 }
+        with: { ref: '${{ needs.identify.outputs.release_sha }}', fetch-depth: 0, persist-credentials: false }
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with: { node-version: '${{ matrix.node }}', cache: npm }
+        with: { node-version: '${{ matrix.node }}', package-manager-cache: false }
       - run: npm ci --ignore-scripts
-      - run: bash verification/release-checks.sh --repo . --base '${{ needs.identify.outputs.parent_sha }}' --request '${{ needs.identify.outputs.request_path }}' --evidence "$RUNNER_TEMP/release-evidence"
+      - run: |
+          if [ '${{ needs.identify.outputs.publish }}' = true ]; then
+            bash verification/release-checks.sh --repo . --base '${{ needs.identify.outputs.parent_sha }}' --report --evidence "$RUNNER_TEMP/release-evidence"
+          else
+            bash verification/release-checks.sh --repo . --base '${{ needs.identify.outputs.parent_sha }}' --request '${{ needs.identify.outputs.request_path }}' --evidence "$RUNNER_TEMP/release-evidence"
+          fi
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with: { name: 'release-check-evidence-${{ matrix.node }}', path: '${{ runner.temp }}/release-evidence', if-no-files-found: error, retention-days: 90 }
 
-  pack:
+  coverage-disposition:
     needs: [identify, checks]
+    if: ${{ !cancelled() && needs.identify.result == 'success' && needs.checks.result == 'success' && needs.identify.outputs.publish == 'true' }}
     runs-on: ubuntu-latest
     permissions: { contents: read }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with: { ref: '${{ needs.identify.outputs.release_sha }}' }
+        with: { ref: '${{ needs.identify.outputs.release_sha }}', fetch-depth: 0, persist-credentials: false }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { ref: release-state, path: state, persist-credentials: false }
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with: { pattern: 'release-check-evidence-*', path: reports }
+      - run: |
+          set -euo pipefail
+          git diff --no-renames --name-only -z '${{ needs.identify.outputs.parent_sha }}..${{ needs.identify.outputs.release_sha }}' >paths
+          node state/verification/release-control.mjs coverage-report --request state/request.json --evidence reports --paths paths --parent '${{ needs.identify.outputs.parent_sha }}' --sha '${{ needs.identify.outputs.release_sha }}' >coverage-disposition.txt
+          printf '%s\n' 'Stored control accepted the complete check reports and exact release paths.'
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with: { name: stored-coverage-disposition, path: coverage-disposition.txt, if-no-files-found: error, retention-days: 90 }
+
+  pack:
+    needs: [identify, checks, coverage-disposition]
+    if: ${{ !cancelled() && needs.identify.result == 'success' && needs.checks.result == 'success' && (needs.coverage-disposition.result == 'success' || (needs.coverage-disposition.result == 'skipped' && needs.identify.outputs.publish != 'true')) }}
+    runs-on: ubuntu-latest
+    permissions: { contents: read }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { ref: '${{ needs.identify.outputs.release_sha }}', persist-credentials: false }
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with: { node-version: '24.18.0' }
+        with: { node-version: '24.18.0', package-manager-cache: false }
       - run: |
           set -euo pipefail; test -z "$(git status --porcelain)"; mkdir "$RUNNER_TEMP/archive"; npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP/archive"
           archive=$(find "$RUNNER_TEMP/archive" -maxdepth 1 -name '*.tgz' -type f); test "$(printf '%s\n' "$archive" | wc -l)" -eq 1
@@ -218,11 +323,12 @@ jobs:
 
   seal-upload:
     needs: [identify, pack]
+    if: ${{ !cancelled() && needs.identify.result == 'success' && needs.pack.result == 'success' }}
     runs-on: ubuntu-latest
     permissions: { contents: write }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with: { ref: '${{ needs.identify.outputs.release_sha }}', path: control }
+        with: { ref: "${{ fromJSON(needs.identify.outputs.publish) && 'release-state' || needs.identify.outputs.release_sha }}", path: control, persist-credentials: false }
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { ref: release-state, fetch-depth: 0, path: state }
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
@@ -232,14 +338,21 @@ jobs:
           test "$(node -p 'require("./state/state.json").identity')" = '${{ needs.identify.outputs.identity }}'
           status=$(node -p 'require("./state/state.json").status'); execution=$(node -p 'require("./state/state.json").uploadExecution||""')
           if test "$status" = upload-unknown && test "$execution" = "$key"; then exit 0; fi
-          node control/verification/release-control.mjs advance --state state/state.json --next checking --identity '${{ needs.identify.outputs.identity }}' --version '${{ needs.identify.outputs.version }}' --sha '${{ needs.identify.outputs.release_sha }}' --parent '${{ needs.identify.outputs.parent_sha }}' --out state/checking.json
-          node control/verification/release-control.mjs advance --state state/checking.json --next ready --identity '${{ needs.identify.outputs.identity }}' --version '${{ needs.identify.outputs.version }}' --sha '${{ needs.identify.outputs.release_sha }}' --parent '${{ needs.identify.outputs.parent_sha }}' --out state/ready.json
+          if test "$status" = claimed; then
+            node control/verification/release-control.mjs advance --state state/state.json --next checking --identity '${{ needs.identify.outputs.identity }}' --version '${{ needs.identify.outputs.version }}' --sha '${{ needs.identify.outputs.release_sha }}' --parent '${{ needs.identify.outputs.parent_sha }}' --out state/checking.json
+            source=state/checking.json; status=checking
+          else source=state/state.json; fi
+          if test "$status" = checking; then
+            node control/verification/release-control.mjs advance --state "$source" --next ready --identity '${{ needs.identify.outputs.identity }}' --version '${{ needs.identify.outputs.version }}' --sha '${{ needs.identify.outputs.release_sha }}' --parent '${{ needs.identify.outputs.parent_sha }}' --out state/ready.json
+          elif test "$status" = ready; then cp state/state.json state/ready.json
+          else echo 'Only an owning preupload state can seal an upload.' >&2; exit 2; fi
           node control/verification/release-control.mjs begin-upload --state state/ready.json --archive "$(find state/archive -name '*.tgz')" --identity '${{ needs.identify.outputs.identity }}' --version '${{ needs.identify.outputs.version }}' --sha '${{ needs.identify.outputs.release_sha }}' --parent '${{ needs.identify.outputs.parent_sha }}' --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --out state/next.json
-          rm state/checking.json state/ready.json; mv state/next.json state/state.json
+          rm -f state/checking.json state/ready.json; mv state/next.json state/state.json
           git -C state config user.name github-actions[bot]; git -C state config user.email 41898282+github-actions[bot]@users.noreply.github.com; git -C state add state.json archive; git -C state commit -m 'Seal one upload authority'; git -C state push origin HEAD:release-state --force-with-lease="refs/heads/release-state:$old"
 
   upload:
     needs: [identify, seal-upload]
+    if: ${{ !cancelled() && needs.identify.result == 'success' && needs.seal-upload.result == 'success' }}
     runs-on: ubuntu-latest
     environment: npm-release
     permissions: { contents: read, id-token: write }
@@ -253,15 +366,15 @@ jobs:
 
   registry-proof:
     needs: [identify, seal-upload, upload]
-    if: always() && needs.seal-upload.result == 'success'
+    if: ${{ always() && needs.identify.result == 'success' && needs.seal-upload.result == 'success' && (needs.upload.result == 'success' || needs.upload.result == 'failure' || needs.upload.result == 'cancelled') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions: { contents: read }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with: { ref: '${{ needs.identify.outputs.release_sha }}', path: control }
+        with: { ref: "${{ fromJSON(needs.identify.outputs.publish) && 'release-state' || needs.identify.outputs.release_sha }}", path: control, persist-credentials: false }
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with: { ref: release-state, path: state }
+        with: { ref: release-state, path: state, persist-credentials: false }
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with: { node-version: '24.18.0' }
       - run: |
@@ -300,7 +413,7 @@ jobs:
 
   record-registry:
     needs: [identify, registry-proof]
-    if: always() && needs.identify.outputs.release_sha != '' && (needs.registry-proof.result == 'success' || needs.registry-proof.result == 'failure')
+    if: ${{ always() && needs.identify.result == 'success' && needs.identify.outputs.release_sha != '' && (needs.registry-proof.result == 'success' || needs.registry-proof.result == 'failure') }}
     runs-on: ubuntu-latest
     permissions: { contents: write }
     steps:
@@ -317,20 +430,23 @@ jobs:
 
   install-proof:
     needs: [identify, record-registry]
+    if: ${{ !cancelled() && needs.identify.result == 'success' && needs.record-registry.result == 'success' }}
     runs-on: ubuntu-latest
     permissions: { contents: read }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with: { ref: '${{ needs.identify.outputs.release_sha }}' }
+        with: { ref: '${{ needs.identify.outputs.release_sha }}', persist-credentials: false }
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with: { ref: release-state, path: state }
+        with: { ref: release-state, path: state, persist-credentials: false }
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with: { node-version: '24.18.0' }
+        with: { node-version: '24.18.0', package-manager-cache: false }
       - run: npm ci --ignore-scripts
       - name: Execute empty-cache install and command proof
         env: { PI_BIN: '${{ github.workspace }}/node_modules/.bin/pi' }
         run: |
-          node verification/release-job.mjs install --state state/state.json --identity '${{ needs.identify.outputs.identity }}' --version '${{ needs.identify.outputs.version }}' --sha '${{ needs.identify.outputs.release_sha }}' --parent '${{ needs.identify.outputs.parent_sha }}' --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --workspace "$RUNNER_TEMP/install" --out "$RUNNER_TEMP/install/proof.json" --failure-out "$RUNNER_TEMP/install/failure.json"
+          control=verification/release-job.mjs
+          if [ '${{ needs.identify.outputs.publish }}' = true ]; then control=state/verification/release-job.mjs; fi
+          node "$control" install --state state/state.json --identity '${{ needs.identify.outputs.identity }}' --version '${{ needs.identify.outputs.version }}' --sha '${{ needs.identify.outputs.release_sha }}' --parent '${{ needs.identify.outputs.parent_sha }}' --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --workspace "$RUNNER_TEMP/install" --out "$RUNNER_TEMP/install/proof.json" --failure-out "$RUNNER_TEMP/install/failure.json"
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         if: success()
         with: { name: install-proof, path: '${{ runner.temp }}/install/proof.json', if-no-files-found: error, retention-days: 90 }
@@ -340,7 +456,7 @@ jobs:
 
   record-install-failure:
     needs: [identify, install-proof]
-    if: always() && needs.install-proof.result == 'failure'
+    if: ${{ always() && needs.identify.result == 'success' && needs.install-proof.result == 'failure' }}
     runs-on: ubuntu-latest
     permissions: { contents: write }
     steps:
@@ -357,6 +473,7 @@ jobs:
 
   record-proof:
     needs: [identify, install-proof]
+    if: ${{ !cancelled() && needs.identify.result == 'success' && needs.install-proof.result == 'success' }}
     runs-on: ubuntu-latest
     permissions: { contents: write }
     outputs: { expected_latest: '${{ steps.latest.outputs.value }}' }
@@ -376,6 +493,7 @@ jobs:
 
   promote:
     needs: [identify, record-proof]
+    if: ${{ !cancelled() && needs.identify.result == 'success' && needs.record-proof.result == 'success' }}
     runs-on: ubuntu-latest
     environment: npm-release
     permissions: { contents: read }
@@ -394,6 +512,7 @@ jobs:
 
   record-promotion:
     needs: [identify, promote]
+    if: ${{ !cancelled() && needs.identify.result == 'success' && needs.promote.result == 'success' }}
     runs-on: ubuntu-latest
     permissions: { contents: write }
     steps:
@@ -408,6 +527,7 @@ jobs:
 
   finalize:
     needs: [identify, record-promotion]
+    if: ${{ !cancelled() && needs.identify.result == 'success' && needs.record-promotion.result == 'success' }}
     runs-on: ubuntu-latest
     permissions: { contents: write }
     steps:
@@ -459,7 +579,7 @@ jobs:
 
   recover-promote:
     needs: recover
-    if: needs.recover.outputs.retry_promotion == 'true'
+    if: ${{ !cancelled() && needs.recover.result == 'success' && needs.recover.outputs.retry_promotion == 'true' }}
     runs-on: ubuntu-latest
     environment: npm-release
     permissions: { contents: read }
@@ -475,6 +595,7 @@ jobs:
 
   recover-promotion-record:
     needs: [recover, recover-promote]
+    if: ${{ !cancelled() && needs.recover.result == 'success' && needs.recover-promote.result == 'success' }}
     runs-on: ubuntu-latest
     permissions: { contents: write }
     steps:
@@ -502,13 +623,14 @@ jobs:
         run: |
           set -euo pipefail; test "$(node -p 'require("./state.json").version')" = "$VERSION"; test "$(node -p 'require("./state.json").identity')" = "$IDENTITY"; identity=$(node -p 'require("./state.json").identity'); branch="release/v$VERSION-${identity:0:12}"
           status=$(node -p 'require("./state.json").status'); if test "$status" = abandoned; then echo 'Preparation is already abandoned.'; exit 0; fi
+          target=$(node --input-type=module -e 'import {readFileSync} from "node:fs";import {requestTarget} from "./current-control/verification/release-control.mjs";console.log(requestTarget(JSON.parse(readFileSync("request.json"))))')
           root=$(mktemp -d "$RUNNER_TEMP/abandon.XXXXXX")
           owner=${GITHUB_REPOSITORY%%/*}
           gh api --paginate "repos/$GITHUB_REPOSITORY/pulls?state=all&head=$owner:$branch&per_page=100" --jq 'tojson' >"$root/prs.jsonl" || { echo 'Cannot read preparation pull requests.' >&2; exit 2; }
-          node --input-type=module - "$root/prs.jsonl" "$GITHUB_REPOSITORY" "$branch" >"$root/open.txt" <<'NODE'
+          node --input-type=module - "$root/prs.jsonl" "$GITHUB_REPOSITORY" "$branch" "$target" >"$root/open.txt" <<'NODE'
           import {readFileSync} from 'node:fs';
           import {abandonPullRequests} from './current-control/verification/release-control.mjs';
-          for(const number of abandonPullRequests(readFileSync(process.argv[2],'utf8'),{repository:process.argv[3],branch:process.argv[4]}))console.log(number);
+          for(const number of abandonPullRequests(readFileSync(process.argv[2],'utf8'),{repository:process.argv[3],branch:process.argv[4],target:process.argv[5]}))console.log(number);
           NODE
           node verification/release-control.mjs abandon --state state.json --merged false --identity "$IDENTITY" --version "$VERSION" --out next.json
           while read -r pr; do gh pr close "$pr" --repo "$GITHUB_REPOSITORY" --comment 'Release preparation abandoned before merge and upload.'; done <"$root/open.txt"
@@ -529,14 +651,15 @@ jobs:
           set -euo pipefail; old=$(git rev-parse HEAD); test "$(node -p 'require("./state.json").version')" = "$VERSION"; test "$(node -p 'require("./state.json").identity')" = "$IDENTITY"; status=$(node -p 'require("./state.json").status'); if test "$status" = retired; then echo 'Authorization is already retired.'; exit 0; fi
           sha=$(node -p 'require("./state.json").releaseSha'); parent=$(node -p 'require("./state.json").releaseParent')
           if test "$status" = prepared; then
+            target=$(node --input-type=module -e 'import {readFileSync} from "node:fs";import {requestTarget} from "./current-control/verification/release-control.mjs";console.log(requestTarget(JSON.parse(readFileSync("request.json"))))')
             root=$(mktemp -d "$RUNNER_TEMP/retire.XXXXXX")
             branch="release/v$VERSION-${IDENTITY:0:12}"
             owner=${GITHUB_REPOSITORY%%/*}
             gh api --paginate "repos/$GITHUB_REPOSITORY/pulls?state=all&head=$owner:$branch&per_page=100" --jq 'tojson' >"$root/prs.jsonl" || { echo 'Cannot read prepared retirement pull requests.' >&2; exit 2; }
-            node --input-type=module - "$root/prs.jsonl" "$GITHUB_REPOSITORY" "$branch" <<'NODE'
+            node --input-type=module - "$root/prs.jsonl" "$GITHUB_REPOSITORY" "$branch" "$target" <<'NODE'
           import {readFileSync} from 'node:fs';
           import {preparedMergeProof} from './current-control/verification/release-control.mjs';
-          preparedMergeProof(readFileSync(process.argv[2],'utf8'),{repository:process.argv[3],branch:process.argv[4]});
+          preparedMergeProof(readFileSync(process.argv[2],'utf8'),{repository:process.argv[3],branch:process.argv[4],target:process.argv[5]});
           NODE
             node current-control/verification/release-control.mjs retire --state state.json --identity "$IDENTITY" --version "$VERSION" --sha "$sha" --parent "$parent" --merged-proof true --out next.json
             message='Retire merged prepared authorization'

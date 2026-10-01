@@ -2,16 +2,17 @@
 # Run the complete executable release roster against one exact release commit.
 set -euo pipefail
 fail() { printf 'release-checks: %s\n' "$*" >&2; exit 2; }
-repo= base= request= evidence=
+repo= base= request= evidence= report=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    --repo) repo=$2; shift 2;; --base) base=$2; shift 2;; --request) request=$2; shift 2;; --evidence) evidence=$2; shift 2;;
-    -h|--help) echo 'usage: release-checks.sh --repo <dir> --base <sha> --request <json> --evidence <outside-dir>'; exit 0;;
+    --repo) repo=$2; shift 2;; --base) base=$2; shift 2;; --request) request=$2; shift 2;; --report) report=1; shift;; --evidence) evidence=$2; shift 2;;
+    -h|--help) echo 'usage: release-checks.sh --repo <dir> --base <sha> (--request <json> | --report) --evidence <outside-dir>'; exit 0;;
     *) fail "unknown argument $1";;
   esac
 done
-[ -n "$repo" ] && [ -n "$base" ] && [ -n "$request" ] && [ -n "$evidence" ] || fail 'all arguments are required'
-repo=$(cd "$repo" && pwd -P); request=$(cd "$(dirname "$request")" && pwd -P)/$(basename "$request")
+[ -n "$repo" ] && [ -n "$base" ] && [ -n "$evidence" ] || fail 'repo, base and evidence are required'
+if [ "$report" -eq 1 ]; then [ -z "$request" ] || fail 'report mode cannot receive a request'; else [ -n "$request" ] || fail 'request is required'; fi
+repo=$(cd "$repo" && pwd -P); if [ "$report" -eq 0 ]; then request=$(cd "$(dirname "$request")" && pwd -P)/$(basename "$request"); fi
 case "$evidence" in "$repo"|"$repo"/*) fail 'evidence directory must be outside the checkout';; esac
 mkdir -p "$evidence"; : >"$evidence/commands.tsv"
 [ "$(git -C "$repo" rev-parse HEAD)" != "$base" ] || fail 'base equals release commit'
@@ -25,7 +26,10 @@ run load bash verification/run-load-check.sh --repo .
 run resolver bash verification/run-resolver-checks.sh --repo . --strict
 run tests npm test -- --base "$base"
 grep -Eq '^RUN VERDICT: (PASS|WARN) —' "$evidence/tests.log" || fail 'test roster has no final coverage verdict'
-if grep -q '^RUN VERDICT: WARN —' "$evidence/tests.log"; then
+verdict_count=$(grep -Ec '^RUN VERDICT: (PASS|WARN) —' "$evidence/tests.log")
+[ "$verdict_count" -eq 1 ] || fail 'test roster needs exactly one final coverage verdict'
+grep -E '^RUN VERDICT: (PASS|WARN) —' "$evidence/tests.log" >"$evidence/coverage-verdict.txt"
+if [ "$report" -eq 0 ] && grep -q '^RUN VERDICT: WARN —' "$evidence/tests.log"; then
   git diff --no-renames --name-only -z "$base..HEAD" | node --input-type=module -e '
     import { readFileSync } from "node:fs";
     import { releasePathsAllowed } from "./verification/release-control.mjs";
@@ -53,4 +57,8 @@ node -e 'const fs=require("fs"),x=fs.readFileSync(process.argv[1],"utf8").trim()
 expected_roster='typecheck packaging packaging-self load resolver tests ladder package-content package-content-self writing writing-scaling writing-reminder worker-reminder isolated-load'
 actual_roster=$(cut -f1 "$evidence/commands.tsv" | tr '\n' ' ' | sed 's/ $//')
 [ "$actual_roster" = "$expected_roster" ] || fail 'release roster was skipped, duplicated, or reordered'
-printf 'ROSTER COMPLETE head=%s base=%s request=%s\n' "$(git rev-parse HEAD)" "$base" "$(node -p 'require(process.argv[1]).identity' "$request")" | tee "$evidence/roster.txt"
+if [ "$report" -eq 1 ]; then
+  printf 'ROSTER COMPLETE head=%s base=%s mode=report\n' "$(git rev-parse HEAD)" "$base" | tee "$evidence/roster.txt"
+else
+  printf 'ROSTER COMPLETE head=%s base=%s request=%s\n' "$(git rev-parse HEAD)" "$base" "$(node -p 'require(process.argv[1]).identity' "$request")" | tee "$evidence/roster.txt"
+fi
