@@ -6,7 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { createRequire } from "node:module";
 import test from "node:test";
 // @ts-expect-error Unshipped JavaScript commands have no declaration files.
-import { STATUSES, TERMINAL, assertNoEndedIdentity, preparedMergeProof, abandonPullRequests, abandon, advance, authorizeInstall, authorizeUpload, beginPromotion, beginUpload, claimRelease, classifyRegistry, closeWithoutPromotion, hashBytes, initialState, makeRequest, planFinalization, recordInstallFailure, recordInstallProof, recordPromotion, recordRegistry, releasePathsAllowed, retire, validateState, versionUsage, verifyReleaseIdentity, writeExclusive } from "../verification/release-control.mjs";
+import { STATUSES, TERMINAL, assertNewerVersion, compareVersions, generationRecord, publishAdmission, publishCandidate, verifyCoverageEvidence, requestTarget, assertNoEndedIdentity, preparedMergeProof, abandonPullRequests, abandon, advance, authorizeInstall, authorizeUpload, beginPromotion, beginUpload, claimRelease, classifyRegistry, closeWithoutPromotion, hashBytes, initialState, makeRequest, planFinalization, recordInstallFailure, recordInstallProof, recordPromotion, recordRegistry, releasePathsAllowed, retire, validateState, versionUsage, verifyReleaseIdentity, writeExclusive } from "../verification/release-control.mjs";
 // @ts-expect-error Unshipped JavaScript commands have no declaration files.
 import { executeFinalRecords, executeInstall, executePromotion, executeUpload } from "../verification/release-job.mjs";
 
@@ -116,11 +116,197 @@ test("the real npm package-spec parser classifies the exact upload argument from
 
 const workflowUrl=new URL("../.github/workflows/release.yml",import.meta.url),workflow=readFileSync(workflowUrl,"utf8"),releasing=readFileSync(new URL("../RELEASING.md",import.meta.url),"utf8"),agents=readFileSync(new URL("../AGENTS.md",import.meta.url),"utf8"),mechanism=readFileSync(new URL("../verification/README.md",import.meta.url),"utf8");
 function workflowJobBlock(name:string){const lines=workflow.split("\n"),start=lines.findIndex(x=>x===`  ${name}:`);assert.notEqual(start,-1,`missing workflow job ${name}`);let end=lines.length;for(let i=start+1;i<lines.length;i++)if(/^  [a-z][a-z-]*:$/.test(lines[i]??"")){end=i;break;}return lines.slice(start,end);}
+function assertWorkflowExpressionQuotes(source:string){
+  let count=0;
+  for(const match of source.matchAll(/\$\{\{([\s\S]*?)\}\}/g)){
+    count++;
+    const expression=match[1]??"";
+    let single=false;
+    for(let i=0;i<expression.length;i++){
+      if(expression[i]==="'" && single && expression[i+1]==="'"){i++;continue;}
+      if(expression[i]==="'"){single=!single;continue;}
+      assert.notEqual(expression[i],'"',`double-quoted expression literal: ${expression}`);
+    }
+    assert.equal(single,false,`unclosed expression literal: ${expression}`);
+  }
+  assert.ok(count>0,"workflow has no expressions");
+}
+function assertConditionalJobGates(source:string){
+  const names=[...source.matchAll(/^  ([a-z][a-z-]*):$/gm)].map(match=>match[1]!);
+  assert.ok(names.length>0);
+  const lines=source.split("\n");
+  const jobs=new Map(names.map(name=>{
+    const start=lines.indexOf(`  ${name}:`),end=lines.findIndex((line,i)=>i>start&&/^  [a-z][a-z-]*:$/.test(line));
+    const body=lines.slice(start,end<0?undefined:end).join("\n");
+    const raw=/^    needs: (.+)$/m.exec(body)?.[1];
+    assert.ok(raw||!/^    needs:/m.test(body),`${name} needs must stay on one line for the gate audit`);
+    const needs=raw?(raw.startsWith("[")?raw.slice(1,-1).split(/,\s*/):[raw]):[];
+    return [name,{needs,condition:/^    if: (.+)$/m.exec(body)?.[1]}] as const;
+  }));
+  const conditionalAncestor=(name:string,seen=new Set<string>()):boolean=>{
+    const job=jobs.get(name);assert.ok(job,`unknown job ${name}`);
+    if(seen.has(name))return false;
+    seen.add(name);
+    return job.needs.some(need=>{
+      const parent=jobs.get(need);assert.ok(parent,`unknown need ${need}`);
+      return parent.condition!==undefined||conditionalAncestor(need,seen);
+    });
+  };
+  // Named exceptions permit failure outcomes or require an output in addition to successful needs.
+  const exceptions:Record<string,string>={
+    claim:"!cancelled() && needs.identify.result == 'success' && needs.identify.outputs.release_sha != ''",
+    "coverage-disposition":"!cancelled() && needs.identify.result == 'success' && needs.checks.result == 'success' && needs.identify.outputs.publish == 'true'",
+    pack:"!cancelled() && needs.identify.result == 'success' && needs.checks.result == 'success' && (needs.coverage-disposition.result == 'success' || (needs.coverage-disposition.result == 'skipped' && needs.identify.outputs.publish != 'true'))",
+    "registry-proof":"always() && needs.identify.result == 'success' && needs.seal-upload.result == 'success' && (needs.upload.result == 'success' || needs.upload.result == 'failure' || needs.upload.result == 'cancelled')",
+    "record-registry":"always() && needs.identify.result == 'success' && needs.identify.outputs.release_sha != '' && (needs.registry-proof.result == 'success' || needs.registry-proof.result == 'failure')",
+    "record-install-failure":"always() && needs.identify.result == 'success' && needs.install-proof.result == 'failure'",
+    "recover-promote":"!cancelled() && needs.recover.result == 'success' && needs.recover.outputs.retry_promotion == 'true'",
+  };
+  const gated=[...jobs].filter(([name])=>conditionalAncestor(name));
+  for(const name of Object.keys(exceptions))assert.ok(gated.some(([job])=>job===name),`missing gate exception ${name}`);
+  for(const [name,job] of gated){
+    assert.match(job.condition??"",/^\$\{\{ (?:!cancelled\(\)|always\(\))/,`${name} must override implicit success()`);
+    for(const need of job.needs)assert.ok(job.condition?.includes(`needs.${need}.result`),`${name} must inspect ${need}.result`);
+    const expected=exceptions[name]??`!cancelled() && ${job.needs.map(need=>`needs.${need}.result == 'success'`).join(" && ")}`;
+    assert.equal(job.condition,'${{ '+expected+' }}',`${name} must require the intended result of each dependency`);
+  }
+}
+
+test("both workflows use GitHub expression string literals and guarded conditional job chains",()=>{
+  const ci=readFileSync(new URL("../.github/workflows/ci.yml",import.meta.url),"utf8");
+  for(const source of [workflow,ci]){
+    assertWorkflowExpressionQuotes(source);
+    const mutant=source.replace(/\$\{\{([^\n]*?)'([^']+)'/,(_match:string,prefix:string,quoted:string)=>'$'+'{{'+prefix+'"'+quoted+'"');
+    assert.notEqual(mutant,source);
+    assert.throws(()=>assertWorkflowExpressionQuotes(mutant),/double-quoted expression literal/);
+  }
+  assertConditionalJobGates(workflow);
+  const seal=workflowJobBlock("seal-upload").join("\n");
+  assert.throws(()=>assertConditionalJobGates(workflow.replace(seal,seal.replace(/^    if: .*\n/m,""))),/seal-upload must override/);
+  assert.throws(()=>assertConditionalJobGates(workflow.replace(seal,seal.replace("needs.pack.result", "needs.pack.outputs.value"))),/seal-upload must inspect pack.result/);
+  for(const [name,oldGate,newGate] of [
+    ["seal-upload","needs.pack.result == 'success'","needs.pack.result != 'failure'"],
+    ["promote","needs.record-proof.result == 'success'","needs.record-proof.result != 'cancelled'"],
+    ["checks","needs.claim.result == 'success'","needs.claim.result != 'failure'"],
+  ] as const){
+    const original=workflowJobBlock(name).join("\n"),mutant=original.replace(oldGate,newGate);
+    assert.notEqual(mutant,original,`${name} mutant must change the job`);
+    assert.throws(()=>assertConditionalJobGates(workflow.replace(original,mutant)),new RegExp(`${name} must require the intended result`));
+  }
+  assert.throws(()=>assertConditionalJobGates(workflow+"\n  next-job:\n    needs: pack\n    runs-on: ubuntu-latest\n"),/next-job must override/);
+  const pack=workflowJobBlock("pack").join("\n");
+  assert.match(pack,/needs\.coverage-disposition\.result == 'skipped' && needs\.identify\.outputs\.publish != 'true'/);
+  assert.match(workflowJobBlock("registry-proof").join("\n"),/needs\.upload\.result == 'failure'/);
+});
+
+function assertReleaseContentCheckouts(source:string){
+  // On main, claim and seal-upload push state using release-commit control.
+  // Those state checkouts retain the write token. On publish, both jobs run stored control.
+  const checkoutCounts:Record<string,number>={identify:4,claim:2,checks:1,"coverage-disposition":2,pack:1,"seal-upload":2,"registry-proof":2,"install-proof":2};
+  const writeCheckout="with: { ref: release-state, fetch-depth: 0, path: state }";
+  const exceptions=["claim","seal-upload"];
+  for(const [name,count] of Object.entries(checkoutCounts)){
+    const block=source.match(new RegExp(`^  ${name}:\\n[\\s\\S]*?(?=^  [a-z][a-z-]*:|$(?![\\s\\S]))`,`gm`))?.[0]??"";
+    assert.ok(block,`missing release-content job ${name}`);
+    const lines=block.split("\n"),checkouts=lines.flatMap((line,i)=>line.includes("uses: actions/checkout@")?[lines[i+1]??""]:[]);
+    assert.equal(checkouts.length,count,`${name} checkout roster changed`);
+    for(const withLine of checkouts){
+      if(exceptions.includes(name)&&withLine.trim()===writeCheckout)continue;
+      assert.match(withLine,/persist-credentials: false/,`${name} checkout must not retain credentials`);
+    }
+    assert.equal(checkouts.filter(line=>line.trim()===writeCheckout).length,exceptions.includes(name)?1:0,`${name} state-writer exception changed`);
+  }
+  const names=[...source.matchAll(/^  ([a-z][a-z-]*):$/gm)].map(match=>match[1]!);
+  const job=(name:string)=>source.match(new RegExp(`^  ${name}:\\n[\\s\\S]*?(?=^  [a-z][a-z-]*:|$(?![\\s\\S]))`,`gm`))?.[0]??"";
+  const identify=job("identify"),publish=identify.slice(identify.indexOf("      - id: publish"));
+  assert.match(identify,/if: steps\.candidate\.outputs\.release_sha != ''\n        uses: actions\/checkout@[^\n]+\n        with: \{ ref: '\$\{\{ steps\.candidate\.outputs\.release_sha \}\}', path: release-code, persist-credentials: false \}/);
+  assert.match(identify,/id: find\n        if: steps\.candidate\.outputs\.release_sha != ''/);
+  assert.match(publish,/if: github\.event_name == 'workflow_dispatch' && github\.event\.inputs\.action == 'publish'/);
+  assert.match(publish,/from '\.\/durable\/verification\/release-control\.mjs'/);
+  assert.doesNotMatch(publish,/release-code\/verification\//,"publish identification must not run release-commit control");
+  assert.match(job("coverage-disposition"),/node state\/verification\/release-control\.mjs coverage-report/);
+  assert.match(job("install-proof"),/if \[ '\$\{\{ needs\.identify\.outputs\.publish \}\}' = true \]; then control=state\/verification\/release-job\.mjs; fi/);
+  const storedControlRef="with: { ref: \"${{ fromJSON(needs.identify.outputs.publish) && 'release-state' || needs.identify.outputs.release_sha }}\", path: control, persist-credentials: false }";
+  for(const name of names){
+    const block=job(name),lines=block.split("\n");
+    const checkouts=lines.flatMap((line,i)=>line.includes("uses: actions/checkout@")?[lines[i+1]?.trim()??""]:[]);
+    const controlCheckouts=checkouts.filter(line=>line.includes("path: control"));
+    if(/(?:^|[\s"'])control\/verification\/release-(?:control|job)\.mjs/.test(block))assert.equal(controlCheckouts.length,1,`${name} must checkout its control code`);
+    for(const line of controlCheckouts)assert.equal(line,storedControlRef,`${name} must select stored control on publish`);
+    for(const [directory,expected,finding] of [
+      ["state","with: { ref: release-state, path: state, persist-credentials: false }","stored state control"],
+      ["durable","with: { ref: release-state, path: durable, persist-credentials: false }","durable control"],
+      ["current-control","with: { ref: '${{ github.sha }}', path: current-control }","main dispatch control"],
+    ] as const){
+      if(!block.includes(`${directory}/verification/release-control.mjs`)&&!block.includes(`${directory}/verification/release-job.mjs`))continue;
+      const selected=checkouts.filter(line=>line.includes(`path: ${directory}`));
+      assert.ok(selected.length>0,`${name} must checkout ${finding}`);
+      for(const line of selected)assert.equal(line,expected,`${name} must select ${finding}`);
+    }
+    // Preparation runs dispatch control. Identify and install-proof have separately checked main/publish paths.
+    if(["prepare","identify","install-proof"].includes(name))continue;
+    if(/(?:^|[\s"'])verification\/release-(?:control|job)\.mjs/.test(block)){
+      const rootCheckouts=checkouts.filter(line=>!line.includes("path:"));
+      assert.ok(rootCheckouts.length>0,`${name} must checkout stored root control`);
+      for(const line of rootCheckouts)assert.match(line,/^with: \{ ref: release-state(?:,| \})/,`${name} must select stored root control`);
+    }
+  }
+  const releaseRefs=["needs.identify.outputs.release_sha","steps.candidate.outputs.release_sha","fromJSON(needs.identify.outputs.publish)"];
+  const releaseJobs=names.filter(name=>job(name).split("\n").some(line=>line.includes("with: {")&&releaseRefs.some(ref=>line.includes(ref))));
+  assert.deepEqual(releaseJobs.sort(),Object.keys(checkoutCounts).sort(),"release-commit checkout job roster changed");
+  for(const name of exceptions){
+    const block=job(name);
+    assert.match(block,/git -C state push origin HEAD:release-state/,`${name} must still need the state write`);
+    assert.match(block,/fromJSON\(needs\.identify\.outputs\.publish\) && 'release-state' \|\| needs\.identify\.outputs\.release_sha/,`${name} must select release-commit control on main`);
+  }
+}
+test("release-content checkouts keep only the two main-path state-writer credentials",()=>{
+  assertReleaseContentCheckouts(workflow);
+  for(const sibling of ["with: { ref: release-state, path: durable, persist-credentials: false }","with: { ref: release-state, path: state, persist-credentials: false }"]){
+    const mutant=workflow.replace(sibling,sibling.replace(", persist-credentials: false",""));
+    assert.notEqual(mutant,workflow);
+    assert.throws(()=>assertReleaseContentCheckouts(mutant),/checkout must not retain credentials/);
+  }
+  const conditional="fromJSON(needs.identify.outputs.publish) && 'release-state' || needs.identify.outputs.release_sha";
+  const controlJobs=[...workflow.matchAll(/^  ([a-z][a-z-]*):\n[\s\S]*?(?=^  [a-z][a-z-]*:|$(?![\s\S]))/gm)]
+    .filter(match=>match[0].includes("path: control"));
+  assert.ok(controlJobs.length>=3);
+  for(const [name,block] of controlJobs.map(match=>[match[1]!,match[0]] as const)){
+    assert.ok(block.includes(conditional),`${name} mutant must change the checkout`);
+    const mutant=workflow.replace(block,()=>block.replace(conditional,"needs.identify.outputs.release_sha"));
+    assert.throws(()=>assertReleaseContentCheckouts(mutant),/must select stored control on publish/);
+  }
+  for(const name of ["record-registry","recover","close"]){
+    const block=workflowJobBlock(name).join("\n");
+    assert.ok(block.includes("with: { ref: release-state"),`${name} mutant must change the checkout`);
+    const mutant=workflow.replace(block,()=>block.replace("with: { ref: release-state","with: { ref: '${{ needs.identify.outputs.release_sha }}'"));
+    assert.throws(()=>assertReleaseContentCheckouts(mutant),/must select stored root control/);
+  }
+  for(const [name,ref,finding] of [
+    ["coverage-disposition","ref: release-state, path: state",/must select stored state control/],
+    ["install-proof","ref: release-state, path: state",/must select stored state control/],
+    ["identify","ref: release-state, path: durable",/must select durable control/],
+    ["retire","ref: '${{ github.sha }}', path: current-control",/must select main dispatch control/],
+  ] as const){
+    const block=workflowJobBlock(name).join("\n");
+    assert.ok(block.includes(ref),`${name} mutant must change the checkout`);
+    const mutant=workflow.replace(block,()=>block.replace(ref,"ref: '${{ needs.identify.outputs.release_sha }}', path: "+ref.split("path: ")[1]));
+    assert.throws(()=>assertReleaseContentCheckouts(mutant),finding);
+  }
+  for(const [original,replacement,finding] of [
+    ["from './durable/verification/release-control.mjs'","from './release-code/verification/release-control.mjs'",/publish identification must not run release-commit control/],
+    ["then control=state/verification/release-job.mjs","then control=verification/release-job.mjs",/install-proof/],
+  ] as const){
+    const mutant=workflow.replace(original,replacement);
+    assert.notEqual(mutant,workflow);
+    assert.throws(()=>assertReleaseContentCheckouts(mutant),finding);
+  }
+});
 function workflowRunBody(lines:string[],marker:number){const markerLine=lines[marker]??"",markerIndent=markerLine.length-markerLine.trimStart().length,body:string[]=[];for(let i=marker+1;i<lines.length;i++){const line=lines[i]??"",indent=line.length-line.trimStart().length;if(line.trim()&&indent<=markerIndent)break;body.push(line);}const contentIndent=Math.min(...body.filter(x=>x.trim()).map(x=>x.length-x.trimStart().length));return body.map(x=>x.slice(Math.min(contentIndent,x.length))).join("\n");}
 function workflowRunBlock(name:string){const lines=workflowJobBlock(name),marker=lines.findIndex(x=>["run: |","- run: |"].includes(x.trim()));assert.notEqual(marker,-1,`missing run block for ${name}`);return workflowRunBody(lines,marker);}
 function workflowStepRunBlock(job:string,id:string){const lines=workflowJobBlock(job),step=lines.findIndex(x=>x.trim()===`- id: ${id}`);assert.notEqual(step,-1,`missing workflow step ${job}.${id}`);const marker=lines.findIndex((x,i)=>i>step&&["run: |","- run: |"].includes(x.trim()));assert.notEqual(marker,-1,`missing run block for ${job}.${id}`);return workflowRunBody(lines,marker);}
 function renderWorkflowBlock(source:string,values:Record<string,string>={}){return source.replace(/\$\{\{\s*([^}]+?)\s*\}\}/g,(_all,key:string)=>{const value=values[key.trim()];if(value===undefined)throw new Error(`unknown workflow expression ${key}`);return value;});}
-function workflowFixture(t:any,state:any){const root=mkdtempSync(join(tmpdir(),"slate-workflow-")),bin=join(root,"bin"),effectLog=join(root,"effects.log"),temp=join(root,"tmp");t.after(()=>rmSync(root,{recursive:true,force:true}));mkdirSync(bin);mkdirSync(temp);mkdirSync(join(root,"verification"));mkdirSync(join(root,"control/verification"),{recursive:true});mkdirSync(join(root,"state/archive"),{recursive:true});mkdirSync(join(root,"current-control/verification"),{recursive:true});mkdirSync(join(root,"runner"));for(const dir of["verification","control/verification","current-control/verification"])for(const file of["release-control.mjs","release-job.mjs"])cpSync(new URL(`../verification/${file}`,import.meta.url),join(root,dir,file));writeFileSync(join(root,"state.json"),JSON.stringify(state,null,2)+"\n");writeFileSync(join(root,"state/state.json"),JSON.stringify(state,null,2)+"\n");writeFileSync(join(root,"state/archive/package.tgz"),"archive");writeFileSync(effectLog,"");writeFileSync(join(bin,"git"),`#!/bin/sh\nprintf 'git\\t%s\\n' "$*" >>"$EFFECT_LOG"\ncase "$*" in *"rev-parse HEAD"*) printf '${C}\\n';; esac\nexit 0\n`);writeFileSync(join(bin,"gh"),`#!/bin/sh\nprintf 'gh\\t%s\\n' "$*" >>"$EFFECT_LOG"\ncase "$*" in *"/pulls?"*) if test -n "${'${GH_EXPECT_PRS_QUERY:-}'}"; then if ! { test "$#" -eq 5 && test "$1" = api && test "$2" = --paginate && test "$3" = "$GH_EXPECT_PRS_QUERY" && test "$4" = --jq && test "$5" = tojson; }; then printf 'unexpected preparation pull request query: %s\\n' "$*" >&2; exit 2; fi; fi; test "${'${GH_FAIL_PRS:-0}'}" = 1 && { printf '[]\\n'; exit 1; }; test -f "$GH_PRS" || exit 1; cat "$GH_PRS"; test "${'${GH_FAIL_PRS:-0}'}" = 0 || exit 1;; *"/jobs?"*) test "${'${GH_FAIL_JOBS:-0}'}" = 1 && exit 1; test -f "$GH_JOBS" || exit 1; cat "$GH_JOBS"; test "${'${GH_FAIL_JOBS:-0}'}" = 0 || exit 1;; *"/attempts/"*) test "${'${GH_FAIL_RUN:-0}'}" = 1 && exit 1; test -f "$GH_RUN" || exit 1; cat "$GH_RUN"; test "${'${GH_FAIL_RUN:-0}'}" = 0 || exit 1;; esac\nexit 0\n`);writeFileSync(join(root,"latest"),"0.10.0\n");writeFileSync(join(bin,"npm"),`#!/bin/sh\nprintf 'npm\\t%s\\n' "$*" >>"$EFFECT_LOG"\ncase "$*" in *"versions time"*) test "${'${NPM_FAIL:-0}'}" = 0 || { if test "${'${NPM_FAIL:-0}'}" = 4; then cat "$NPM_DOC"; exit 1; fi; echo 'E404 or network failure' >&2; exit 1; }; test -f "$NPM_DOC" && { cat "$NPM_DOC"; exit 0; }; exit 1;; *"dist-tags.latest"*) n=$(($(cat "$NPM_READ_COUNT" 2>/dev/null || echo 0)+1)); echo "$n" >"$NPM_READ_COUNT"; case "${'${NPM_READ_FAIL_FIRST:-0}'}:$n" in 1:1) echo 'PRIVATE REGISTRY RESPONSE' >&2; exit 1;; esac; case "${'${NPM_READ_FAIL_SECOND:-0}'}:$n" in 1:2) echo 'PRIVATE REGISTRY RESPONSE' >&2; exit 1;; esac; cat "$NPM_LATEST_FILE";; *"dist-tag add"*) test "${'${NODE_AUTH_TOKEN:-}'}" = fixture-stage-token || { echo 'missing authorized token' >&2; exit 8; }; test "${'${NPM_WRITE_FAIL:-0}'}" = 0 || { if test "${'${NPM_WRITE_FAIL:-0}'}" = 2; then echo 'UNKNOWN npm failure' >&2; else echo 'E403 Forbidden' >&2; fi; exit 1; }; printf '%s\\n' "${'${3#ytdb-slate@}'}" >"$NPM_LATEST_FILE";; esac\nexit 0\n`);writeFileSync(join(bin,"pi"),`#!/bin/sh\nprintf 'pi\\t%s\\n' "$*" >>"$EFFECT_LOG"\ncase "$*" in *"--mode rpc"*) if test "${'${PI_SUCCESS:-0}'}" = 1; then printf '{"type":"response","command":"get_commands","data":{"commands":[{"name":"slate","sourceInfo":{"source":"npm:ytdb-slate@0.10.1"}}]}}\\n'; else printf '{"type":"response","command":"get_commands","data":{"commands":[]}}\\n'; fi;; esac\nexit 0\n`);for(const name of["git","gh","npm","pi"])chmodSync(join(bin,name),0o755);const env={PATH:`${bin}:${dirname(process.execPath)}:/usr/bin:/bin`,PI_BIN:join(bin,"pi"),HOME:root,TMPDIR:temp,RUNNER_TEMP:join(root,"runner"),REGISTRY:"https://registry.invalid/",GH_RUN:join(root,"run.json"),GH_JOBS:join(root,"jobs.json"),GH_PRS:join(root,"prs.jsonl"),NPM_DOC:join(root,"package.json"),GIT_CONFIG_NOSYSTEM:"1",GIT_CONFIG_GLOBAL:"/dev/null",EFFECT_LOG:effectLog,NPM_LATEST_FILE:join(root,"latest"),NPM_READ_COUNT:join(root,"read-count"),GITHUB_RUN_ID:"900",GITHUB_RUN_ATTEMPT:"2",GITHUB_REPOSITORY:"JetBrains/ytdb-slate",GITHUB_OUTPUT:join(root,"output")};return{root,effectLog,env};}
+function workflowFixture(t:any,state:any){const root=mkdtempSync(join(tmpdir(),"slate-workflow-")),bin=join(root,"bin"),effectLog=join(root,"effects.log"),temp=join(root,"tmp");t.after(()=>rmSync(root,{recursive:true,force:true}));mkdirSync(bin);mkdirSync(temp);mkdirSync(join(root,"verification"));mkdirSync(join(root,"control/verification"),{recursive:true});mkdirSync(join(root,"state/archive"),{recursive:true});mkdirSync(join(root,"current-control/verification"),{recursive:true});mkdirSync(join(root,"runner"));for(const dir of["verification","control/verification","current-control/verification"])for(const file of["release-control.mjs","release-job.mjs"])cpSync(new URL(`../verification/${file}`,import.meta.url),join(root,dir,file));writeFileSync(join(root,"state.json"),JSON.stringify(state,null,2)+"\n");writeFileSync(join(root,"state/state.json"),JSON.stringify(state,null,2)+"\n");writeFileSync(join(root,"request.json"),JSON.stringify(req()));writeFileSync(join(root,"state/request.json"),JSON.stringify(req()));writeFileSync(join(root,"state/archive/package.tgz"),"archive");writeFileSync(effectLog,"");writeFileSync(join(bin,"git"),`#!/bin/sh\nprintf 'git\\t%s\\n' "$*" >>"$EFFECT_LOG"\ncase "$*" in *"rev-parse HEAD"*) printf '${C}\\n';; esac\nexit 0\n`);writeFileSync(join(bin,"gh"),`#!/bin/sh\nprintf 'gh\\t%s\\n' "$*" >>"$EFFECT_LOG"\ncase "$*" in *"/pulls?"*) if test -n "${'${GH_EXPECT_PRS_QUERY:-}'}"; then if ! { test "$#" -eq 5 && test "$1" = api && test "$2" = --paginate && test "$3" = "$GH_EXPECT_PRS_QUERY" && test "$4" = --jq && test "$5" = tojson; }; then printf 'unexpected preparation pull request query: %s\\n' "$*" >&2; exit 2; fi; fi; test "${'${GH_FAIL_PRS:-0}'}" = 1 && { printf '[]\\n'; exit 1; }; test -f "$GH_PRS" || exit 1; cat "$GH_PRS"; test "${'${GH_FAIL_PRS:-0}'}" = 0 || exit 1;; *"/jobs?"*) test "${'${GH_FAIL_JOBS:-0}'}" = 1 && exit 1; test -f "$GH_JOBS" || exit 1; cat "$GH_JOBS"; test "${'${GH_FAIL_JOBS:-0}'}" = 0 || exit 1;; *"/attempts/"*) test "${'${GH_FAIL_RUN:-0}'}" = 1 && exit 1; test -f "$GH_RUN" || exit 1; cat "$GH_RUN"; test "${'${GH_FAIL_RUN:-0}'}" = 0 || exit 1;; esac\nexit 0\n`);writeFileSync(join(root,"latest"),"0.10.0\n");writeFileSync(join(bin,"npm"),`#!/bin/sh\nprintf 'npm\\t%s\\n' "$*" >>"$EFFECT_LOG"\ncase "$*" in *"versions time"*) test "${'${NPM_FAIL:-0}'}" = 0 || { if test "${'${NPM_FAIL:-0}'}" = 4; then cat "$NPM_DOC"; exit 1; fi; echo 'E404 or network failure' >&2; exit 1; }; test -f "$NPM_DOC" && { cat "$NPM_DOC"; exit 0; }; exit 1;; *"dist-tags.latest"*) n=$(($(cat "$NPM_READ_COUNT" 2>/dev/null || echo 0)+1)); echo "$n" >"$NPM_READ_COUNT"; case "${'${NPM_READ_FAIL_FIRST:-0}'}:$n" in 1:1) echo 'PRIVATE REGISTRY RESPONSE' >&2; exit 1;; esac; case "${'${NPM_READ_FAIL_SECOND:-0}'}:$n" in 1:2) echo 'PRIVATE REGISTRY RESPONSE' >&2; exit 1;; esac; cat "$NPM_LATEST_FILE";; *"dist-tag add"*) test "${'${NODE_AUTH_TOKEN:-}'}" = fixture-stage-token || { echo 'missing authorized token' >&2; exit 8; }; test "${'${NPM_WRITE_FAIL:-0}'}" = 0 || { if test "${'${NPM_WRITE_FAIL:-0}'}" = 2; then echo 'UNKNOWN npm failure' >&2; else echo 'E403 Forbidden' >&2; fi; exit 1; }; printf '%s\\n' "${'${3#ytdb-slate@}'}" >"$NPM_LATEST_FILE";; esac\nexit 0\n`);writeFileSync(join(bin,"pi"),`#!/bin/sh\nprintf 'pi\\t%s\\n' "$*" >>"$EFFECT_LOG"\ncase "$*" in *"--mode rpc"*) if test "${'${PI_SUCCESS:-0}'}" = 1; then printf '{"type":"response","command":"get_commands","data":{"commands":[{"name":"slate","sourceInfo":{"source":"npm:ytdb-slate@0.10.1"}}]}}\\n'; else printf '{"type":"response","command":"get_commands","data":{"commands":[]}}\\n'; fi;; esac\nexit 0\n`);for(const name of["git","gh","npm","pi"])chmodSync(join(bin,name),0o755);const env={PATH:`${bin}:${dirname(process.execPath)}:/usr/bin:/bin`,PI_BIN:join(bin,"pi"),HOME:root,TMPDIR:temp,RUNNER_TEMP:join(root,"runner"),REGISTRY:"https://registry.invalid/",GH_RUN:join(root,"run.json"),GH_JOBS:join(root,"jobs.json"),GH_PRS:join(root,"prs.jsonl"),NPM_DOC:join(root,"package.json"),GIT_CONFIG_NOSYSTEM:"1",GIT_CONFIG_GLOBAL:"/dev/null",EFFECT_LOG:effectLog,NPM_LATEST_FILE:join(root,"latest"),NPM_READ_COUNT:join(root,"read-count"),GITHUB_RUN_ID:"900",GITHUB_RUN_ATTEMPT:"2",GITHUB_REPOSITORY:"JetBrains/ytdb-slate",GITHUB_OUTPUT:join(root,"output")};return{root,effectLog,env};}
 function runWorkflowBlock(f:any,script:string,more:Record<string,string>={}){return spawnSync("/bin/bash",["-c",script],{cwd:f.root,env:{...f.env,...more},encoding:"utf8",timeout:10000});}
 function registryProofFixture(t:any,state:any,scenario:string){
   const f=workflowFixture(t,state),attempts=join(f.root,"npm-attempts");
@@ -173,12 +359,12 @@ function assertRegistryProofLog(run:any,f:any,waits:number[],outcomes:string[],m
   return effects.filter((line:string)=>line.startsWith("npm\tpack "));
 }
 
-const workflowValues=(state:any)=>({"needs.identify.outputs.identity":state.identity,"needs.identify.outputs.version":state.version,"needs.identify.outputs.release_sha":state.releaseSha,"needs.identify.outputs.parent_sha":state.releaseParent});
+const workflowValues=(state:any)=>({"needs.identify.outputs.publish":"false","needs.identify.outputs.identity":state.identity,"needs.identify.outputs.version":state.version,"needs.identify.outputs.release_sha":state.releaseSha,"needs.identify.outputs.parent_sha":state.releaseParent});
 function outputValues(path:string){return Object.fromEntries(readFileSync(path,"utf8").trim().split("\n").filter(Boolean).map(line=>{const at=line.indexOf("=");return[line.slice(0,at),line.slice(at+1)];}));}
-function identifyCheckout(){const lines=workflowJobBlock("identify"),checkout=lines.findIndex(x=>x.includes("with: { ref: release-state, path: durable }")),releaseCode=lines.findIndex(x=>x.includes("with: { ref: '${{ steps.candidate.outputs.release_sha }}', path: release-code }"));assert.notEqual(checkout,-1);assert.ok(releaseCode>checkout,"identify must check out the selected release commit after durable state");const condition=lines.slice(0,checkout).reverse().find(x=>x.trim().startsWith("- if:"))?.trim().slice(5).trim();assert.ok(condition);assert.equal(lines.slice(checkout+1,releaseCode).reverse().find(x=>x.trim().startsWith("- if:"))?.trim().slice(5).trim(),condition);return{condition,ref:"release-state",index:checkout,releaseCode};}
+function identifyCheckout(){const lines=workflowJobBlock("identify"),checkout=lines.findIndex(x=>x.includes("with: { ref: release-state, path: durable, persist-credentials: false }")),releaseCode=lines.findIndex(x=>x.includes("with: { ref: '${{ steps.candidate.outputs.release_sha }}', path: release-code, persist-credentials: false }"));assert.notEqual(checkout,-1);assert.ok(releaseCode>checkout,"identify must check out the selected release commit after durable state");const condition=lines.slice(0,checkout).reverse().find(x=>x.trim().startsWith("- if:"))?.trim().slice(5).trim();assert.ok(condition);assert.equal(lines.slice(checkout+1,releaseCode).reverse().find(x=>x.trim().startsWith("- if:"))?.trim().slice(5).trim(),condition);return{condition,ref:"release-state",index:checkout,releaseCode};}
 function candidateCondition(condition:string,releaseSha:string){if(condition==="steps.candidate.outputs.release_sha != ''")return releaseSha!=="";if(condition==="always()")return true;throw new Error(`unsupported candidate condition: ${condition}`);}
 function registryCondition(){const line=workflowJobBlock("record-registry").find(x=>x.trim().startsWith("if:"));assert.ok(line);return line.trim().slice(3).trim();}
-function registryEligible(condition:string,releaseSha:string,result:string){assert.equal(condition,"always() && needs.identify.outputs.release_sha != '' && (needs.registry-proof.result == 'success' || needs.registry-proof.result == 'failure')");return releaseSha!==""&&(result==="success"||result==="failure");}
+function registryEligible(condition:string,releaseSha:string,result:string){assert.equal(condition,"${{ always() && needs.identify.result == 'success' && needs.identify.outputs.release_sha != '' && (needs.registry-proof.result == 'success' || needs.registry-proof.result == 'failure') }}");return releaseSha!==""&&(result==="success"||result==="failure");}
 function createIdentifyFixture(t:any,kind:"ordinary"|"candidate",durable:boolean){const root=mkdtempSync(join(tmpdir(),"slate-identify-")),repo=join(root,"repo"),remote=join(root,"remote.git"),bin=join(root,"bin");t.after(()=>rmSync(root,{recursive:true,force:true}));mkdirSync(repo);mkdirSync(bin);const env={PATH:`${bin}:${dirname(process.execPath)}:/usr/bin:/bin`,HOME:root,GIT_CONFIG_NOSYSTEM:"1",GIT_CONFIG_GLOBAL:"/dev/null",GITHUB_REPOSITORY:"JetBrains/ytdb-slate"};const git=(cwd:string,...args:string[])=>{const r=spawnSync("git",args,{cwd,env,encoding:"utf8",timeout:10000});assert.equal(r.status,0,r.stderr);return r.stdout.trim();};spawnSync("git",["init","--bare",remote],{env,encoding:"utf8",timeout:10000});git(repo,"init","-b","main");git(repo,"config","user.name","Test");git(repo,"config","user.email","test@example.invalid");mkdirSync(join(repo,"verification"));cpSync(new URL("../verification/release-control.mjs",import.meta.url),join(repo,"verification/release-control.mjs"));writeFileSync(join(repo,"package.json"),'{"version":"0.10.0"}\n');writeFileSync(join(repo,"package-lock.json"),'{"version":"0.10.0","packages":{"":{"version":"0.10.0"}}}\n');git(repo,"add",".");git(repo,"commit","-m","base");const base=git(repo,"rev-parse","HEAD");let request:any=null;if(kind==="candidate"){request=makeRequest({version:"0.10.1",baseSha:base,notes,currentVersion:"0.10.0",authorization:"101"});mkdirSync(join(repo,"release/requests/0.10.1"),{recursive:true});writeFileSync(join(repo,"package.json"),'{"version":"0.10.1"}\n');writeFileSync(join(repo,"package-lock.json"),'{"version":"0.10.1","packages":{"":{"version":"0.10.1"}}}\n');writeFileSync(join(repo,"release/requests/0.10.1/request.json"),JSON.stringify(request));writeFileSync(join(repo,"release/requests/0.10.1/notes.md"),notes);writeFileSync(join(repo,"release/requests/0.10.1/coverage.json"),JSON.stringify({schema:2,parentPolicy:"exact-release-parent",allowedPaths:request.coverageDisposition.allowedPaths,verdict:"WARN"}));}else writeFileSync(join(repo,"ordinary"),"x\n");git(repo,"add",".");git(repo,"commit","-m",kind);const after=git(repo,"rev-parse","HEAD");git(repo,"remote","add","origin",remote);git(repo,"push","origin","HEAD:main");if(durable&&request){const state=join(root,"state");mkdirSync(state);git(state,"init","-b","release-state");git(state,"config","user.name","Test");git(state,"config","user.email","test@example.invalid");writeFileSync(join(state,"request.json"),JSON.stringify(request));git(state,"add",".");git(state,"commit","-m","state");git(state,"remote","add","origin",remote);git(state,"push","origin","HEAD:release-state");}writeFileSync(join(bin,"gh"),`#!/bin/sh\nprintf '[{"number":9,"merged_at":"2026-09-17T00:00:00Z","merge_commit_sha":"%s","base":{"ref":"main"}}]\\n' "$EXPECTED_SHA"\n`);chmodSync(join(bin,"gh"),0o755);return{root,repo,remote,env,base,after};}
 function advanceIdentifyCorrection(f:any){
   const git=(cwd:string,...args:string[])=>{const r=spawnSync("git",args,{cwd,env:f.env,encoding:"utf8",timeout:10000});assert.equal(r.status,0,r.stderr);return r.stdout.trim();};
@@ -299,8 +485,17 @@ test("real registry-proof workflow block classifies a complete wrong-byte observ
 
 test("real record-registry workflow block records results and reports absent failure evidence",t=>{const state=uploaded(),values=workflowValues(state),source=renderWorkflowBlock(workflowRunBlock("record-registry"),values),bytes=Buffer.from("archive"),result=classifyRegistry(state,bytes,bytes,{version:state.version,integrity:hashBytes(bytes).integrity},owner(state)),success=workflowFixture(t,state);mkdirSync(join(success.root,"registry"));writeFileSync(join(success.root,"registry/result.json"),JSON.stringify(result));const recorded=runWorkflowBlock(success,source);assert.equal(recorded.status,0,recorded.stderr);assert.equal(JSON.parse(readFileSync(join(success.root,"state.json"),"utf8")).status,"published");const absent=workflowFixture(t,state),failed=runWorkflowBlock(absent,source);assert.notEqual(failed.status,0);assert.match(failed.stdout,/Registry observation is inconclusive\. Upload remains unknown\./);assert.equal(JSON.parse(readFileSync(join(absent.root,"state.json"),"utf8")).status,"upload-unknown");});
 
-test("real seal-upload workflow block runs and requires identity at begin-upload",t=>{const state=claimed(),values=workflowValues(state),source=workflowRunBlock("seal-upload"),f=workflowFixture(t,state),result=runWorkflowBlock(f,renderWorkflowBlock(source,values));assert.equal(result.status,0,result.stderr);const sealed=JSON.parse(readFileSync(join(f.root,"state/state.json"),"utf8"));assert.equal(sealed.status,"upload-unknown");assert.equal(sealed.uploadExecution,"900:2");assert.match(readFileSync(f.effectLog,"utf8"),/push origin HEAD:release-state --force-with-lease=/);
-const mutant=source.split("\n").map(line=>line.includes(" begin-upload ")?line.replace(" --identity '${{ needs.identify.outputs.identity }}'",""):line).join("\n");assert.notEqual(mutant,source);const mf=workflowFixture(t,state),failed=runWorkflowBlock(mf,renderWorkflowBlock(mutant,values));assert.notEqual(failed.status,0);assert.equal(JSON.parse(readFileSync(join(mf.root,"state/state.json"),"utf8")).status,"claimed");assert.doesNotMatch(readFileSync(mf.effectLog,"utf8"),/push origin/);});
+test("real seal-upload workflow block runs and requires identity at begin-upload",t=>{const state=claimed(),values=workflowValues(state),source=workflowRunBlock("seal-upload"),f=workflowFixture(t,state),result=runWorkflowBlock(f,renderWorkflowBlock(source,values),{GITHUB_RUN_ID:"17"});assert.equal(result.status,0,result.stderr);const sealed=JSON.parse(readFileSync(join(f.root,"state/state.json"),"utf8"));assert.equal(sealed.status,"upload-unknown");assert.equal(sealed.uploadExecution,"17:2");assert.match(readFileSync(f.effectLog,"utf8"),/push origin HEAD:release-state --force-with-lease=/);
+const mutant=source.split("\n").map(line=>line.includes(" begin-upload ")?line.replace(" --identity '${{ needs.identify.outputs.identity }}'",""):line).join("\n");assert.notEqual(mutant,source);const mf=workflowFixture(t,state),failed=runWorkflowBlock(mf,renderWorkflowBlock(mutant,values),{GITHUB_RUN_ID:"17"});assert.notEqual(failed.status,0);assert.equal(JSON.parse(readFileSync(join(mf.root,"state/state.json"),"utf8")).status,"claimed");assert.doesNotMatch(readFileSync(mf.effectLog,"utf8"),/push origin/);});
+
+test("real seal block resumes the owning run only before the first upload",t=>{
+  const claim=claimed(),o=owner(claim),checking=advance(claim,"checking",o,NOW),readyState=advance(checking,"ready",o,NOW),script=renderWorkflowBlock(workflowRunBlock("seal-upload"),workflowValues(claim));
+  for(const state of [checking,readyState]){
+    const f=workflowFixture(t,state),run=runWorkflowBlock(f,script,{GITHUB_RUN_ID:"17"});assert.equal(run.status,0,run.stderr);assert.equal(JSON.parse(readFileSync(join(f.root,"state/state.json"),"utf8")).status,"upload-unknown");assert.match(readFileSync(f.effectLog,"utf8"),/push origin HEAD:release-state/);
+    const foreign=workflowFixture(t,state),rejected=runWorkflowBlock(foreign,script,{GITHUB_RUN_ID:"18"});assert.notEqual(rejected.status,0);assert.doesNotMatch(readFileSync(foreign.effectLog,"utf8"),/push origin HEAD:release-state/);
+  }
+  const uploadedState=uploaded(),f=workflowFixture(t,uploadedState),replayed=runWorkflowBlock(f,renderWorkflowBlock(workflowRunBlock("seal-upload"),workflowValues(uploadedState)),{GITHUB_RUN_ID:"17"});assert.notEqual(replayed.status,0);assert.equal(JSON.parse(readFileSync(join(f.root,"state/state.json"),"utf8")).uploadExecution,"17:1");
+});
 
 test("real operator workflow blocks bind targets and permit intended progress",t=>{for(const [name,state,expectedStatus] of [["retire",claimed(),"retired"],["close",proved(),"closed-unpromoted"],["close",failedPublished(),"closed-unpromoted"]] as const){const script=workflowRunBlock(name);for(const [label,version,identity] of [["correct",state.version,state.identity],["wrong-version","0.10.2",state.identity],["wrong-identity",state.version,"f".repeat(64)]] as const){const f=workflowFixture(t,state),before=readFileSync(join(f.root,"state.json"),"utf8"),result=runWorkflowBlock(f,script,{VERSION:version,IDENTITY:identity}),effects=readFileSync(f.effectLog,"utf8");if(label==="correct"){assert.equal(result.status,0,`${name}: ${result.stderr}`);assert.equal(JSON.parse(readFileSync(join(f.root,"state.json"),"utf8")).status,expectedStatus);assert.match(effects,/push origin HEAD:release-state/);if(name==="retire")assert.match(effects,/commit -m Retire merged no-upload authorization/);}else{assert.notEqual(result.status,0,`${name} accepted ${label}`);assert.equal(readFileSync(join(f.root,"state.json"),"utf8"),before);assert.doesNotMatch(effects,/git\t.*(?:add|commit|push)|gh\t|npm\t/);}}}
 const state=published(),script=workflowRunBlock("recover");for(const [label,version,identity] of [["correct",state.version,state.identity],["wrong-version","0.10.2",state.identity],["wrong-identity",state.version,"f".repeat(64)]] as const){const f=workflowFixture(t,state),before=readFileSync(join(f.root,"state.json"),"utf8"),result=runWorkflowBlock(f,script,{VERSION:version,IDENTITY:identity}),effects=readFileSync(f.effectLog,"utf8");if(label==="correct"){assert.equal(result.status,0,result.stderr);assert.match(effects,/gh\trun rerun 17 --repo JetBrains\/ytdb-slate --failed/);assert.match(result.stdout,/failed jobs and their dependents/);assert.match(result.stdout,/Promotion and final records can run only after/);assert.doesNotMatch(result.stdout,/read-only installation proof|promotion remain disabled/i);}else{assert.notEqual(result.status,0);assert.doesNotMatch(effects,/gh\t|npm\t|git\t.*(?:add|commit|push)/);}assert.equal(readFileSync(join(f.root,"state.json"),"utf8"),before);}const unknown=uploaded(),uf=workflowFixture(t,unknown),before=readFileSync(join(uf.root,"state.json"),"utf8"),retried=runWorkflowBlock(uf,script,{VERSION:unknown.version,IDENTITY:unknown.identity});assert.equal(retried.status,0,retried.stderr);assert.match(readFileSync(uf.effectLog,"utf8"),/gh\trun rerun 17 --repo JetBrains\/ytdb-slate --failed/);assert.match(retried.stdout,/failed jobs and their dependents/);assert.match(retried.stdout,/sealed upload authority rejects every upload rerun/);assert.match(retried.stdout,/Promotion and final records can run only after registry and installation proofs succeed/);assert.equal(readFileSync(join(uf.root,"state.json"),"utf8"),before);});
@@ -408,7 +603,7 @@ test("prepared retirement validates one merged pull request and preserves empty 
 test("real claim block binds the identified identity before any state write and races with retirement",t=>{
   const request=req(),prepared=initialState(request,NOW),merged=claimed(request),retiredPrepared=retire(prepared,{identity:prepared.identity,version:prepared.version,releaseSha:null,releaseParent:null},NOW,{merged:true}),later=req("0.10.0",notes,"102"),newOwner=initialState(later,NOW);
   const script=workflowRunBlock("claim"),values={...workflowValues(merged),"needs.identify.outputs.pull_request":"9"};assert.match(workflowJobBlock("claim").join("\n"),/LAUNCH_IDENTITY: \$\{\{ needs\.identify\.outputs\.identity \}\}/);assert.match(script,/--identity "\$LAUNCH_IDENTITY"/);
-  for(const [label,state,ok] of [["claim first",prepared,true],["repeat claim",merged,true],["retire first",retiredPrepared,false],["new preparation",newOwner,false]] as const){const f=workflowFixture(t,state),before=readFileSync(join(f.root,"state/state.json"),"utf8");writeFileSync(join(f.root,"state/request.json"),JSON.stringify(state.identity===request.identity?request:later));const r=runWorkflowBlock(f,renderWorkflowBlock(script,values),{LAUNCH_IDENTITY:request.identity}),effects=readFileSync(f.effectLog,"utf8");assert.equal(r.status===0,ok,`${label}: ${r.stderr}`);if(label==="claim first")assert.equal(JSON.parse(readFileSync(join(f.root,"state/state.json"),"utf8")).status,"claimed");if(!ok){assert.equal(readFileSync(join(f.root,"state/state.json"),"utf8"),before);assert.doesNotMatch(effects,/git\t.*(?:add|commit|push)/);}}
+  for(const [label,state,ok] of [["claim first",prepared,true],["repeat claim",merged,true],["retire first",retiredPrepared,false],["new preparation",newOwner,false]] as const){const f=workflowFixture(t,state),before=readFileSync(join(f.root,"state/state.json"),"utf8");writeFileSync(join(f.root,"state/request.json"),JSON.stringify(state.identity===request.identity?request:later));const r=runWorkflowBlock(f,renderWorkflowBlock(script,values),{LAUNCH_IDENTITY:request.identity,GITHUB_RUN_ID:"17"}),effects=readFileSync(f.effectLog,"utf8");assert.equal(r.status===0,ok,`${label}: ${r.stderr}`);if(label==="claim first")assert.equal(JSON.parse(readFileSync(join(f.root,"state/state.json"),"utf8")).status,"claimed");if(!ok){assert.equal(readFileSync(join(f.root,"state/state.json"),"utf8"),before);assert.doesNotMatch(effects,/git\t.*(?:add|commit|push)/);}}
   assert.equal(retire(merged,owner(merged),NOW).status,"retired");assert.throws(()=>claimRelease(retire(merged,owner(merged),NOW),{request,launchIdentity:request.identity,releaseSha:B,parentSha:A,pullRequest:9,runId:"17",runAttempt:"1"},NOW));
 });
 
@@ -437,7 +632,7 @@ test("real prepare workflow uses the control script's final statuses for lane ow
   const mismatch=recordRegistry(unknown,classifyRegistry(unknown,Buffer.from("archive"),Buffer.from("other"),{version:unknown.version,integrity:hashBytes(Buffer.from("archive")).integrity},owner(unknown)),owner(unknown),NOW);
   const first=initialState(req(),NOW);
   const states:Record<string,any>={prepared:first,claimed:claim,checking:advance(claim,"checking",owner(claim),NOW),ready:ready(),"upload-unknown":unknown,published:publication,proved:proof,"promotion-unknown":promotion,promoted,complete:advance(promoted,"complete",owner(promoted),NOW),abandoned:abandon(first,{identity:first.identity,version:first.version,releaseSha:null,releaseParent:null},false,NOW),retired:retire(claim,owner(claim),NOW),mismatch,"closed-unpromoted":closeWithoutPromotion(proof,owner(proof),NOW)};
-  assert.match(script,/assertNoEndedIdentity/);
+  assert.match(script,/generationRecord/);
   assert.deepEqual(Object.keys(states).sort(),[...STATUSES].sort());
   for(const status of STATUSES){
     const old=validateState(states[status]),f=workflowFixture(t,old);
@@ -445,7 +640,8 @@ test("real prepare workflow uses the control script's final statuses for lane ow
     writeFileSync(join(f.root,"package.json"),JSON.stringify({version:"0.11.0",versions:["0.10.0"],time:{created:NOW,modified:NOW,"0.10.0":NOW}}));
     writeFileSync(join(f.root,"package-lock.json"),JSON.stringify({version:"0.11.0",packages:{"":{version:"0.11.0"}}}));
     writeFileSync(join(f.root,"bin/git"),`#!/bin/sh\nprintf 'git\\t%s\\n' "$*" >>"$EFFECT_LOG"\ncase "$*" in\n  "ls-remote --exit-code --heads origin release-state") exit 0;;\n  "ls-remote --exit-code --heads origin "*) exit 2;;\n  "rev-parse HEAD") printf '${C}\\n'; exit 0;;\n  "rev-parse origin/release-state") printf '${A}\\n'; exit 0;;\n  "rev-list ${A}") printf '${A}\\n'; exit 0;;
-  "show ${A}:state.json") cat "$HOME/state.json"; exit 0;;\n  "commit-tree "*) cat >/dev/null; printf '${B}\\n'; exit 0;;\nesac\nexit 0\n`);
+  "show ${A}:state.json") cat "$HOME/state.json"; exit 0;;
+  "show ${A}:request.json") cat "$HOME/request.json"; exit 0;;\n  "commit-tree "*) cat >/dev/null; printf '${B}\\n'; exit 0;;\nesac\nexit 0\n`);
     const result=runWorkflowBlock(f,script,{VERSION:"0.10.1",NOTES:"Release notes",STATE_BRANCH:"release-state"}),effects=readFileSync(f.effectLog,"utf8");
     assert.notEqual(old.identity,makeRequest({version:"0.10.1",baseSha:C,notes:"Release notes\n",currentVersion:"0.11.0",authorization:"900"}).identity,status);
     if(TERMINAL.includes(status)){
@@ -463,7 +659,7 @@ test("real preparation blocks resurrection at the leased history snapshot and re
   const a=makeRequest({version:"0.10.1",baseSha:C,notes:"Release notes\n",currentVersion:"0.11.0",authorization:"900"}),b=makeRequest({version:"0.10.1",baseSha:C,notes:"Release notes\n",currentVersion:"0.11.0",authorization:"901"}),preparedA=initialState(a,NOW),retiredA=retire(preparedA,{identity:a.identity,version:a.version,releaseSha:null,releaseParent:null},NOW,{merged:true}),preparedB=initialState(b,NOW),endedB=abandon(preparedB,{identity:b.identity,version:b.version,releaseSha:null,releaseParent:null},false,NOW),f=workflowFixture(t,retiredA),script=workflowRunBlock("prepare");
   writeFileSync(join(f.root,"package.json"),JSON.stringify({version:"0.11.0",versions:["0.10.0"],time:{created:NOW,modified:NOW,"0.10.0":NOW}}));
   writeFileSync(join(f.root,"package-lock.json"),'{"version":"0.11.0","packages":{"":{"version":"0.11.0"}}}');
-  for(const [sha,state] of [["a",retiredA],["b",preparedB],["c",endedB],["d",preparedA]] as const)writeFileSync(join(f.root,`${sha}.json`),JSON.stringify(state));
+  for(const [sha,state] of [["a",retiredA],["b",preparedB],["c",endedB],["d",preparedA]] as const){writeFileSync(join(f.root,`${sha}.json`),JSON.stringify(state));writeFileSync(join(f.root,`${sha}-request.json`),JSON.stringify(state.identity===a.identity?a:b));}
   writeFileSync(join(f.root,"bin/git"),`#!/bin/sh
 printf 'git\\t%s\\n' "$*" >>"$EFFECT_LOG"
 case "$*" in
@@ -472,7 +668,7 @@ case "$*" in
   "ls-remote --exit-code --heads origin "*) exit 2;;
   "rev-parse origin/release-state") printf '%s\\n' "$HISTORY_HEAD";;
   "rev-list "*) test "${'${HISTORY_FAIL:-0}'}" = 0 || exit 1; case "$HISTORY_HEAD" in a) printf 'a\\nd\\n';; b) printf 'b\\na\\nd\\n';; c) printf 'c\\nb\\na\\nd\\n';; esac;;
-  "show "*) sha="${'${2%%:*}'}"; cat "$HOME/$sha.json";;
+  "show "*) sha="${'${2%%:*}'}"; case "$2" in *:request.json) cat "$HOME/$sha-request.json";; *) cat "$HOME/$sha.json";; esac;;
   "commit-tree "*) cat >/dev/null; printf '${B}\\n';;
 esac
 exit 0
@@ -488,16 +684,18 @@ exit 0
 test("prepare refuses unreadable state and prepared-branch probes before any push",t=>{
   const request=makeRequest({version:"0.10.1",baseSha:C,notes,currentVersion:"0.11.0",authorization:"900"}),state=initialState(request,NOW);
   for(const probe of ["release-state","prepared"]){
-    const f=workflowFixture(t,state);writeFileSync(join(f.root,"package.json"),JSON.stringify({version:"0.11.0",versions:["0.10.0"],time:{created:NOW,modified:NOW,"0.10.0":NOW}}));
+    const f=workflowFixture(t,state);writeFileSync(join(f.root,"request.json"),JSON.stringify(request));writeFileSync(join(f.root,"package.json"),JSON.stringify({version:"0.11.0",versions:["0.10.0"],time:{created:NOW,modified:NOW,"0.10.0":NOW}}));
     writeFileSync(join(f.root,"bin/git"),`#!/bin/sh
 printf 'git\\t%s\\n' "$*" >>"$EFFECT_LOG"
 case "$*" in
   "rev-parse HEAD") printf '${C}\\n';;
+  "ls-remote --exit-code --heads origin release/0.10") exit 2;;
   "ls-remote --exit-code --heads origin release-state") if test "$PROBE" = release-state; then exit 128; else exit 0; fi;;
   "ls-remote --exit-code --heads origin "*) exit 128;;
   "rev-parse origin/release-state") printf '${A}\\n';;
   "rev-list ${A}") printf '${A}\\n';;
   "show ${A}:state.json") cat "$HOME/state.json";;
+  "show ${A}:request.json") cat "$HOME/request.json";;
 esac
 exit 0
 `);
@@ -507,11 +705,12 @@ exit 0
   }
 });
 
-test("real prepare workflow refuses a version listed only in npm time or a failed package read",t=>{const script=workflowRunBlock("prepare");assert.match(script,/npm view ytdb-slate versions time --json --cache/);for(const failed of [false,true]){const f=workflowFixture(t,claimed()),doc={versions:["0.10.0"],time:{created:NOW,modified:NOW,"0.10.0":NOW,"0.10.1":NOW}};writeFileSync(join(f.root,"package.json"),JSON.stringify(doc));const result=runWorkflowBlock(f,script,{VERSION:"0.10.1",NOTES:"Release notes",NPM_FAIL:failed?"1":"0"});assert.notEqual(result.status,0);assert.match(result.stderr,failed?/Cannot read the full npm package document/:/already used by npm/);assert.doesNotMatch(readFileSync(f.effectLog,"utf8"),/git\t.*(?:add|commit|push)/);}});
+test("real prepare workflow refuses a version listed only in npm time or a failed package read",t=>{const script=workflowRunBlock("prepare");assert.match(script,/npm view ytdb-slate versions time --json --cache/);for(const failed of [false,true]){const f=workflowFixture(t,retire(claimed(),owner(claimed()),NOW)),doc={versions:["0.10.0"],time:{created:NOW,modified:NOW,"0.10.0":NOW,"0.10.1":NOW}};writeFileSync(join(f.root,"package.json"),JSON.stringify(doc));writeFileSync(join(f.root,"bin/git"),`#!/bin/sh\ncase "$*" in "rev-parse HEAD") printf '${C}\\n';; "ls-remote --exit-code --heads origin release/0.10"|"ls-remote --exit-code --heads origin release-state") exit 2;; esac\nexit 0\n`);const result=runWorkflowBlock(f,script,{VERSION:"0.10.1",NOTES:"Release notes",STATE_BRANCH:"release-state",NPM_FAIL:failed?"1":"0"});assert.notEqual(result.status,0);assert.match(result.stderr,failed?/Cannot read the full npm package document/:/must exceed every npm version/);assert.doesNotMatch(readFileSync(f.effectLog,"utf8"),/git\t.*(?:add|commit|push)/);}});
 
 test("preparation refuses a successful-looking npm body with a nonzero read status",t=>{
-  const f=workflowFixture(t,claimed()),doc={versions:["0.10.0"],time:{created:NOW,modified:NOW,"0.10.0":NOW}};
+  const f=workflowFixture(t,retire(claimed(),owner(claimed()),NOW)),doc={versions:["0.10.0"],time:{created:NOW,modified:NOW,"0.10.0":NOW}};
   writeFileSync(join(f.root,"package.json"),JSON.stringify(doc));
+  writeFileSync(join(f.root,"bin/git"),`#!/bin/sh\ncase "$*" in "rev-parse HEAD") printf '${C}\\n';; "ls-remote --exit-code --heads origin release/0.10"|"ls-remote --exit-code --heads origin release-state") exit 2;; esac\nexit 0\n`);
   const result=runWorkflowBlock(f,workflowRunBlock("prepare"),{VERSION:"0.10.1",NOTES:"Release notes",NPM_FAIL:"4",STATE_BRANCH:"release-state"});
   assert.notEqual(result.status,0);
   assert.doesNotMatch(readFileSync(f.effectLog,"utf8"),/git\t(?:config|add|commit|push)/);
@@ -552,7 +751,7 @@ test("real promoter leaves an unknown outcome after a write failure or second re
 
 test("production install effect writes durable failure evidence and permits a later success",t=>{const pub=published(),root=mkdtempSync(join(tmpdir(),"slate-install-failure-"));t.after(()=>rmSync(root,{recursive:true,force:true}));const failureOut=join(root,"failure.json");assert.throws(()=>executeInstall({state:pub,expected:owner(pub),runId:"17",runAttempt:"2",workspace:root,out:join(root,"proof.json"),failureOut,exec:()=>{throw new Error("offline install failed");}}));const failure=JSON.parse(readFileSync(failureOut,"utf8"));assert.deepEqual({execution:failure.execution,result:failure.result,failure:failure.failure},{execution:"17:2",result:"failed",failure:"install-command"});const recorded=recordInstallFailure(pub,failure,owner(pub),NOW);let n=0;const proof=executeInstall({state:recorded,expected:owner(recorded),runId:"17",runAttempt:"3",workspace:root,out:join(root,"proof.json"),failureOut:join(root,"later-failure.json"),exec:()=>++n===2?{stdout:'{"type":"response","command":"get_commands","data":{"commands":[{"name":"slate","sourceInfo":{"source":"npm:ytdb-slate@0.10.1"}}]}}\n'}:{stdout:""}});const success=recordInstallProof(recorded,proof,owner(recorded),NOW);assert.equal(success.status,"proved");assert.equal(success.installFailures.length,1);assert.equal(success.installProof.execution,"17:3");});
 
-test("production workflow carries immutable identity through every stage and confines the secret",()=>{const job=(name:string)=>workflow.match(new RegExp(`\\n  ${name}:\\n[\\s\\S]*?(?=\\n  [a-z][a-z-]*:\\n|$)`))?.[0]??"";for(const name of["seal-upload","upload","record-registry","install-proof","record-install-failure","record-proof","promote","record-promotion","finalize"])assert.match(job(name),/--identity/);assert.match(job("registry-proof"),/expected=\{identity:/);for(const name of["recover","recover-promote","recover-promotion-record","abandon","retire","close"])assert.match(job(name),/IDENTITY|--identity/);assert.match(job("prepare"),/--authorization "\$GITHUB_RUN_ID"/);assert.match(job("prepare"),/old_identity.*identity.*status.*!= prepared/);assert.match(job("record-install-failure"),/if: always\(\) && needs\.install-proof\.result == 'failure'/);assert.equal(workflow.split("\n").filter(x=>x.includes("NPM_STAGE_ONLY_TOKEN")).length,2);assert.match(job("upload"),/environment: npm-release[\s\S]*id-token: write/);assert.doesNotMatch(job("promote"),/npm (ci|install|test|pack)/);for(const text of[releasing,agents,mechanism]){assert.match(text,/install-failure-<attempt>/);assert.match(text,/install-failures\//);assert.match(text,/record-install-failure/);}for(const text of [releasing,agents,mechanism]){assert.match(text,/started before pull request #439 merged/);assert.doesNotMatch(text,/started before this fix/);}assert.match(releasing,/Do not rerun only `record-install-failure`/);assert.match(releasing,/If installation fails again, the failure recorder uses the same new run attempt\./);assert.match(releasing,/If installation succeeds, the failure recorder is skipped\./);assert.match(releasing,/The release can continue only after the required proofs succeed\./);assert.match(releasing,/dependent jobs can promote `latest` and create final records/);});
+test("production workflow carries immutable identity through every stage and confines the secret",()=>{const job=(name:string)=>workflow.match(new RegExp(`\\n  ${name}:\\n[\\s\\S]*?(?=\\n  [a-z][a-z-]*:\\n|$)`))?.[0]??"";for(const name of["seal-upload","upload","record-registry","install-proof","record-install-failure","record-proof","promote","record-promotion","finalize"])assert.match(job(name),/--identity/);assert.match(job("registry-proof"),/expected=\{identity:/);for(const name of["recover","recover-promote","recover-promotion-record","abandon","retire","close"])assert.match(job(name),/IDENTITY|--identity/);assert.match(job("prepare"),/--authorization "\$GITHUB_RUN_ID"/);assert.match(job("prepare"),/generationRecord/);assert.match(job("record-install-failure"),/if: \$\{\{ always\(\) && needs\.identify\.result == 'success' && needs\.install-proof\.result == 'failure'/);assert.equal(workflow.split("\n").filter(x=>x.includes("NPM_STAGE_ONLY_TOKEN")).length,2);assert.match(job("upload"),/environment: npm-release[\s\S]*id-token: write/);assert.doesNotMatch(job("promote"),/npm (ci|install|test|pack)/);for(const text of[releasing,agents,mechanism]){assert.match(text,/install-failure-<attempt>/);assert.match(text,/install-failures\//);assert.match(text,/record-install-failure/);}for(const text of [releasing,agents,mechanism]){assert.match(text,/started before pull request #439 merged/);assert.doesNotMatch(text,/started before this fix/);}assert.match(releasing,/Do not rerun only `record-install-failure`/);assert.match(releasing,/If installation fails again, the failure recorder uses the same new run attempt\./);assert.match(releasing,/If installation succeeds, the failure recorder is skipped\./);assert.match(releasing,/The release can continue only after the required proofs succeed\./);assert.match(releasing,/dependent jobs can promote `latest` and create final records/);});
 
 test("competing durable writers reject a stale compare-and-swap lease",t=>{const root=mkdtempSync(join(tmpdir(),"slate-cas-"));t.after(()=>rmSync(root,{recursive:true,force:true}));const env={PATH:process.env.PATH??"",HOME:root,GIT_CONFIG_NOSYSTEM:"1",GIT_CONFIG_GLOBAL:"/dev/null"};const run=(cwd:string,...args:string[])=>{const r=spawnSync("git",args,{cwd,env,encoding:"utf8",timeout:10000});assert.equal(r.status,0,r.stderr);return r.stdout.trim();};const remote=join(root,"remote.git"),seed=join(root,"seed");run(root,"init","--bare",remote);mkdirSync(seed);run(seed,"init","-b","main");run(seed,"config","user.name","Test");run(seed,"config","user.email","test@example.invalid");writeFileSync(join(seed,"state"),"one");run(seed,"add","state");run(seed,"commit","-m","seed");run(seed,"remote","add","origin",remote);run(seed,"push","origin","HEAD:release-state");const a=join(root,"a"),b=join(root,"b");run(root,"clone","--branch","release-state",remote,a);run(root,"clone","--branch","release-state",remote,b);for(const d of [a,b]){run(d,"config","user.name","Test");run(d,"config","user.email","test@example.invalid");}const old=run(a,"rev-parse","HEAD");writeFileSync(join(a,"state"),"a");run(a,"commit","-am","a");run(a,"push","origin","HEAD:release-state",`--force-with-lease=refs/heads/release-state:${old}`);writeFileSync(join(b,"state"),"b");run(b,"commit","-am","b");const stale=spawnSync("git",["push","origin","HEAD:release-state",`--force-with-lease=refs/heads/release-state:${old}`],{cwd:b,env,encoding:"utf8",timeout:10000});assert.notEqual(stale.status,0);});
 
@@ -611,3 +810,147 @@ test("real WARN roster accepts the required five-path subset",t=>{
 });
 
 test("roster production contract names the real typecheck command",()=>{const source=readFileSync(new URL("../verification/release-checks.sh",import.meta.url),"utf8");assert.match(source,/^run typecheck npm run typecheck$/m);});
+
+const branchRequest=(authorization="900")=>makeRequest({version:"0.10.1",baseSha:A,notes,currentVersion:"0.10.0",authorization,target:"release/0.10"});
+const branchPr=(r:any,overrides:any={})=>({number:9,merged_at:NOW,state:"closed",head:{ref:`release/v${r.version}-${r.identity.slice(0,12)}`,repo:{full_name:"JetBrains/ytdb-slate"}},base:{ref:"release/0.10"},merge_commit_sha:B,...overrides});
+
+test("bound target format, version line, order, and generation are independent guards",()=>{
+  const r=branchRequest(),legacy=req(),state=initialState(r,NOW),doc={versions:["0.9.0","0.10.0"],time:{created:NOW,modified:NOW,"0.9.0":NOW,"0.10.0":NOW}};
+  assert.equal(r.schema,3);assert.equal(requestTarget(r),"release/0.10");assert.equal(requestTarget(legacy),"main");assert.notEqual(r.identity,legacy.identity);
+  assert.throws(()=>makeRequest({version:r.version,baseSha:A,notes,currentVersion:"0.10.0",authorization:"900",target:"release/0.11"}),/target/);
+  assert.throws(()=>verifyReleaseIdentity({...identity(r),coverageRecord:{...identity(r).coverageRecord,schema:3},associatedPullRequests:[{number:9,merged:true,mergeCommitSha:B,baseRefName:"main"}]}),/merged pull request/);
+  assert.throws(()=>verifyReleaseIdentity({...identity(),pushedBranch:"release/0.10"}),/pushed branch/);
+  assert.equal(compareVersions("0.10.11","0.10.9"),1);assert.equal(compareVersions("1.0.0","0.99.999"),1);assert.equal(assertNewerVersion(doc,"0.10.1"),true);
+  for(const blocked of ["0.10.0","0.9.9"])assert.throws(()=>assertNewerVersion(doc,blocked),/exceed/);
+  assert.throws(()=>assertNewerVersion({...doc,time:{...doc.time,"0.11.0":NOW}},"0.10.1"),/exceed/);
+  assert.throws(()=>assertNewerVersion({error:{code:"E404"}},"0.10.1"));
+  assert.equal(generationRecord([{state,request:r}],"900").identity,r.identity);
+  assert.throws(()=>generationRecord([{state,request:r},{state:initialState(branchRequest("900"),NOW),request:{...r,baseSha:C}}],"900"));
+  assert.throws(()=>generationRecord([{state:retire(state,{identity:r.identity,version:r.version,releaseSha:null,releaseParent:null},NOW,{merged:true}),request:r}],"900"),/already ended/);
+  assert.equal(generationRecord([{state,request:r}],"901"),null);
+});
+
+test("release-branch pull request matching validates every page and the bound target",()=>{
+  const r=branchRequest(),p=branchPr(r),pages=JSON.stringify([])+"\n"+JSON.stringify([p])+"\n",target={repository:"JetBrains/ytdb-slate",branch:p.head.ref,target:"release/0.10"};
+  assert.equal(publishCandidate(pages,r).releaseSha,B);
+  assert.equal(preparedMergeProof(pages,target),true);
+  assert.deepEqual(abandonPullRequests(JSON.stringify([{...p,merged_at:null,state:"open"}])+"\n",target),[9]);
+  for(const bad of [JSON.stringify([p])+"\n{",JSON.stringify([p])+"\n"+JSON.stringify([p]),JSON.stringify([{...p,base:{ref:"main"}}]),JSON.stringify([{...p,head:{...p.head,repo:{full_name:"fork/ytdb-slate"}}}])])assert.throws(()=>publishCandidate(bad,r));
+  const s=initialState(r,NOW),admit={state:s,request:r,version:r.version,identity:r.identity,runId:"900",pages,firstParentShas:[C,B,A],releaseSha:B,parentSha:A};
+  assert.equal(publishAdmission(admit).pullRequest,9);
+  for(const wrong of [{...admit,firstParentShas:[C,A]},{...admit,identity:"f".repeat(64)},{...admit,request:req()},{...admit,pages:JSON.stringify([branchPr(r,{base:{ref:"main"}})])}])assert.throws(()=>publishAdmission(wrong));
+  const claimedState=claimRelease(s,{request:r,launchIdentity:r.identity,releaseSha:B,parentSha:A,pullRequest:9,runId:"900",runAttempt:"1"},NOW);
+  assert.equal(publishAdmission({...admit,state:claimedState,pages:undefined,firstParentShas:undefined}).continuation,true);
+  assert.throws(()=>publishAdmission({...admit,state:claimedState,runId:"901"}),/owning/);
+  assert.throws(()=>claimRelease(claimedState,{request:r,launchIdentity:r.identity,releaseSha:B,parentSha:A,pullRequest:9,runId:"901",runAttempt:"1"},NOW),/another workflow run/);
+  assert.deepEqual(claimRelease(claimedState,{request:r,launchIdentity:r.identity,releaseSha:B,parentSha:A,pullRequest:9,runId:"900",runAttempt:"2"},NOW),claimedState);
+  const next=advance(advance(claimedState,"checking",owner(claimedState),NOW),"ready",owner(claimedState),NOW),artifact={file:"package.tgz",...hashBytes(Buffer.from("archive"))};
+  assert.throws(()=>beginUpload(next,artifact,owner(next),"901","1",NOW),/owned/);
+  const sealed=beginUpload(next,artifact,owner(next),"900","1",NOW);
+  assert.throws(()=>authorizeUpload({...sealed,claimExecution:"901:1"},owner(sealed),"900","1"),/sealed/);
+});
+
+function publishWorkflowFixture(t:any){
+  const r=branchRequest(),s=initialState(r,NOW),f=workflowFixture(t,s);
+  mkdirSync(join(f.root,"durable/verification"),{recursive:true});
+  cpSync(new URL("../verification/release-control.mjs",import.meta.url),join(f.root,"durable/verification/release-control.mjs"));
+  writeFileSync(join(f.root,"durable/request.json"),JSON.stringify(r));writeFileSync(join(f.root,"durable/state.json"),JSON.stringify(s));
+  writeFileSync(join(f.root,"state/request.json"),JSON.stringify(r));mkdirSync(join(f.root,"state/verification"),{recursive:true});cpSync(new URL("../verification/release-control.mjs",import.meta.url),join(f.root,"state/verification/release-control.mjs"));
+  writeFileSync(join(f.root,"prs.jsonl"),JSON.stringify([])+"\n"+JSON.stringify([branchPr(r)])+"\n");
+  const path=`release/requests/${r.version}`;
+  writeFileSync(join(f.root,"candidate-request.json"),JSON.stringify(r));writeFileSync(join(f.root,"candidate-notes.md"),notes);
+  writeFileSync(join(f.root,"candidate-coverage.json"),JSON.stringify({schema:3,parentPolicy:"exact-release-parent",allowedPaths:r.coverageDisposition.allowedPaths,verdict:"WARN"}));
+  writeFileSync(join(f.root,"candidate-package.json"),JSON.stringify({version:r.version}));
+  writeFileSync(join(f.root,"bin/git"),`#!/bin/sh
+printf 'git\\t%s\\n' "$*" >>"$EFFECT_LOG"
+case "$*" in
+  "ls-remote --exit-code --heads origin release/0.10") printf '${B}\\trefs/heads/release/0.10\\n';;
+  "rev-list --first-parent ${B}") printf '${C}\\n${B}\\n${A}\\n';;
+  "rev-parse ${B}^1") printf '${A}\\n';;
+  "show ${B}:${path}/request.json") cat "$HOME/candidate-request.json";;
+  "show ${B}:${path}/notes.md") cat "$HOME/candidate-notes.md";;
+  "show ${B}:${path}/coverage.json") cat "$HOME/candidate-coverage.json";;
+  "show ${B}:package.json") cat "$HOME/candidate-package.json";;
+  "diff-tree "*|"diff --no-renames --name-only -z ${A}..${B}") printf 'package.json\\0package-lock.json\\0${path}/coverage.json\\0${path}/notes.md\\0${path}/request.json\\0';;
+  "rev-parse HEAD") printf '${C}\\n';;
+esac
+exit 0
+`);
+  return{...f,r,s};
+}
+
+test("real publish and claim workflow blocks admit a paginated merge and reject a second run",t=>{
+  const f=publishWorkflowFixture(t),script=workflowStepRunBlock("identify","publish");
+  const run=(more:any={})=>runWorkflowBlock(f,script,{VERSION:f.r.version,IDENTITY:f.r.identity,...more});
+  const accepted=run();assert.equal(accepted.status,0,accepted.stderr);
+  const output=outputValues(f.env.GITHUB_OUTPUT);assert.equal(output.release_sha,B);assert.equal(output.parent_sha,A);assert.equal(output.pull_request,"9");assert.equal(output.identity,f.r.identity);
+  assert.match(readFileSync(f.effectLog,"utf8"),/gh\tapi --paginate/);
+  const values={...workflowValues({...f.s,releaseSha:B,releaseParent:A}),"needs.identify.outputs.pull_request":"9"};
+  const claimScript=renderWorkflowBlock(workflowRunBlock("claim"),values);
+  const first=runWorkflowBlock(f,claimScript,{LAUNCH_IDENTITY:f.r.identity});assert.equal(first.status,0,first.stderr);assert.equal(JSON.parse(readFileSync(join(f.root,"state/state.json"),"utf8")).claimExecution,"900:2");
+  writeFileSync(f.effectLog,"");const duplicate=runWorkflowBlock(f,claimScript,{LAUNCH_IDENTITY:f.r.identity,GITHUB_RUN_ID:"901"});assert.notEqual(duplicate.status,0);assert.doesNotMatch(readFileSync(f.effectLog,"utf8"),/push origin/);
+  const same=runWorkflowBlock(f,claimScript,{LAUNCH_IDENTITY:f.r.identity,GITHUB_RUN_ATTEMPT:"3"});assert.equal(same.status,0,same.stderr);
+  writeFileSync(join(f.root,"durable/state.json"),readFileSync(join(f.root,"state/state.json")));
+  writeFileSync(f.effectLog,"");const continuation=run({GITHUB_RUN_ATTEMPT:"3"});assert.equal(continuation.status,0,continuation.stderr);assert.doesNotMatch(readFileSync(f.effectLog,"utf8"),/gh\tapi|git\t/);
+  const foreign=run({GITHUB_RUN_ID:"901"});assert.notEqual(foreign.status,0);
+});
+
+test("real publish workflow rejects missing and forged pull request evidence before claim",t=>{
+  for(const payload of ["{\n",JSON.stringify([])+"\n",JSON.stringify([branchPr(branchRequest(),{base:{ref:"main"}})])+"\n",JSON.stringify([branchPr(branchRequest())])+"\n"+JSON.stringify([branchPr(branchRequest(),{number:10})])+"\n"]){
+    const f=publishWorkflowFixture(t);writeFileSync(join(f.root,"prs.jsonl"),payload);
+    const result=runWorkflowBlock(f,workflowStepRunBlock("identify","publish"),{VERSION:f.r.version,IDENTITY:f.r.identity});assert.notEqual(result.status,0);
+    assert.equal(JSON.parse(readFileSync(join(f.root,"durable/state.json"),"utf8")).status,"prepared");
+    assert.doesNotMatch(readFileSync(f.effectLog,"utf8"),/push origin/);
+  }
+});
+
+test("stored control validates both report artifacts and exact changed paths",t=>{
+  const f=publishWorkflowFixture(t),report=join(f.root,"reports"),request=f.r;
+  for(const node of ["22.23.1","24.18.0"]){const dir=join(report,`release-check-evidence-${node}`);mkdirSync(dir,{recursive:true});writeFileSync(join(dir,"roster.txt"),`ROSTER COMPLETE head=${B} base=${A} mode=report\n`);writeFileSync(join(dir,"commands.tsv"),["typecheck","packaging","packaging-self","load","resolver","tests","ladder","package-content","package-content-self","writing","writing-scaling","writing-reminder","worker-reminder","isolated-load"].map(x=>`${x}\tcommand\n`).join(""));writeFileSync(join(dir,"coverage-verdict.txt"),"RUN VERDICT: WARN — fixture\n");writeFileSync(join(dir,"tests.log"),"RUN VERDICT: WARN — fixture\n");}
+  const allowed=request.coverageDisposition.allowedPaths,options={root:report,parentSha:A,releaseSha:B,request,changedPaths:allowed};
+  assert.match(verifyCoverageEvidence(options),new RegExp(request.identity));
+  assert.throws(()=>verifyCoverageEvidence({...options,changedPaths:[...allowed,"extension/index.ts"]}),/coverage WARN/);
+  const second=join(report,"release-check-evidence-24.18.0");writeFileSync(join(second,"coverage-verdict.txt"),"RUN VERDICT: PASS — forged\n");assert.throws(()=>verifyCoverageEvidence(options),/malformed/);
+  writeFileSync(join(second,"coverage-verdict.txt"),"RUN VERDICT: WARN — fixture\n");writeFileSync(join(second,"roster.txt"),`ROSTER COMPLETE head=${C} base=${A} mode=report\n`);assert.throws(()=>verifyCoverageEvidence(options),/bind/);
+  const source=workflowJobBlock("coverage-disposition").join("\n");assert.match(source,/state\/verification\/release-control.mjs coverage-report/);for(const name of ["checks","pack","install-proof"]){const job=workflowJobBlock(name).join("\n");assert.match(job,/package-manager-cache: false/);assert.doesNotMatch(job,/cache: npm/);}
+  writeFileSync(join(second,"roster.txt"),`ROSTER COMPLETE head=${B} base=${A} mode=report\n`);
+  const script=renderWorkflowBlock(workflowRunBlock("coverage-disposition"),workflowValues({...f.s,releaseSha:B,releaseParent:A}));
+  const accepted=runWorkflowBlock(f,script);assert.equal(accepted.status,0,accepted.stderr);assert.match(readFileSync(join(f.root,"coverage-disposition.txt"),"utf8"),new RegExp(request.identity));
+  writeFileSync(join(second,"tests.log"),"RUN VERDICT: PASS — forged\n");const refused=runWorkflowBlock(f,script);assert.notEqual(refused.status,0);
+});
+
+test("real preparation binds an existing release branch and refuses moved heads or a repeated unrecorded attempt",t=>{
+  const root=mkdtempSync(join(tmpdir(),"slate-branch-prepare-")),repo=join(root,"repo"),remote=join(root,"remote.git"),bin=join(root,"bin");t.after(()=>rmSync(root,{recursive:true,force:true}));mkdirSync(repo);mkdirSync(bin);
+  const env={PATH:`${bin}:${dirname(process.execPath)}:/usr/bin:/bin`,HOME:root,TMPDIR:root,STATE_BRANCH:"release-state",REGISTRY:"https://registry.invalid/",GITHUB_RUN_ID:"900",GITHUB_RUN_ATTEMPT:"1",GITHUB_REPOSITORY:"JetBrains/ytdb-slate"};
+  const git=(cwd:string,...args:string[])=>{const p=spawnSync("git",args,{cwd,env,encoding:"utf8",timeout:10000});assert.equal(p.status,0,p.stderr);return p.stdout.trim();};
+  git(root,"init","--bare",remote);git(repo,"init","-b","main");git(repo,"remote","add","origin",remote);git(repo,"config","user.name","Fixture");git(repo,"config","user.email","fixture@example.invalid");mkdirSync(join(repo,"verification"));for(const filename of["release-control.mjs","release-job.mjs"])cpSync(new URL(`../verification/${filename}`,import.meta.url),join(repo,"verification",filename));writeFileSync(join(repo,"package.json"),'{"version":"0.10.0"}\n');writeFileSync(join(repo,"package-lock.json"),'{"version":"0.10.0","packages":{"":{"version":"0.10.0"}}}\n');git(repo,"add",".");git(repo,"commit","-m","base");const base=git(repo,"rev-parse","HEAD");git(repo,"push","origin","HEAD:main");git(repo,"push","origin","HEAD:release/0.10");
+  writeFileSync(join(bin,"npm"),`#!/bin/sh\nprintf '{"versions":["0.9.0","0.10.0"],"time":{"created":"${NOW}","modified":"${NOW}","0.9.0":"${NOW}","0.10.0":"${NOW}"}}\\n'\n`);chmodSync(join(bin,"npm"),0o755);
+  const script=workflowRunBlock("prepare"),run=(attempt:string,id="900")=>spawnSync("/bin/bash",["-c",script],{cwd:repo,env:{...env,VERSION:"0.10.1",NOTES:"Release notes",GITHUB_RUN_ATTEMPT:attempt,GITHUB_RUN_ID:id},encoding:"utf8",timeout:20000});
+  const unrecorded=run("2");assert.notEqual(unrecorded.status,0);assert.match(unrecorded.stderr,/no recorded base/);
+  const first=run("1");assert.equal(first.status,0,first.stderr);assert.match(first.stdout,/Target branch: release\/0\.10/);
+  const request=JSON.parse(git(repo,"show","origin/release-state:request.json"));assert.equal(request.targetBranch,"release/0.10");assert.equal(request.baseSha,base);assert.equal(request.schema,3);
+  const prepared=git(repo,"rev-parse","origin/release-state");const branch=`release/v0.10.1-${request.identity.slice(0,12)}`;
+  assert.equal(git(repo,"rev-parse",`${branch}^`),base);
+  git(repo,"switch","--detach",base);const repeat=run("2");assert.equal(repeat.status,0,repeat.stderr);assert.match(repeat.stdout,/Continuing idempotently/);
+  git(repo,"switch","--detach",base);git(repo,"switch","-c","backport");writeFileSync(join(repo,"change"),"backport\n");git(repo,"add","change");git(repo,"commit","-m","backport");git(repo,"push","origin","HEAD:release/0.10");git(repo,"switch","--detach",base);
+  const moved=run("3");assert.notEqual(moved.status,0);assert.match(moved.stderr,/target moved/);assert.equal(git(repo,"rev-parse","origin/release-state"),prepared);
+  const newRun=run("1","901");assert.notEqual(newRun.status,0);assert.match(newRun.stderr,/owns the lane/);
+});
+
+test("real operator workflow blocks match only the durable release-branch target",t=>{
+  const r=branchRequest(),state=initialState(r,NOW),branch=`release/v${r.version}-${r.identity.slice(0,12)}`,merged=branchPr(r),open={...merged,merged_at:null,state:"open"};
+  for(const [job,pr,status] of [["retire",merged,"retired"],["abandon",open,"abandoned"]] as const){
+    const f=workflowFixture(t,state);writeFileSync(join(f.root,"request.json"),JSON.stringify(r));writeFileSync(join(f.root,"state/request.json"),JSON.stringify(r));writeFileSync(join(f.root,"prs.jsonl"),JSON.stringify([])+"\n"+JSON.stringify([pr])+"\n");
+    const result=runWorkflowBlock(f,workflowRunBlock(job),{VERSION:r.version,IDENTITY:r.identity,GH_EXPECT_PRS_QUERY:`repos/JetBrains/ytdb-slate/pulls?state=all&head=JetBrains:${branch}&per_page=100`});
+    assert.equal(result.status,0,`${job}: ${result.stderr}`);assert.equal(JSON.parse(readFileSync(join(f.root,"state.json"),"utf8")).status,status);
+    assert.match(readFileSync(f.effectLog,"utf8"),/gh\tapi --paginate/);
+  }
+  for(const job of ["retire","abandon"]){const f=workflowFixture(t,state);writeFileSync(join(f.root,"request.json"),JSON.stringify(r));writeFileSync(join(f.root,"prs.jsonl"),JSON.stringify([branchPr(r,{base:{ref:"main"}})])+"\n");const result=runWorkflowBlock(f,workflowRunBlock(job),{VERSION:r.version,IDENTITY:r.identity});if(job==="retire"){assert.notEqual(result.status,0);assert.equal(JSON.parse(readFileSync(join(f.root,"state.json"),"utf8")).status,"prepared");}else{assert.equal(result.status,0,result.stderr);assert.equal(JSON.parse(readFileSync(join(f.root,"state.json"),"utf8")).status,"abandoned");assert.doesNotMatch(readFileSync(f.effectLog,"utf8"),/gh\tpr close/);}}
+});
+
+test("report mode executes the same roster without a request or a local WARN decision",t=>{
+  const f=createRosterFixture(t),run=spawnSync("/bin/bash",["verification/release-checks.sh","--repo",f.repo,"--base",f.base,"--report","--evidence",f.evidence],{cwd:f.repo,env:f.env,encoding:"utf8",timeout:30000});
+  assert.equal(run.status,0,run.stderr+run.stdout);assert.match(readFileSync(join(f.evidence,"roster.txt"),"utf8"),/mode=report/);assert.match(readFileSync(join(f.evidence,"coverage-verdict.txt"),"utf8"),/WARN/);
+  assert.throws(()=>readFileSync(join(f.evidence,"coverage-disposition.txt")));
+  const ci=readFileSync(new URL("../.github/workflows/ci.yml",import.meta.url),"utf8");assert.match(ci,/release\/\[0-9\]\*/);assert.match(ci,/branch creation has no previous commit/);
+});

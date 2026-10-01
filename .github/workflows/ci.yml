@@ -67,7 +67,7 @@ on:
   merge_group:
     types: [checks_requested]
   push:
-    branches: [main]
+    branches: [main, 'release/[0-9]*']
   workflow_dispatch:
 
 # Nothing in this workflow reads or writes repository state through the API:
@@ -174,8 +174,13 @@ jobs:
               base="$MERGE_GROUP_BASE_SHA"
               ;;
             push)
-              # `before` is the previous main tip, so this measures this push and
-              # not an arbitrary merge-base adjacent to it.
+              # A branch-creation push has no earlier tip. Run tests without a gate.
+              if [ "$PUSH_BEFORE_SHA" = "0000000000000000000000000000000000000000" ]; then
+                echo "mode=skip" >> "$GITHUB_OUTPUT"
+                echo "::warning title=Patch coverage skipped::branch creation has no previous commit; tests run without the gate"
+                { echo "## Patch coverage: SKIPPED"; echo "Branch creation has no previous commit. The tests run without the gate."; } >> "$GITHUB_STEP_SUMMARY"
+                exit 0
+              fi
               base="$PUSH_BEFORE_SHA"
               ;;
             workflow_dispatch)

@@ -280,7 +280,7 @@ test("implementer receives its exact report name in the dispatch text", async ()
       };
     } }) as unknown as ThreadManager);
   assert.ok(thread);
-  const call = { name: "implementation", type: "implementer", task: "Make the fix", model: "sol-6", reason: "routine" };
+  const call = { name: "implementation", type: "implementer", task: "Make the fix", model: "sol-6.1", reason: "routine" };
   await assert.rejects(thread.execute("id", call, undefined, undefined, {}), /requires a positive safe trackNumber/);
   await thread.execute("id", { ...call, trackNumber: 3 }, undefined, undefined, {});
   assert.match(task!, new RegExp(`slate-changes/${store.currentChange}/track-3-implementer-report.md`));

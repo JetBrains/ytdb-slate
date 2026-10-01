@@ -20,23 +20,23 @@ Repository collaborators who may merge remain the trusted set. Existing collabor
 
 ## Draft the release notes
 
-The release agent drafts the notes before it starts `prepare`. Use the latest version tag as the start of the change list:
+The release agent drafts the notes before it starts `prepare`. Use the latest version tag reachable from the target branch as the start of the change list. Select the target branch before drafting notes. For a version `X.Y.Z`, use `release/X.Y` when that branch exists. Otherwise use `main`.
 
 ```sh
-git fetch origin --tags
-git tag -l 'v*' --sort=-v:refname | head -n 1
-git log --first-parent --format='%h %s' v<last>..origin/main
+git fetch origin <target> --tags
+git tag --merged origin/<target> -l 'v*' --sort=-v:refname | head -n 1
+git log --first-parent --format='%h %s' v<last>..origin/<target>
 ```
 
-The `git tag` command prints the latest version tag. Replace `v<last>` with that tag. Each squash-merge title ends with a pull request number in the form `(#NNN)`. A title can contain more than one number. Use `gh pr view <number>` to check which pull request describes the change. Read the pull request when its title does not explain the effect for users.
+The `git tag` command prints the latest version tag on the target branch. Replace `v<last>` with that tag. Each squash-merge title ends with a pull request number in the form `(#NNN)`. A title can contain more than one number. Use `gh pr view <number>` to check which pull request describes the change. Read the pull request when its title does not explain the effect for users.
 
 If a commit title has no pull request number, read the change with `git show <commit>`. Include that commit when it changes behavior for users.
 
 Find configuration changes in the same range:
 
 ```sh
-git diff --name-status v<last>..origin/main -- .pi/slate.json extension/ docs/ README.md
-git diff v<last>..origin/main -- docs/configuration.md
+git diff --name-status v<last>..origin/<target> -- .pi/slate.json extension/ docs/ README.md
+git diff v<last>..origin/<target> -- docs/configuration.md
 ```
 
 Read relevant diffs under `extension/` and `docs/`. `docs/configuration.md` lists configuration keys and defaults. Look for added, removed, renamed, or ignored keys and changed defaults. State any action users need to take to keep Slate working.
@@ -44,7 +44,7 @@ Read relevant diffs under `extension/` and `docs/`. `docs/configuration.md` list
 Check the package manifest for pi software development kit (SDK) changes:
 
 ```sh
-git diff v<last>..origin/main -- package.json
+git diff v<last>..origin/<target> -- package.json
 ```
 
 Read the exact SDK pins in `devDependencies`. The SDK entries in `peerDependencies` use `*`. A changed pin alone does not prove a minimum working pi version. State a minimum version only when tests provide evidence for it.
@@ -83,28 +83,42 @@ Follow the writing convention in `AGENTS.md` and `docs/writing-guidance.md`. Rel
 
 Show the complete notes to the user. Wait for explicit approval before running `prepare`. Enter the approved text unchanged in the `notes` input. The notes hash becomes part of the request identity, so the notes cannot change after preparation.
 
+## Maintain a release line
+
+After the first verified promotion of line `X.Y`, an administrator creates `release/X.Y` at that release tag commit. The administrator updates the exact branch name in the merge-queue ruleset. The administrator locks the previous release branch. Do not create a branch while a request for the same line is open. Only the administrator creates or deletes release branches.
+
+Merge a fix into `main` first. Then open a backport pull request into `release/X.Y`. Leave release request records out of backports. The release branch uses the same trusted group as `main`: every collaborator with write access. Its ruleset requires a pull request, CI checks and a merge queue for the current line. It requires no approval and permits no force push or bypass. No ruleset restricts branch creation or deletion. A collaborator can recreate a release branch at unreviewed content. The project accepts this risk and relies on developer responsibility.
+
+A push to a release branch runs CI after that branch carries the CI push trigger. A branch-creation push runs tests without patch coverage and reports the skip. Before the first release from `release/0.12`, merge `main` into that branch in one follow-up pull request. This gives the branch the CI trigger and the check roster's report mode. Do not merge that pull request while `main` holds work for the next release line.
+
+Do not merge a change to the interface between the Release workflow definition and stored control code on `main` while a release holds the lane.
+
 ## Start a release
 
 1. Open the **Release** workflow on branch `main`.
 2. Choose `prepare`.
-3. Enter one unused semantic version and the approved Markdown release notes from **Draft the release notes**.
+3. Enter one unused semantic version and the approved Markdown release notes from **Draft the release notes**. The version must be higher than every version in npm's version list and publication-time map.
 4. Run the workflow once. Leave the authorization identity input empty for preparation.
 
-Each preparation dispatch creates a new authorization generation. A rerun of that same workflow run keeps the generation. Preparation checks the full release-state history at the commit named by its write lease. It refuses any identity that has ended, including one from an earlier run. A history read failure also stops preparation. A later dispatch creates a new request identity even when the version, notes, and base are unchanged.
+Each preparation dispatch creates a new authorization generation. A rerun of that same workflow run keeps the generation. Preparation checks the full release-state history at the commit named by its write lease. It refuses any identity that has ended, including one from an earlier run. A history read failure also stops preparation. A later dispatch creates a new request identity even when the version, notes, and base are unchanged. One authorization generation can have only one identity. A release branch may move between attempts. A repeated attempt refuses when its recorded base no longer matches the branch head. A repeated attempt with no recorded release-branch base also refuses.
 
-Preparation first claims the single release lane on the `release-state` branch. It then creates a branch named from the version and request identity. The workflow prints a compare link. Use that link to create the pull request.
+Preparation reads the single release lane on `release-state`. It checks npm version order after that read. It writes the request with a compare-and-swap lease. The request binds its target branch. It then creates a request branch at the recorded target head. The workflow prints the target and a compare link. Use that link to create the pull request. Check the target before merge. If the target is wrong, abandon the unmerged request and prepare again after correcting the branch setup. A repeated preparation attempt uses its recorded base. If it refuses because the target moved, abandon the prepared request and start a new dispatch. If no request was stored, start a new dispatch.
 
-Review the exact metadata-only diff. A first request normally changes `package.json`, `package-lock.json`, and three files under `release/requests/<version>/`. A corrected request may change a subset of the three request files when `main` already names the same unused version. It must change `request.json`. The other request files must still match the reviewed request content. A request that changes the version must change both manifests and `request.json`. No executable-code path receives a coverage exception.
+Review the exact metadata-only diff. A first request normally changes `package.json`, `package-lock.json`, and three files under `release/requests/<version>/`. A corrected request may change a subset of the three request files when the bound target branch already names the same unused version. It must change `request.json`. The other request files must still match the reviewed request content. A request that changes the version must change both manifests and `request.json`. No executable-code path receives a coverage exception.
 
-Use the repository's enabled squash merge or merge queue. The workflow examines every commit in the resulting `main` push. It selects the exact release commit, its own parent and diff, and its associated merged pull request. An unrelated commit in the same grouped push does not become the release identity.
+Use the repository's enabled squash merge or merge queue. For a `main` target, the workflow examines every commit in the resulting push. It selects the exact release commit, its own parent and diff, and its associated merged pull request. An unrelated commit in the same grouped push does not become the release identity. For a release-branch target, check that its check roster offers report mode before merge. The report mode runs checks without receiving a request record.
 
-The merge authorizes publication. Do not edit the durable request or notes after preparation. Do not change npm `latest` manually while release automation is active.
+A `main` merge authorizes publication. A release-branch merge also needs a `publish` dispatch on `main`. Enter the exact version and request identity from `release-state`. A forgotten dispatch leaves the lane prepared. Dispatch `publish` later or retire the merged request. A release does not depend on branch continuous integration (CI) runs. Do not edit the durable request or notes after preparation. Do not change npm `latest` manually while release automation is active.
 
 ## Automatic publication
 
+Jobs that run the release commit's check roster or package content hold no persisted checkout credential and save no dependency cache. On a `main` release, identify, claim, and seal run control code from the main release commit. Claim and seal write `release-state` with a persisted checkout credential.
+
+For release-branch publication, identify, claim, the coverage decision, seal, upload, registry and installation proofs, recorders, promotion, and finalization use control code from `release-state`. Recover and close also use stored control code. Abandon and retire use current control code from the dispatch commit on `main` for operator checks. Some of their state transitions use stored control code.
+
 The workflow performs these actions in order:
 
-1. It claims the exact request identity only while the durable owner matches the identity found at launch. A repeated claim for the same merge is safe. A claim after retirement or new preparation is refused.
+1. It claims the exact request identity only while the durable owner matches the identity found at launch. Only another attempt of the owning workflow run may repeat a claim. A claim after retirement or new preparation is refused.
 2. It runs every executable release check in `verification/release-checks.sh` against the exact commit and parent. A failure, refusal, unsupported result, missing verdict, or `NOT RUN` stops publication.
 3. It accepts a coverage `WARN` only when the changed paths follow the reviewed request path rule. The paths must be a subset of the permitted set and include `request.json`. A version-changing request must also change both manifests. It records the request identity, parent, and head with that disposition.
 4. It packs and fingerprints one archive without repository-write or npm authority.
@@ -132,11 +146,11 @@ Read the failed job and the `release-state` history before acting. Download reta
 
 ### Before upload
 
-A branch-creation retry for the exact same prepared request is idempotent. Copy the exact request identity from the active `release-state` record into the workflow authorization identity input. Choose `abandon` only for an unmerged prepared request with no upload attempt. The workflow reads every page of GitHub pull requests. It accepts only pull requests from this repository and the identity-bound branch into `main`. It refuses a merged match or an incomplete or malformed read. It closes only open exact matches. It also accepts no match or several unmerged matches. It tolerates a missing branch and records abandonment. Do not close or delete the branch first.
+A branch-creation retry for the exact same prepared request is idempotent. Copy the exact request identity from the active `release-state` record into the workflow authorization identity input. Choose `abandon` only for an unmerged prepared request with no upload attempt. The workflow reads every page of GitHub pull requests. It accepts only pull requests from this repository and the identity-bound branch into the bound target. It refuses a merged match or an incomplete or malformed read. It closes only open exact matches. It also accepts no match or several unmerged matches. It tolerates a missing branch and records abandonment. Do not close or delete the branch first.
 
 Do not rerun an abandonment run that started before pull request #458 merged. Start a new abandonment dispatch from `main` instead.
 
-After a merged authorization fails before upload, correct the cause in normal development. Re-run the failed workflow jobs when that is enough. If the authorization must be revoked, enter its exact version and request identity, then choose `retire`. A prepared request needs exactly one merged pull request into `main` from this repository and its identity-bound branch. A failed or malformed GitHub read leaves the state unchanged. An unmerged prepared request can only be abandoned. Retirement also accepts an exact claimed authorization with no upload attempt. Retirement uses the current control code for a prepared request. It keeps empty claim fields, preserves history, and permanently revokes that identity.
+After a merged authorization fails before upload, correct the cause in normal development. Re-run the failed workflow jobs when that is enough. If the authorization must be revoked, enter its exact version and request identity, then choose `retire`. A prepared request needs exactly one merged pull request into its bound target from this repository and its identity-bound branch. A failed or malformed GitHub read leaves the state unchanged. An unmerged prepared request can only be abandoned. Retirement also accepts an exact claimed authorization with no upload attempt. Retirement uses the current control code for a prepared request. It keeps empty claim fields, preserves history, and permanently revokes that identity.
 
 Do not retire while a preparation or claim run that started before pull request #439 merged is still active. Do not rerun a preparation or claim run that started before pull request #439 merged. GitHub permits reruns for 30 days.
 

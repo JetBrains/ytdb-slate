@@ -60,8 +60,8 @@ test("compression calls a provider registered only in Pi's model registry", { ti
 	}));
 	assert.strictEqual(registry.find(PROVIDER, MODEL.id)?.api, API);
 	const logicalRuntime = createLogicalRuntime({ trusted: true, projectConfig: { router: {
-		models: { replace: [{ model: "claude-sonnet-5", preferredProvider: PROVIDER, providers: { [PROVIDER]: MODEL.id } }] },
-		compressor: { models: [{ model: "claude-sonnet-5", effort: "medium" }] },
+		models: { replace: [{ model: "claude-sonnet-5.5", preferredProvider: PROVIDER, providers: { [PROVIDER]: MODEL.id } }] },
+		compressor: { models: [{ model: "claude-sonnet-5.5", effort: "medium" }] },
 	} } });
 	const admission = logicalRuntime.admit();
 	assert.ok(admission);
@@ -142,8 +142,8 @@ async function registryScenario(
 		return stream;
 	}
 	const logicalRuntime = createLogicalRuntime({ trusted: true, projectConfig: { router: {
-		models: { replace: [{ model: "claude-sonnet-5", preferredProvider: PROVIDER, providers: { [PROVIDER]: MODEL.id } }] },
-		compressor: { models: [{ model: "claude-sonnet-5", effort: "medium" }] },
+		models: { replace: [{ model: "claude-sonnet-5.5", preferredProvider: PROVIDER, providers: { [PROVIDER]: MODEL.id } }] },
+		compressor: { models: [{ model: "claude-sonnet-5.5", effort: "medium" }] },
 	} } });
 	const admission = logicalRuntime.admit();
 	assert.ok(admission);

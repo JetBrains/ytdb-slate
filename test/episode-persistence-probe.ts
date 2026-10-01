@@ -45,8 +45,8 @@ store.save = () => {
 };
 
 const logicalRuntime = createLogicalRuntime({ trusted: true, projectConfig: { router: {
-  models: { include: [], add: [{ model: "fixture", capabilityRating: 50, effort: "off", costRating: 50, preferredProvider: "test", providers: { test: "worker" }, guidelines: [], cautions: [] }], replace: [{ model: "claude-sonnet-5", preferredProvider: "anthropic", providers: { anthropic: "claude-sonnet-5" } }] },
-  compressor: { models: [{ model: "claude-sonnet-5", effort: "medium" }] },
+  models: { include: [], add: [{ model: "fixture", capabilityRating: 50, effort: "off", costRating: 50, preferredProvider: "test", providers: { test: "worker" }, guidelines: [], cautions: [] }], replace: [{ model: "claude-sonnet-5.5", preferredProvider: "anthropic", providers: { anthropic: "claude-sonnet-5-5" } }] },
+  compressor: { models: [{ model: "claude-sonnet-5.5", effort: "medium" }] },
 } } });
 const manager = new ThreadManager(store, {}, undefined, Object.freeze({ ...logicalRuntime, validateRoute: async () => ({ ok: true } as const) }), { enabled: false, maxRetries: 0, baseDelayMs: 0 });
 const messages: unknown[] = [];
@@ -97,7 +97,7 @@ view.openWorkerFor = async ({ requestContract }) => {
 
 const model = {
   provider: "anthropic",
-  id: "claude-sonnet-5",
+  id: "claude-sonnet-5-5",
   api: "stub",
   contextWindow: 200_000,
   maxTokens: 8_192,
