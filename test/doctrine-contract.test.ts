@@ -108,7 +108,7 @@ test("logical doctrine uses the cached static runtime policy without physical ro
   assert.match(doctrine, /\| luna-6 \| 45 \| 5 \| auxiliary tasks only,[^|]+routine text management such as modifying research logs[^|]+\|[^|]+Do not use Luna to handle complex texts\. \|/);
   assert.match(doctrine, /\| sol-6\.1 \| 85 \| 20 \| default thread choice \|/);
   assert.match(doctrine, /Apply a more specific active guideline when it states an exception to a general preference\./);
-  assert.match(doctrine, /\| claude-opus-5\.5 \| 90 \| 65 \| Use Opus 5\.5 only as a reviewer, or as an implementer under the exception rule\. \/ concurrency work \/ data-loss work \/ performance work \/ Do not select Opus 5\.5 as the default implementer\.[^|]+first ask Opus 5\.5 to investigate[^|]+guided attempt also fails[^|]+Existing approval requirements and repair limits still apply\. \|/);
+  assert.match(doctrine, /\| claude-opus-5\.5 \| 90 \| 65 \| Reviewer for each proved DESIGN-TRIGGERING focus area, in adversarial design review and in implementation area review\. \/ Do not select Opus 5\.5 as the default implementer\.[^|]+first ask Opus 5\.5 to investigate[^|]+guided attempt also fails[^|]+Existing approval requirements and repair limits still apply\. \|/);
   assert.match(doctrine, /\| gpt-6-astra \| 86 \| 60 \| Do not select Astra as the default implementer\. \/ Prefer Sol 6\.1 over Astra\. \| none \|/);
   assert.doesNotMatch(doctrine, /preferredProvider|permission openai\/|registry prices|context window|`effort`/);
   assert.match(doctrine, /orchestrator selects the model for a no-area track under the same ordinary guidance/);
@@ -131,13 +131,13 @@ test("logical doctrine production renders match published portable measurements"
     { path: "/fixture/b", source: "y".repeat(128), isDirectory: true, tools: [{ name: "c".repeat(64), description: "f".repeat(140) }, { name: "d".repeat(64), description: "g".repeat(140) }] },
   ], paths: [], toolNames: [] };
   const metric = (text: string) => ({ portable: text.split(docsDirectory).join("").length, lines: text.split("\n").length, paths: text.split(docsDirectory).length - 1 });
-  assert.deepEqual(metric(runtime.promptText()!), { portable: 3612, lines: 11, paths: 0 });
-  assert.deepEqual(metric(await renderDoctrine(runtime)), { portable: 8484, lines: 88, paths: 5 });
+  assert.deepEqual(metric(runtime.promptText()!), { portable: 3596, lines: 11, paths: 0 });
+  assert.deepEqual(metric(await renderDoctrine(runtime)), { portable: 8468, lines: 88, paths: 5 });
   assert.deepEqual(metric(await renderDoctrine(runtime, {}, false)), { portable: 2775, lines: 47, paths: 4 });
-  assert.deepEqual(metric(await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped)), { portable: 10073, lines: 101, paths: 6 });
+  assert.deepEqual(metric(await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped)), { portable: 10057, lines: 101, paths: 6 });
   const change = { current: `change-20260101T000000Z-${"a".repeat(32)}`, source: `change-20260101T000001Z-${"b".repeat(32)}`, legacy: true };
   const linked = await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped, change);
-  assert.deepEqual(metric(linked), { portable: 10501, lines: 104, paths: 6 });
+  assert.deepEqual(metric(linked), { portable: 10485, lines: 104, paths: 6 });
   assert.ok(metric(linked).portable * 1.05 < 26300);
   assert.match(linked, /Follow each log's first entry to read the full source chain and accounting/);
   assert.match(linked, /Read-only legacy root log: research-log.md/);

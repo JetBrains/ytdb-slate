@@ -196,28 +196,28 @@ characters. Tool names use 64 characters. Descriptions use 140 characters.
 
 | fixture | paths | portable characters | lines |
 | --- | ---: | ---: | ---: |
-| shipped logical section | 0 | 3,612 | 11 |
-| trusted shipped-default doctrine | 5 | 8,484 | 88 |
+| shipped logical section | 0 | 3,596 | 11 |
+| trusted shipped-default doctrine | 5 | 8,468 | 88 |
 | untrusted doctrine without a home configuration file | 4 | 2,775 | 47 |
-| draft pull requests, shipped policy | 6 | 8,559 | 89 |
-| capped workers, shipped policy | 5 | 9,831 | 98 |
-| draft plus capped workers | 6 | 9,906 | 99 |
-| deferred issues plus capped workers | 5 | 9,905 | 99 |
-| routing recommendations plus capped workers | 5 | 9,928 | 99 |
-| draft plus deferred issues and capped workers | 6 | 9,980 | 100 |
-| draft plus routing recommendations and capped workers | 6 | 9,999 | 100 |
-| deferred issues plus routing recommendations and capped workers | 5 | 10,002 | 100 |
-| canonical maximal baseline with all workflow options | 6 | 10,073 | 101 |
-| maximal baseline with an open change | 6 | 10,271 | 102 |
-| maximal baseline with source and legacy root log | 6 | 10,501 | 104 |
-| dogfood `.pi/slate.json` and its two extension units | 6 | 9,198 | 100 |
+| draft pull requests, shipped policy | 6 | 8,543 | 89 |
+| capped workers, shipped policy | 5 | 9,815 | 98 |
+| draft plus capped workers | 6 | 9,890 | 99 |
+| deferred issues plus capped workers | 5 | 9,889 | 99 |
+| routing recommendations plus capped workers | 5 | 9,912 | 99 |
+| draft plus deferred issues and capped workers | 6 | 9,964 | 100 |
+| draft plus routing recommendations and capped workers | 6 | 9,983 | 100 |
+| deferred issues plus routing recommendations and capped workers | 5 | 9,986 | 100 |
+| canonical maximal baseline with all workflow options | 6 | 10,057 | 101 |
+| maximal baseline with an open change | 6 | 10,255 | 102 |
+| maximal baseline with source and legacy root log | 6 | 10,485 | 104 |
+| dogfood `.pi/slate.json` and its two extension units | 6 | 9,182 | 100 |
 | runtime boundary plus draft and capped workers, source and legacy log | 6 | 26,122 | 102 |
 | runtime boundary plus draft and deferred issues, source and legacy log | 6 | 26,196 | 103 |
 | runtime boundary plus routing recommendations, source and legacy log | 5 | 26,144 | 102 |
 | runtime boundary plus deferred issues and routing recommendations, source and legacy log | 5 | 26,218 | 103 |
 | runtime boundary plus draft and routing recommendations, source and legacy log | 6 | 26,215 | 103 |
 | same boundary composition plus deferred issues | 6 | 26,289 | 104 |
-| valid shipped policy plus 88 capped worker tools, source and legacy log | 6 | 28,175 | 187 |
+| valid shipped policy plus 88 capped worker tools, source and legacy log | 6 | 28,159 | 187 |
 
 An untrusted session with an empty home `slate.json` receives the same doctrine
 as the trusted shipped-default fixture above. It includes routing and writing
@@ -228,7 +228,7 @@ project preferences can.
 The canonical maximal baseline uses all six shipped logical definitions, all
 three workflow options, and the fixed capped worker roster. Its largest variant
 has an open change, one direct source folder, and a legacy root log. Its
-five-percent requirement is `ceil(10,501 × 1.05) = 11,027`.
+five-percent requirement is `ceil(10,485 × 1.05) = 11,010`.
 The 26,300 whole-doctrine ceiling exceeds it. The table pins all eight
 combinations of the three workflow options with the capped worker roster. The
 dogfood row reads the actual project configuration. A change to `.pi/slate.json` requires a fresh render.
@@ -245,8 +245,8 @@ the first value beyond the ceiling.
 
 The over-cap counterfactual uses a valid shipped logical policy and one supported
 worker-extension unit with 88 capped tools. It also includes an open change,
-its source, and the legacy root log. Its 28,175 portable characters exceed
-the whole-doctrine ceiling by 1,875. The check therefore detects whole-doctrine
+its source, and the legacy root log. Its 28,159 portable characters exceed
+the whole-doctrine ceiling by 1,859. The check therefore detects whole-doctrine
 growth without using a retired model-row shape or an assumed per-tool increment.
 Worker-extension doctrine has no runtime size cap, so the fixture reaches the
 whole-doctrine guard rather than failing logical-policy validation first.
