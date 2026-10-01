@@ -523,7 +523,7 @@ jobs:
       - run: |
           set -euo pipefail; old=$(git rev-parse HEAD); test "$(node -p 'require("./state.json").identity')" = '${{ needs.identify.outputs.identity }}'; status=$(node -p 'require("./state.json").status'); if test "$status" = promoted || test "$status" = proved; then echo 'Promotion observation is already recorded.'; exit 0; fi
           node verification/release-control.mjs promotion-record --state state.json --result promotion/promotion.json --identity '${{ needs.identify.outputs.identity }}' --version '${{ needs.identify.outputs.version }}' --sha '${{ needs.identify.outputs.release_sha }}' --parent '${{ needs.identify.outputs.parent_sha }}' --out next.json; mv next.json state.json
-          git config user.name github-actions[bot]; git config user.email 41898282+github-actions[bot]@users.noreply.github.com; git add state.json promotion; git commit -m 'Record observed latest promotion'; git push origin HEAD:release-state --force-with-lease="refs/heads/release-state:$old"
+          git config user.name github-actions[bot]; git config user.email 41898282+github-actions[bot]@users.noreply.github.com; git add state.json; git commit -m 'Record observed latest promotion'; git push origin HEAD:release-state --force-with-lease="refs/heads/release-state:$old"
 
   finalize:
     needs: [identify, record-promotion]
@@ -560,6 +560,22 @@ jobs:
           if test "$status" = upload-unknown; then run=$(node -p 'require("./state.json").claimExecution.split(":")[0]'); gh run rerun "$run" --repo "$GITHUB_REPOSITORY" --failed; echo 'Recovery requested failed jobs and their dependents. The sealed upload authority rejects every upload rerun. Promotion and final records can run only after registry and installation proofs succeed.'; exit 0; fi
           if test "$status" = published; then run=$(node -p 'require("./state.json").claimExecution.split(":")[0]'); gh run rerun "$run" --repo "$GITHUB_REPOSITORY" --failed; echo 'Recovery requested failed jobs and their dependents. Upload cannot repeat. Promotion and final records can run only after registry and installation proofs succeed.'; exit 0; fi
           old=$(git rev-parse HEAD)
+          route=$(node --input-type=module - <<'NODE'
+          import * as control from './verification/release-control.mjs';
+          import * as job from './verification/release-job.mjs';
+          const declared=[control,job].map(m=>Object.hasOwn(m,'PROMOTION_OBSERVATION'));
+          if(declared.every(x=>!x)){console.log('legacy');}
+          else if(declared.every(Boolean)&&control.PROMOTION_OBSERVATION==='bounded-latest-v1'&&job.PROMOTION_OBSERVATION===control.PROMOTION_OBSERVATION&&typeof control.authorizePromotionObservation==='function'&&typeof job.executePromotionRecovery==='function'){console.log('bounded');}
+          else throw Error('Stored promotion observation support is inconsistent. State is unchanged.');
+          NODE
+          )
+          if test "$route" = bounded; then
+            if test "$status" = promotion-unknown || { test "$status" = proved && node -e 'process.exit(["refused","unchanged","not-attempted"].includes(require("./state.json").promotion)?0:1)'; }; then
+              node verification/release-job.mjs recover-promotion --state state.json --identity "$IDENTITY" --version "$VERSION" --sha "$sha" --parent "$parent" --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --registry "$REGISTRY" --out next.json --result-out promotion-recovery.json --decision-out recovery-decision.json
+              retry=$(node -p 'require("./recovery-decision.json").retryPromotion'); mv next.json state.json; status=$(node -p 'require("./state.json").status')
+              test "$retry" != true || echo 'retry_promotion=true' >>"$GITHUB_OUTPUT"
+            fi
+          else
           if test "$status" = promotion-unknown; then
             latest=$(npm view ytdb-slate dist-tags.latest --registry "$REGISTRY"); if test "$latest" = "$VERSION"; then result=verified; else result=superseded; fi
             printf '{"identity":"%s","releaseSha":"%s","execution":"%s","result":"%s","before":"%s","after":"%s"}\n' "$IDENTITY" "$sha" "$(node -p 'require("./state.json").promoterExecution')" "$result" "$(node -p 'require("./state.json").promotionEvidence.expectedLatest')" "$latest" >promotion-recovery.json
@@ -570,12 +586,13 @@ jobs:
             test "$latest" = "$expected" || { echo "Observed latest conflict $latest. Use close instead of rollback."; exit 2; }
             node verification/release-control.mjs promotion-intent --state state.json --latest "$expected" --identity "$IDENTITY" --version "$VERSION" --sha "$sha" --parent "$parent" --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --out next.json; mv next.json state.json; status=promotion-unknown; echo 'retry_promotion=true' >>"$GITHUB_OUTPUT"
           fi
+          fi
           if test "$status" = promoted; then
             tag="v$VERSION"; remote=$(git ls-remote --refs origin "refs/tags/$tag" | awk '{print $1}'); target=$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json targetCommitish --jq .targetCommitish 2>/dev/null || true)
             node verification/release-job.mjs final-records --state state.json --identity "$IDENTITY" --version "$VERSION" --sha "$sha" --parent "$parent" --notes notes.md --repo "$GITHUB_REPOSITORY" --tag-sha "$remote" --release-target "$target"; node verification/release-control.mjs advance --state state.json --next complete --identity "$IDENTITY" --version "$VERSION" --sha "$sha" --parent "$parent" --out next.json; mv next.json state.json
           elif test "$status" = proved; then echo 'Promotion was superseded or conflicted. Use close after confirming no promoter is active.'
           elif test "$status" != promotion-unknown; then echo "No recoverable interrupted effect in state $status" >&2; exit 2; fi
-          git config user.name github-actions[bot]; git config user.email 41898282+github-actions[bot]@users.noreply.github.com; git add state.json promotion-recovery.json 2>/dev/null || git add state.json; git commit -m "Recover observed release effects for $VERSION"; git push origin HEAD:release-state --force-with-lease="refs/heads/release-state:$old"
+          git config user.name github-actions[bot]; git config user.email 41898282+github-actions[bot]@users.noreply.github.com; git add state.json; git commit -m "Recover observed release effects for $VERSION"; git push origin HEAD:release-state --force-with-lease="refs/heads/release-state:$old"
 
   recover-promote:
     needs: recover
@@ -607,7 +624,7 @@ jobs:
         run: |
           set -euo pipefail; old=$(git rev-parse HEAD); node verification/release-control.mjs promotion-record --state state.json --result promotion/promotion.json --identity '${{ needs.recover.outputs.identity }}' --version '${{ needs.recover.outputs.version }}' --sha '${{ needs.recover.outputs.release_sha }}' --parent '${{ needs.recover.outputs.parent_sha }}' --out next.json; mv next.json state.json
           if test "$(node -p 'require("./state.json").status')" = promoted; then version=$(node -p 'require("./state.json").version'); tag="v$version"; remote=$(git ls-remote --refs origin "refs/tags/$tag" | awk '{print $1}'); target=$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json targetCommitish --jq .targetCommitish 2>/dev/null || true); node verification/release-job.mjs final-records --state state.json --identity '${{ needs.recover.outputs.identity }}' --version '${{ needs.recover.outputs.version }}' --sha '${{ needs.recover.outputs.release_sha }}' --parent '${{ needs.recover.outputs.parent_sha }}' --notes notes.md --repo "$GITHUB_REPOSITORY" --tag-sha "$remote" --release-target "$target"; node verification/release-control.mjs advance --state state.json --next complete --identity '${{ needs.recover.outputs.identity }}' --version '${{ needs.recover.outputs.version }}' --sha '${{ needs.recover.outputs.release_sha }}' --parent '${{ needs.recover.outputs.parent_sha }}' --out next.json; mv next.json state.json; fi
-          git config user.name github-actions[bot]; git config user.email 41898282+github-actions[bot]@users.noreply.github.com; git add state.json promotion; git commit -m 'Recover promotion and final records'; git push origin HEAD:release-state --force-with-lease="refs/heads/release-state:$old"
+          git config user.name github-actions[bot]; git config user.email 41898282+github-actions[bot]@users.noreply.github.com; git add state.json; git commit -m 'Recover promotion and final records'; git push origin HEAD:release-state --force-with-lease="refs/heads/release-state:$old"
 
   abandon:
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'abandon' && github.ref == 'refs/heads/main'
