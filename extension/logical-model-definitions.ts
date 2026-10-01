@@ -1,12 +1,16 @@
 export const LOGICAL_MODEL_EFFORTS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 export type LogicalModelEffort = (typeof LOGICAL_MODEL_EFFORTS)[number];
 
-export interface LogicalFieldSource {
+export type LogicalFieldSource = {
 	publisher: "DeepSWE/DataCurve";
 	retrieved: "2026-09-11";
 	sourceUrl: "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json";
 	basis: "Project judgment informed by DeepSWE v1.1 and reviewed supporting evidence";
-}
+} | {
+	publisher: "Slate project";
+	decided: "2026-09-30";
+	basis: "Project judgment set on 2026-09-30 without new benchmark evidence";
+};
 
 export interface LogicalModelSource {
 	capabilityRating?: Readonly<LogicalFieldSource>;
@@ -66,8 +70,11 @@ function fieldSource(): LogicalFieldSource {
 	};
 }
 
-function source(): LogicalModelSource {
-	return { capabilityRating: fieldSource(), costRating: fieldSource(), guidelines: fieldSource() };
+function source(projectRatings = false): LogicalModelSource {
+	const ratingSource: LogicalFieldSource = projectRatings
+		? { publisher: "Slate project", decided: "2026-09-30", basis: "Project judgment set on 2026-09-30 without new benchmark evidence" }
+		: fieldSource();
+	return { capabilityRating: ratingSource, costRating: ratingSource, guidelines: fieldSource() };
 }
 
 const SHIPPED_DEFINITIONS: LogicalModelDefinition[] = [
@@ -78,14 +85,14 @@ const SHIPPED_DEFINITIONS: LogicalModelDefinition[] = [
 		cautions: [LUNA_CAUTION, "Do not use Luna to handle complex texts."], source: source(),
 	},
 	{
-		model: "claude-sonnet-5", capabilityRating: 40, effort: "high", costRating: 90,
-		preferredProvider: "anthropic", providers: providers("anthropic", "claude-sonnet-5"),
-		guidelines: [], cautions: [SONNET_OPUS_CAUTION], source: source(),
+		model: "claude-sonnet-5.5", capabilityRating: 45, effort: "high", costRating: 54,
+		preferredProvider: "anthropic", providers: providers("anthropic", "claude-sonnet-5-5"),
+		guidelines: [], cautions: [SONNET_OPUS_CAUTION], source: source(true),
 	},
 	{
-		model: "sol-6", capabilityRating: 58, effort: "high", costRating: 20,
-		preferredProvider: "openai", providers: providers("openai", "gpt-6-sol"),
-		guidelines: ["default thread choice"], cautions: [SOL_CAUTION], source: source(),
+		model: "sol-6.1", capabilityRating: 85, effort: "high", costRating: 20,
+		preferredProvider: "openai", providers: providers("openai", "gpt-6.1-sol"),
+		guidelines: ["default thread choice"], cautions: [SOL_CAUTION], source: source(true),
 	},
 	{
 		model: "gemini-3.8-flash", capabilityRating: 55, effort: "medium", costRating: 30,
@@ -96,12 +103,12 @@ const SHIPPED_DEFINITIONS: LogicalModelDefinition[] = [
 	{
 		model: "claude-opus-5.5", capabilityRating: 90, effort: "high", costRating: 65,
 		preferredProvider: "anthropic", providers: providers("anthropic", "claude-opus-5-5"),
-		guidelines: ["concurrency work", "data-loss work", "performance work", "prefer over Astra for code reviews of focus areas that require high-level design, except non-local logic", "Do not select Opus 5.5 as the default implementer. If a lower-capability model repeatedly fails at implementation, first ask Opus 5.5 to investigate and provide detailed repair instructions. Let the implementer try those instructions. Use Opus 5.5 as the implementer only if that guided attempt also fails. Treat that use as an exception. Select another suitable model for later implementation work. Existing approval requirements and repair limits still apply."], cautions: [SONNET_OPUS_CAUTION], source: source(),
+		guidelines: ["Use Opus 5.5 only as a reviewer, or as an implementer under the exception rule.", "concurrency work", "data-loss work", "performance work", "Do not select Opus 5.5 as the default implementer. If a lower-capability model repeatedly fails at implementation, first ask Opus 5.5 to investigate and provide detailed repair instructions. Let the implementer try those instructions. Use Opus 5.5 as the implementer only if that guided attempt also fails. Treat that use as an exception. Select another suitable model for later implementation work. Existing approval requirements and repair limits still apply."], cautions: [SONNET_OPUS_CAUTION], source: source(),
 	},
 	{
 		model: "gpt-6-astra", capabilityRating: 86, effort: "medium", costRating: 60,
 		preferredProvider: "openai", providers: providers("openai", "gpt-6-astra"),
-		guidelines: ["prefer when available for design reviews of all focus areas that require high-level design", "prefer for code reviews of non-local logic defects", "security work", "performance work", "Do not select Astra as the default implementer. Use Astra for review only when assigned to a specific focus area. Use Astra for research when appropriate."],
+		guidelines: ["Do not select Astra as the default implementer.", "Prefer Sol 6.1 over Astra."],
 		cautions: [], source: source(),
 	},
 ];
@@ -109,11 +116,11 @@ const SHIPPED_DEFINITIONS: LogicalModelDefinition[] = [
 export const SHIPPED_LOGICAL_MODELS: readonly LogicalModelDefinition[] = deepFreeze(SHIPPED_DEFINITIONS);
 
 export const SHIPPED_COMPRESSOR_MODELS: readonly LogicalCompressorEntry[] = deepFreeze([
-	{ model: "claude-sonnet-5", effort: "medium" },
+	{ model: "claude-sonnet-5.5", effort: "medium" },
 ]);
 
 export const LOGICAL_MODEL_SOURCE_NOTES = deepFreeze({
-	ratings: "Fixed project judgments informed by DeepSWE v1.1 by DataCurve and reviewed supporting evidence",
+	ratings: "Fixed project judgments. Sol 6.1 and Sonnet 5.5 ratings were set on 2026-09-30 without new benchmark evidence. Other ratings are informed by DeepSWE v1.1 by DataCurve and reviewed supporting evidence",
 	guidance: "Project-authored advisory guidance informed by DeepSWE v1.1 focus analysis and approved project inference",
 	source: "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
 	retrieved: "2026-09-11",

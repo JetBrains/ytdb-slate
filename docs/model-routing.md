@@ -69,11 +69,11 @@ forecasts. Membership changes do not rescale them.
 | logical model | ordinary effort | capability | cost | preferred provider | exact initial permission | guidance | cautions |
 | --- | --- | ---: | ---: | --- | --- | --- | --- |
 | `luna-6` | `max` | 45 | 5 | `openai` | `openai/gpt-6-luna` | Auxiliary tasks only, such as file location, check-result collection, or routine text management such as modifying research logs. Never primary research, implementation, design, or review. Consumer-contract work only when auxiliary. | scope and complex-text cautions below |
-| `claude-sonnet-5` | `high` | 40 | 90 | `anthropic` | `anthropic/claude-sonnet-5` | none | scope caution below |
-| `sol-6` | `high` | 58 | 20 | `openai` | `openai/gpt-6-sol` | Default thread choice. | blocked-action caution below |
+| `claude-sonnet-5.5` | `high` | 45 | 54 | `anthropic` | `anthropic/claude-sonnet-5-5` | none | scope caution below |
+| `sol-6.1` | `high` | 85 | 20 | `openai` | `openai/gpt-6.1-sol` | Default thread choice. | blocked-action caution below |
 | `gemini-3.8-flash` | `medium` | 55 | 30 | `google-vertex` | `google-vertex/gemini-3.8-flash` | Default thread choice. Generally prefer over Luna when available. A more specific active guideline overrides this general Flash preference. | reviewer and evidence caution below |
-| `claude-opus-5.5` | `high` | 90 | 65 | `anthropic` | `anthropic/claude-opus-5-5` | Concurrency, data-loss, and performance work. Prefer over Astra for code reviews of focus areas that require high-level design, except non-local logic. Do not select Opus 5.5 as the default implementer. If a lower-capability model repeatedly fails at implementation, first ask Opus 5.5 to investigate and provide detailed repair instructions. Let the implementer try those instructions. Use Opus 5.5 as the implementer only if that guided attempt also fails. Treat that use as an exception. Select another suitable model for later implementation work. Existing approval requirements and repair limits still apply. | scope caution below |
-| `gpt-6-astra` | `medium` | 86 | 60 | `openai` | `openai/gpt-6-astra` | Prefer when available for design reviews of all focus areas that require high-level design. Prefer for code reviews of non-local logic defects. Security and performance work. Do not select Astra as the default implementer. Use Astra for review only when assigned to a specific focus area. Use Astra for research when appropriate. | none |
+| `claude-opus-5.5` | `high` | 90 | 65 | `anthropic` | `anthropic/claude-opus-5-5` | Use Opus 5.5 only as a reviewer, or as an implementer under the exception rule. Concurrency, data-loss, and performance work. Do not select Opus 5.5 as the default implementer. If a lower-capability model repeatedly fails at implementation, first ask Opus 5.5 to investigate and provide detailed repair instructions. Let the implementer try those instructions. Use Opus 5.5 as the implementer only if that guided attempt also fails. Treat that use as an exception. Select another suitable model for later implementation work. Existing approval requirements and repair limits still apply. | scope caution below |
+| `gpt-6-astra` | `medium` | 86 | 60 | `openai` | `openai/gpt-6-astra` | Do not select Astra as the default implementer. Prefer Sol 6.1 over Astra. | none |
 
 Sonnet and Opus use this caution: `May exceed explicit scope or infer permission
 from earlier requests. Check changes against stated exclusions and approval
@@ -89,14 +89,15 @@ behavior.` Fable is not active because it has no complete
 approved definition.
 
 The independent shipped compressor list contains one entry. It is
-`claude-sonnet-5` at `medium`. Ordinary Sonnet remains at `high`.
+`claude-sonnet-5.5` at `medium`. Ordinary Sonnet remains at `high`.
 
-The ratings are project judgments informed by DeepSWE v1.1 by DataCurve and
-reviewed supporting evidence. The live source is
+The Sol 6.1 and Sonnet 5.5 capability and cost ratings are project judgments
+set on 2026-09-30 without new benchmark evidence. Other ratings are project
+judgments informed by DeepSWE v1.1 by DataCurve and reviewed supporting evidence.
+The source for those other ratings is
 <https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json>. The project
-retrieved it on 2026-09-11. The 2026-09-18 rating decision reused that evidence
-without a refresh. The live source has no confirmed licence bridge for every
-newer result. Slate publishes no raw task, trajectory, leaderboard row, copied
+retrieved it on 2026-09-11. Those ratings use that evidence without a later
+refresh. The live source has no confirmed licence bridge for every newer result. Slate publishes no raw task, trajectory, leaderboard row, copied
 publisher prose, or copied table structure. This attribution is not a new
 licence grant.
 
@@ -121,13 +122,13 @@ new session.
 {
   "router": {
     "models": {
-      "include": ["luna-6", "claude-sonnet-5", "gpt-6-astra"],
+      "include": ["luna-6", "claude-sonnet-5.5", "gpt-6-astra"],
       "add": [],
       "replace": [],
       "exclude": []
     },
     "compressor": {
-      "models": [{ "model": "claude-sonnet-5", "effort": "medium" }]
+      "models": [{ "model": "claude-sonnet-5.5", "effort": "medium" }]
     }
   }
 }
@@ -198,12 +199,12 @@ Complete `replace` example:
     "models": {
       "replace": [
         {
-          "model": "sol-6",
+          "model": "sol-6.1",
           "effort": "max",
-          "capabilityRating": 58,
+          "capabilityRating": 85,
           "costRating": 20,
           "preferredProvider": "gateway",
-          "providers": { "gateway": "openai/gpt-6-sol" },
+          "providers": { "gateway": "openai/gpt-6.1-sol" },
           "guidelines": ["repository-wide implementation"],
           "cautions": []
         }
@@ -226,9 +227,11 @@ block logical work before dispatch. Slate reports each critical error. Legacy
 `router.allowUnmeasuredEffort`, and `router.showWarnings` values are named and
 ignored. Slate performs no automatic migration.
 
-The shipped names `gpt-5.6-luna`, `gpt-5.6-sol`, `gpt-5.6-terra`, and
-`claude-opus-5` are withdrawn. Use `luna-6`, `sol-6`, and
-`claude-opus-5.5` in `include`, `replace`, `exclude`, and compressor entries.
+The shipped names `gpt-5.6-luna`, `gpt-5.6-sol`, `gpt-5.6-terra`,
+`claude-opus-5`, `sol-6`, and `claude-sonnet-5` are withdrawn. Use `luna-6`
+for `gpt-5.6-luna`. Use `sol-6.1` for `gpt-5.6-sol` and `sol-6`. Use
+`claude-opus-5.5` for `claude-opus-5` and `claude-sonnet-5.5` for
+`claude-sonnet-5` in `include`, `replace`, `exclude`, and compressor entries.
 Terra has no replacement. Slate provides no automatic alias. A withdrawn name
 in one of those reference positions produces that position's explicit unknown-model
 error and blocks routing. A project can still define a withdrawn spelling as a

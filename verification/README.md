@@ -632,38 +632,38 @@ exact current production renders are:
 
 | fixture | paths | portable characters | lines |
 | --- | ---: | ---: | ---: |
-| shipped logical section | 0 | 3,892 | 11 |
-| trusted shipped-default doctrine | 5 | 8,764 | 88 |
+| shipped logical section | 0 | 3,612 | 11 |
+| trusted shipped-default doctrine | 5 | 8,484 | 88 |
 | untrusted doctrine | 4 | 2,775 | 47 |
-| draft pull requests, shipped policy | 6 | 8,839 | 89 |
-| capped workers, shipped policy | 5 | 10,111 | 98 |
-| draft plus capped workers | 6 | 10,186 | 99 |
-| deferred issues plus capped workers | 5 | 10,185 | 99 |
-| routing recommendations plus capped workers | 5 | 10,208 | 99 |
-| draft plus deferred issues and capped workers | 6 | 10,260 | 100 |
-| draft plus routing recommendations and capped workers | 6 | 10,279 | 100 |
-| deferred issues plus routing recommendations and capped workers | 5 | 10,282 | 100 |
-| canonical maximal baseline with all workflow options | 6 | 10,353 | 101 |
-| maximal baseline with an open change | 6 | 10,551 | 102 |
-| maximal baseline with source and legacy root log | 6 | 10,781 | 104 |
-| dogfood config and extension roster | 6 | 9,478 | 100 |
+| draft pull requests, shipped policy | 6 | 8,559 | 89 |
+| capped workers, shipped policy | 5 | 9,831 | 98 |
+| draft plus capped workers | 6 | 9,906 | 99 |
+| deferred issues plus capped workers | 5 | 9,905 | 99 |
+| routing recommendations plus capped workers | 5 | 9,928 | 99 |
+| draft plus deferred issues and capped workers | 6 | 9,980 | 100 |
+| draft plus routing recommendations and capped workers | 6 | 9,999 | 100 |
+| deferred issues plus routing recommendations and capped workers | 5 | 10,002 | 100 |
+| canonical maximal baseline with all workflow options | 6 | 10,073 | 101 |
+| maximal baseline with an open change | 6 | 10,271 | 102 |
+| maximal baseline with source and legacy root log | 6 | 10,501 | 104 |
+| dogfood config and extension roster | 6 | 9,198 | 100 |
 | 19,400-character policy plus draft, source and legacy log | 6 | 26,122 | 102 |
 | same policy plus draft and deferred issues, source and legacy log | 6 | 26,196 | 103 |
 | same policy plus routing recommendations, source and legacy log | 5 | 26,144 | 102 |
 | same policy plus deferred issues and routing recommendations, source and legacy log | 5 | 26,218 | 103 |
 | same policy plus draft and routing recommendations, source and legacy log | 6 | 26,215 | 103 |
 | same boundary composition plus deferred issues | 6 | 26,289 | 104 |
-| valid shipped policy plus 88 capped tools, source and legacy log | 6 | 28,455 | 187 |
+| valid shipped policy plus 88 capped tools, source and legacy log | 6 | 28,175 | 187 |
 
 The capped worker baseline has two units and four tools. Each unit label has 128
 characters. Each tool name has 64 characters. Each description has 140
 characters. The dogfood fixture reads `.pi/slate.json` and represents its two
 configured extension units.
 
-The canonical 10,353-character baseline uses all six shipped logical models,
+The canonical 10,073-character baseline uses all six shipped logical models,
 all three workflow options, and the capped worker roster. With an open change,
-a direct source folder, and a legacy root log, it measures 10,781 characters.
-Its required five-percent value is 11,321. The 26,300 whole-doctrine ceiling
+a direct source folder, and a legacy root log, it measures 10,501 characters.
+Its required five-percent value is 11,027. The 26,300 whole-doctrine ceiling
 keeps that reserve. The exact fixtures cover all eight workflow-option
 combinations.
 
@@ -680,7 +680,7 @@ not reserve-bearing canonical baselines.
 
 The over-cap counterfactual keeps the shipped logical policy valid and adds 88
 supported capped worker tools. With an open change, source, and legacy log, its
-28,455 portable characters exceed the ceiling by 2,155 characters.
+28,175 portable characters exceed the ceiling by 1,875 characters.
 This transformed fixture replaces the retired six-copy physical model-row shape.
 It does not assume an old per-row or per-tool increment. Removing the whole-
 doctrine comparison makes the counterfactual pass and therefore breaks the
