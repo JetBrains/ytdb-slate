@@ -495,16 +495,14 @@ jobs:
     needs: [identify, record-proof]
     if: ${{ !cancelled() && needs.identify.result == 'success' && needs.record-proof.result == 'success' }}
     runs-on: ubuntu-latest
-    environment: npm-release
-    permissions: { contents: read }
+    environment: npm-promote
+    permissions: { contents: read, id-token: write }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { ref: release-state }
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with: { node-version: '24.18.0', registry-url: 'https://registry.npmjs.org' }
-      - name: Promote the exact proved version with stage-only token
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_STAGE_ONLY_TOKEN }}
+        with: { node-version: '24.18.0' }
+      - name: Promote the exact proved version with OpenID Connect
         run: node verification/release-job.mjs promote --state state.json --identity '${{ needs.identify.outputs.identity }}' --version '${{ needs.identify.outputs.version }}' --sha '${{ needs.identify.outputs.release_sha }}' --parent '${{ needs.identify.outputs.parent_sha }}' --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --registry "$REGISTRY" --out "$RUNNER_TEMP/promotion.json"
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         if: always()
@@ -598,14 +596,14 @@ jobs:
     needs: recover
     if: ${{ !cancelled() && needs.recover.result == 'success' && needs.recover.outputs.retry_promotion == 'true' }}
     runs-on: ubuntu-latest
-    environment: npm-release
-    permissions: { contents: read }
+    environment: npm-promote
+    permissions: { contents: read, id-token: write }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { ref: release-state }
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with: { node-version: '24.18.0', registry-url: 'https://registry.npmjs.org' }
-      - env: { NODE_AUTH_TOKEN: '${{ secrets.NPM_STAGE_ONLY_TOKEN }}' }
+        with: { node-version: '24.18.0' }
+      - name: Recover promotion with OpenID Connect
         run: node verification/release-job.mjs promote --state state.json --identity '${{ needs.recover.outputs.identity }}' --version '${{ needs.recover.outputs.version }}' --sha '${{ needs.recover.outputs.release_sha }}' --parent '${{ needs.recover.outputs.parent_sha }}' --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --registry "$REGISTRY" --out "$RUNNER_TEMP/promotion.json"
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with: { name: recovered-promotion-result, path: '${{ runner.temp }}/promotion.json', if-no-files-found: error, retention-days: 90 }
