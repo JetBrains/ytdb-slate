@@ -260,22 +260,25 @@ episode and no direct private source.
 
 A round that lands no fix stops the ordinary loop. The two-round cap also
 stops it. A second regression on one finding escalates.
-Further repair requires the extra repair-round grant defined in
-[user-notes.md](user-notes.md) § Mandatory escalation set.
-A grant authorizes one specified round, resets no count, and grants no consultation.
 No silence supplies a disposition.
 
 <!-- review-fix-split:begin -->
 When considering the split option in [user-notes.md](user-notes.md) § Mandatory escalation set,
 load [recursive-workflow.md](recursive-workflow.md) § Review-fix subtrees and repair limits
 before proposing a review-fix split.
-Child repairs inherit the affected requirement's round count and consultation budget.
+Each review-fix child starts at round zero with two ordinary fix rounds and one stuck-fix consultation.
+Only the user chooses a split through the escalation table.
 The split bypasses no stuck-fix consultation or required fix gate.
 <!-- review-fix-split:end -->
 
 <!-- requirement-investigation-review:begin -->
-When two ordinary fix rounds leave the same approved requirement incomplete, the
-orchestrator stops further repair before another round. A new finding identifier
+When two failed ordinary fix rounds leave the same approved requirement incomplete, the
+orchestrator stops further repair before another round.
+Count failed rounds across the affected code track and all its review-fix children.
+A split never resets that requirement count.
+After a completed investigation, two further failed ordinary rounds trigger it again.
+Complete a triggered investigation and its approvals before starting a child.
+A new finding identifier
 does not reset the count when the approved requirement is the same. The
 orchestrator identifies the exact user-approved requirement named in the track
 intention or design approval record. If those records name different
@@ -325,9 +328,11 @@ dispute a `design-flawed` result only through the mandatory user escalation.
 The accepted whole-episode exposure is not fixed, prevented, or detected by
 this rule.
 
-The ordinary budget permits one consultation. A second requires an explicit
-user grant. Further consultation requires another grant. Record each grant in
-the override log.
+The ordinary budget permits one consultation.
+Count that budget separately for each review-fix child.
+A second consultation for the same track or child requires an explicit user grant.
+Further consultation requires another grant.
+Record each grant in the override log.
 
 ## Termination and deferred-work routing
 

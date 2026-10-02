@@ -326,8 +326,13 @@ acceptance. Final change acceptance remains a separate blocking decision.
 <!-- user-decision-reuse:end -->
 
 <!-- requirement-investigation-workflow:begin -->
-After two ordinary fix rounds leave the same approved requirement incomplete,
-stop repair dispatch before another repair. The requirement is the exact
+After two failed ordinary fix rounds leave the same approved requirement incomplete,
+stop repair dispatch before another repair.
+Count failed rounds across the affected code track and all its review-fix children.
+A split never resets that requirement count.
+After a completed investigation, two further failed ordinary rounds trigger it again.
+Complete a triggered investigation and its approvals before starting a child.
+The requirement is the exact
 user-approved requirement named in the track intention or design approval
 record. If those records name different requirements, ask the user to identify
 the requirement before counting rounds. Do not choose between them or treat a
@@ -340,7 +345,9 @@ before investigation starts.
 
 Record the trigger, proposed scope, user corrections, approved scope, findings,
 evidence, limits, holistic solution, verification plan, and decision as typed
-entries in the current change's `research-log.md`. The investigation must distinguish a symptom
+entries in the affected code track's owning research log.
+Use [recursive-workflow.md](recursive-workflow.md) § Manual records and safe writes for record ownership.
+The investigation must distinguish a symptom
 repair from closure of the full approved requirement. After investigation,
 present a holistic solution for the full requirement and wait for a separate
 user approval before implementation resumes. Existing repair caps, the

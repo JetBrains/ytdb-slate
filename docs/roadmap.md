@@ -32,7 +32,8 @@ Each design track needs explicit acceptance of its whole subtree.
 Root final acceptance covers the whole change.
 Only the user merges pull requests.
 A **review-fix child track** repairs outstanding work under a user-approved split.
-It stays in the affected code track's delivery and inherits its repair budget.
+It stays in the affected code track's delivery.
+Each new child starts at round zero with two ordinary rounds and one stuck-fix consultation.
 Use [recursive-workflow.md](recursive-workflow.md) for the nested rules.
 Use [track-workflow.md](track-workflow.md) for the common lifecycle.
 

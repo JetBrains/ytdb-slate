@@ -147,12 +147,27 @@ It has no implementer report or extra cumulative implementation commit.
 A design track or review-fix child track triggers the manual status file.
 This **status file**, `status.md`, displays planned work, pending gates, and log locations.
 It grants no completion or gate authority.
+Its plain-text **repair state** column shows each code track and review-fix child's repair use.
+Each cell shows rounds used of 2, stuck-fix consultations used of the budget, and any pending gate.
+No fixed machine-readable format is required.
+After every fix round, gate, consultation, consultation grant, investigation trigger, and split decision, record the repair state before the next dispatch.
+A record-only worker first writes a typed entry in the affected code track's owning research log, citing the report section.
+Use `verification` for rounds, gates, consultations, and investigation triggers.
+Use `decision` for consultation grants and split decisions.
+The worker updates the `status.md` entry and cell second, before the next dispatch.
+The typed log entries are the evidence for each count.
+A cell grants no round.
+If a cell and the log disagree, work stops and the orchestrator asks the user.
+No automatic correction lowers a count.
+A change without a design track or review-fix child has no `status.md`.
+A user-chosen split in such a change creates review-fix children, loads this document, and creates `status.md`.
 Create `track-<path-number>-research-log.md` when entering a design track.
 Each log owns its subtree's decisions and accepted history bindings.
 Parents keep context and links, not copies of child history.
 Root-wide decisions belong in `research-log.md`.
 Cross-subtree effects belong in their owning parent.
 For a review-fix subtree, use the affected code track's existing records.
+Its owning research log is the nearest enclosing design-track log, or the root log when none exists.
 A record-only worker writes records, not implementation.
 Only record-only workers write status files and research logs.
 Implementers write only their own implementer report.
@@ -348,6 +363,8 @@ Reconcile the tree, reports, ranges, review coverage, focus records, and live di
 Marker history decides accepted completion, not status entries or merge results.
 A disagreement or missing evidence pauses work.
 A rebuild keeps uncontradicted status entries and changes only entries that disagree with evidence.
+For repair-state disagreement, stop and ask the user under § Manual records and safe writes.
+No automatic rebuild lowers a repair count.
 
 A **folder fork** gives a different session owner new active records.
 Use [track-workflow.md](track-workflow.md) § Session handoff and the research log
@@ -380,6 +397,10 @@ A finding alone creates no child.
 Use this subtree for repairs, not new feature scope.
 
 The affected track remains a code track.
+A review-fix child is not a code track for identity purposes.
+A split at any depth creates sibling review-fix children under the same affected code track.
+For example, splitting 1.4.1 creates 1.4.2 and 1.4.3, not 1.4.1.1.
+All children use that code track's identifier, report, slice, and marker.
 Its children stay in its publishing slice and review accounting.
 They have no separate pull requests, research logs, or implementer reports.
 Dispatch each child with the affected code track's identifier.
@@ -400,19 +421,31 @@ A fix child has no independent boundary marker.
 The affected track's marker closes its accepted code track and fix subtree together.
 No status entry independently declares accepted completion.
 
-An **inherited repair budget** is the affected requirement's existing allowance for repairs and consultations.
-All child repairs inherit that requirement's round count and consultation budget.
-A new child or finding identifier resets neither count.
-Count rounds against the affected approved requirement, not separately against each child.
+Each review-fix child starts at round zero.
 Run at most two ordinary fix rounds.
+The stuck-fix consultation budget counts separately for each child.
 The ordinary budget permits one consultation.
-Use [review-rules.md](review-rules.md) § Stuck-fix consultation for additional grants.
-Two failed ordinary rounds on the same requirement trigger the requirement investigation.
+Use [review-rules.md](review-rules.md) § Stuck-fix consultation for additional explicit user grants.
+Only the user chooses a split through [user-notes.md](user-notes.md) § Mandatory escalation set.
+Each new set of child rounds requires that user decision.
+The split option discloses two ordinary rounds and one stuck-fix consultation per child.
+The split escalation record stores that budget.
+The affected code track's own count and two-round limit never change.
+Repairs that the user's split decision does not move to a new child stay with their current track or child at 2 of 2.
+Those repairs take redesign or waive only.
+When a child uses both rounds, escalate again with redesign, waive, or split.
+A change without a design track or review-fix child keeps the hard limit of two ordinary rounds.
+A new finding identifier resets neither a child's round count nor its consultation budget.
+
+A split never resets the per-requirement count of failed ordinary rounds.
+Two failed ordinary rounds on the same approved requirement trigger the requirement investigation.
+Count those failed rounds across the affected code track and all its review-fix children.
 Use [track-workflow.md](track-workflow.md) § Confirmation gate for that investigation.
+Complete any triggered investigation before a child starts.
 Investigation approval and holistic-solution approval remain separate.
-Neither grants another repair round.
-After the ordinary loop stops or its cap is exhausted, further repair needs an extra repair-round grant.
-Use [user-notes.md](user-notes.md) § Mandatory escalation set for its prerequisites, scope, and accounting.
+Obtain those approvals and the user's split decision before starting the child.
+After a completed investigation, two further failed ordinary rounds on that requirement trigger it again.
+Neither investigation approval nor holistic-solution approval permits repair beyond the two-round limit.
 A split bypasses no consultation, verification, or escalation rule.
 
 Before user review, child fixes join the affected cumulative implementation commit.

@@ -112,7 +112,6 @@ enter it:
 - every user waiver.
 - every override that changes the disposition category.
 - every user grant of an extra stuck-fix consultation.
-- every user grant of an extra repair round.
 
 Each event uses the register shape below. Its statement records the proposed
 value, the resulting value and the reason when those values apply. Only the
@@ -143,9 +142,8 @@ and the user's disposition.
 | event | timing | available options |
 | --- | --- | --- |
 | A fix round lands no fix. | At the end of that round. | Redesign, waive, split. |
-| The two-round fix cap is exhausted with the same approved requirement still incomplete. | At the end of round two, before any further repair. | Correct or approve the investigation scope, then approve or reject the holistic solution separately. Redesign, waive, or split remain available. |
+| Two failed ordinary rounds leave the same approved requirement incomplete, counted across the affected code track and its review-fix children. | At the end of the second such round, before any further repair. | Correct or approve the investigation scope, then approve or reject the holistic solution separately. Redesign, waive, or split remain available. |
 | The two-round fix cap is exhausted for another case. | At the end of round two. | Redesign, waive, split. |
-| Further repair is proposed after the ordinary loop stops or its cap is exhausted. | Before any further repair dispatch. | Grant one specified extra repair round after required investigation approvals, or stop repair. |
 | A second regression is filed on one finding. | When the gate thread reports it. | Redesign, waive, accept the regression. |
 | A blocker is proposed for lowering. | Before the lowering takes effect. | Confirm the lowering, keep the blocker. |
 | A pre-existing defect is found. | At once, then again in every later packet until disposition. | Fix, waive, create a tracked issue. |
@@ -159,17 +157,13 @@ and the user's disposition.
 For the split option in this table, load
 [recursive-workflow.md](recursive-workflow.md) § Review-fix subtrees and repair limits
 before proposing a review-fix split.
-A review-fix split divides outstanding repairs under the affected code track.
-It resets neither repair rounds nor consultation budgets.
+Only the user chooses a review-fix split under the affected code track.
+The split option discloses two ordinary rounds and one stuck-fix consultation per child.
+The split escalation record stores that budget.
+Each child starts at round zero.
+A split never resets the per-requirement count that triggers investigation.
 <!-- review-fix-split:end -->
 
-An **extra repair-round grant** authorizes one specified round after the ordinary loop stops or its cap is exhausted.
-The user names the affected approved requirement, current round count, next cumulative round number, and repair scope.
-For an incomplete requirement after two failed ordinary rounds, investigation-scope and holistic-solution approvals precede the grant.
-Neither those approvals nor a redesign or split supplies the grant.
-Record the grant in the override log and the affected track's repair accounting.
-It resets no count, grants no consultation, and bypasses no verification or escalation.
-Each later extra round needs a separate grant.
 No silence supplies a disposition. Each escalation stays open until the user selects an option.
 Final accounting includes every escalation, grant, and recorded disposition.
 

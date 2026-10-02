@@ -3151,11 +3151,11 @@ ${recordRules.join("\n")}
 Use [track-workflow.md](track-workflow.md) § Migration for compatibility.
 Use its § Session handoff and the research log for ownership.`);
 			const protectedRepairOwners = Object.freeze({
-				"repair-rounds": "2e8245a19e2b063a8e5e536f07a4c92c4de8958296e9178879e6ea5b38a4726a",
-				"repair-consultations": "ecfdf8d3c00137cda0d77ce2010abd2080663622b8bfcc764fd0786fb8e790f8",
+				"repair-rounds": "25a681e30d96285c7d65fa9285b46c073a958fe1c9500b206273b64ba28a873b",
+				"repair-consultations": "86f0f04219e871881c7f99263689d848fc78772d2b034e3d359cdc6662f4d780",
 				"child-fix-title": "5aae2e552982b790e7fa15a115415cd7f204704b9ba19e464d592c7de04ec7ed",
 			});
-			const protectedRepairSummary = "de50f7fdac39d6fb3e6ac957fb19c68636eb536829be3270808ded39a96a736a";
+			const protectedRepairSummary = "f1bfd2437621d5ba83c8a04619f92b71c5e4e0862e8454957fb7757471e69874";
 			const agreementDigest = (text) => createHash("sha256").update(normalizeText(text)).digest("hex");
 			const sharedRecursiveRules = [
 				{ id: "loading", rules: loadingRules, extract: regionUnit(/^## Loading and planning\n([\s\S]*?)(?=^## Nested designs and gates\n)/gm) },
@@ -3194,10 +3194,10 @@ Use its § Session handoff and the research log for ownership.`);
 				return { id, index, side, changed: changed !== source && altered !== normalized, rejected: !recursiveSummariesAgree(side === "summary" ? changed : recursive, side === "owner" && document === "workflow" ? changed : workflow, side === "owner" && document === "reviews" ? changed : reviews, side === "owner" && document === "delivery" ? changed : deliveryPackages) };
 			})));
 			const retainedPhraseAttacks = [
-				["owner-rounds-contradiction", reviews.replace("Run at most two ordinary fix rounds.", "Run at most two ordinary fix rounds. A review-fix child gets two additional rounds of its own."), workflow],
+				["owner-rounds-contradiction", reviews.replace("Run at most two ordinary fix rounds.", "Run at most two ordinary fix rounds. A review-fix child gets three ordinary rounds."), workflow],
 				["owner-rounds-comment", reviews.replace("Run at most two ordinary fix rounds.", "<!-- Run at most two ordinary fix rounds. --> Run three ordinary fix rounds."), workflow],
 				["owner-title-denial", reviews, workflow.replace("An agentic-review fix commit inside a track uses", "An agentic-review fix commit inside a track must never use")],
-				["owner-consultation-contradiction", reviews.replace("The ordinary budget permits one consultation.", "The ordinary budget permits one consultation. Each child gets another consultation."), workflow],
+				["owner-consultation-contradiction", reviews.replace("The ordinary budget permits one consultation.", "The ordinary budget permits one consultation. Each child gets unlimited consultations."), workflow],
 			].map(([id, reviewSource, workflowSource]) => ({ id, changed: reviewSource !== reviews || workflowSource !== workflow, rejected: !recursiveSummariesAgree(recursive, workflowSource, reviewSource) }));
 			const recursivePrefixAttacks = [
 				["total-track loading", "loading, the direct-child limit, and the implementer-requested split exception.", "The triggering evidence is more than twelve total tracks."],
@@ -3230,8 +3230,8 @@ Use its § Session handoff and the research log for ownership.`);
 			const recordDigest = (text) => createHash("sha256").update(normalizeText(text)).digest("hex");
 			const recursiveRecordUnits = [
 				{ id: "identifiers-ranges", source: recursive, extract: regionUnit(/^## Identifiers, code ranges, and design markers\n([\s\S]*?)(?=^## Manual records and safe writes\n)/gm), expected: "cfe3c89907795c13cb1a7a08893bdb666ba1f9f92988b911e2c24a85095e4fd4" },
-				{ id: "manual-records", source: recursive, extract: regionUnit(/^## Manual records and safe writes\n([\s\S]*?)(?=^## Resume and folder forks\n)/gm), expected: "a99ef353e5bb213232fa1434dbe2d86c50baac399f9026a839f54798460c3ca1" },
-				{ id: "resume-forks", source: recursive, extract: regionUnit(/^## Resume and folder forks\n([\s\S]*?)(?=^## Handoff boundaries\n)/gm), expected: "ebb6414d2e4fd247f39356758a9618ec8b040f3ec8de02fdc10f9d7b8f350c12" },
+				{ id: "manual-records", source: recursive, extract: regionUnit(/^## Manual records and safe writes\n([\s\S]*?)(?=^## Resume and folder forks\n)/gm), expected: "401dc5437b292584d9125379dbfecf802edb551f6ca70615d5548c0aad3d2e7e" },
+				{ id: "resume-forks", source: recursive, extract: regionUnit(/^## Resume and folder forks\n([\s\S]*?)(?=^## Handoff boundaries\n)/gm), expected: "cb377b1eaf800101fb37f1aeffcff33c2beeba6fb9bea0870c71c838e0e937b6" },
 				{ id: "handoff-pointer", source: recursive, extract: regionUnit(/^## Handoff boundaries\n([\s\S]*?)(?=^## Review-fix subtrees and repair limits\n)/gm), expected: "fc5ca34c11f5f1defb5989c10af42cbac9af901c102dc18c6c8d1b55a98cd52f" },
 				{ id: "marker-identity", source: workflow, extract: markedUnit("marker-identity-policy"), expected: "846764c07a6b2c925091bd80f944c888d49994a71f2799b5cd2b8368b415a3c9" },
 				{ id: "resume-order", source: workflow, extract: regionUnit(/^## Resume order and reconciliation\n([\s\S]*?)(?=^## Review coverage\n)/gm), expected: "9edb063aea53ffc494d650f1a2306b975bbf31f1700a874ea0fd004bb1d0e244" },
@@ -3412,12 +3412,16 @@ The publishing setting and its disabled default remain unchanged.`),
 				{ id: "user-note-split", source: userNotes, section: regionUnit(/^## Mandatory escalation set\n([\s\S]*?)(?=^## User note accounting\n)/gm), position: /\| Finished tracks depend[^\n]+\n\n<!-- review-fix-split:begin -->/, expected: normalizeText(`For the split option in this table, load
 [recursive-workflow.md](recursive-workflow.md) § Review-fix subtrees and repair limits
 before proposing a review-fix split.
-A review-fix split divides outstanding repairs under the affected code track.
-It resets neither repair rounds nor consultation budgets.`) },
+Only the user chooses a review-fix split under the affected code track.
+The split option discloses two ordinary rounds and one stuck-fix consultation per child.
+The split escalation record stores that budget.
+Each child starts at round zero.
+A split never resets the per-requirement count that triggers investigation.`) },
 				{ id: "review-loop-split", source: reviews, section: regionUnit(/^## Fix loop and gate verdicts\n([\s\S]*?)(?=^## Stuck-fix consultation\n)/gm), position: /<!-- review-fix-split:end -->\n\n<!-- requirement-investigation-review:begin -->/, expected: normalizeText(`When considering the split option in [user-notes.md](user-notes.md) § Mandatory escalation set,
 load [recursive-workflow.md](recursive-workflow.md) § Review-fix subtrees and repair limits
 before proposing a review-fix split.
-Child repairs inherit the affected requirement's round count and consultation budget.
+Each review-fix child starts at round zero with two ordinary fix rounds and one stuck-fix consultation.
+Only the user chooses a split through the escalation table.
 The split bypasses no stuck-fix consultation or required fix gate.`) },
 			];
 			const acceptsSplitPointer = (unit, source) => {
@@ -3448,7 +3452,7 @@ The split bypasses no stuck-fix consultation or required fix gate.`) },
 			// These pins cover complete owned policies. Source-set pins protect every record kind.
 			const policyRegion = (start, end) => regionUnit(new RegExp(`^${start.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([\\s\\S]*?)(?=${end.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gm"));
 			const recursiveDeliveryUnits = [
-				{ id: "repairs", source: recursive, start: "## Review-fix subtrees and repair limits", end: "## Whole-subtree acceptance", expected: "de50f7fdac39d6fb3e6ac957fb19c68636eb536829be3270808ded39a96a736a" },
+				{ id: "repairs", source: recursive, start: "## Review-fix subtrees and repair limits", end: "## Whole-subtree acceptance", expected: protectedRepairSummary },
 				{ id: "aggregate", source: recursive, start: "## Whole-subtree acceptance", end: "## Packages, attribution, and issues", expected: "6e37e0e95c35ed0c3ede6e02f3322f43038d8653d9885ce4b2ac1ed423472b63" },
 				{ id: "issues", source: recursive, start: "## Packages, attribution, and issues", end: null, expected: "895b87ee7afdda0d4d85e071c978727e0cf962f9af42e68c534c022ac010a5a3" },
 				{ id: "sources", source: deliveryPackages, start: "## Durable accounting", end: "<!-- publishing-disabled-accounting:begin -->", expected: "cfba6ae378f8d7e3db347d9894911bd7497205f1fd76772ae97847af7f7f7a52" },
@@ -3456,7 +3460,7 @@ The split bypasses no stuck-fix consultation or required fix gate.`) },
 				{ id: "notes-accounting", source: userNotes, start: "Before final acceptance, reconcile", end: "\n\n- every finding", expected: "7efa6f8740078ef4a9f5511b485a4e95e8b0e5f7341d2e278eddfbf27011b500" },
 				{ id: "publishing-sync", source: publishing, start: "## Keeping the PR in sync", end: "## Ready-for-review flip", expected: "fb386e6f14c2f051a842cd050cc4e2834dea5e2674853cc22794792cd4c1a7cc" },
 				{ id: "public-workflow", source: projectReadme, start: "A track is a bounded", end: "## Commands", expected: "23f90e859751918fac2f72ad4819c635cf21d88f15e18d100cc0a9944018fbf3" },
-				{ id: "public-roadmap", source: readFileSync(join(REPO, "docs", "roadmap.md"), "utf8"), start: "## Larger changes", end: "## Developer experience", expected: "81ce223a5f65eb4d09f1aab6a85b0708551b892568623a13df99ebc6df3a8103" },
+				{ id: "public-roadmap", source: readFileSync(join(REPO, "docs", "roadmap.md"), "utf8"), start: "## Larger changes", end: "## Developer experience", expected: "ffd9a4e0a96809b60debc7a45d6b0bb09881622889ae571c09bd888a7d09da17" },
 			].map((unit) => ({ ...unit, extract: unit.end === null
 				? (source) => {
 					// Visible policy after the final marker belongs to the final section.
@@ -3539,39 +3543,64 @@ Verify every level record and all root-wide accounting before root closure.`);
 				["subtree acceptance and merge followed by root acceptance retains earlier markers without creating them again", sequentialAcceptanceAttacks.every(({ changed, rejected }) => changed && rejected), sequentialAcceptanceAttacks],
 				["outside edits preserve the sequence", acceptsTransfer(`${deliveryPackages}\n<!-- Outside transfer control. -->`), "outside control"],
 			]);
-			const grantSection = regionUnit(/^## Mandatory escalation set\n([\s\S]*?)(?=^## User note accounting\n)/gm);
-			const grantDigest = "297e445db68b442fbac42fb63471bb97c76fcadeb2448238d4f672cfd730c421";
-			const acceptsGrant = (source) => {
-				const unit = grantSection(source);
-				return unit.count === 1 && recordDigest(unit.text) === grantDigest;
-			};
-			const grantAttacks = [
-				userNotes.replace("Each later extra round needs a separate grant.", "A grant permits unlimited extra rounds."),
-				userNotes.replace("investigation-scope and holistic-solution approvals precede the grant", "the grant precedes investigation approval"),
-				userNotes.replace("It resets no count, grants no consultation", "It resets every count and grants another consultation"),
-				userNotes.replace("Record the grant in the override log and the affected track's repair accounting.", "Keep no grant accounting."),
-				userNotes.replace("Grant one specified extra repair round after required investigation approvals, or stop repair.", "A split automatically grants another repair round."),
-			].map((source) => ({ changed: source !== userNotes, rejected: !acceptsGrant(source) }));
-			const grantRegister = regionUnit(/^## Override log\n([\s\S]*?)(?=^## Register entry shape\n)/gm);
-			const grantRegisterExpected = normalizeText(`The override log is created when its first event occurs. Exactly these events
+			const repairEscalation = regionUnit(/^## Mandatory escalation set\n([\s\S]*?)(?=^## User note accounting\n)/gm);
+			const repairEscalationDigest = "b9ebf47c2dceb335adfd3fb1cd694e2e23e6d210f5d962ef5c5c6d709cdc3de4";
+			const repairState = regionUnit(/^(Its plain-text \*\*repair state\*\* column[\s\S]*?)(?=^Create `track-<path-number>-research-log\.md`)/gm);
+			const repairStateExpected = normalizeText(`Its plain-text **repair state** column shows each code track and review-fix child's repair use.
+Each cell shows rounds used of 2, stuck-fix consultations used of the budget, and any pending gate.
+No fixed machine-readable format is required.
+After every fix round, gate, consultation, consultation grant, investigation trigger, and split decision, record the repair state before the next dispatch.
+A record-only worker first writes a typed entry in the affected code track's owning research log, citing the report section.
+Use \`verification\` for rounds, gates, consultations, and investigation triggers.
+Use \`decision\` for consultation grants and split decisions.
+The worker updates the \`status.md\` entry and cell second, before the next dispatch.
+The typed log entries are the evidence for each count.
+A cell grants no round.
+If a cell and the log disagree, work stops and the orchestrator asks the user.
+No automatic correction lowers a count.
+A change without a design track or review-fix child has no \`status.md\`.
+A user-chosen split in such a change creates review-fix children, loads this document, and creates \`status.md\`.`);
+			const repairRegister = regionUnit(/^## Override log\n([\s\S]*?)(?=^## Register entry shape\n)/gm);
+			const repairRegisterExpected = normalizeText(`The override log is created when its first event occurs. Exactly these events
 enter it:
 
 - every user waiver.
 - every override that changes the disposition category.
 - every user grant of an extra stuck-fix consultation.
-- every user grant of an extra repair round.
 
 Each event uses the register shape below. Its statement records the proposed
 value, the resulting value and the reason when those values apply. Only the
 user may waive a finding. An absent override log is reported in one line at
 delivery and is never created as an empty register.`);
-			const acceptsGrantRegister = (source) => { const unit = grantRegister(source); return unit.count === 1 && unit.text === grantRegisterExpected; };
-			checkAll("contract-repair-authorization", "one explicit extra-round grant follows required investigation approvals, retains cumulative counts and consultation limits, and enters existing accounting", [
-				["the full escalation section matches its independent pin", acceptsGrant(userNotes), grantSection(userNotes)],
-				["scope, prerequisites, counts, accounting, and split-bypass mutations fail", grantAttacks.every(({ changed, rejected }) => changed && rejected), grantAttacks],
-				["the complete override register includes repair grants", acceptsGrantRegister(userNotes), grantRegister(userNotes)],
-				["removing the grant register event fails", !acceptsGrantRegister(userNotes.replace("- every user grant of an extra repair round.\n", "")), "removed grant event"],
-				["missing, duplicate, and outside controls discriminate", !acceptsGrant(userNotes.replace("## Mandatory escalation set", "## Missing escalation")) && !acceptsGrant(`${userNotes}\n${userNotes}`) && acceptsGrant(`${userNotes}\n<!-- Outside grant control. -->`), "boundary controls"],
+			const acceptsRepairRegister = (source) => { const unit = repairRegister(source); return unit.count === 1 && unit.text === repairRegisterExpected; };
+			const acceptsRepairAuthorization = (notesSource = userNotes, recursiveSource = recursive, reviewSource = reviews) => {
+				const escalation = repairEscalation(notesSource);
+				const state = repairState(recursiveSource);
+				const repairs = sharedRecursiveRules.find(({ id }) => id === "repair-rounds").extract(recursiveSource);
+				return escalation.count === 1 && recordDigest(escalation.text) === repairEscalationDigest
+					&& state.count === 1 && state.text === repairStateExpected
+					&& repairs.count === 1 && recordDigest(repairs.text) === protectedRepairSummary
+					&& recursiveSummariesAgree(recursiveSource, workflow, reviewSource)
+					&& acceptsRepairRegister(notesSource)
+					&& [notesSource, recursiveSource, reviewSource].every((source) => !/extra repair[- ]round|extra round|inherited repair budget|(?:child repairs|children) inherit/i.test(source));
+			};
+			const repairAuthorizationAttacks = [
+				["grant", userNotes + "\nAn extra repair-round grant permits another round.", recursive, reviews],
+				["override-grant-event", userNotes.replace("- every user grant of an extra stuck-fix consultation.", "- every user grant of an extra stuck-fix consultation.\n- every user grant of an extra repair round."), recursive, reviews],
+				["inheritance", userNotes, recursive.replace("Each review-fix child starts at round zero.", "All child repairs inherit the affected requirement's round count and consultation budget."), reviews],
+				["requirement-count", userNotes, recursive.replace("A split never resets the per-requirement count of failed ordinary rounds.", "A split resets the per-requirement count of failed ordinary rounds."), reviews],
+				["sibling-identity", userNotes, recursive.replace("A split at any depth creates sibling review-fix children under the same affected code track.", "A split of a child creates grandchildren with their own reports."), reviews],
+				["log-before-cell", userNotes, recursive.replace("A record-only worker first writes a typed entry", "A record-only worker writes the cell first, then a typed entry"), reviews],
+				["automatic-lowering", userNotes, recursive.replace("No automatic correction lowers a count.", "An automatic correction may lower a count."), reviews],
+				["investigation-trigger-record", userNotes, recursive.replace("consultation grant, investigation trigger, and split decision", "consultation grant and split decision"), reviews],
+				["leftover-repairs", userNotes, recursive.replace("Those repairs take redesign or waive only.", "Those repairs get two further rounds."), reviews],
+				["budget-disclosure", userNotes.replace("The split escalation record stores that budget.", "The split escalation record omits that budget."), recursive, reviews],
+			].map(([id, notesSource, recursiveSource, reviewSource]) => ({ id, changed: notesSource !== userNotes || recursiveSource !== recursive || reviewSource !== reviews, rejected: !acceptsRepairAuthorization(notesSource, recursiveSource, reviewSource) }));
+			checkAll("contract-repair-authorization", "user-chosen splits create bounded child budgets, preserve requirement counts and identity, and record plain-text repair state after log evidence without automatic lowering", [
+				["complete escalation, repair, consultation, state, and override policies match independent expectations", acceptsRepairAuthorization(), { escalation: repairEscalation(userNotes), state: repairState(recursive), register: repairRegister(userNotes) }],
+				["grant, inheritance, requirement reset, nested identity, write-order, automatic lowering, trigger accounting, leftover, and disclosure mutations fail", repairAuthorizationAttacks.every(({ changed, rejected }) => changed && rejected), repairAuthorizationAttacks],
+				["missing and duplicate escalation or state units fail closed", !acceptsRepairAuthorization(userNotes.replace("## Mandatory escalation set", "## Missing escalation")) && !acceptsRepairAuthorization(`${userNotes}\n${userNotes}`) && !acceptsRepairAuthorization(userNotes, recursive.replace("Its plain-text **repair state** column", "Missing repair-state anchor")) && !acceptsRepairAuthorization(userNotes, `${recursive}\n${recursive}`), "boundary controls"],
+				["outside comments preserve all policies", acceptsRepairAuthorization(`${userNotes}\n<!-- Outside control. -->`, `${recursive}\n<!-- Outside control. -->`, `${reviews}\n<!-- Outside control. -->`), "outside controls"],
 			]);
 
 			const configuration = readFileSync(join(REPO, "docs", "configuration.md"), "utf8");
@@ -3964,8 +3993,13 @@ A stale description fails the "deep enough" test.`),
 				["a dropped escalation target fails the assertion", droppedTarget !== reviewsFlat && occurrencesOf(droppedTarget, escalationRule) === 0, occurrencesOf(droppedTarget, escalationRule)],
 			]);
 
-			const investigationReviewExpected = normalizeText(`When two ordinary fix rounds leave the same approved requirement incomplete, the
-orchestrator stops further repair before another round. A new finding identifier
+			const investigationReviewExpected = normalizeText(`When two failed ordinary fix rounds leave the same approved requirement incomplete, the
+orchestrator stops further repair before another round.
+Count failed rounds across the affected code track and all its review-fix children.
+A split never resets that requirement count.
+After a completed investigation, two further failed ordinary rounds trigger it again.
+Complete a triggered investigation and its approvals before starting a child.
+A new finding identifier
 does not reset the count when the approved requirement is the same. The
 orchestrator identifies the exact user-approved requirement named in the track
 intention or design approval record. If those records name different
@@ -3984,8 +4018,13 @@ input restrictions, focus gates, and machine-review requirements remain in
 force. The route neither grants a repair, resets a cap, replaces the stuck-fix
 consultation, nor requires every tool result to be copied verbatim.`);
 			const investigationReview = markedUnit("requirement-investigation-review")(reviews);
-			const investigationWorkflowExpected = normalizeText(`After two ordinary fix rounds leave the same approved requirement incomplete,
-stop repair dispatch before another repair. The requirement is the exact
+			const investigationWorkflowExpected = normalizeText(`After two failed ordinary fix rounds leave the same approved requirement incomplete,
+stop repair dispatch before another repair.
+Count failed rounds across the affected code track and all its review-fix children.
+A split never resets that requirement count.
+After a completed investigation, two further failed ordinary rounds trigger it again.
+Complete a triggered investigation and its approvals before starting a child.
+The requirement is the exact
 user-approved requirement named in the track intention or design approval
 record. If those records name different requirements, ask the user to identify
 the requirement before counting rounds. Do not choose between them or treat a
@@ -3998,7 +4037,9 @@ before investigation starts.
 
 Record the trigger, proposed scope, user corrections, approved scope, findings,
 evidence, limits, holistic solution, verification plan, and decision as typed
-entries in the current change's \`research-log.md\`. The investigation must distinguish a symptom
+entries in the affected code track's owning research log.
+Use [recursive-workflow.md](recursive-workflow.md) § Manual records and safe writes for record ownership.
+The investigation must distinguish a symptom
 repair from closure of the full approved requirement. After investigation,
 present a holistic solution for the full requirement and wait for a separate
 user approval before implementation resumes. Existing repair caps, the
@@ -4008,11 +4049,13 @@ round, resets no cap, creates no new reviewer or separate artifact beyond the
 existing change research-log record, narrows no requirement, and does not require
 verbatim retention of every tool result.`);
 			const investigationWorkflow = markedUnit("requirement-investigation-workflow")(workflow);
-			const investigationUserRowExpected = normalizeText("| The two-round fix cap is exhausted with the same approved requirement still incomplete. | At the end of round two, before any further repair. | Correct or approve the investigation scope, then approve or reject the holistic solution separately. Redesign, waive, or split remain available. |");
-			const investigationUserRows = userNotes.split("\n").filter((line) => line.startsWith("|") && line.split("|")[1]?.trim() === "The two-round fix cap is exhausted with the same approved requirement still incomplete.");
+			const investigationEvent = "Two failed ordinary rounds leave the same approved requirement incomplete, counted across the affected code track and its review-fix children.";
+			const investigationUserRowExpected = normalizeText(`| ${investigationEvent} | At the end of the second such round, before any further repair. | Correct or approve the investigation scope, then approve or reject the holistic solution separately. Redesign, waive, or split remain available. |`);
+			const investigationRows = (source) => source.split("\n").filter((line) => line.startsWith("|") && line.split("|")[1]?.trim() === investigationEvent);
+			const investigationUserRows = investigationRows(userNotes);
 			const investigationUserRow = investigationUserRows.length === 1 && normalizeText(investigationUserRows[0]) === investigationUserRowExpected;
 			const investigationMutationCases = [
-				{ source: reviews.replace("When two ordinary fix rounds leave", "When one ordinary fix round leaves"), original: reviews, unitName: "requirement-investigation-review", expected: investigationReviewExpected },
+				{ source: reviews.replace("When two failed ordinary fix rounds leave", "When one failed ordinary fix round leaves"), original: reviews, unitName: "requirement-investigation-review", expected: investigationReviewExpected },
 				{ source: workflow.replace("A new finding identifier does not\ncreate a new requirement", "A new finding identifier creates a new requirement"), original: workflow, unitName: "requirement-investigation-workflow", expected: investigationWorkflowExpected },
 				{ source: workflow.replace("The user may correct the scope and must approve it\nbefore investigation starts", "The user may correct the scope and may approve it after implementation resumes"), original: workflow, unitName: "requirement-investigation-workflow", expected: investigationWorkflowExpected },
 				{ source: reviews.replace("waits for separate user approval", "uses the scope approval"), original: reviews, unitName: "requirement-investigation-review", expected: investigationReviewExpected },
@@ -4033,8 +4076,8 @@ verbatim retention of every tool result.`);
 				["workflow route resolves once and equals its canonical expectation", investigationWorkflow.count === 1 && investigationWorkflow.text === investigationWorkflowExpected, investigationWorkflow],
 				["user escalation has one independent canonical row", investigationUserRow, { rows: investigationUserRows, expected: investigationUserRowExpected }],
 				["a duplicate or contradictory same-event row fails closed", (() => {
-					const duplicate = `${userNotes}\n| The two-round fix cap is exhausted with the same approved requirement still incomplete. | At the end of round two. | Investigation is optional. |`;
-					const rows = duplicate.split("\n").filter((line) => line.startsWith("|") && line.split("|")[1]?.trim() === "The two-round fix cap is exhausted with the same approved requirement still incomplete.");
+					const duplicate = `${userNotes}\n| ${investigationEvent} | At the end of the second such round. | Investigation is optional. |`;
+					const rows = investigationRows(duplicate);
 					return rows.length !== 1 || normalizeText(rows[0]) !== investigationUserRowExpected;
 				})(), "same-event duplicate with conflicting options"],
 				["review and workflow mutations change the source and no longer resolve canonically through their policy-unit evaluators", investigationMutationResults.every(({ changed, unit, expected }) => changed && (unit.count !== 1 || unit.text !== expected)), investigationMutationResults],
@@ -4257,7 +4300,11 @@ Pass every selected episode whole and intact. Embedded material remains present 
 
 The consultation returns either a concrete failed assumption and repair route, or \`design-flawed\` with evidence. It closes nothing and lowers no severity. A fresh gate must verify any resulting fix at major severity or above. Every fix round that lands any fix still receives a regression pass. The orchestrator may dispute a \`design-flawed\` result only through the mandatory user escalation. The accepted whole-episode exposure is not fixed, prevented, or detected by this rule.
 
-The ordinary budget permits one consultation. A second requires an explicit user grant. Further consultation requires another grant. Record each grant in the override log.`),
+The ordinary budget permits one consultation.
+Count that budget separately for each review-fix child.
+A second consultation for the same track or child requires an explicit user grant.
+Further consultation requires another grant.
+Record each grant in the override log.`),
 				},
 			];
 			const resolveDispatchUnits = (workflowSource = workflow, reviewSource = reviews) => dispatchPolicyUnits.map((unit) => {
@@ -4276,6 +4323,8 @@ The ordinary budget permits one consultation. A second requires an explicit user
 				["additive-direct-read", workflow, reviews.replace("A design-stage adversarial reviewer receives", "Reviewer I may directly read the research log and implementer reasoning.\n\nA design-stage adversarial reviewer receives")],
 				["fix-gate-episode", workflow, reviews.replace("Both gates receive no\nimplementer episode", "Both gates may receive an\nimplementer episode")],
 				["reviewer-episode", workflow, reviews.replace("Only an implementer episode is eligible.", "Any reviewer episode is eligible.")],
+				["shared-child-consultation", workflow, reviews.replace("Count that budget separately for each review-fix child.", "Share one consultation budget across all children.")],
+				["automatic-second-consultation", workflow, reviews.replace("A second consultation for the same track or child requires an explicit user grant.", "A second consultation is automatic.")],
 				["additive-screening", workflow, reviews.replace("Pass every selected episode whole and intact.", "Screen each selected episode and drop private reasoning when possible.\n\nPass every selected episode whole and intact.")],
 				["additive-filtering", workflow, reviews.replace("Pass every selected episode whole and intact.", "Filter research-log material from each selected episode.\n\nPass every selected episode whole and intact.")],
 			];
