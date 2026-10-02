@@ -158,15 +158,15 @@ Obtain each new track's required approvals before implementation.
 The exception changes neither review requirements nor repair budgets.
 Track numbers remain stable and are never reused.
 
-Load [recursive-workflow.md](recursive-workflow.md) when the current or proposed
-plan contains a design track or review-fix child track.
+Every change reads § Identifiers, code ranges, and design markers and § Manual records and safe writes in [recursive-workflow.md](recursive-workflow.md).
+Load its other sections when the current or proposed plan contains a design track or review-fix child track.
 A review-fix child track repairs outstanding work under a user-approved split.
 Check the loading condition during planning and again during resume reconciliation.
 Load the document before proposing a review-fix split.
-Load it before planning or execution relies on a recursive rule.
+Read the applicable sections before relying on their rules.
 A lazy plan needs no total descendant count to apply the condition.
-A small tree with a design track still loads the document.
-A change with neither triggering track type does not load it.
+A small tree with a design track still loads the whole document.
+A change with neither triggering track type reads only the named common sections.
 
 The approved plan supplies specific evidence for proportional process.
 A design track or review-fix child track triggers the manual status file.
@@ -363,9 +363,23 @@ they change approved behavior or constraints. If an implementer discovers a
 design gap later, pause affected work and complete this route before continuing.
 
 <!-- multi-track-handoff:begin -->
-For a multi-track change, immediately before the implementation of every track, the orchestrator saves a current state summary in the current change's `research-log.md` and appends a typed `handoff` entry. The orchestrator then asks the user whether to run `/slate handoff [focus]`. This command continues the work in a fresh session and restores all threads and episodes. The orchestrator does not propose a plain new pi session instead.
+For a multi-track change, ask for handoff at the start of each design track.
+Ask again immediately before each code track's implementation.
+A design track plans a nested change before implementation.
+Save subtree detail in the active subtree log first.
+Save the state summary in the root `research-log.md` last as a typed `handoff` entry.
+The summary names the subtree entry it relies on.
+For a review-fix subtree, use the affected code track's existing records.
+When no subtree log exists, save the summary in the root log alone.
+The orchestrator then asks whether to run `/slate handoff [focus]`.
+This command restores all threads and episodes in a fresh session.
+Do not propose a plain new pi session instead.
 
-The first boundary is after all required planning and pre-implementation gates for the affected track are complete, including the confirmation gate, any scope-exception decisions, and every applicable design gate. It is immediately before the first track implementation. At each later boundary, the orchestrator completes the current track packet and required acceptance before saving state and asking for handoff before the next track implementation.
+The design-track boundary precedes research, expansion, and design work.
+The code-track boundary follows all required planning and pre-implementation gates.
+These include confirmation, scope-exception decisions, and applicable design gates.
+A newly created review-fix code track has that code-track boundary.
+Complete the prior track package and required acceptance before the next boundary.
 
 The orchestrator pauses dispatch pending an actual handoff and resume or an explicit user decision to continue in the same session. The explicit same-session decision is recorded as a user waiver in the existing override log. A resumed session follows Resume order and reconciliation and does not repeat a boundary request already recorded as completed. Same-track fix rounds do not retrigger the request. Single-track changes are exempt. This workflow rule has no automated runtime enforcement.
 <!-- multi-track-handoff:end -->
@@ -468,7 +482,7 @@ For that title, `<r>` starts at 1 and increases by one for each user-review fix
 commit in the track. That section also defines the distinct cumulative
 implementation body.
 
-For each track, the implementer creates
+For each code track, the implementer creates
 `track-<number>-implementer-report.md` in the current change folder when the track
 starts. The dispatch gives the exact path. The report is untracked working
 material. After a session with a different identifier takes ownership, create
@@ -489,7 +503,7 @@ A later track builds on the accepted boundary before it.
 Start a change with `slate_change start` before the first implementation
 dispatch. Slate creates `slate-changes/<change>/research-log.md` without waiting
 for a retained trigger. It records the generated folder name and owning Pi
-session identifier in saved state. Each track creates its implementer report
+session identifier in saved state. Each code track creates its implementer report
 there at track start. Append a retained entry immediately when any trigger
 below fires. `slate_change close` clears the current change after delivery or
 abandonment. It deletes no files.
@@ -518,11 +532,16 @@ omitted and why.
 
 Use a safe write method. Create each file without following a symbolic link.
 Append through a temporary file and atomic rename when replacement is needed.
-Slate checks the folder chain when it creates the change. Slate cannot enforce
-the safe-write rule for each file that Pi's file tools write. Keep the log and
-every implementer report untracked and visible in repository status. Do not add
-them to an ignore file. Never overwrite either from a stale in-memory copy.
-An implementer report never enters a pull request. When a session adopts a
+Use [recursive-workflow.md](recursive-workflow.md) § Manual records and safe writes
+for the runnable recipe, including implementer reports.
+Research logs and implementer reports are append-only.
+A correction is a new entry.
+Slate checks the folder chain when it creates the change.
+Manual writers must also check the destination.
+Keep all manual records and leftover temporary files untracked and visible in repository status.
+Do not add them to an ignore file or a pull request.
+Exclude their references and contents from reviewer inputs.
+Never overwrite a record from a stale in-memory copy. When a session adopts a
 change owned by a different Pi session identifier, Slate starts a new folder.
 Its log first names the direct source folder as a read-only earlier log. Each
 source log's first entry links to its own source. Follow those links to read the
@@ -534,7 +553,8 @@ Slate saves no open change and reports the failure. If that save fails, Slate
 reports it too. A legacy root `research-log.md` remains read-only. Only the user
 deletes a delivered or abandoned change folder.
 
-Before a session handoff, append a state summary. It names the proved focus
+Before a session handoff, use § Confirmation gate's handoff block for record order and the subtree-entry reference.
+The root state summary names the proved focus
 areas and risk-record location, current track, current implementer
 report location, last boundary marker, live registers, open findings, checks
 run, and next action. A
@@ -546,9 +566,12 @@ work triggers this summary.
 Resume in this fixed order:
 
 1. Read the initial request and latest state summary.
-2. Read decisions, rulings, risks, and open questions added since the prior
-   summary. When the state summary names an existing current implementer
-   report, read it at that location.
+   Before relying on a summary, check that its named subtree entry exists.
+   An older summary without a subtree reference still resumes under its recorded workflow.
+2. Read later decisions and the active subtree's records.
+   When the summary names an existing current implementer report, read it there.
+   Use [recursive-workflow.md](recursive-workflow.md) § Resume and folder forks
+   for tree reconciliation and read-only source boundaries.
 3. Inspect marker commits and the current branch state.
 4. Reconcile the declared file list, track table, coverage register, proved
    focus areas, risk record, and live diff.
@@ -633,11 +656,12 @@ The note queue is drained before final acceptance. Every escalation has a
 disposition. The coverage
 invariant holds. The user accepts the final change.
 
-A track contributes one cumulative implementation commit and zero or more
+A code track contributes one cumulative implementation commit and zero or more
 user-review fix commits. It also contributes zero or more correction commits,
 as defined later in [track-workflow.md](track-workflow.md) § Delivery and
-termination. Each track in a multi-track change also contributes one marker
-commit. During machine review, the implementer commits fixes separately so a
+termination. Each code track in a multi-track change also contributes one marker
+commit. For design markers, use [recursive-workflow.md](recursive-workflow.md)
+§ Identifiers, code ranges, and design markers. During machine review, the implementer commits fixes separately so a
 gate thread can inspect each fix difference. Before user review, squash the
 original implementation commit and every agentic-review fix commit into the cumulative
 implementation commit. This commit exists so the user reviews the high-level
@@ -671,8 +695,8 @@ escalation rules in
 The correction remains a separate commit after the cumulative implementation
 commit. Do not squash it. A track with no user-review fix commit adds neither
 this range nor this gate action. Where a marker applies, it comes last because
-it defines the track range. A fix after the marker would belong to the next
-track.
+it defines the track range. Later feedback follows [user-notes.md](user-notes.md).
+It does not extend the closed range or automatically belong to the next track.
 
 A bootstrap commit created to open a draft pull request uses
 `Bootstrap: <intent title>`. It is not part of any track. Re-pin every recorded
@@ -690,12 +714,22 @@ notes are resolved before the marker. When track acceptance is mandatory, the
 marker also waits for that acceptance and every requested fix:
 
 ```bash
-git commit --allow-empty -m "Track NN complete: <short name>"
+git commit --allow-empty -m "Track <path-number> complete: <short name>"
 ```
 
-Marker commits are the boundary authority for multi-track changes. Track N is
-the range after marker N-1 through marker N.
+<!-- marker-identity-policy:begin -->
+A canonical path number identifies a track through its numbered ancestors.
+Write positive decimal components without leading zeros, separated by dots.
+Use this unpadded template for every change begun under the current workflow.
+A flat-workflow change began before this workflow shipped.
+It keeps padded `Track NN complete` markers and its recorded range form:
+track N is the range after marker N-1 through marker N.
+Do not rename those markers or rewrite their history.
+Marker commits remain the boundary authority.
+For current code ranges and design markers, use
+[recursive-workflow.md](recursive-workflow.md) § Identifiers, code ranges, and design markers.
 A single-track change has no marker.
+<!-- marker-identity-policy:end -->
 
 <!-- accepted-history-policy:begin -->
 Before a permitted rewrite, preserve accepted source history in a reachable

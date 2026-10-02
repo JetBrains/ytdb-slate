@@ -8,7 +8,8 @@ reviewer is read-only. Independent reviewers run in parallel.
 
 ### Reviewer input contract
 
-No reviewer may receive or directly read the research log, a research-log
+No reviewer may receive or directly read a manual status file, leftover record
+temporary file, their references or contents, the research log, a research-log
 reference, a research-log extract, an implementer report, private orchestrator
 triage, or implementer reasoning. The reviewer must not seek those sources, even
 when repository tools can reach them. Private orchestrator triage means the

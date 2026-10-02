@@ -41,6 +41,7 @@ review, track-packet, user-note, blocking track-acceptance, final-acceptance,
 or finding-disposition requirements. Retain the current change folder's
 research log and every implementer report through and after delivery. Only
 the user may delete the change folder.
+Manual records and leftover record temporary files never enter a pull request.
 <!-- level-publishing-policy:end -->
 
 ## Creation

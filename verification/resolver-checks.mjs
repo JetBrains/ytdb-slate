@@ -358,6 +358,7 @@ const DOCTRINE_CONTRACT_IDS = [
 	"contract-track-size-publishing",
 	"contract-recursive-planning",
 	"contract-recursive-owner-agreement",
+	"contract-recursive-records",
 	"contract-level-publishing",
 	"contract-publishing-migration",
 	"contract-acceptance-units",
@@ -2390,17 +2391,35 @@ Reviewer composition and merging belong to
 				};
 			};
 			const phaseHandoff = resolvePhaseHandoff(workflow);
-			const expectedPhaseHandoff = normalizeText(`For a multi-track change, immediately before the implementation of every track, the orchestrator saves a current state summary in the current change's \`research-log.md\` and appends a typed \`handoff\` entry. The orchestrator then asks the user whether to run \`/slate handoff [focus]\`. This command continues the work in a fresh session and restores all threads and episodes. The orchestrator does not propose a plain new pi session instead.
+			const expectedPhaseHandoff = normalizeText(`For a multi-track change, ask for handoff at the start of each design track.
+Ask again immediately before each code track's implementation.
+A design track plans a nested change before implementation.
+Save subtree detail in the active subtree log first.
+Save the state summary in the root \`research-log.md\` last as a typed \`handoff\` entry.
+The summary names the subtree entry it relies on.
+For a review-fix subtree, use the affected code track's existing records.
+When no subtree log exists, save the summary in the root log alone.
+The orchestrator then asks whether to run \`/slate handoff [focus]\`.
+This command restores all threads and episodes in a fresh session.
+Do not propose a plain new pi session instead.
 
-The first boundary is after all required planning and pre-implementation gates for the affected track are complete, including the confirmation gate, any scope-exception decisions, and every applicable design gate. It is immediately before the first track implementation. At each later boundary, the orchestrator completes the current track packet and required acceptance before saving state and asking for handoff before the next track implementation.
+The design-track boundary precedes research, expansion, and design work.
+The code-track boundary follows all required planning and pre-implementation gates.
+These include confirmation, scope-exception decisions, and applicable design gates.
+A newly created review-fix code track has that code-track boundary.
+Complete the prior track package and required acceptance before the next boundary.
 
 The orchestrator pauses dispatch pending an actual handoff and resume or an explicit user decision to continue in the same session. The explicit same-session decision is recorded as a user waiver in the existing override log. A resumed session follows Resume order and reconciliation and does not repeat a boundary request already recorded as completed. Same-track fix rounds do not retrigger the request. Single-track changes are exempt. This workflow rule has no automated runtime enforcement.`);
 			const phaseHandoffMutationSources = [
 				workflow.replace("For a multi-track change", "For every change"),
-				workflow.replace("immediately before the implementation of every track", "after implementation of every track"),
+				workflow.replace("immediately before each code track's implementation", "after each code track's implementation"),
+				workflow.replace("at the start of each design track", "after each design track"),
+				workflow.replace("active subtree log first", "active subtree log last"),
+				workflow.replace("The summary names the subtree entry it relies on.", "The summary needs no subtree entry."),
 				workflow.replace("The explicit same-session decision is recorded as a user waiver in the existing override log.", "The explicit same-session decision needs no log entry."),
 				workflow.replace("does not repeat a boundary request already recorded as completed", "repeats every boundary request"),
 				workflow.replace("Same-track fix rounds do not retrigger the request.", "Every same-track fix round retriggers the request."),
+				workflow.replace("A newly created review-fix code track has that code-track boundary.", "Review-fix code tracks have no handoff boundary."),
 				workflow.replace("Single-track changes are exempt.", "Single-track changes follow the same rule."),
 				workflow.replace("<!-- multi-track-handoff:end -->", "A same-session continuation needs no additional decision.\n<!-- multi-track-handoff:end -->"),
 			];
@@ -2835,7 +2854,8 @@ Draft publishing does not remove or move planning, design, focus approval,
 review, track-packet, user-note, blocking track-acceptance, final-acceptance,
 or finding-disposition requirements. Retain the current change folder's
 research log and every implementer report through and after delivery. Only
-the user may delete the change folder.`),
+the user may delete the change folder.
+Manual records and leftover record temporary files never enter a pull request.`),
 				},
 				{
 					id: "publishing-after-merge",
@@ -2938,15 +2958,15 @@ Obtain each new track's required approvals before implementation.
 The exception changes neither review requirements nor repair budgets.
 Track numbers remain stable and are never reused.
 
-Load [recursive-workflow.md](recursive-workflow.md) when the current or proposed
-plan contains a design track or review-fix child track.
+Every change reads § Identifiers, code ranges, and design markers and § Manual records and safe writes in [recursive-workflow.md](recursive-workflow.md).
+Load its other sections when the current or proposed plan contains a design track or review-fix child track.
 A review-fix child track repairs outstanding work under a user-approved split.
 Check the loading condition during planning and again during resume reconciliation.
 Load the document before proposing a review-fix split.
-Load it before planning or execution relies on a recursive rule.
+Read the applicable sections before relying on their rules.
 A lazy plan needs no total descendant count to apply the condition.
-A small tree with a design track still loads the document.
-A change with neither triggering track type does not load it.
+A small tree with a design track still loads the whole document.
+A change with neither triggering track type reads only the named common sections.
 
 The approved plan supplies specific evidence for proportional process.
 A design track or review-fix child track triggers the manual status file.
@@ -3004,7 +3024,7 @@ limits, the implementer-requested exception, and the recursive-document loading 
 				[0, "loading trigger", "design track or review-fix child track", "design track only"],
 				[0, "resume loading", "and again during resume reconciliation", "but not during resume reconciliation"],
 				[0, "proposal loading", "before proposing a review-fix split", "after proposing a review-fix split"],
-				[0, "small tree", "A small tree with a design track still loads the document.", "Small trees never load the document."],
+				[0, "small tree", "A small tree with a design track still loads the whole document.", "Small trees never load the document."],
 				[0, "conditional records", "triggers neither extra record", "requires both extra records"],
 				[0, "proportional process", "add no unconditional-artifact exception", "add an unconditional-artifact exception"],
 				[1, "lazy expansion", "when work reaches it", "at root planning"],
@@ -3042,13 +3062,10 @@ limits, the implementer-requested exception, and the recursive-document loading 
 			// Later tracks own the sections after this boundary. Shared summaries must
 			// also match the lifecycle owner, not merely independent document pins.
 			const loadingRules = [
-				"Load [recursive-workflow.md](recursive-workflow.md) when the current or proposed plan contains a design track or review-fix child track.",
+				"Every change reads § Identifiers, code ranges, and design markers and § Manual records and safe writes in [recursive-workflow.md](recursive-workflow.md).",
+				"Load its other sections when the current or proposed plan contains a design track or review-fix child track.",
 				"Check the loading condition during planning and again during resume reconciliation.",
 				"Load the document before proposing a review-fix split.",
-				"Load it before planning or execution relies on a recursive rule.",
-				"A lazy plan needs no total descendant count to apply the condition.",
-				"A small tree with a design track still loads the document.",
-				"A change with neither triggering track type does not load it.",
 			];
 			const nestedRules = [
 				"Expand a design track when work reaches it.",
@@ -3060,88 +3077,39 @@ limits, the implementer-requested exception, and the recursive-document loading 
 				"Each code track keeps its independent gates.",
 			];
 			const recordRules = [
-				"The approved plan supplies specific evidence for proportional process.",
-				"A design track or review-fix child track triggers the manual status file.",
 				"Entering a design track triggers its research log and nested gates.",
 				"An ordinary code track or a high-level design alone triggers neither extra record.",
-				"These conditions add no unconditional-artifact exception.",
 				"Questions follow unresolved decisions rather than record or track counts.",
 			];
 			const recursivePrefix = regionUnit(/^# Recursive workflow\n([\s\S]*?)(?=^## Level publishing and retained history\n)/gm);
-			const recursivePrefixExpected = normalizeText(`A recursive workflow plans a large change as nested bounded work.
-Use [track-workflow.md](track-workflow.md) for the common lifecycle.
-This document owns the relations between nested tracks.
+			const recursivePrefixExpected = normalizeText(`Use [track-workflow.md](track-workflow.md) for the lifecycle.
+This document owns nested-track relations.
 
 ## Terms and scope
 
-A **track** is a bounded unit of work within a change.
 A **change tree** records tracks and their parent-child relationships.
-The **change root** represents the whole user request.
-A **design track** plans and completes a nested change.
-A **code track** implements a bounded part of approved work.
-A code track can change documents rather than executable code.
-A **child track** belongs directly to the node that planned it.
-**Sibling tracks** have the same parent.
-A **split** creates the direct child tracks of one parent.
-A **level** contains the sibling tracks created by one split.
-A level does not mean every track at the same depth.
+The **change root** represents the whole request.
+A **design track** plans a nested change.
+A **code track** implements bounded approved work, including documents.
+A **level** contains sibling tracks created by one split, not all tracks at one depth.
 A **level pull request** contains the code tracks of one level.
-A **subtree** contains a node and its descendant tracks.
-A **leaf** has no ordinary child tracks.
-Only code tracks are ordinary leaves.
-An **inner node** has child tracks.
-The change root and design tracks are ordinary inner nodes.
-A code track becomes an inner node when review fixes create child tracks.
+A **subtree** contains a node and its descendants.
 A **review-fix child track** repairs outstanding work under a user-approved split.
-A **path number** identifies a track through its numbered ancestors.
-
-A **high-level design** states what must be true and why.
-A **low-level design** states how the implementation achieves it.
-A **focus area** is a risk-defined concern that can require a workflow gate.
-A **risk record** assesses all eleven focus areas for a change or track.
-A **proved area** has a proof approved by the user.
-A **DESIGN-TRIGGERING area** is a proved area that requires the design sequence.
-The focus definitions and classes remain in
-[blast-radius.md](blast-radius.md) and [track-workflow.md](track-workflow.md).
-
-A **research log** retains decisions, evidence, questions, and workflow state.
-An **implementer report** records a code track's design, implementation, and checks.
-A **status file** displays the tree and current work.
-A **marker commit** is an empty commit that records a completed track boundary.
-A **track package** presents a track's result and acceptance evidence.
-A **review intention** states the scope and purpose of a review.
-
-The recursive workflow is a rule for the orchestrator and its workers.
-It is not an extension-managed tree controller.
-Slate does not expand tracks, schedule subtrees, or maintain manual tree records.
-The extension's session ownership rules still select the current change folder.
-A nested plan does not create a new saved-session format or configuration key.
+An **inner node** has children.
+The root and design tracks are ordinary inner nodes.
+A code track becomes an inner node only through review-fix children.
+Ordinary leaves are code tracks.
+Slate maintains no tree controller.
 
 ## Loading and planning
 
-[track-workflow.md](track-workflow.md) § Recursive planning and loading owns the
-loading condition, direct-child limit, and implementer-requested split exception.
-Apply its split rule to the change root and each expanded design track.
-The loading summary follows that section:
+Use [track-workflow.md](track-workflow.md) § Recursive planning and loading for
+loading, the direct-child limit, and the implementer-requested split exception.
+Apply its split rule to the root and each expanded design track.
+Use its § Confirmation gate for approvals and § Track intention block and
+implementer response for scope.
 
 ${loadingRules.join("\n")}
-
-Use [track-workflow.md](track-workflow.md) § Confirmation gate for split approvals.
-Use its § Track intention block and implementer response for each child's scope.
-
-\`\`\`text
-Change root
-  Design track: bounded nested change, expanded when entered
-    Code track: one coherent implementation and review unit
-    Code track: another coherent implementation and review unit
-  Code track: bounded work in the root's level
-\`\`\`
-
-Each indentation identifies a parent-child relation.
-The two children of the design track form one level.
-The design track and the root's code track form another level.
-The diagram describes planning structure rather than commit ranges or merge order.
-Those relations have their own sections below.
 
 ## Nested designs and gates
 
@@ -3150,58 +3118,45 @@ ${nestedRules.join("\n")}
 Use [track-workflow.md](track-workflow.md) § Confirmation gate for user-decision reuse.
 <!-- nested-design-policy:end -->
 
-Start from the initial request and the approved parent scope.
-Explain how each child contributes to the approved result.
-The parent design supplies context rather than automatic child approval.
-
-Use [track-workflow.md](track-workflow.md) § Lifecycle and phases for design content
-and the ordered validation, review, and approval sequence.
-Use its § Risk planning and reconciliation for each child's independent risk record.
-Use its § Review coverage for implementation-review duties.
-Use its § Delivery and termination for acceptance duties.
-[review-rules.md](review-rules.md) § Reviewer sets, merge rule and charters owns
-reviewer composition.
+Parent approval does not approve children.
+Use [track-workflow.md](track-workflow.md) § Lifecycle and phases for design gates,
+§ Risk planning and reconciliation for risk records, and § Review coverage for reviews.
+Use its § Delivery and termination for acceptance.
 
 ## Code-track sizing and split requests
 
-Use [track-workflow.md](track-workflow.md) § Track size and split for sizing,
-counted-line exclusions, estimates, overrun reports, and stopping duties.
-Use its § Recursive planning and loading for the implementer-requested split exception.
+Use [track-workflow.md](track-workflow.md) § Track size and split for sizing and stopping.
+Use its § Recursive planning and loading for split exceptions.
 
 ## Level consistency
 
-Use [track-workflow.md](track-workflow.md) § Track size and split for the level
-boundary, child checks, and remaining-difference accounting.
-[blast-radius.md](blast-radius.md) § Focus states and track constraints states the same level rule.
+Use [track-workflow.md](track-workflow.md) § Track size and split for level consistency.
 
 ## Proportional process
 
-Use principle P11 in [design-principles.md](design-principles.md) § 4. Operating
-principles for proportional-process limits.
-The conditional-record summary agrees with
-[track-workflow.md](track-workflow.md) § Recursive planning and loading:
-
+Use [design-principles.md](design-principles.md) § 4. Operating principles for proportional process.
+Use [track-workflow.md](track-workflow.md) § Recursive planning and loading for record triggers.
 ${recordRules.join("\n")}
-
-Use [track-workflow.md](track-workflow.md) § Confirmation gate for user-decision reuse.
-The record procedures belong in § Manual records and safe writes.
-The handoff timing belongs in § Handoff boundaries.
 
 ## Recorded-workflow compatibility
 
-Use [track-workflow.md](track-workflow.md) § Migration for recorded-workflow
-compatibility, small changes, manual-record absence, and the publishing default.
-Use its § Session handoff and the research log for saved-session ownership.`);
+Use [track-workflow.md](track-workflow.md) § Migration for compatibility.
+Use its § Session handoff and the research log for ownership.`);
 			const sharedRecursiveRules = [
 				{ id: "loading", rules: loadingRules, extract: regionUnit(/^## Loading and planning\n([\s\S]*?)(?=^## Nested designs and gates\n)/gm) },
 				{ id: "nested", rules: nestedRules, extract: markedUnit("nested-design-policy") },
 				{ id: "records", rules: recordRules, extract: regionUnit(/^## Proportional process\n([\s\S]*?)(?=^## Recorded-workflow compatibility\n)/gm) },
+				{ id: "status-trigger", rules: ["A design track or review-fix child track triggers the manual status file."], extract: regionUnit(/^## Manual records and safe writes\n([\s\S]*?)(?=^## Resume and folder forks\n)/gm) },
+				{ id: "canonical-grammar", owner: markedUnit("marker-identity-policy"), rules: ["Write positive decimal components without leading zeros, separated by dots."], extract: regionUnit(/^## Identifiers, code ranges, and design markers\n([\s\S]*?)(?=^## Manual records and safe writes\n)/gm) },
+				{ id: "repair-records", owner: markedUnit("multi-track-handoff"), rules: ["For a review-fix subtree, use the affected code track's existing records."], extract: regionUnit(/^## Manual records and safe writes\n([\s\S]*?)(?=^## Resume and folder forks\n)/gm) },
+				{ id: "append-only", owner: regionUnit(/^Use a safe write method\. ([\s\S]*?)(?=^Before a session handoff)/gm), rules: ["Research logs and implementer reports are append-only.", "A correction is a new entry."], extract: regionUnit(/^## Manual records and safe writes\n([\s\S]*?)(?=^## Resume and folder forks\n)/gm) },
+				{ id: "resume-entry", owner: regionUnit(/^## Resume order and reconciliation\n([\s\S]*?)(?=^## Review coverage\n)/gm), rules: ["Before relying on a summary, check that its named subtree entry exists."], extract: regionUnit(/^## Resume and folder forks\n([\s\S]*?)(?=^## Handoff boundaries\n)/gm) },
 			];
 			const recursiveSummariesAgree = (recursiveSource, workflowSource) => {
-				const owner = markedUnit("recursive-planning-policy")(workflowSource);
-				return owner.count === 1 && sharedRecursiveRules.every(({ rules, extract }) => {
+				return sharedRecursiveRules.every(({ rules, extract, owner = markedUnit("recursive-planning-policy") }) => {
+					const owningUnit = owner(workflowSource);
 					const summary = extract(recursiveSource);
-					return summary.count === 1 && rules.every((rule) => owner.text.includes(rule) && summary.text.includes(rule));
+					return owningUnit.count === 1 && summary.count === 1 && rules.every((rule) => owningUnit.text.includes(rule) && summary.text.includes(rule));
 				});
 			};
 			const acceptsRecursivePrefix = (source) => {
@@ -3218,14 +3173,14 @@ Use its § Session handoff and the research log for saved-session ownership.`);
 				return { id, index, side, changed: changed !== source && altered !== normalized, rejected: !recursiveSummariesAgree(side === "summary" ? changed : recursive, side === "owner" ? changed : workflow) };
 			})));
 			const recursivePrefixAttacks = [
-				["total-track loading", "The loading summary follows that section:", "The triggering evidence is more than twelve total tracks."],
-				["validation order", "and the ordered validation, review, and approval sequence.", "User validation follows implementation and each required area review."],
+				["total-track loading", "loading, the direct-child limit, and the implementer-requested split exception.", "The triggering evidence is more than twelve total tracks."],
+				["validation order", "§ Lifecycle and phases for design gates,", "User validation follows implementation and each required area review."],
 				["record trigger", "triggers neither extra record", "requires both extra records"],
-				["sizing copy", "counted-line exclusions, estimates, overrun reports, and stopping duties.", "Every code track must stay below 400 lines."],
-				["level copy", "boundary, child checks, and remaining-difference accounting.", "Each child is the merge unit and may have failing checks."],
-				["budget copy", "Use its § Recursive planning and loading for the implementer-requested split exception.", "A split renews repair rounds and consultation budgets."],
-				["migration copy", "compatibility, small changes, manual-record absence, and the publishing default.", "Every existing change migrates without user approval."],
-				["small-tree copy", "A small tree with a design track still loads the document.", "Small trees never load the document."],
+				["sizing copy", "for sizing and stopping.", "Every code track must stay below 400 lines."],
+				["level copy", "for level consistency.", "Each child is the merge unit and may have failing checks."],
+				["budget copy", "for split exceptions.", "A split renews repair rounds and consultation budgets."],
+				["migration copy", "§ Migration for compatibility.", "Every existing change migrates without user approval."],
+				["small-tree copy", "plan contains a design track or review-fix child track.", "Small trees never load the document."],
 				["missing glossary term", "A **level pull request** contains the code tracks of one level.", ""],
 				["incorrect glossary term", "A **level pull request** contains the code tracks of one level.", "A **level pull request** contains the whole change tree."],
 			].map(([id, before, after]) => {
@@ -3242,6 +3197,61 @@ Use its § Session handoff and the research log for saved-session ownership.`);
 				["contradictory loading, gate, record, sizing, level, budget, migration, small-tree, and glossary edits fail", recursivePrefixAttacks.every(({ changed, rejected }) => changed && rejected), recursivePrefixAttacks],
 				["missing and duplicate prefix boundaries fail closed", !acceptsRecursivePrefix(recursive.replace(recursivePrefixBoundary, "")) && !acceptsRecursivePrefix(`${recursive}\n${recursive}`), "missing and duplicate prefix"],
 				["harmless changes outside either owned unit pass", acceptsRecursivePrefix(benignRecursive) && recursiveSummariesAgree(benignRecursive, workflow) && recursiveSummariesAgree(recursive, benignOwner), "outside-unit controls"],
+			]);
+
+			const recordDigest = (text) => createHash("sha256").update(normalizeText(text)).digest("hex");
+			const recursiveRecordUnits = [
+				{ id: "identifiers-ranges", source: recursive, extract: regionUnit(/^## Identifiers, code ranges, and design markers\n([\s\S]*?)(?=^## Manual records and safe writes\n)/gm), expected: "cfe3c89907795c13cb1a7a08893bdb666ba1f9f92988b911e2c24a85095e4fd4" },
+				{ id: "manual-records", source: recursive, extract: regionUnit(/^## Manual records and safe writes\n([\s\S]*?)(?=^## Resume and folder forks\n)/gm), expected: "a99ef353e5bb213232fa1434dbe2d86c50baac399f9026a839f54798460c3ca1" },
+				{ id: "resume-forks", source: recursive, extract: regionUnit(/^## Resume and folder forks\n([\s\S]*?)(?=^## Handoff boundaries\n)/gm), expected: "ebb6414d2e4fd247f39356758a9618ec8b040f3ec8de02fdc10f9d7b8f350c12" },
+				{ id: "handoff-pointer", source: recursive, extract: regionUnit(/^## Handoff boundaries\n([\s\S]*?)(?=^## Review-fix subtrees and repair limits\n)/gm), expected: "fc5ca34c11f5f1defb5989c10af42cbac9af901c102dc18c6c8d1b55a98cd52f" },
+				{ id: "marker-identity", source: workflow, extract: markedUnit("marker-identity-policy"), expected: "846764c07a6b2c925091bd80f944c888d49994a71f2799b5cd2b8368b415a3c9" },
+				{ id: "resume-order", source: workflow, extract: regionUnit(/^## Resume order and reconciliation\n([\s\S]*?)(?=^## Review coverage\n)/gm), expected: "9edb063aea53ffc494d650f1a2306b975bbf31f1700a874ea0fd004bb1d0e244" },
+				{ id: "general-handoff", source: workflow, extract: regionUnit(/^Before a session handoff, ([\s\S]*?)(?=^## Resume order and reconciliation\n)/gm), expected: "7b7447512bbd7bb34344b322c744da57896fd849a7b050ff04ffaead47ed16ae" },
+				{ id: "closed-range-feedback", source: workflow, extract: regionUnit(/^The correction remains a separate commit ([\s\S]*?)(?=^A bootstrap commit)/gm), expected: "bed41eb1f1f38a00f40bc2a217a87454a6c2a1cdf55ac15f0e4fb1ab0ccecd3e" },
+			];
+			const acceptsRecordUnit = (unit, source) => {
+				const resolved = unit.extract(source);
+				return resolved.count === 1 && recordDigest(resolved.text) === unit.expected;
+			};
+			const recordUnitAttacks = recursiveRecordUnits.flatMap((unit) => {
+				const text = unit.extract(unit.source).text;
+				const rawPattern = new RegExp(text.slice(0, 70).replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+"), "g");
+				const changed = unit.source.replace(rawPattern, "Contradictory record policy.");
+				return [
+					{ id: unit.id, kind: "contradiction", changed: changed !== unit.source, rejected: !acceptsRecordUnit(unit, changed) },
+					{ id: unit.id, kind: "missing", changed: true, rejected: !acceptsRecordUnit(unit, "") },
+					{ id: unit.id, kind: "duplicate", changed: true, rejected: !acceptsRecordUnit(unit, `${unit.source}\n${unit.source}`) },
+				];
+			});
+			const recordRecipe = regionUnit(/^<!-- safe-record-recipe:begin -->\n```python\n([\s\S]*?)\n```\n<!-- safe-record-recipe:end -->/gm);
+			const recipeResolution = recordRecipe(recursive);
+			const recipeRaw = recursive.match(/^<!-- safe-record-recipe:begin -->\n```python\n([\s\S]*?)\n```\n<!-- safe-record-recipe:end -->/m)?.[1] ?? "";
+			const canonicalMarkerCommand = 'git commit --allow-empty -m "Track <path-number> complete: <short name>"';
+			const acceptsMarkerCommand = (source) => {
+				const visible = source.replace(/<!--[\s\S]*?-->/g, "");
+				const fences = [...visible.matchAll(/^```bash\n([\s\S]*?)\n```/gm)];
+				const displayed = fences.filter((match) => match[1] === canonicalMarkerCommand);
+				const commands = [...visible.replace(/\\\r?\n/g, " ").matchAll(/git commit\b[^\n]*Track[^\n]*complete:[^\n]*/g)];
+				return displayed.length === 1 && commands.length === 1 && commands[0][0] === canonicalMarkerCommand;
+			};
+			const markerCommandAttacks = [
+				workflow.replace(canonicalMarkerCommand, 'git commit --allow-empty -m "Track NN complete: <short name>"'),
+				workflow.replace(canonicalMarkerCommand, 'git commit --allow-empty -m "Track 07 complete: <short name>"'),
+				workflow.replace(canonicalMarkerCommand, 'git commit --allow-empty -m "Track 1.03 complete: <short name>"'),
+				workflow.replace(canonicalMarkerCommand, 'git commit --allow-empty \\\n-m "Track NN complete: <short name>"') + `\n<!-- ${canonicalMarkerCommand} -->`,
+				workflow.replace(canonicalMarkerCommand, `<!-- ${canonicalMarkerCommand} -->`),
+				`${workflow}\n${canonicalMarkerCommand}`,
+			].map((source) => ({ changed: source !== workflow, rejected: !acceptsMarkerCommand(source) }));
+			console.log(`NOTE recursive document: ${[...recursive].length} characters. Target: 16000. Report and explain any overrun in delivery evidence.`);
+			checkAll("contract-recursive-records", "canonical markers, actual code boundaries, design evidence, manual ownership, durable safe writes, resume, and forks remain complete", [
+				["each bounded record policy equals its reviewed digest exactly once", recursiveRecordUnits.every((unit) => acceptsRecordUnit(unit, unit.source)), recursiveRecordUnits.map((unit) => ({ id: unit.id, resolved: unit.extract(unit.source), expected: unit.expected }))],
+				["contradictions, missing units, and duplicate units fail closed", recordUnitAttacks.every(({ changed, rejected }) => changed && rejected), recordUnitAttacks],
+				["outside-unit controls preserve each policy", recursiveRecordUnits.every((unit) => acceptsRecordUnit(unit, `${unit.source}\n<!-- Unrelated control. -->`)), "outside controls"],
+				["the runnable recipe has one exact raw source, including indentation", recipeResolution.count === 1 && createHash("sha256").update(recipeRaw).digest("hex") === "2e78b7f0ab687c7fdd68adccdd4d0c539fcbadada76d437c014d06fa8221a9d9", recipeRaw],
+				["the displayed marker command is canonical and unique, excluding exception prose", acceptsMarkerCommand(workflow), "visible fenced command"],
+				["numeric padding, multiline padding, hidden canonical text, and duplicate commands fail", markerCommandAttacks.every(({ changed, rejected }) => changed && rejected), markerCommandAttacks],
+				["exception prose and outside-unit comments preserve the displayed command", acceptsMarkerCommand(`${workflow}\n<!-- benign control -->`), "flat-workflow exception retained"],
 			]);
 
 			// Publishing and migration are complete bounded policy units. Their
@@ -3443,10 +3453,7 @@ history rewrites, rebased-marker mappings, range updates, and unavailable histor
 				{
 					id: "history-owner-pointers", source: recursive,
 					extract: regionUnit(/^## Level publishing and retained history\n\n([\s\S]*?)(?=^<!-- level-history-policy:begin -->)/gm),
-					expected: normalizeText(`Use [pr-publishing.md](pr-publishing.md) § One draft pull request for publishing
-activation, level membership, and mergeability.
-Use its § Creation, § Ready-for-review flip, and § After the merge for approval,
-draft timing, ready safeguards, and delivery accounting.`),
+					expected: normalizeText(`Use [pr-publishing.md](pr-publishing.md) for activation, approval, ready safeguards, and accounting.`),
 				},
 				{
 					id: "ready", source: publishing,
@@ -4009,7 +4016,7 @@ The block states the current approved design when one exists, the current task a
 					id: "research-log-lifecycle",
 					source: workflow,
 					extract: regionUnit(/^(Start a change with `slate_change start` before the first implementation[\s\S]*?)(?=^Open these sections:)/gm),
-					expected: normalizeText(`Start a change with \`slate_change start\` before the first implementation dispatch. Slate creates \`slate-changes/<change>/research-log.md\` without waiting for a retained trigger. It records the generated folder name and owning Pi session identifier in saved state. Each track creates its implementer report there at track start. Append a retained entry immediately when any trigger below fires. \`slate_change close\` clears the current change after delivery or abandonment. It deletes no files.
+					expected: normalizeText(`Start a change with \`slate_change start\` before the first implementation dispatch. Slate creates \`slate-changes/<change>/research-log.md\` without waiting for a retained trigger. It records the generated folder name and owning Pi session identifier in saved state. Each code track creates its implementer report there at track start. Append a retained entry immediately when any trigger below fires. \`slate_change close\` clears the current change after delivery or abandonment. It deletes no files.
 
 - a second non-obvious decision.
 - a surprise about repository behaviour.
@@ -4024,7 +4031,7 @@ The block states the current approved design when one exists, the current task a
 					id: "reviewer-input-contract",
 					source: reviews,
 					extract: regionUnit(/^### Reviewer input contract\n\n([\s\S]*?)(?=^A design-stage adversarial review also judges)/gm),
-					expected: normalizeText(`No reviewer may receive or directly read the research log, a research-log reference, a research-log extract, an implementer report, private orchestrator triage, or implementer reasoning. The reviewer must not seek those sources, even when repository tools can reach them. Private orchestrator triage means the orchestrator's private deliberation and implementation rationale. Implementer reasoning means private reasoning produced by an implementer. These are distinct sources.
+					expected: normalizeText(`No reviewer may receive or directly read a manual status file, leftover record temporary file, their references or contents, the research log, a research-log reference, a research-log extract, an implementer report, private orchestrator triage, or implementer reasoning. The reviewer must not seek those sources, even when repository tools can reach them. Private orchestrator triage means the orchestrator's private deliberation and implementation rationale. Implementer reasoning means private reasoning produced by an implementer. These are distinct sources.
 
 This restriction applies to a design-stage adversary, Reviewer I, every implementation specialist, an agentic fix gate, a user-review fix-range gate, and a stuck-fix consultation. Ordinary repository and library evidence needed for the assigned work remains available. This permission is not a closed changed-file allowlist.
 
@@ -4076,10 +4083,10 @@ The ordinary budget permits one consultation. A second requires an explicit user
 				accepted: resolveDispatchUnits(workflowSource, reviewSource).every((result) => result.count === 1 && result.text === result.expected),
 			}));
 			// Exact pins include the report and ownership rules after the trigger list.
-			const reportRule = regionUnit(/^For each track, the implementer creates\n([\s\S]*?)(?=^Tracks are contiguous)/gm);
+			const reportRule = regionUnit(/^For each code track, the implementer creates\n([\s\S]*?)(?=^Tracks are contiguous)/gm);
 			const forkRule = regionUnit(/^Use a safe write method\. ([\s\S]*?)(?=^Before a session handoff)/gm);
 			const expectedReportRule = normalizeText(`\`track-<number>-implementer-report.md\` in the current change folder when the track starts. The dispatch gives the exact path. The report is untracked working material. After a session with a different identifier takes ownership, create a report in the new change folder. If the source folder has this track's report, name it as read-only in the new report's first entry. Continue the work in the new report. The report has four required sections: changes to the high-level design with the reason for each, the low-level design, diagrams where they help, and checks run with their results. The report states the approximate track size in counted lines. Later fix rounds append to that report in the current change folder.`);
-			const expectedForkRule = normalizeText(`Create each file without following a symbolic link. Append through a temporary file and atomic rename when replacement is needed. Slate checks the folder chain when it creates the change. Slate cannot enforce the safe-write rule for each file that Pi's file tools write. Keep the log and every implementer report untracked and visible in repository status. Do not add them to an ignore file. Never overwrite either from a stale in-memory copy. An implementer report never enters a pull request. When a session adopts a change owned by a different Pi session identifier, Slate starts a new folder. Its log first names the direct source folder as a read-only earlier log. Each source log's first entry links to its own source. Follow those links to read the full history. The source remains in place without copying. A resume or reload with the same identifier continues the current folder. A /tree move to parent history with a different owner creates a new folder on reload. A handoff makes the successor the owner of the current folder. If folder allocation fails, Slate saves no open change and reports the failure. If that save fails, Slate reports it too. A legacy root \`research-log.md\` remains read-only. Only the user deletes a delivered or abandoned change folder.`);
+			const expectedForkRule = normalizeText(`Create each file without following a symbolic link. Append through a temporary file and atomic rename when replacement is needed. Use [recursive-workflow.md](recursive-workflow.md) § Manual records and safe writes for the runnable recipe, including implementer reports. Research logs and implementer reports are append-only. A correction is a new entry. Slate checks the folder chain when it creates the change. Manual writers must also check the destination. Keep all manual records and leftover temporary files untracked and visible in repository status. Do not add them to an ignore file or a pull request. Exclude their references and contents from reviewer inputs. Never overwrite a record from a stale in-memory copy. When a session adopts a change owned by a different Pi session identifier, Slate starts a new folder. Its log first names the direct source folder as a read-only earlier log. Each source log's first entry links to its own source. Follow those links to read the full history. The source remains in place without copying. A resume or reload with the same identifier continues the current folder. A /tree move to parent history with a different owner creates a new folder on reload. A handoff makes the successor the owner of the current folder. If folder allocation fails, Slate saves no open change and reports the failure. If that save fails, Slate reports it too. A legacy root \`research-log.md\` remains read-only. Only the user deletes a delivered or abandoned change folder.`);
 			const acceptsLateRules = (source) => {
 				const report = reportRule(source);
 				const fork = forkRule(source);
@@ -4121,7 +4128,7 @@ The ordinary budget permits one consultation. A second requires an explicit user
 
 			const packageContract = block(deliveryPackages, "delivery-package-contract");
 			const digest = (text) => createHash("sha256").update(normalizeText(text)).digest("hex");
-			const EXPECTED_DELIVERY_PACKAGES_SHA256 = "fd50584597813e4389c714cf36b1d72571ddd39f266d1b8a24772b784f167a15";
+			const EXPECTED_DELIVERY_PACKAGES_SHA256 = "769ef11d7985db8b5b800018d9f3f53c02fbf2cdd8f0419e6eb7e7462401c0d4";
 			const acceptsPackageContract = (source) => {
 				const owned = block(source, "delivery-package-contract");
 				return owned.count === 1 && owned.endCount === 1 && digest(source) === EXPECTED_DELIVERY_PACKAGES_SHA256;

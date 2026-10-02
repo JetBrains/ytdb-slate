@@ -62,6 +62,9 @@ reporting progress. Name the action the user should take.>
 
 The **Result** states the completed outcome, not an activity log. The
 **References** field identifies the cumulative implementation commit or range.
+For code ranges and design markers, use [recursive-workflow.md](recursive-workflow.md)
+§ Identifiers, code ranges, and design markers.
+A design-track package references accepted child ranges without counting their work again.
 When draft publishing is enabled, it also gives the umbrella pull-request
 link. When publishing is disabled, state that no pull request exists.
 
