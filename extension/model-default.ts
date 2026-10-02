@@ -2,12 +2,11 @@
  * Global model-default restore: put the user's GLOBAL pi defaults back after a
  * slate-initiated model switch.
  *
- * Pi 0.85.1 keeps ordinary extension model and thinking-level switches inside
- * the current session. It changes global defaults only when a lower-level caller
+ * Pi 1.0.0 keeps ordinary extension model and thinking-level switches inside
+ * the current session. AgentSession changes global defaults only when a caller
  * explicitly requests persistence. Slate requests no persistence. This guard
- * remains for compatibility with explicit persistence fixtures and older host
- * behavior. If a switch does write global defaults, the guard restores exactly
- * the residue that the switch produced.
+ * covers explicit persistence fixtures and hosts that persist switches. If a
+ * switch writes global defaults, the guard restores exactly its matching residue.
  *
  * TWO INDEPENDENT DECISIONS, NEVER ONE PER SWITCH AND NEVER ONE PER KEY:
  *  - the defaultProvider + defaultModel PAIR, decided and written as ONE UNIT;
@@ -15,23 +14,20 @@
  * Each is judged from two fresh disk reads taken immediately before and after
  * the switch: restore only what CHANGED, and only when what it changed to is
  * exactly what slate's own switch should have produced. Anything unchanged is
- * never touched (which also makes this a zero-write no-op in EVERY state on a
- * future pi that stops persisting switches — upstream #5263); anything holding
- * a different value belongs to somebody else and is left alone.
+ * never touched, so session-only switches make this a zero-write no-op.
+ * A different value belongs to another caller and stays unchanged.
  *
- * Why the pair is ONE unit while the thinking level is separate: pi's ONLY
- * writer of those two keys is setDefaultModelAndProvider, which writes them
- * together, so any combination other than a pair that actually existed is a
- * state pi cannot produce and no consumer expects (a provider that does not own
- * the model, or a model with no provider at all). Deciding the halves
- * separately would manufacture exactly that: pre-switch provider + a third
- * party's model. So the pair is restored only when EVERY half that changed
- * matches the switch's expectation, and then the pre-switch pair is written
- * back EXACTLY, both halves, absence included — a state that demonstrably
- * existed a moment ago. The thinking level is not part of that pair and stays
- * independent, because the model setter's cascade can write it even when
- * provider and model already name the target, and handoff adoption can write it
- * ALONE when its equality guard skips the model setter.
+ * Restore provider and model as one pair. AgentSession persists that pair with
+ * setDefaultModelAndProvider. SettingsManager also exposes separate setters,
+ * so other callers can change either key. Restoring halves separately could
+ * combine Slate's saved provider with another caller's model. Restore the pair
+ * only when every changed half matches the switch expectation. Restore both
+ * saved halves, including absence.
+ *
+ * Restore the thinking level independently. AgentSession.setModel does not
+ * persist the thinking level by itself. An explicitly persistent thinking
+ * setter or a persistence fixture can write it separately. Handoff can call
+ * only the thinking setter when its model equality guard skips the model switch.
  *
  * Invariants baked in here, each one a defect this shape had to reverse:
  *  - NO STATE OUTLIVES A SINGLE SWITCH. Everything consulted is read during the
@@ -67,7 +63,7 @@
  *
  * Residue, stated honestly: a restore that exhausts its retry budget is
  * ABANDONED with a loud console warning and never repaired — the switched value
- * then persists globally exactly as it does today.
+ * remains in the global file when the switch requested persistence.
  */
 
 import { existsSync, statSync } from "node:fs";
@@ -90,8 +86,8 @@ type ThinkingLevel = ReturnType<ExtensionAPI["getThinkingLevel"]>;
  * busy-waits SYNCHRONOUSLY, so an attempt's cost is set by contention, not by
  * slate — a count-based bound would leave the stall unbounded.
  *
- * WORST-CASE STALL, derived from this file as written (pi 0.82.1: a contended
- * acquisition spins 10 × 20 ms ≈ 180 ms before it succeeds or throws):
+ * WORST-CASE STALL, derived from this file as written (pi 1.0.0: a contended
+ * acquisition makes ten attempts with nine 20 ms waits, about 180 ms):
  * five lock acquisitions per attempt — post-switch read (construction IS a
  * read), write-manager construction, the pair write, the separate
  * thinking-level write, and the verifying read — so a fully contended attempt
@@ -124,7 +120,7 @@ const REPORT_MAX_CHARS = 500;
 /** Explicit end-marker for a truncated report line. */
 const REPORT_TRUNCATION_MARK = " […truncated]";
 
-/** The three global keys pi's model setter can write. */
+/** The three global defaults covered by the restore guard. */
 interface GlobalDefaults {
 	provider: string | undefined;
 	model: string | undefined;
@@ -322,9 +318,8 @@ function readGlobalDefaults(cwd: string): ReadResult {
  * module header for why a per-half decision is unsafe). Returns the exact
  * pre-switch pair to write back, or undefined to leave BOTH keys alone.
  *
- * Do not re-split this into two decisions: pi's only writer of these keys
- * writes them together, so a pair mixing a pre-switch half with a post-switch
- * half is a state pi can never produce.
+ * Keep the restore decision atomic for the provider and model pair. Restoring
+ * only one half could combine the saved value with another caller's value.
  */
 function planPairRestore(
 	pre: GlobalDefaults,
@@ -518,16 +513,19 @@ function switchMayHavePersisted<T>(predicate: ((result: T) => boolean) | undefin
 }
 
 /**
- * Wrap ONE slate-initiated model switch so the user's global model defaults are
- * left as slate found them. `performSwitch` must contain every setter call of
- * that switch — the post-switch read has to follow the LAST write, since
- * adoption can persist the thinking-level key alone.
+ * Wrap one slate-initiated model switch to preserve the user's global defaults.
+ * `performSwitch` must contain every setter call for that switch.
+ * The post-switch read must follow the last write.
+ * Explicit persistence or a host that persists switches can write the thinking
+ * default alone during handoff adoption. Ordinary pi 1.0.0 switches write no
+ * global defaults.
  *
- * The restore runs even when `performSwitch` THROWS (pi's model setter persists
- * the pair before the cascade and the model-select emission that can throw, so
- * a throw can still leave residue); the original rejection is then re-thrown
- * unchanged. Apart from that, the wrapper never throws and never alters what
- * `performSwitch` returns: a restore failure is reported, not propagated.
+ * The restore runs even when `performSwitch` throws.
+ * With persist:true, pi's model setter writes the pair before updating thinking
+ * and emitting model_select. That emission can throw after the write.
+ * The wrapper rethrows the original rejection unchanged.
+ * Otherwise, the wrapper never throws or changes what `performSwitch` returns.
+ * It reports a restore failure without propagating it.
  *
  * `mayHavePersisted` is an optional escape hatch for the opposite case: return
  * false to state that the callback provably called NO pi setter, so nothing can

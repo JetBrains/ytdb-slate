@@ -598,14 +598,13 @@ export function registerSlateMode(
 		if (store.orchestratorMode && choice.enabled) displaySummary(ctx);
 	};
 
-	// pi runs a REGISTERED extension command before it emits the input event: in
-	// the pinned pi 0.83.0, AgentSession.prompt() calls
-	// _tryExecuteExtensionCommand(text) first and returns when a command claims
-	// the text, and it emits the input event only for text that no command
-	// claimed. /slate resume and /slate handoff therefore never reach this
-	// handler, so it needs no command exemption. Text that only LOOKS like a
-	// command — a different letter case, or a sendUserMessage() call, which skips
-	// command handling — is ordinary user input and is refused like any other.
+	// In pinned pi 1.0.0, AgentSession.prompt() handles registered extension
+	// commands before the input event. It returns when a command claims the text.
+	// /slate resume and /slate handoff therefore never reach this handler.
+	// Command matching is exact and case-sensitive. sendUserMessage() skips
+	// command handling by default. Setting expandPromptTemplates to true enables
+	// command handling. A command-looking string that reaches this handler is
+	// ordinary user input and receives the same pause rule.
 	pi.on("input", async (event, ctx) => {
 		if (store.orchestratorMode && store.paused) {
 			reportPausedInput(ctx);

@@ -78,7 +78,7 @@ export function isJudgementThreadType(type: unknown): type is (typeof JUDGEMENT_
 	return (JUDGEMENT_THREAD_TYPES as readonly unknown[]).includes(type);
 }
 
-// pi-ai 0.85.1 declares this value in
+// pi-ai 1.0.0 declares this value in
 // @earendil-works/pi-ai/dist/api/openai-prompt-cache.js. pi's extension loader
 // aliases the package root to the compat.js FILE, so an extension cannot safely
 // import that deep subpath. The node test pins this copy to pi-ai's declaration.
@@ -162,7 +162,7 @@ function installPromptCacheKey(session: WorkerSession, promptCacheKey?: string):
 		}
 
 		try {
-			// pi-ai 0.85.1's api/openai-responses.js buildParams always creates
+			// pi-ai 1.0.0 api/openai-responses.js buildParams always creates
 			// prompt_cache_key and assigns undefined when resolved cacheRetention is
 			// "none". Own-property presence therefore distinguishes that deliberate
 			// opt-out from a payload shape that never considered this field.
@@ -295,15 +295,11 @@ export function createWorkerRequestContract(): WorkerRequestContract {
  *  · the wait happens BEFORE the SDK converts the conversation into a provider
  *    payload, so a waiting request holds no converted copy (PF5).
  *
- * THE AUTHENTICATION CONTRACT IS UNCHANGED by this wrapper.
- * `AgentSession._getSummarizationRequestAuth` (agent-session.js:195) takes its
- * STRICT branch only while `agent.streamFunction === streamSimple`. A session
- * built by `createAgentSession` never satisfies that test: the SDK installs its
- * own stream function on the Agent (dist/core/sdk.js, `streamFn:` in the agent
- * runtime options), so the lenient branch is already the branch every slate
- * worker session used before this wrapper existed. A measured probe on the
- * pinned pi 0.85.1 confirmed `streamFunction === streamSimple` is false for a
- * fresh worker session, and test/request-throttle-worker.test.ts pins it.
+ * The wrapper preserves the software development kit (SDK) authentication branch.
+ * AgentSession._getSummarizationRequestAuth takes its strict branch only when
+ * agent.streamFunction === streamSimple. In pinned pi 1.0.0, createAgentSession
+ * installs its own stream function, so fresh worker sessions take the lenient
+ * branch. test/request-throttle-worker.test.ts checks that identity.
  *
  * A THROWN admission error is NOT swallowed. A cancelled wait rejects, pi turns
  * the rejection into the same aborted or errored assistant outcome it produces
@@ -455,24 +451,24 @@ export async function openWorkerSession(opts: {
 	// user has NOT trusted. Carry the host session's actual trust decision into
 	// both the resource loader and the session.
 	//
-	// READ-ONLY view (AF8/AF9): model failover may call session.setModel on a
-	// live worker, and setModel persists the new model as the default via
-	// SettingsManager (setThinkingLevel likewise). A file-backed manager would
-	// write a worker's failover model into the USER'S global settings.json.
-	// Instead, snapshot the settings once here and serve them through a custom
-	// SettingsStorage whose withLock discards the callback's return value —
-	// the supported no-op write path (persistScopedSettings only hands the new
-	// JSON back as that return value; there is no error path). Reads, merge
-	// semantics, and trust gating are identical to a file-backed manager.
+	// READ-ONLY view (AF8/AF9): pi 1.0.0 keeps ordinary session.setModel and
+	// setThinkingLevel calls inside the session. Slate requests no persistence.
+	// This storage protects global settings from calls with persist:true and
+	// from hosts that persist switches. A file-backed manager would save those
+	// explicit writes as global defaults, including a worker's failover choice.
+	// Snapshot the settings once and serve them through a custom SettingsStorage.
+	// Its withLock discards the callback's return value, which drops writes.
+	// persistScopedSettings returns the new JSON through that callback.
+	// Reads, merge semantics and trust gating match a file-backed manager.
 	//
-	// CN4: the snapshot is taken via a throwaway file-backed SettingsManager,
-	// NOT a raw readFileSync — pi's settings writer holds a lockfile during
-	// its non-atomic writes (e.g. the orchestrator's own failover setModel
-	// persisting a new global default), so an unlocked read could tear. The
-	// throwaway does the locked, error-tolerant read; its per-scope snapshots
-	// are re-serialized for the storage below (fromStorage re-parses and
-	// re-migrates them — idempotent), and it never writes: no setter is ever
-	// called on it.
+	// CN4: a throwaway file-backed SettingsManager takes the snapshot under pi's
+	// settings lock. Pi holds that lock during its non-atomic settings writes.
+	// A call with persist:true or a direct SettingsManager setter can write
+	// global defaults. An unlocked read could capture an incomplete write.
+	// The throwaway manager reads under the lock and handles read errors.
+	// Its per-scope snapshots become JSON for the storage below.
+	// fromStorage parses and migrates that JSON again without changing it.
+	// The throwaway manager never writes because no caller invokes its setters.
 	const trusted = ctx.isProjectTrusted();
 	const snapshot = SettingsManager.create(ctx.cwd, agentDir, { projectTrusted: trusted });
 	// Pi's background warmer bypasses agent.streamFunction and therefore Slate's
@@ -597,13 +593,11 @@ export async function openWorkerSession(opts: {
 		? SessionManager.open(opts.sessionFile)
 		: SessionManager.create(ctx.cwd, ensureRuntimeDirectory(ctx.cwd, opts.runtimeFolder ?? defaultArtifactFolder(), "threads"));
 
-	// No modelRuntime passed: createAgentSession (pi >= 0.80.8) defaults to a
-	// ModelRuntime replacing the AuthStorage + ModelRegistry setup this code
-	// hand-built before those SDK options were removed. Credential/config
-	// sources are unchanged — global agentDir auth.json + models.json, never
-	// project-local — but the default is a superset: it also reads/writes
-	// agentDir/models-store.json and may run a throttled (~4h-cached)
-	// create-time network catalog refresh (disabled by PI_OFFLINE).
+	// In pi 1.0.0, createAgentSession creates a ModelRuntime when none is passed.
+	// It uses auth.json, models.json and models-store.json under agentDir.
+	// SDK creation enables network catalog refresh only with allowModelNetwork.
+	// This call supplies no runtime option, so creation uses no network catalog
+	// refresh. PI_OFFLINE also disables model-network access.
 	const { session } = await createAgentSession({
 		cwd: ctx.cwd,
 		agentDir,
