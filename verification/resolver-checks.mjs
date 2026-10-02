@@ -356,6 +356,8 @@ const DOCTRINE_CONTRACT_IDS = [
 	"contract-risk-lifecycle",
 	"contract-focus-gates",
 	"contract-track-size-publishing",
+	"contract-recursive-planning",
+	"contract-recursive-owner-agreement",
 	"contract-publishing-migration",
 	"contract-acceptance-units",
 	"contract-acceptance-mutations",
@@ -2364,7 +2366,20 @@ Reviewer composition and merging belong to
 
 			const focusGates = normalizeText(workflow.match(/^## Focus classes and gates\n([\s\S]*?)(?=^<!-- focus-area-table:begin -->)/m)?.[1] ?? "");
 			const phases = normalizeText(workflow.match(/The mandatory phases run in this order:[\s\S]*?9\. deliver\./)?.[0] ?? "");
-			const designEntry = normalizeText(workflow.match(/Before each track implementation,[\s\S]*?(?=If the planned split exceeds)/)?.[0] ?? "");
+			const resolveDesignEntry = (source) => {
+				const matches = [...source.matchAll(/^Before each track implementation,[\s\S]*?(?=^<!-- multi-track-handoff:begin -->)/gm)];
+				return { count: matches.length, text: matches.length === 1 ? normalizeText(matches[0][0]) : "" };
+			};
+			const acceptsDesignEntry = (source) => {
+				const { count, text } = resolveDesignEntry(source);
+				return count === 1 && /Before each track implementation/.test(text) && /newly proves a DESIGN-TRIGGERING area[\s\S]*?enter or re-enter the design sequence[\s\S]*?before the affected implementation/.test(text) && /Reuse adequate unchanged approved design and completed applicable gates/.test(text) && /Reusing text does not bypass a newly required area-specific design review/.test(text) && /Routine low-level design choices need no user approval unless[\s\S]*?change approved behavior or constraints/.test(text);
+			};
+			const designEntryMutations = [
+				workflow.replace("Reuse adequate unchanged approved design and completed", "Assume the parent approved design and completed"),
+				workflow.replace("before the affected implementation", "after the affected implementation"),
+				workflow.replace("<!-- multi-track-handoff:begin -->", ""),
+				`${workflow}\n${workflow}`,
+			].map((source) => ({ changed: source !== workflow, rejected: !acceptsDesignEntry(source) }));
 			const resolvePhaseHandoff = (source) => {
 				const resolution = block(source, "multi-track-handoff");
 				return {
@@ -2514,7 +2529,8 @@ required reviews, ordered gates, user authority, or final acceptance.`;
 				["100 lines, 101 lines, documentation-only and proved areas select the correct reviewers", /at least one proved area gets exactly one\s+Reviewer I/.test(focusGates) && /above 100 counted lines also requires Reviewer I\s+unless the track is documentation-only/.test(focusGates) && reviewerRows.length === 3 && reviewerRows[0]?.[0] === "one or more proved areas" && reviewerRows[0]?.[1].startsWith("exactly one Reviewer I plus one specialist for every proved area") && reviewerRows[1]?.[0] === "no proved area, more than 100 counted lines, not documentation-only" && reviewerRows[1]?.[1] === "exactly one Reviewer I" && reviewerRows[2]?.[0] === "no proved area, at most 100 counted lines or documentation-only" && reviewerRows[2]?.[1].includes("NOT REQUIRED"), { focusGates, reviewerRows }],
 				["no-design phases skip design-only gates while final acceptance remains mandatory", /when a design exists, reconfirm/.test(phases) && /when a design exists, run one adversarial design review/.test(phases) && /when a design exists, obtain final design approval/.test(phases) && /obtain blocking final acceptance/.test(phases), phases],
 				["design validation and reconfirmation precede one area adversary and final approval", /user validation, focus reconfirmation, its own adversarial\s*design reviewer, and final design approval/.test(focusGates), focusGates],
-				["each track assesses design coverage and re-enters before affected implementation", /Before each track implementation/.test(designEntry) && /newly proves a DESIGN-TRIGGERING area[\s\S]*?enter or re-enter the design sequence[\s\S]*?before the affected implementation/.test(designEntry) && /Reuse adequate unchanged approved design and completed applicable gates/.test(designEntry) && /Reusing text does not bypass a newly required area-specific design review/.test(designEntry) && /Routine low-level design choices need no user approval unless[\s\S]*?change approved behavior or constraints/.test(designEntry), designEntry],
+				["each track assesses design coverage and re-enters before affected implementation", acceptsDesignEntry(workflow), resolveDesignEntry(workflow)],
+				["design-entry rule and boundary mutations fail while an outside edit passes", designEntryMutations.every(({ changed, rejected }) => changed && rejected) && acceptsDesignEntry(`${workflow}\nUnrelated outside-unit text.\n`), designEntryMutations],
 				["multi-track implementation boundaries require state save, handoff request, pause, override, resume de-duplication, and single-track exemption", phaseHandoff.count === 1 && phaseHandoff.endCount === 1 && phaseHandoff.text === expectedPhaseHandoff, { phaseHandoff, expectedPhaseHandoff }],
 				["weakened scope, ordering, logging, resume, fix-round, single-track, and contradictory additions fail through the same validator", phaseHandoffMutationOutcomes.every(({ changed, accepted }) => changed && !accepted), phaseHandoffMutationOutcomes],
 				["missing, duplicate, and malformed handoff boundaries fail closed", phaseHandoffBoundaryMutations.every(({ count, endCount, text }) => count !== 1 || endCount !== 1 || text === ""), phaseHandoffBoundaryMutations],
@@ -2764,10 +2780,18 @@ the implementer reports above 100, do not require a design after the fact.
 Reviewer I still runs when the track is not documentation-only. Use the larger
 size to estimate remaining tracks.
 
-Plan each track as an autonomous, independently mergeable unit inside the
-change. Aim for a coherent boundary close to 400 changed lines without
-exceeding the guideline.
-If the nearest coherent, independently mergeable unit needs a small overrun,
+Plan each code track as one coherent review unit inside a level.
+A code track implements bounded approved work, including document changes.
+A level contains the sibling tracks created by one split.
+The level is the merge unit.
+All checks pass at each child marker.
+Agreement across documents, prompt guidance, and the extension is required at
+the level boundary.
+Intermediate track packages and review intentions list each remaining difference
+across those surfaces and name the later child that owns it.
+Do not merge an incomplete level into the default branch.
+Aim for a coherent boundary close to 400 counted changed lines.
+If the nearest coherent unit needs a small overrun,
 finish that unit and report the reason. Size never permits dropping an approved
 requirement, reducing implementation or test quality, or declaring partial work
 complete.
@@ -2829,7 +2853,10 @@ nothing. Keep its folder and reports.`),
 				[workflow.replace("do not require a design after the fact", "require a design after the fact"), publishing],
 				[workflow.replace("Reviewer I still runs when the track is not documentation-only", "Reviewer I does not run when the estimate was at most 100"), publishing],
 				[workflow.replace("Use the larger\nsize to estimate remaining tracks", "Ignore the larger size for remaining tracks"), publishing],
-				[workflow.replace("autonomous, independently mergeable unit", "dependent partial change"), publishing],
+				[workflow.replace("coherent review unit inside a level", "independently mergeable partial change"), publishing],
+				[workflow.replace("All checks pass at each child marker.", "Checks may fail at a child marker."), publishing],
+				[workflow.replace("The level is the merge unit.", "Each child is the merge unit."), publishing],
+				[workflow.replace("at\nthe level boundary", "at\nevery child boundary"), publishing],
 				[workflow.replace("needs a small overrun,\nfinish that unit and report the reason", "needs a small overrun,\ncut required work to stay below the guideline"), publishing],
 				[workflow.replace("stops adding\nscope", "keeps adding\nscope"), publishing],
 				[workflow.replace("completed\nwork, remaining work, and a proposed track split", "completed work"), publishing],
@@ -2856,8 +2883,342 @@ nothing. Keep its folder and reports.`),
 			);
 			checkAll("contract-track-size-publishing", "track sizing, publishing activation, one umbrella pull request, and post-merge cleanup are exact mutation-resistant policy units", [
 				["publishing activation and all three policy units resolve once and equal independent expectations", publishingActivationResult.count === 1 && publishingActivationResult.text === publishingActivation.expected && trackSizePublishingResults.every((unit) => unit.count === 1 && unit.text === unit.expected), { publishingActivationResult, trackSizePublishingResults }],
-				["enabled and disabled activation, one-PR rule, limit, exclusions, both estimates, metric exclusions, autonomy, coherent overrun, stopping report, false completion, marker boundary, user merge, post-merge cleanup, gate, and record-retention mutations fail", publishingActivationMutations.every(({ changed, accepted }) => changed && !accepted) && trackSizePublishingMutations.every(({ changed, accepted }) => changed && !accepted), { publishingActivationMutations, trackSizePublishingMutations }],
+				["enabled and disabled activation, one-PR rule, limit, exclusions, both estimates, metric exclusions, level consistency, coherent overrun, stopping report, false completion, marker boundary, user merge, post-merge cleanup, gate, and record-retention mutations fail", publishingActivationMutations.every(({ changed, accepted }) => changed && !accepted) && trackSizePublishingMutations.every(({ changed, accepted }) => changed && !accepted), { publishingActivationMutations, trackSizePublishingMutations }],
 				["missing and duplicated marker boundaries fail closed", missingTrackSizePublishing.every(({ count, text }) => count === 0 && text === "") && duplicateTrackSizePublishing.every(({ count }) => count === 2), { missingTrackSizePublishing, duplicateTrackSizePublishing }],
+			]);
+
+			const recursive = readFileSync(join(REPO, "docs", "recursive-workflow.md"), "utf8");
+			const recursiveUnits = [
+				{
+					id: "lifecycle-planning", source: workflow,
+					extract: markedUnit("recursive-planning-policy"),
+					boundary: "<!-- recursive-planning-policy:end -->",
+					expected: normalizeText(`A design track plans and completes a nested change.
+A multi-track change requires a high-level design.
+An estimate above 100 counted lines and a proved DESIGN-TRIGGERING area remain
+separate design triggers.
+A required high-level design alone does not create a design track.
+Expand a design track when work reaches it.
+Each subtree root receives its own high-level design and independent risk assessment.
+A subtree contains a node and its descendant tracks.
+Design-track designs have no size cap.
+Each design track completes the gates of a nested multi-track change.
+Each code track keeps its independent gates.
+Reuse applicable evidence only under § Confirmation gate's user-decision reuse rule.
+
+An ordinary split creates at most five direct child tracks.
+An ordinary plan that needs more than five direct children must add a design track.
+Load [recursive-workflow.md](recursive-workflow.md) for that design track.
+An implementer-requested split may add siblings beyond five to the same level.
+The exception does not automatically create another level.
+Obtain each new track's required approvals before implementation.
+The exception changes neither review requirements nor repair budgets.
+Track numbers remain stable and are never reused.
+
+Load [recursive-workflow.md](recursive-workflow.md) when the current or proposed
+plan contains a design track or review-fix child track.
+A review-fix child track repairs outstanding work under a user-approved split.
+Check the loading condition during planning and again during resume reconciliation.
+Load the document before proposing a review-fix split.
+Load it before planning or execution relies on a recursive rule.
+A lazy plan needs no total descendant count to apply the condition.
+A small tree with a design track still loads the document.
+A change with neither triggering track type does not load it.
+
+The approved plan supplies specific evidence for proportional process.
+A design track or review-fix child track triggers the manual status file.
+Entering a design track triggers its research log and nested gates.
+An ordinary code track or a high-level design alone triggers neither extra record.
+These conditions add no unconditional-artifact exception.
+Questions follow unresolved decisions rather than record or track counts.
+[recursive-workflow.md](recursive-workflow.md) owns the nested planning relations.`),
+				},
+				{
+					id: "nested-design", source: recursive,
+					extract: markedUnit("nested-design-policy"),
+					boundary: "<!-- nested-design-policy:end -->",
+					expected: normalizeText(`Expand a design track when work reaches it.
+Each subtree root receives its own high-level design and independent risk assessment.
+A multi-track change requires a high-level design.
+An estimate above 100 counted lines and a proved DESIGN-TRIGGERING area remain
+separate design triggers.
+Design-track designs have no size cap.
+Each design track completes the gates of a nested multi-track change.
+Each code track keeps its independent gates.
+Use [track-workflow.md](track-workflow.md) § Confirmation gate for user-decision reuse.`),
+				},
+				{
+					id: "blast-level", source: blast,
+					extract: regionUnit(/^(Each track must be one coherent unit[\s\S]*?)(?=^## Focus areas and their gates)/gm),
+					boundary: "## Focus areas and their gates",
+					expected: normalizeText(`Each track must be one coherent unit that a human can review in one sitting.
+The orchestrator owns the split and records its rationale.
+A code track implements bounded approved work, including document changes.
+A level contains the sibling tracks created by one split.
+The level is the merge unit.
+All checks pass at each child marker.
+Agreement across documents, prompt guidance, and the extension is required at
+the level boundary.
+Intermediate track packages and review intentions list each remaining difference
+across those surfaces and name the later child that owns it.
+Do not merge an incomplete level into the default branch.
+[track-workflow.md](track-workflow.md) § Recursive planning and loading owns split
+limits, the implementer-requested exception, and the recursive-document loading condition.`),
+				},
+			];
+			const acceptsRecursiveUnit = (unit, source) => {
+				const result = unit.extract(source);
+				return result.count === 1 && result.text === unit.expected;
+			};
+			const recursiveAttacks = [
+				[0, "five-child limit", "at most five direct child tracks", "at most nine direct child tracks"],
+				[0, "larger ordinary plan", "must add a design track", "may remain flat"],
+				[0, "larger-plan loading", "Load [recursive-workflow.md](recursive-workflow.md) for that design track.", "Skip the recursive document."],
+				[0, "split exception", "may add siblings beyond five to the same level", "must create a new level beyond five"],
+				[0, "new approvals", "required approvals before implementation", "approvals after implementation"],
+				[0, "budgets", "changes neither review requirements nor repair budgets", "resets review requirements and repair budgets"],
+				[0, "stable numbers", "are never reused", "may be reused"],
+				[0, "loading trigger", "design track or review-fix child track", "design track only"],
+				[0, "resume loading", "and again during resume reconciliation", "but not during resume reconciliation"],
+				[0, "proposal loading", "before proposing a review-fix split", "after proposing a review-fix split"],
+				[0, "small tree", "A small tree with a design track still loads the document.", "Small trees never load the document."],
+				[0, "conditional records", "triggers neither extra record", "requires both extra records"],
+				[0, "proportional process", "add no unconditional-artifact exception", "add an unconditional-artifact exception"],
+				[1, "lazy expansion", "when work reaches it", "at root planning"],
+				[1, "independent risk", "independent risk assessment", "inherited risk approval"],
+				[1, "multi-track design", "requires a high-level design", "needs no high-level design"],
+				[1, "size trigger", "above 100 counted lines", "above 400 counted lines"],
+				[1, "uncapped design", "have no size cap", "have a 400-line cap"],
+				[1, "nested gates", "completes the gates", "skips the gates"],
+				[1, "code gates", "keeps its independent gates", "uses only parent gates"],
+				[2, "merge unit", "The level is the merge unit.", "Each child is the merge unit."],
+				[2, "child checks", "All checks pass at each child marker.", "Child checks may fail."],
+				[2, "agreement boundary", "at\nthe level boundary", "at\nevery child boundary"],
+				[2, "remaining owners", "name the later child that owns it", "omit the later owner"],
+			].map(([index, id, before, after]) => {
+				const unit = recursiveUnits[index];
+				const source = unit.source.replace(before, after);
+				return { id, changed: source !== unit.source, rejected: !acceptsRecursiveUnit(unit, source) };
+			});
+			const recursiveBoundaries = recursiveUnits.map((unit) => {
+				const missing = unit.source.replace(unit.boundary, "");
+				const duplicate = `${unit.source}\n${unit.source}`;
+				return { id: unit.id, missing: !acceptsRecursiveUnit(unit, missing), duplicate: !acceptsRecursiveUnit(unit, duplicate), benign: acceptsRecursiveUnit(unit, `${unit.source}\nUnrelated outside-unit text.\n`) };
+			});
+			const noTotalStop = (source) => !/\b(?:twelve|12)\s+tracks\b|\bTwelve is an escalation/i.test(source);
+			checkAll("contract-recursive-planning", "the lifecycle owns the five-child rule, split exception and loading, nested designs preserve gates, and child checks precede level agreement", [
+				["three independent owned units resolve exactly once and match", recursiveUnits.every((unit) => acceptsRecursiveUnit(unit, unit.source)), recursiveUnits.map((unit) => ({ id: unit.id, ...unit.extract(unit.source) }))],
+				["every rule mutation changes input and fails its production predicate", recursiveAttacks.every(({ changed, rejected }) => changed && rejected), recursiveAttacks],
+				["missing and duplicate units fail, while outside-unit edits pass", recursiveBoundaries.every(({ missing, duplicate, benign }) => missing && duplicate && benign), recursiveBoundaries],
+				["both total-track stops are absent and restoring either fails", [workflow, blast].every((source) => noTotalStop(source) && !noTotalStop(`${source}\nIf the planned split exceeds twelve tracks, stop.`)), "workflow and blast-radius"],
+				["the phase list includes the separate multi-track design trigger", workflow.includes("3. design and validate for a multi-track change, a proved DESIGN-TRIGGERING area, or a per-track estimate above 100 counted lines."), workflow.match(/^3\. .*$/m)?.[0]],
+				["one exported document identity resolves without an always-loaded prompt import", paths.RECURSIVE_WORKFLOW_DOC === join(REPO, "docs", "recursive-workflow.md") && readFileSync(paths.RECURSIVE_WORKFLOW_DOC, "utf8") === recursive && !readFileSync(join(REPO, "extension", "mode.ts"), "utf8").includes("RECURSIVE_WORKFLOW_DOC"), paths.RECURSIVE_WORKFLOW_DOC],
+			]);
+
+			// Protect the complete implemented prefix, including pointer-only sections.
+			// Later tracks own the sections after this boundary. Shared summaries must
+			// also match the lifecycle owner, not merely independent document pins.
+			const loadingRules = [
+				"Load [recursive-workflow.md](recursive-workflow.md) when the current or proposed plan contains a design track or review-fix child track.",
+				"Check the loading condition during planning and again during resume reconciliation.",
+				"Load the document before proposing a review-fix split.",
+				"Load it before planning or execution relies on a recursive rule.",
+				"A lazy plan needs no total descendant count to apply the condition.",
+				"A small tree with a design track still loads the document.",
+				"A change with neither triggering track type does not load it.",
+			];
+			const nestedRules = [
+				"Expand a design track when work reaches it.",
+				"Each subtree root receives its own high-level design and independent risk assessment.",
+				"A multi-track change requires a high-level design.",
+				"An estimate above 100 counted lines and a proved DESIGN-TRIGGERING area remain separate design triggers.",
+				"Design-track designs have no size cap.",
+				"Each design track completes the gates of a nested multi-track change.",
+				"Each code track keeps its independent gates.",
+			];
+			const recordRules = [
+				"The approved plan supplies specific evidence for proportional process.",
+				"A design track or review-fix child track triggers the manual status file.",
+				"Entering a design track triggers its research log and nested gates.",
+				"An ordinary code track or a high-level design alone triggers neither extra record.",
+				"These conditions add no unconditional-artifact exception.",
+				"Questions follow unresolved decisions rather than record or track counts.",
+			];
+			const recursivePrefix = regionUnit(/^# Recursive workflow\n([\s\S]*?)(?=^## Level publishing and retained history\n)/gm);
+			const recursivePrefixExpected = normalizeText(`A recursive workflow plans a large change as nested bounded work.
+Use [track-workflow.md](track-workflow.md) for the common lifecycle.
+This document owns the relations between nested tracks.
+
+## Terms and scope
+
+A **track** is a bounded unit of work within a change.
+A **change tree** records tracks and their parent-child relationships.
+The **change root** represents the whole user request.
+A **design track** plans and completes a nested change.
+A **code track** implements a bounded part of approved work.
+A code track can change documents rather than executable code.
+A **child track** belongs directly to the node that planned it.
+**Sibling tracks** have the same parent.
+A **split** creates the direct child tracks of one parent.
+A **level** contains the sibling tracks created by one split.
+A level does not mean every track at the same depth.
+A **level pull request** contains the code tracks of one level.
+A **subtree** contains a node and its descendant tracks.
+A **leaf** has no ordinary child tracks.
+Only code tracks are ordinary leaves.
+An **inner node** has child tracks.
+The change root and design tracks are ordinary inner nodes.
+A code track becomes an inner node when review fixes create child tracks.
+A **review-fix child track** repairs outstanding work under a user-approved split.
+A **path number** identifies a track through its numbered ancestors.
+
+A **high-level design** states what must be true and why.
+A **low-level design** states how the implementation achieves it.
+A **focus area** is a risk-defined concern that can require a workflow gate.
+A **risk record** assesses all eleven focus areas for a change or track.
+A **proved area** has a proof approved by the user.
+A **DESIGN-TRIGGERING area** is a proved area that requires the design sequence.
+The focus definitions and classes remain in
+[blast-radius.md](blast-radius.md) and [track-workflow.md](track-workflow.md).
+
+A **research log** retains decisions, evidence, questions, and workflow state.
+An **implementer report** records a code track's design, implementation, and checks.
+A **status file** displays the tree and current work.
+A **marker commit** is an empty commit that records a completed track boundary.
+A **track package** presents a track's result and acceptance evidence.
+A **review intention** states the scope and purpose of a review.
+
+The recursive workflow is a rule for the orchestrator and its workers.
+It is not an extension-managed tree controller.
+Slate does not expand tracks, schedule subtrees, or maintain manual tree records.
+The extension's session ownership rules still select the current change folder.
+A nested plan does not create a new saved-session format or configuration key.
+
+## Loading and planning
+
+[track-workflow.md](track-workflow.md) § Recursive planning and loading owns the
+loading condition, direct-child limit, and implementer-requested split exception.
+Apply its split rule to the change root and each expanded design track.
+The loading summary follows that section:
+
+${loadingRules.join("\n")}
+
+Use [track-workflow.md](track-workflow.md) § Confirmation gate for split approvals.
+Use its § Track intention block and implementer response for each child's scope.
+
+\`\`\`text
+Change root
+  Design track: bounded nested change, expanded when entered
+    Code track: one coherent implementation and review unit
+    Code track: another coherent implementation and review unit
+  Code track: bounded work in the root's level
+\`\`\`
+
+Each indentation identifies a parent-child relation.
+The two children of the design track form one level.
+The design track and the root's code track form another level.
+The diagram describes planning structure rather than commit ranges or merge order.
+Those relations have their own sections below.
+
+## Nested designs and gates
+
+<!-- nested-design-policy:begin -->
+${nestedRules.join("\n")}
+Use [track-workflow.md](track-workflow.md) § Confirmation gate for user-decision reuse.
+<!-- nested-design-policy:end -->
+
+Start from the initial request and the approved parent scope.
+Explain how each child contributes to the approved result.
+The parent design supplies context rather than automatic child approval.
+
+Use [track-workflow.md](track-workflow.md) § Lifecycle and phases for design content
+and the ordered validation, review, and approval sequence.
+Use its § Risk planning and reconciliation for each child's independent risk record.
+Use its § Review coverage for implementation-review duties.
+Use its § Delivery and termination for acceptance duties.
+[review-rules.md](review-rules.md) § Reviewer sets, merge rule and charters owns
+reviewer composition.
+
+## Code-track sizing and split requests
+
+Use [track-workflow.md](track-workflow.md) § Track size and split for sizing,
+counted-line exclusions, estimates, overrun reports, and stopping duties.
+Use its § Recursive planning and loading for the implementer-requested split exception.
+
+## Level consistency
+
+Use [track-workflow.md](track-workflow.md) § Track size and split for the level
+boundary, child checks, and remaining-difference accounting.
+[blast-radius.md](blast-radius.md) § Focus states and track constraints states the same level rule.
+
+## Proportional process
+
+Use principle P11 in [design-principles.md](design-principles.md) § 4. Operating
+principles for proportional-process limits.
+The conditional-record summary agrees with
+[track-workflow.md](track-workflow.md) § Recursive planning and loading:
+
+${recordRules.join("\n")}
+
+Use [track-workflow.md](track-workflow.md) § Confirmation gate for user-decision reuse.
+The record procedures belong in § Manual records and safe writes.
+The handoff timing belongs in § Handoff boundaries.
+
+## Recorded-workflow compatibility
+
+Use [track-workflow.md](track-workflow.md) § Migration for recorded-workflow
+compatibility, small changes, manual-record absence, and the publishing default.
+Use its § Session handoff and the research log for saved-session ownership.`);
+			const sharedRecursiveRules = [
+				{ id: "loading", rules: loadingRules, extract: regionUnit(/^## Loading and planning\n([\s\S]*?)(?=^## Nested designs and gates\n)/gm) },
+				{ id: "nested", rules: nestedRules, extract: markedUnit("nested-design-policy") },
+				{ id: "records", rules: recordRules, extract: regionUnit(/^## Proportional process\n([\s\S]*?)(?=^## Recorded-workflow compatibility\n)/gm) },
+			];
+			const recursiveSummariesAgree = (recursiveSource, workflowSource) => {
+				const owner = markedUnit("recursive-planning-policy")(workflowSource);
+				return owner.count === 1 && sharedRecursiveRules.every(({ rules, extract }) => {
+					const summary = extract(recursiveSource);
+					return summary.count === 1 && rules.every((rule) => owner.text.includes(rule) && summary.text.includes(rule));
+				});
+			};
+			const acceptsRecursivePrefix = (source) => {
+				const result = recursivePrefix(source);
+				return result.count === 1 && result.text === recursivePrefixExpected;
+			};
+			const recursiveAgreementAttacks = sharedRecursiveRules.flatMap(({ id, rules }) => rules.flatMap((rule, index) => ["summary", "owner"].map((side) => {
+				const source = side === "summary" ? recursive : workflow;
+				const normalized = normalizeText(source);
+				const altered = normalized.replace(rule, `Contradicting ${id} rule ${index}.`);
+				// Replace the same phrase in raw source without changing heading boundaries.
+				const pattern = new RegExp(rule.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+"));
+				const changed = source.replace(pattern, `Contradicting ${id} rule ${index}.`);
+				return { id, index, side, changed: changed !== source && altered !== normalized, rejected: !recursiveSummariesAgree(side === "summary" ? changed : recursive, side === "owner" ? changed : workflow) };
+			})));
+			const recursivePrefixAttacks = [
+				["total-track loading", "The loading summary follows that section:", "The triggering evidence is more than twelve total tracks."],
+				["validation order", "and the ordered validation, review, and approval sequence.", "User validation follows implementation and each required area review."],
+				["record trigger", "triggers neither extra record", "requires both extra records"],
+				["sizing copy", "counted-line exclusions, estimates, overrun reports, and stopping duties.", "Every code track must stay below 400 lines."],
+				["level copy", "boundary, child checks, and remaining-difference accounting.", "Each child is the merge unit and may have failing checks."],
+				["budget copy", "Use its § Recursive planning and loading for the implementer-requested split exception.", "A split renews repair rounds and consultation budgets."],
+				["migration copy", "compatibility, small changes, manual-record absence, and the publishing default.", "Every existing change migrates without user approval."],
+				["small-tree copy", "A small tree with a design track still loads the document.", "Small trees never load the document."],
+				["missing glossary term", "A **level pull request** contains the code tracks of one level.", ""],
+				["incorrect glossary term", "A **level pull request** contains the code tracks of one level.", "A **level pull request** contains the whole change tree."],
+			].map(([id, before, after]) => {
+				const source = recursive.replace(before, after);
+				return { id, changed: source !== recursive, rejected: !acceptsRecursivePrefix(source) };
+			});
+			const recursivePrefixBoundary = "## Level publishing and retained history\n";
+			const benignRecursive = `${recursive}\n<!-- Unrelated outside-unit control. -->\n`;
+			const benignOwner = `${workflow}\n<!-- Unrelated outside-unit control. -->\n`;
+			checkAll("contract-recursive-owner-agreement", "recursive summaries agree with lifecycle owners, pointer-only sections reject contradictory copies, and the level pull request term is defined", [
+				["the complete implemented recursive prefix matches an independent expectation", acceptsRecursivePrefix(recursive), recursivePrefix(recursive)],
+				["loading, nested gates, and conditional records agree with their lifecycle owner", recursiveSummariesAgree(recursive, workflow), sharedRecursiveRules.map(({ id, rules }) => ({ id, rules: rules.length }))],
+				["every shared rule rejects a mutation of either its summary or owner", recursiveAgreementAttacks.every(({ changed, rejected }) => changed && rejected), recursiveAgreementAttacks],
+				["contradictory loading, gate, record, sizing, level, budget, migration, small-tree, and glossary edits fail", recursivePrefixAttacks.every(({ changed, rejected }) => changed && rejected), recursivePrefixAttacks],
+				["missing and duplicate prefix boundaries fail closed", !acceptsRecursivePrefix(recursive.replace(recursivePrefixBoundary, "")) && !acceptsRecursivePrefix(`${recursive}\n${recursive}`), "missing and duplicate prefix"],
+				["harmless changes outside either owned unit pass", acceptsRecursivePrefix(benignRecursive) && recursiveSummariesAgree(benignRecursive, workflow) && recursiveSummariesAgree(recursive, benignOwner), "outside-unit controls"],
 			]);
 
 			// Publishing and migration are complete bounded policy units. Their
@@ -2916,9 +3277,14 @@ Every creation path keeps these safeguards:
 					id: "workflow-migration",
 					source: workflow,
 					extract: regionUnit(/^## Migration\n\n([\s\S]*?)(?=^## Layering richer workflows on top)/gm),
-					expected: normalizeText(`A change approved under an earlier workflow finishes under its recorded
-workflow. New work uses the focus-area workflow. Historical records may name
-earlier gates only to identify the governing rule set.`),
+					expected: normalizeText(`An existing change finishes under its recorded workflow unless the user
+explicitly authorizes migration. Keep its recorded marker spelling and publishing
+arrangement. Do not rename markers or rewrite history to resemble a tree.
+Every new change uses the current workflow.
+A new change without design tracks or review-fix children has one level.
+It needs no manual status file or design-track research log.
+Missing manual tree records do not make an existing session unreadable.
+The publishing setting and its disabled default remain unchanged.`),
 				},
 			];
 			const publishingMigrationResults = publishingMigrationUnits.map((unit) => ({ id: unit.id, expected: unit.expected, ...unit.extract(unit.source) }));
@@ -2932,8 +3298,13 @@ earlier gates only to identify the governing rule set.`),
 				publishing.replace("For a change without a design gate", "For a SMALL change without a design gate"),
 			];
 			const migrationMutations = [
-				workflow.replace("finishes under its recorded\nworkflow", "moves to the current\nworkflow"),
-				workflow.replace("New work uses the focus-area workflow", "New work may use an earlier workflow"),
+				workflow.replace("finishes under its recorded workflow unless the user\nexplicitly authorizes migration", "always moves to the current workflow"),
+				workflow.replace("Every new change uses the current workflow", "New work may use an earlier workflow"),
+				workflow.replace("Keep its recorded marker spelling and publishing\narrangement", "Replace its recorded marker spelling and publishing arrangement"),
+				workflow.replace("has one level", "has several levels"),
+				workflow.replace("It needs no manual status file", "It requires a manual status file"),
+				workflow.replace("do not make an existing session unreadable", "make an existing session unreadable"),
+				workflow.replace("disabled default remain unchanged", "enabled default apply"),
 			];
 			const resolvePublishingMigration = (publishingSource = publishing, workflowSource = workflow) => publishingMigrationUnits.map((unit) => unit.extract(unit.source === publishing ? publishingSource : workflowSource));
 			const publishingMutationOutcomes = publishingMutations.map((source) => ({ changed: source !== publishing, accepted: resolvePublishingMigration(source, workflow).every((resolved, index) => resolved.count === 1 && resolved.text === publishingMigrationResults[index].expected) }));
@@ -3735,20 +4106,22 @@ verification of that body. The accounting covers:`),
 			const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 			const headingCount = (source, name) => (source.match(new RegExp(`^## ${escapeRegex(name)}$`, "gm")) ?? []).length;
 			const targetDocs = [
-				["track-workflow.md", workflow, ["Lifecycle and phases", "Focus classes and gates", "Confirmation gate", "Risk planning and reconciliation", "Track intention block and implementer response", "Session handoff and the research log", "Resume order and reconciliation", "Review coverage", "Delivery and termination", "Migration", "Layering richer workflows on top"]],
+				["track-workflow.md", workflow, ["Lifecycle and phases", "Track size and split", "Recursive planning and loading", "Focus classes and gates", "Confirmation gate", "Risk planning and reconciliation", "Track intention block and implementer response", "Session handoff and the research log", "Resume order and reconciliation", "Review coverage", "Delivery and termination", "Migration", "Layering richer workflows on top"]],
 				["review-rules.md", reviews, ["Reviewer sets, merge rule and charters", "Findings and output", "Reviewer evidence standards", "Observation files and evidence recovery", "Fix loop and gate verdicts", "Stuck-fix consultation", "Termination and deferred-work routing"]],
 				["blast-radius.md", blast, ["Focus states and track constraints", "Focus areas and their gates", "Optional path declarations", "Lifecycle rules owned by the spine", "Halt and focus re-derivation", "Review coverage and the coverage register", "Commit discipline for drift and boundaries"]],
 				["user-notes.md", userNotes, ["Package acceptance and note timing", "Receiving and routing a user note", "Note queue and drain", "Override log", "Register entry shape", "Mandatory escalation set", "User note accounting", "Durable final accounting"]],
 				["delivery-packages.md", deliveryPackages, ["Package preparation", "Track package", "Change package", "Single-track combined package", "Durable accounting"]],
 				["pr-publishing.md", publishing, ["One draft pull request", "Creation", "Description rules", "Tracks table", "Keeping the PR in sync", "Ready-for-review flip", "After the flip", "After the merge"]],
+				["recursive-workflow.md", recursive, ["Terms and scope", "Loading and planning", "Nested designs and gates", "Code-track sizing and split requests", "Level consistency", "Proportional process", "Recorded-workflow compatibility", "Level publishing and retained history", "Identifiers, code ranges, and design markers", "Manual records and safe writes", "Resume and folder forks", "Handoff boundaries", "Review-fix subtrees and repair limits", "Whole-subtree acceptance", "Packages, attribution, and issues"]],
 			];
 			const headingDefects = targetDocs.flatMap(([file, source, names]) => names.flatMap((name) => headingCount(source, name) === 1 ? [] : [`${file} § ${name} → ${headingCount(source, name)}`]));
 			const duplicatedFocus = `${workflow}\n## Focus classes and gates\nContradictory duplicate.\n`;
 			const metacharHeading = "Focus classes (proved) [gate]";
 			const metacharSource = `## ${metacharHeading}\n`;
 			const defectiveHeadingCount = (source, name) => (source.match(new RegExp(`^## ${name}$`, "gm")) ?? []).length;
-			checkAll("contract-section-targets", "every named level-two target across all six workflow documents exists exactly once, and duplicate headings fail the predicate", [
+			checkAll("contract-section-targets", "every named level-two target across all seven workflow documents exists exactly once, and missing or duplicate headings fail the predicate", [
 				["all named targets are unique", headingDefects.length === 0, headingDefects],
+				["each newly registered planning target rejects missing and duplicate headings", [[workflow, "Recursive planning and loading"], ...targetDocs.at(-1)[2].map((name) => [recursive, name])].every(([source, name]) => headingCount(source.replace(`## ${name}\n`, ""), name) === 0 && headingCount(`${source}\n## ${name}\n`, name) === 2), "planning and all recursive targets"],
 				["regex escaping handles metacharacters", escapeRegex(metacharHeading) === "Focus classes \\(proved\\) \\[gate\\]", escapeRegex(metacharHeading)],
 				["escaped fabricated heading matches exactly once", headingCount(metacharSource, metacharHeading) === 1, headingCount(metacharSource, metacharHeading)],
 				["unescaped counterfactual differs", defectiveHeadingCount(metacharSource, metacharHeading) !== 1, defectiveHeadingCount(metacharSource, metacharHeading)],

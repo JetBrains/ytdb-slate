@@ -645,7 +645,7 @@ test("the short phase list follows all nine lifecycle phases in the shipped docu
 	assert.deepEqual(phases, [
 		"research.",
 		"propose the eleven-line risk record and obtain user approval.",
-		"design and validate when a proved DESIGN-TRIGGERING area or a per-track size estimate above 100 counted lines requires a design.",
+		"design and validate for a multi-track change, a proved DESIGN-TRIGGERING area, or a per-track estimate above 100 counted lines.",
 		"when a design exists, reconfirm the focus list against the validated design.",
 		"when a design exists, run one adversarial design review for each proved DESIGN-TRIGGERING area that has not reviewed the applicable design.",
 		"when a design exists, obtain final design approval.",

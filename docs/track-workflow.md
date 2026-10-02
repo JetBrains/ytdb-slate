@@ -19,7 +19,7 @@ The mandatory phases run in this order:
 
 1. research.
 2. propose the eleven-line risk record and obtain user approval.
-3. design and validate when a proved DESIGN-TRIGGERING area or a per-track size estimate above 100 counted lines requires a design.
+3. design and validate for a multi-track change, a proved DESIGN-TRIGGERING area, or a per-track estimate above 100 counted lines.
 4. when a design exists, reconfirm the focus list against the validated design.
 5. when a design exists, run one adversarial design review for each proved
    DESIGN-TRIGGERING area that has not reviewed the applicable design.
@@ -109,10 +109,18 @@ the implementer reports above 100, do not require a design after the fact.
 Reviewer I still runs when the track is not documentation-only. Use the larger
 size to estimate remaining tracks.
 
-Plan each track as an autonomous, independently mergeable unit inside the
-change. Aim for a coherent boundary close to 400 changed lines without
-exceeding the guideline.
-If the nearest coherent, independently mergeable unit needs a small overrun,
+Plan each code track as one coherent review unit inside a level.
+A code track implements bounded approved work, including document changes.
+A level contains the sibling tracks created by one split.
+The level is the merge unit.
+All checks pass at each child marker.
+Agreement across documents, prompt guidance, and the extension is required at
+the level boundary.
+Intermediate track packages and review intentions list each remaining difference
+across those surfaces and name the later child that owns it.
+Do not merge an incomplete level into the default branch.
+Aim for a coherent boundary close to 400 counted changed lines.
+If the nearest coherent unit needs a small overrun,
 finish that unit and report the reason. Size never permits dropping an approved
 requirement, reducing implementation or test quality, or declaring partial work
 complete.
@@ -124,6 +132,50 @@ a small overrun. If the remaining approved work cannot fit in the coherent unit,
 the orchestrator proposes the additional track or tracks. The orchestrator
 obtains every approval that a new track requires before implementation continues.
 <!-- track-size-policy:end -->
+
+## Recursive planning and loading
+
+<!-- recursive-planning-policy:begin -->
+A design track plans and completes a nested change.
+A multi-track change requires a high-level design.
+An estimate above 100 counted lines and a proved DESIGN-TRIGGERING area remain
+separate design triggers.
+A required high-level design alone does not create a design track.
+Expand a design track when work reaches it.
+Each subtree root receives its own high-level design and independent risk assessment.
+A subtree contains a node and its descendant tracks.
+Design-track designs have no size cap.
+Each design track completes the gates of a nested multi-track change.
+Each code track keeps its independent gates.
+Reuse applicable evidence only under § Confirmation gate's user-decision reuse rule.
+
+An ordinary split creates at most five direct child tracks.
+An ordinary plan that needs more than five direct children must add a design track.
+Load [recursive-workflow.md](recursive-workflow.md) for that design track.
+An implementer-requested split may add siblings beyond five to the same level.
+The exception does not automatically create another level.
+Obtain each new track's required approvals before implementation.
+The exception changes neither review requirements nor repair budgets.
+Track numbers remain stable and are never reused.
+
+Load [recursive-workflow.md](recursive-workflow.md) when the current or proposed
+plan contains a design track or review-fix child track.
+A review-fix child track repairs outstanding work under a user-approved split.
+Check the loading condition during planning and again during resume reconciliation.
+Load the document before proposing a review-fix split.
+Load it before planning or execution relies on a recursive rule.
+A lazy plan needs no total descendant count to apply the condition.
+A small tree with a design track still loads the document.
+A change with neither triggering track type does not load it.
+
+The approved plan supplies specific evidence for proportional process.
+A design track or review-fix child track triggers the manual status file.
+Entering a design track triggers its research log and nested gates.
+An ordinary code track or a high-level design alone triggers neither extra record.
+These conditions add no unconditional-artifact exception.
+Questions follow unresolved decisions rather than record or track counts.
+[recursive-workflow.md](recursive-workflow.md) owns the nested planning relations.
+<!-- recursive-planning-policy:end -->
 
 ## Focus classes and gates
 
@@ -317,9 +369,6 @@ The first boundary is after all required planning and pre-implementation gates f
 
 The orchestrator pauses dispatch pending an actual handoff and resume or an explicit user decision to continue in the same session. The explicit same-session decision is recorded as a user waiver in the existing override log. A resumed session follows Resume order and reconciliation and does not repeat a boundary request already recorded as completed. Same-track fix rounds do not retrigger the request. Single-track changes are exempt. This workflow rule has no automated runtime enforcement.
 <!-- multi-track-handoff:end -->
-
-If the planned split exceeds twelve tracks, stop and present the split to the
-user. The user chooses whether and how the change proceeds.
 
 ## Risk planning and reconciliation
 
@@ -686,9 +735,14 @@ project release runbook.
 
 ## Migration
 
-A change approved under an earlier workflow finishes under its recorded
-workflow. New work uses the focus-area workflow. Historical records may name
-earlier gates only to identify the governing rule set.
+An existing change finishes under its recorded workflow unless the user
+explicitly authorizes migration. Keep its recorded marker spelling and publishing
+arrangement. Do not rename markers or rewrite history to resemble a tree.
+Every new change uses the current workflow.
+A new change without design tracks or review-fix children has one level.
+It needs no manual status file or design-track research log.
+Missing manual tree records do not make an existing session unreadable.
+The publishing setting and its disabled default remain unchanged.
 
 ## Layering richer workflows on top
 
