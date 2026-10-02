@@ -95,18 +95,36 @@ function controlledObservation(responses:any[],readCost=0){
   return {starts,timeouts,waits,elapsed:()=>tick,now:()=>tick,sleep:(ms:number)=>{waits.push(ms);tick+=ms;},view:(_registry:string,options:any)=>{starts.push(tick);timeouts.push(options.timeout);tick+=readCost;const value=responses[Math.min(index++,responses.length-1)];if(value instanceof Error)throw value;return value;}};
 }
 
-test("promotion and recovery share bounded classification and reject every invalid read",()=>{
+const promotionRegistry="https://registry.npmjs.org/";
+async function capturePromotionOutput(t:TestContext,invoke:()=>Promise<any>){
+  let stdout="",stderr="";
+  const out=t.mock.method(process.stdout,"write",(chunk:any)=>{stdout+=String(chunk);return true;});
+  const err=t.mock.method(process.stderr,"write",(chunk:any)=>{stderr+=String(chunk);return true;});
+  try{return{result:await invoke(),stdout,stderr};}
+  finally{out.mock.restore();err.mock.restore();}
+}
+const oidcEnv={ACTIONS_ID_TOKEN_REQUEST_URL:"https://github.example/token?request=1",ACTIONS_ID_TOKEN_REQUEST_TOKEN:"fixture-request-token"};
+function oidcFixture(effect=()=>{}){
+  const calls:any[]=[],masks:string[]=[];
+  return{calls,masks,oidcEnv,mask:(value:string)=>masks.push(value),fetch:async(url:string,options:any)=>{
+    calls.push({url,options});
+    if(options.method==="PUT"){effect();return new Response(null,{status:200});}
+    return Response.json(options.method==="GET"?{value:"fixture-id-token"}:{token:"fixture-npm-token"},{status:options.method==="GET"?200:201});
+  }};
+}
+
+test("promotion and recovery share bounded classification and reject every invalid read",{timeout:10000},async()=>{
   const intent=beginPromotion(proved(),"0.10.0",owner(proved()),"17","1",NOW),o=owner(intent);
   for(const recovery of [false,true]){
-    const invoke=(clock:any)=>recovery?executePromotionRecovery({state:intent,expected:o,runId:"19",runAttempt:"1",registry:"x",...clock}):{result:executePromotion({state:intent,expected:o,runId:"17",runAttempt:"1",registry:"x",token:"secret",exec:()=>{},...clock})};
+    const invoke=async(clock:any)=>recovery?executePromotionRecovery({state:intent,expected:o,runId:"19",runAttempt:"1",registry:"x",...clock}):{result:await executePromotion({state:intent,expected:o,runId:"17",runAttempt:"1",registry:promotionRegistry,...oidcFixture(),...clock})};
     for(const [reads,wanted] of [[["0.10.0","0.10.0","0.10.1"],"verified"],[["0.10.0"],"unchanged"],[["0.9.0"],"superseded"],[["0.9.0","0.10.1"],"verified"]] as const){
-      const clock=controlledObservation([...reads]),out=invoke(clock);assert.equal(out.result.result,wanted,`${recovery}/${reads}`);
+      const clock=controlledObservation([...reads]),out=await invoke(clock);assert.equal(out.result.result,wanted,`${recovery}/${reads}`);
       assert.ok(clock.starts.every(start=>start<60000));assert.ok(clock.timeouts.every(timeout=>timeout>0&&timeout<=60000));
       if(wanted!=="verified"){assert.equal(clock.waits.reduce((a,b)=>a+b,0),60000);assert.equal(clock.waits.length,12);}
       if(recovery){assert.equal(out.retryPromotion,wanted==="unchanged");assert.equal(out.state.status,wanted==="unchanged"?"promotion-unknown":wanted==="verified"?"promoted":"proved");assert.equal(out.state.promotionEvidence.expectedLatest,"0.10.0");}
     }
     for(const invalid of [new Error("secret"),"bad",null,{},["0.10.1"],"0.10.1\n",undefined]){
-      for(const reads of [[invalid],["0.10.0",invalid]]){const before=JSON.stringify(intent);assert.throws(()=>invoke(controlledObservation(reads)),/latest read failed/);assert.equal(JSON.stringify(intent),before);}
+      for(const reads of [[invalid],["0.10.0",invalid]]){const before=JSON.stringify(intent);await assert.rejects(()=>invoke(controlledObservation(reads)),/latest read failed/);assert.equal(JSON.stringify(intent),before);}
     }
   }
   for(const readCost of [60000,61000])assert.throws(()=>observeLatest({registry:"x",version:intent.version,expectedLatest:"0.10.0",...controlledObservation([intent.version],readCost)}),/timed out/);
@@ -123,28 +141,41 @@ test("promotion and recovery share bounded classification and reject every inval
   for(const allowance of [0,60001,Infinity])assert.throws(()=>observeLatest({registry:"x",version:intent.version,expectedLatest:"0.10.0",allowance}),/timing/);
 });
 
-test("promotion writes exactly once only when the guard equals the saved earlier version",()=>{
+test("promotion writes exactly once only when the guard equals the saved earlier version",{timeout:10000},async()=>{
   const intent=beginPromotion(proved(),"0.10.0",owner(proved()),"17","1",NOW);
   for(const [guard,wanted,writes] of [[intent.version,"verified",0],["0.9.0","superseded",0],["0.10.0","unchanged",1]] as const){
-    const calls:any[]=[],clock=controlledObservation([guard]);
-    const result=executePromotion({state:intent,expected:owner(intent),runId:"17",runAttempt:"1",registry:"x",token:"secret",exec:(...args:any[])=>calls.push(args),...clock});
-    assert.equal(result.result,wanted);assert.equal(calls.length,writes,guard);
-    if(writes){assert.equal(calls[0][0],"npm");assert.deepEqual(calls[0][1],["dist-tag","add",`ytdb-slate@${intent.version}`,"latest","--registry","x"]);}
+    const fixture=oidcFixture(),clock=controlledObservation([guard]);
+    const result=await executePromotion({state:intent,expected:owner(intent),runId:"17",runAttempt:"1",registry:promotionRegistry,...fixture,...clock});
+    assert.equal(result.result,wanted);assert.equal(fixture.calls.length,writes*3,guard);
+    if(writes){
+      const [github,exchange,put]=fixture.calls;
+      assert.equal(github.url,"https://github.example/token?request=1&audience=npm%3Aregistry.npmjs.org");
+      assert.equal(github.options.headers.Authorization,"Bearer fixture-request-token");
+      assert.equal(exchange.url,"https://registry.npmjs.org/-/npm/v1/oidc/token/exchange/package/ytdb-slate");
+      assert.equal(exchange.options.headers.Authorization,"Bearer fixture-id-token");assert.equal(exchange.options.body,undefined);
+      assert.equal(put.url,"https://registry.npmjs.org/-/package/ytdb-slate/dist-tags/latest");
+      assert.equal(put.options.headers.Authorization,"Bearer fixture-npm-token");assert.equal(put.options.headers["Content-Type"],"application/json");
+      assert.equal(put.options.body,JSON.stringify(intent.version));
+      assert.deepEqual(fixture.calls.map(call=>call.options.method),["GET","POST","PUT"]);
+      assert.ok(fixture.calls.every(call=>call.options.redirect==="error"&&call.options.signal instanceof AbortSignal&&!call.options.signal.aborted));
+      assert.deepEqual(fixture.masks,["fixture-id-token","fixture-npm-token"]);
+    }else assert.deepEqual(fixture.masks,[]);
+    assert.equal(recordPromotion(intent,result,owner(intent),NOW).promotion,wanted);
     if(guard===intent.version)assert.equal(clock.starts.length,1);
   }
 });
 
-test("write refusals save only a closed safe error identifier",()=>{
+test("write refusals save only a closed safe error identifier",{timeout:10000},async()=>{
   const intent=beginPromotion(proved(),"0.10.0",owner(proved()),"17","1",NOW);
   for(const [error,code] of [[{code:"ETIMEDOUT"},"ETIMEDOUT"],[{stdout:'{"error":{"code":"E401","message":"secret"}}'},"E401"],[{stderr:"npm error code E403\nsecret token"},"E403"],[{stderr:"npm ERR! code E503\n"},"E503"],[{message:"E403 secret"},"unknown"],[{code:"NEW_SECRET_CODE"},"unknown"],[{code:"E401",stderr:"npm error code E403\n"},"unknown"]] as const){
     assert.equal(promotionErrorCode(error),code);const clock=controlledObservation(["0.10.0"]);
-    const result=executePromotion({state:intent,expected:owner(intent),runId:"17",runAttempt:"1",registry:"x",token:"secret",...clock,exec:()=>{throw error;}});
+    const result=await executePromotion({state:intent,expected:owner(intent),runId:"17",runAttempt:"1",registry:promotionRegistry,...clock,...oidcFixture(()=>{throw error;})});
     assert.equal(result.result,"refused");assert.equal(result.errorCode,code);assert.equal(clock.starts.length,13);assert.equal(result.after,"0.10.0");assert.doesNotMatch(JSON.stringify(result),/secret|message|stderr/);
     assert.equal(recordPromotion(intent,result,owner(intent),NOW).promotion,"refused");
   }
 });
 
-test("failed writes observe applied effects and save refusal even when observation fails",()=>{
+test("failed writes observe applied effects and save refusal even when observation fails",{timeout:10000},async()=>{
   const intent=beginPromotion(proved(),"0.10.0",owner(proved()),"17","1",NOW),o=owner(intent);
   for(const code of ["ETIMEDOUT","ECONNRESET"])for(const [reads,wanted,after] of [
     [["0.10.0",intent.version],"verified",intent.version],
@@ -155,14 +186,110 @@ test("failed writes observe applied effects and save refusal even when observati
     [["0.10.0",Object.assign(new Error("private timeout"),{code:"ETIMEDOUT"})],"refused",undefined],
     [["0.10.0",null],"refused",undefined]
   ] as const){
-    const calls:any[]=[],clock=controlledObservation([...reads]),result=executePromotion({state:intent,expected:o,runId:"17",runAttempt:"1",registry:"x",token:"secret",...clock,exec:(...args:any[])=>{calls.push(args);throw {code};}});
-    assert.equal(calls.length,1);assert.equal(result.result,wanted);assert.equal(result.after,after);
+    const fixture=oidcFixture(()=>{throw {code};}),clock=controlledObservation([...reads]),result=await executePromotion({state:intent,expected:o,runId:"17",runAttempt:"1",registry:promotionRegistry,...clock,...fixture});
+    assert.equal(fixture.calls.filter(call=>call.options.method==="PUT").length,1);assert.equal(result.result,wanted);assert.equal(result.after,after);
     assert.equal(Object.hasOwn(result,"after"),after!==undefined);assert.equal(Object.hasOwn(result,"errorCode"),wanted==="refused");
     if(wanted==="refused")assert.equal(result.errorCode,code);
     assert.doesNotMatch(JSON.stringify(result),/secret|private|later failure/);
     const recorded=recordPromotion(intent,result,o,NOW);assert.equal(recorded.status,wanted==="verified"?"promoted":"proved");
     if(wanted==="verified")assert.throws(()=>closeWithoutPromotion(recorded,o,NOW));
   }
+});
+
+test("promotion refuses a different or invalid registry origin before reads or credentials",{timeout:10000},async()=>{
+  const intent=beginPromotion(proved(),"0.10.0",owner(proved()),"17","1",NOW),o=owner(intent);
+  const legacyControl=await import(`data:text/javascript;base64,${Buffer.from(legacyPromotionControl).toString("base64")}`);
+  for(const registry of ["https://wrong.invalid/","http://registry.npmjs.org/","https://registry.npmjs.org:444/","not-a-url"]){
+    let reads=0,requests=0;
+    const result=await executePromotion({state:intent,expected:o,runId:"17",runAttempt:"1",registry,oidcEnv,view:()=>{reads++;return "0.10.0";},fetch:()=>{requests++;throw new Error("unexpected credential request");}});
+    assert.deepEqual(result,{identity:intent.identity,releaseSha:intent.releaseSha,execution:"17:1",result:"refused",before:"0.10.0",errorCode:"unknown"});
+    assert.equal(reads,0);assert.equal(requests,0);
+    assert.equal(recordPromotion(intent,result,o,NOW).promotion,"refused");
+    assert.equal(legacyControl.recordPromotion(intent,result,o,NOW).promotion,"refused");
+  }
+  for(const registry of [promotionRegistry,"https://registry.npmjs.org","https://registry.npmjs.org:443/"]){
+    const fixture=oidcFixture(),clock=controlledObservation(["0.10.0",intent.version]);
+    const result=await executePromotion({state:intent,expected:o,runId:"17",runAttempt:"1",registry,...fixture,...clock});
+    assert.equal(result.result,"verified");assert.equal(fixture.calls.length,3);
+  }
+});
+
+test("OIDC request failures keep closed evidence and use the observer",{timeout:10000},async t=>{
+  const intent=beginPromotion(proved(),"0.10.0",owner(proved()),"17","1",NOW),o=owner(intent);
+  const cases:any[]=[
+    ...[401,403,404,500].map(status=>({stage:0,status,code:`E${status}`})),
+    ...[401,403,404,500].map(status=>({stage:1,status,code:`E${status}`})),
+    ...[401,403,404,429,500].map(status=>({stage:2,status,code:`E${status}`})),
+    ...[0,1,2].map(stage=>({stage,status:302,code:"unknown"})),
+    ...[0,1].flatMap(stage=>["{broken fixture-request-token",{},null,{value:42,token:42},{value:"",token:""},{value:"fixture-id-token\n",token:"fixture-npm-token\n"}].map(body=>({stage,body,code:"unknown"}))),
+    ...[0,1,2].flatMap(stage=>["ECONNRESET","ECONNREFUSED","ENOTFOUND","EAI_AGAIN","PRIVATE_CODE"].map(code=>({stage,error:new TypeError("fixture-request-token fixture-id-token fixture-npm-token",{cause:{code}}),code:code==="PRIVATE_CODE"?"unknown":code}))),
+    ...[0,1,2].map(stage=>({stage,error:new DOMException("fixture-request-token fixture-id-token fixture-npm-token","TimeoutError"),code:"ETIMEDOUT"})),
+    ...[0,1].flatMap(stage=>[new SyntaxError("fixture-id-token fixture-npm-token"),new DOMException("fixture-request-token","TimeoutError")].map(bodyError=>({stage,bodyError,code:bodyError.name==="TimeoutError"?"ETIMEDOUT":"unknown"}))),
+    {stage:1,error:new TypeError("fixture-id-token redirect rejected"),code:"unknown"},
+    {stage:1,status:200,body:{token:"fixture-npm-token"},code:"unknown"},
+    {stage:0,env:{...oidcEnv,ACTIONS_ID_TOKEN_REQUEST_URL:"http://github.example/token"},code:"unknown"},
+    {stage:0,env:{...oidcEnv,ACTIONS_ID_TOKEN_REQUEST_URL:"not-a-url"},code:"unknown"}
+  ];
+  for(const scenario of cases){
+    const fixture=oidcFixture(),clock=controlledObservation(["0.10.0"]);let n=0;
+    const run=await capturePromotionOutput(t,()=>executePromotion({state:intent,expected:o,runId:"17",runAttempt:"1",registry:promotionRegistry,...fixture,...clock,oidcEnv:scenario.env??oidcEnv,fetch:async(url:string,options:any)=>{
+      assert.equal(clock.starts.length,1,"guard must precede any credential request");
+      assert.equal(options.redirect,"error");assert.ok(options.signal instanceof AbortSignal);
+      assert.deepEqual(fixture.masks,n===0?[]:n===1?["fixture-id-token"]:["fixture-id-token","fixture-npm-token"],"mask each credential before its next use");
+      if(n++===scenario.stage){
+        if(scenario.error)throw scenario.error;
+        if(scenario.bodyError)return{ok:true,status:scenario.stage===0?200:201,json:async()=>{throw scenario.bodyError;}};
+        if(Object.hasOwn(scenario,"body"))return new Response(typeof scenario.body==="string"?scenario.body:JSON.stringify(scenario.body),{status:scenario.status??(scenario.stage===1?201:200)});
+        return new Response("PRIVATE fixture-request-token fixture-id-token fixture-npm-token response",{status:scenario.status});
+      }
+      return fixture.fetch(url,options);
+    }}));
+    const result=run.result;
+    assertCredentialSecrecy(run,result);
+    assert.equal(result.result,"refused",JSON.stringify(scenario));assert.equal(result.before,"0.10.0");assert.equal(result.after,"0.10.0");assert.equal(result.errorCode,scenario.code);
+    assert.equal(clock.starts.length,13,"request failure must enter the observer");
+    assert.equal(recordPromotion(intent,result,o,NOW).promotion,"refused");
+    assert.doesNotMatch(JSON.stringify(result),/fixture-|PRIVATE|response|message/);
+    if(scenario.env)assert.equal(n,0);
+    else assert.equal(n,scenario.stage+1);
+  }
+});
+
+test("OIDC requests use ten-second deadlines and body parse failures stay closed",{timeout:10000},async t=>{
+  const intent=beginPromotion(proved(),"0.10.0",owner(proved()),"17","1",NOW),controllers:AbortController[]=[],deadlines:number[]=[];
+  const timeout=t.mock.method(AbortSignal,"timeout",(ms:number)=>{deadlines.push(ms);const controller=new AbortController();controllers.push(controller);return controller.signal;});
+  const abortRequest=(signal:AbortSignal,controller:AbortController)=>new Promise<never>((_resolve,reject)=>{
+    signal.addEventListener("abort",()=>reject(signal.reason),{once:true});
+    queueMicrotask(()=>controller.abort(new DOMException("fixture-id-token fixture-npm-token","TimeoutError")));
+  });
+  try{
+    for(const scenario of [{stage:-1,body:false},...[0,1,2].map(stage=>({stage,body:false})),...[0,1].map(stage=>({stage,body:true}))]){
+      controllers.length=0;deadlines.length=0;
+      const fixture=oidcFixture(),clock=controlledObservation(scenario.stage<0?["0.10.0",intent.version]:["0.10.0"]),signals:AbortSignal[]=[];let n=0;
+      const run=await capturePromotionOutput(t,()=>executePromotion({state:intent,expected:owner(intent),runId:"17",runAttempt:"1",registry:promotionRegistry,...fixture,...clock,fetch:async(url:string,options:any)=>{
+        signals.push(options.signal);
+        const controller=controllers[n];assert.ok(controller);
+        assert.equal(options.signal,controller.signal,"fetch must receive its own deadline signal");
+        if(n++===scenario.stage){
+          if(scenario.body)return{ok:true,status:scenario.stage===0?200:201,json:()=>abortRequest(options.signal,controller)};
+          return abortRequest(options.signal,controller);
+        }
+        return fixture.fetch(url,options);
+      }}));
+      assertCredentialSecrecy(run,run.result);
+      signals.forEach((signal,index)=>assert.equal(signal,controllers[index]?.signal,"fetch must receive its own deadline signal"));
+      assert.deepEqual(deadlines,Array(scenario.stage<0?3:scenario.stage+1).fill(10000));
+      assert.equal(n,deadlines.length);
+      if(scenario.stage<0){assert.equal(run.result.result,"verified");assert.ok(controllers.every(controller=>!controller.signal.aborted));}
+      else{
+        assert.equal(controllers[scenario.stage]?.signal.aborted,true);
+        assert.equal(run.result.result,"refused");assert.equal(run.result.errorCode,"ETIMEDOUT");
+        assert.equal(run.result.before,"0.10.0");assert.equal(run.result.after,"0.10.0");
+        assert.equal(clock.starts.length,13,"aborted request must enter the observer");
+      }
+      assert.equal(recordPromotion(intent,run.result,owner(intent),NOW).promotion,scenario.stage<0?"verified":"refused");
+    }
+  }finally{timeout.mock.restore();}
 });
 
 test("recording rejects open content and preserves historical outcomes and retry binding",()=>{
@@ -192,26 +319,27 @@ test("recording rejects open content and preserves historical outcomes and retry
   for(const change of [{identity:"f".repeat(64)},{releaseSha:C},{expectedLatest:["0.10.0"]}])assert.throws(()=>recordPromotion({...intent,promotionEvidence:{...intent.promotionEvidence,...change}},unchanged,o,NOW),/active promoter/);
 });
 
-test("not-attempted binds a fixed cause and retains the expected latest",()=>{
+test("not-attempted binds a fixed cause and retains the expected latest",{timeout:10000},async()=>{
   const s=proved(),o=owner(s),intent=beginPromotion(s,"0.10.0",o,"17","1",NOW),base={identity:s.identity,releaseSha:s.releaseSha,execution:"17:1"};
-  assert.throws(()=>executePromotion({state:intent,expected:o,runId:"17",runAttempt:"2",registry:"x",token:"",view:()=>assert.fail(),exec:()=>assert.fail()}),/active promoter/);
-  const missing=executePromotion({state:intent,expected:o,runId:"17",runAttempt:"1",registry:"x",token:"",view:()=>assert.fail(),exec:()=>assert.fail()});assert.deepEqual(missing,{...base,result:"not-attempted",cause:"missing-token"});
-  assert.throws(()=>executePromotion({state:intent,expected:o,runId:"17",runAttempt:"1",registry:"x",token:"secret",view:()=>{throw Error("private registry response");},exec:()=>assert.fail()}),/latest read failed/);
+  await assert.rejects(()=>executePromotion({state:intent,expected:o,runId:"17",runAttempt:"2",registry:promotionRegistry,oidcEnv:{},view:()=>assert.fail(),fetch:()=>assert.fail()}),/active promoter/);
+  const missing=await executePromotion({state:intent,expected:o,runId:"17",runAttempt:"1",registry:promotionRegistry,oidcEnv:{},view:()=>assert.fail(),fetch:()=>assert.fail()});assert.deepEqual(missing,{...base,result:"not-attempted",cause:"missing-token"});
+  for(const env of [{...oidcEnv,ACTIONS_ID_TOKEN_REQUEST_URL:""},{...oidcEnv,ACTIONS_ID_TOKEN_REQUEST_TOKEN:""}])assert.deepEqual(await executePromotion({state:intent,expected:o,runId:"17",runAttempt:"1",registry:promotionRegistry,oidcEnv:env,view:()=>assert.fail(),fetch:()=>assert.fail()}),missing);
+  await assert.rejects(()=>executePromotion({state:intent,expected:o,runId:"17",runAttempt:"1",registry:promotionRegistry,...oidcFixture(),view:()=>{throw Error("private registry response");},fetch:()=>assert.fail()}),/latest read failed/);
   const historicalReadFailure={...base,result:"not-attempted",cause:"latest-read-failed"};
   for(const cause of [undefined,"other",null,42])assert.throws(()=>recordPromotion(intent,{...missing,cause},o,NOW),/cause|malformed/);
   for(const extra of [{before:""},{after:""},{expectedLatest:"0.9.0"},{intentAt:"tampered"}])assert.throws(()=>recordPromotion(intent,{...missing,...extra},o,NOW),/malformed/);
   for(const result of [missing,historicalReadFailure]){const recorded=recordPromotion(intent,result,o,NOW);assert.equal(recorded.status,"proved");assert.equal(recorded.promoterExecution,null);assert.equal(recorded.promotionEvidence.expectedLatest,"0.10.0");assert.equal(recorded.promotionEvidence.cause,result.cause);assert.throws(()=>validateState({...recorded,promotionEvidence:{...recorded.promotionEvidence,cause:"foreign"}}),/cause/);assert.equal(closeWithoutPromotion(recorded,o,NOW).status,"closed-unpromoted");assert.equal(beginPromotion(recorded,"0.10.0",o,"19","2",NOW).promoterExecution,"19:2");}
   const refused=recordPromotion(intent,{...base,result:"refused",before:"0.10.0",after:"0.10.0",errorCode:"E403"},o,NOW);assert.equal(beginPromotion(refused,"0.10.0",o,"19","2",NOW).status,"promotion-unknown");
-  const failedWrite=executePromotion({state:intent,expected:o,runId:"17",runAttempt:"1",registry:"x",token:"secret",...controlledObservation(["0.10.0"]),exec:()=>{throw Error("write error");}});assert.equal(failedWrite.result,"refused");assert.equal(failedWrite.errorCode,"unknown");
-  let reads=0;assert.throws(()=>executePromotion({state:intent,expected:o,runId:"17",runAttempt:"1",registry:"x",token:"secret",view:()=>{if(++reads===2)throw Error("second read error");return "0.10.0";},exec:()=>{}}),/latest read failed/);
+  const failedWrite=await executePromotion({state:intent,expected:o,runId:"17",runAttempt:"1",registry:promotionRegistry,...controlledObservation(["0.10.0"]),...oidcFixture(()=>{throw Error("write error");})});assert.equal(failedWrite.result,"refused");assert.equal(failedWrite.errorCode,"unknown");
+  let reads=0;await assert.rejects(()=>executePromotion({state:intent,expected:o,runId:"17",runAttempt:"1",registry:promotionRegistry,...oidcFixture(),view:()=>{if(++reads===2)throw Error("second read error");return "0.10.0";}}),/latest read failed/);
 });
 
 test("operator actions bind version and generation without mutating the wrong state",()=>{const prepared=initialState(req(),NOW),target={identity:prepared.identity,version:prepared.version,releaseSha:null,releaseParent:null};assert.throws(()=>abandon(prepared,{...target,version:"0.10.2"},false,NOW));assert.throws(()=>abandon(prepared,{...target,identity:"f".repeat(64)},false,NOW));assert.equal(abandon(prepared,target,false,NOW).status,"abandoned");assert.throws(()=>abandon(prepared,target,true,NOW));const c=claimed();assert.throws(()=>retire(c,{...owner(c),version:"0.10.2"},NOW));assert.throws(()=>retire(c,{...owner(c),identity:"f".repeat(64)},NOW));});
 
 test("install failure evidence permits only explicit terminal closure and preserves retry history",()=>{const pub=published(),o=owner(pub),auth=authorizeInstall(pub,o,"17","2");assert.equal(auth.execution,"17:2");for(const mutate of[(s:any)=>({...s,status:"proved"}),(s:any)=>({...s,registry:null}),(s:any)=>({...s,upload:"unknown"}),(s:any)=>({...s,registry:{...s.registry,identity:"f".repeat(64)}}),(s:any)=>({...s,registry:{...s.registry,releaseSha:C}}),(s:any)=>({...s,registry:{...s.registry,execution:"17:2"}})])assert.throws(()=>authorizeInstall(mutate(pub),o,"17","2"));const failure=failureEnvelope(pub,"17:2"),failed=recordInstallFailure(pub,failure,o,NOW);assert.equal(failed.installFailures.length,1);assert.deepEqual(recordInstallFailure(failed,failure,o,NOW),failed);assert.throws(()=>recordInstallFailure(pub,{...failure,registryIntegrity:"sha512-foreign"},o,NOW));assert.throws(()=>recordInstallFailure(pub,{...failure,identity:"f".repeat(64)},o,NOW));const unchanged=JSON.stringify(failed);assert.throws(()=>closeWithoutPromotion(pub,o,NOW));assert.throws(()=>closeWithoutPromotion(uploaded(),owner(uploaded()),NOW));assert.throws(()=>closeWithoutPromotion({...failed,promotion:"unknown"},o,NOW));assert.throws(()=>closeWithoutPromotion({...failed,promoterExecution:"19:1"},o,NOW));assert.throws(()=>closeWithoutPromotion(failed,{...o,version:"0.10.2"},NOW));assert.equal(JSON.stringify(failed),unchanged);const closed=closeWithoutPromotion(failed,o,NOW);assert.equal(closed.status,"closed-unpromoted");assert.equal(closed.installFailures.length,1);assert.throws(()=>recordInstallFailure(closed,failure,o,NOW));assert.throws(()=>recordInstallProof(closed,installEnvelope(pub,"17:3"),o,NOW));const proof=installEnvelope(failed,"17:3"),retry=recordInstallProof(failed,proof,o,NOW);assert.equal(retry.status,"proved");assert.equal(retry.installFailures.length,1);assert.throws(()=>recordInstallFailure(retry,failureEnvelope(pub,"17:4"),o,NOW));const later=makeRequest({version:"0.10.2",baseSha:B,notes,currentVersion:"0.10.1",authorization:"102"});assert.equal(initialState(later,NOW).version,"0.10.2");});
 
-test("release effects use exact commands and reject stale launch identity before effects",()=>{const calls:any[]=[],u=uploaded(),o=owner(u),root=mkdtempSync(join(tmpdir(),"slate-upload-")),archive=join(root,"package.tgz");writeFileSync(archive,"archive");try{assert.throws(()=>executeUpload({state:u,expected:{...o,identity:"f".repeat(64)},archive,runId:"17",runAttempt:"1",registry:"https://registry.invalid/",npmVersion:()=>"11.16.0",exec:(...x:any[])=>calls.push(x)}));executeUpload({state:u,expected:o,archive,runId:"17",runAttempt:"1",registry:"https://registry.invalid/",npmVersion:()=>"11.16.0",exec:(...x:any[])=>calls.push(x)});}finally{rmSync(root,{recursive:true,force:true});}assert.deepEqual(calls[0][1],["publish",archive,"--tag","slate-candidate","--ignore-scripts","--provenance=false","--registry","https://registry.invalid/"]);
-const ps=proved(),intent=beginPromotion(ps,"0.10.0",owner(ps),"17","1",NOW);let views=0;const result=executePromotion({state:intent,expected:owner(intent),runId:"17",runAttempt:"1",registry:"https://registry.invalid/",token:"secret",view:()=>views++===0?"0.10.0":"0.10.1",exec:(...x:any[])=>calls.push(x)});assert.equal(result.execution,"17:1");assert.throws(()=>executePromotion({state:intent,expected:{...owner(intent),identity:"f".repeat(64)},runId:"17",runAttempt:"1",registry:"x",token:"secret",view:()=>assert.fail(),exec:()=>assert.fail()}));
+test("release effects use exact commands and reject stale launch identity before effects",{timeout:10000},async()=>{const calls:any[]=[],u=uploaded(),o=owner(u),root=mkdtempSync(join(tmpdir(),"slate-upload-")),archive=join(root,"package.tgz");writeFileSync(archive,"archive");try{assert.throws(()=>executeUpload({state:u,expected:{...o,identity:"f".repeat(64)},archive,runId:"17",runAttempt:"1",registry:"https://registry.invalid/",npmVersion:()=>"11.16.0",exec:(...x:any[])=>calls.push(x)}));executeUpload({state:u,expected:o,archive,runId:"17",runAttempt:"1",registry:"https://registry.invalid/",npmVersion:()=>"11.16.0",exec:(...x:any[])=>calls.push(x)});}finally{rmSync(root,{recursive:true,force:true});}assert.deepEqual(calls[0][1],["publish",archive,"--tag","slate-candidate","--ignore-scripts","--provenance=false","--registry","https://registry.invalid/"]);
+const ps=proved(),intent=beginPromotion(ps,"0.10.0",owner(ps),"17","1",NOW);let views=0;const result=await executePromotion({state:intent,expected:owner(intent),runId:"17",runAttempt:"1",registry:promotionRegistry,...oidcFixture(),view:()=>views++===0?"0.10.0":"0.10.1"});assert.equal(result.execution,"17:1");await assert.rejects(()=>executePromotion({state:intent,expected:{...owner(intent),identity:"f".repeat(64)},runId:"17",runAttempt:"1",registry:promotionRegistry,oidcEnv,view:()=>assert.fail(),fetch:()=>assert.fail()}));
 const pub=published(),installRoot=mkdtempSync(join(tmpdir(),"slate-install-"));try{let wrongN=0;assert.throws(()=>executeInstall({state:pub,expected:{...owner(pub),identity:"f".repeat(64)},runId:"17",runAttempt:"2",workspace:installRoot,out:join(installRoot,"wrong.json"),exec:()=>{wrongN++;return{stdout:""};}}));assert.equal(wrongN,0);let n=0;const proof=executeInstall({state:pub,expected:owner(pub),runId:"17",runAttempt:"2",workspace:installRoot,out:join(installRoot,"proof.json"),exec:()=>++n===2?{stdout:'{"type":"response","command":"get_commands","data":{"commands":[{"name":"slate","sourceInfo":{"source":"npm:ytdb-slate@0.10.1"}}]}}\n'}:{stdout:""}});assert.equal(proof.identity,pub.identity);assert.equal(proof.execution,"17:2");const retryProved=recordInstallProof(pub,proof,owner(pub),NOW);assert.equal(retryProved.status,"proved");assert.equal(beginPromotion(retryProved,"0.10.0",owner(retryProved),"18","1",NOW).status,"promotion-unknown");}finally{rmSync(installRoot,{recursive:true,force:true});}
 const promoted=recordPromotion(intent,result,owner(intent),NOW);calls.length=0;executeFinalRecords({state:promoted,expected:owner(promoted),notes:"notes.md",repo:"JetBrains/ytdb-slate",exec:(...x:any[])=>calls.push(x)});assert.equal(calls.filter(x=>x[0]==="git").length,2);assert.equal(calls.filter(x=>x[0]==="gh").length,1);});
 
@@ -409,7 +537,23 @@ function workflowRunBody(lines:string[],marker:number){const markerLine=lines[ma
 function workflowRunBlock(name:string){const lines=workflowJobBlock(name),marker=lines.findIndex(x=>["run: |","- run: |"].includes(x.trim()));assert.notEqual(marker,-1,`missing run block for ${name}`);return workflowRunBody(lines,marker);}
 function workflowStepRunBlock(job:string,id:string){const lines=workflowJobBlock(job),step=lines.findIndex(x=>x.trim()===`- id: ${id}`);assert.notEqual(step,-1,`missing workflow step ${job}.${id}`);const marker=lines.findIndex((x,i)=>i>step&&["run: |","- run: |"].includes(x.trim()));assert.notEqual(marker,-1,`missing run block for ${job}.${id}`);return workflowRunBody(lines,marker);}
 function renderWorkflowBlock(source:string,values:Record<string,string>={}){return source.replace(/\$\{\{\s*([^}]+?)\s*\}\}/g,(_all,key:string)=>{const value=values[key.trim()];if(value===undefined)throw new Error(`unknown workflow expression ${key}`);return value;});}
-function workflowFixture(t:any,state:any){const root=mkdtempSync(join(tmpdir(),"slate-workflow-")),bin=join(root,"bin"),effectLog=join(root,"effects.log"),temp=join(root,"tmp");t.after(()=>rmSync(root,{recursive:true,force:true}));mkdirSync(bin);mkdirSync(temp);mkdirSync(join(root,"verification"));mkdirSync(join(root,"control/verification"),{recursive:true});mkdirSync(join(root,"state/archive"),{recursive:true});mkdirSync(join(root,"current-control/verification"),{recursive:true});mkdirSync(join(root,"runner"));for(const dir of["verification","control/verification","current-control/verification"])for(const file of["release-control.mjs","release-job.mjs"])cpSync(new URL(`../verification/${file}`,import.meta.url),join(root,dir,file));writeFileSync(join(root,"state.json"),JSON.stringify(state,null,2)+"\n");writeFileSync(join(root,"state/state.json"),JSON.stringify(state,null,2)+"\n");writeFileSync(join(root,"request.json"),JSON.stringify(req()));writeFileSync(join(root,"state/request.json"),JSON.stringify(req()));writeFileSync(join(root,"state/archive/package.tgz"),"archive");writeFileSync(effectLog,"");writeFileSync(join(bin,"git"),`#!/bin/sh\nprintf 'git\\t%s\\n' "$*" >>"$EFFECT_LOG"\ncase "$*" in *"rev-parse HEAD"*) printf '${C}\\n';; esac\nexit 0\n`);writeFileSync(join(bin,"gh"),`#!/bin/sh\nprintf 'gh\\t%s\\n' "$*" >>"$EFFECT_LOG"\ncase "$*" in *"/pulls?"*) if test -n "${'${GH_EXPECT_PRS_QUERY:-}'}"; then if ! { test "$#" -eq 5 && test "$1" = api && test "$2" = --paginate && test "$3" = "$GH_EXPECT_PRS_QUERY" && test "$4" = --jq && test "$5" = tojson; }; then printf 'unexpected preparation pull request query: %s\\n' "$*" >&2; exit 2; fi; fi; test "${'${GH_FAIL_PRS:-0}'}" = 1 && { printf '[]\\n'; exit 1; }; test -f "$GH_PRS" || exit 1; cat "$GH_PRS"; test "${'${GH_FAIL_PRS:-0}'}" = 0 || exit 1;; *"/jobs?"*) test "${'${GH_FAIL_JOBS:-0}'}" = 1 && exit 1; test -f "$GH_JOBS" || exit 1; cat "$GH_JOBS"; test "${'${GH_FAIL_JOBS:-0}'}" = 0 || exit 1;; *"/attempts/"*) test "${'${GH_FAIL_RUN:-0}'}" = 1 && exit 1; test -f "$GH_RUN" || exit 1; cat "$GH_RUN"; test "${'${GH_FAIL_RUN:-0}'}" = 0 || exit 1;; esac\nexit 0\n`);writeFileSync(join(root,"latest"),"0.10.0\n");writeFileSync(join(bin,"npm"),`#!/bin/sh\nprintf 'npm\\t%s\\n' "$*" >>"$EFFECT_LOG"\ncase "$*" in *"versions time"*) test "${'${NPM_FAIL:-0}'}" = 0 || { if test "${'${NPM_FAIL:-0}'}" = 4; then cat "$NPM_DOC"; exit 1; fi; echo 'E404 or network failure' >&2; exit 1; }; test -f "$NPM_DOC" && { cat "$NPM_DOC"; exit 0; }; exit 1;; *"dist-tags.latest"*) n=$(($(cat "$NPM_READ_COUNT" 2>/dev/null || echo 0)+1)); echo "$n" >"$NPM_READ_COUNT"; case "${'${NPM_READ_FAIL_FIRST:-0}'}:$n" in 1:1) echo 'PRIVATE REGISTRY RESPONSE' >&2; exit 1;; esac; case "${'${NPM_READ_FAIL_SECOND:-0}'}:$n" in 1:2) echo 'PRIVATE REGISTRY RESPONSE' >&2; exit 1;; esac; test -z "${'${NODE_AUTH_TOKEN:-}'}${'${NPM_TOKEN:-}'}${'${npm_config__authToken:-}'}" || exit 9; if test -n "${'${NPM_READS:-}'}"; then row=$(sed -n "${'$'}{n}p" "$NPM_READS"); test "$row" != FAIL || exit 1; test -n "$row" && { printf '%s\\n' "$row"; exit 0; }; fi; case "$*" in *--json*) printf '\"%s\"\\n' "$(cat "$NPM_LATEST_FILE")";; *) cat "$NPM_LATEST_FILE";; esac;; *"dist-tag add"*) printf '%s\\n' "$*" >>"$NPM_WRITE_LOG"; test "${'${NODE_AUTH_TOKEN:-}'}" = fixture-stage-token || { echo 'missing authorized token' >&2; exit 8; }; test "${'${NPM_WRITE_FAIL:-0}'}" = 0 || { if test "${'${NPM_WRITE_FAIL:-0}'}" = 3; then printf '%s\\n' "${'${3#ytdb-slate@}'}" >"$NPM_LATEST_FILE"; echo 'npm error code ETIMEDOUT' >&2; elif test "${'${NPM_WRITE_FAIL:-0}'}" = 2; then echo 'UNKNOWN npm failure' >&2; else echo 'npm error code E403' >&2; fi; exit 1; }; test "${'${NPM_WRITE_STALE:-0}'}" = 1 || printf '%s\\n' "${'${3#ytdb-slate@}'}" >"$NPM_LATEST_FILE";; esac\nexit 0\n`);writeFileSync(join(bin,"pi"),`#!/bin/sh\nprintf 'pi\\t%s\\n' "$*" >>"$EFFECT_LOG"\ncase "$*" in *"--mode rpc"*) if test "${'${PI_SUCCESS:-0}'}" = 1; then printf '{"type":"response","command":"get_commands","data":{"commands":[{"name":"slate","sourceInfo":{"source":"npm:ytdb-slate@0.10.1"}}]}}\\n'; else printf '{"type":"response","command":"get_commands","data":{"commands":[]}}\\n'; fi;; esac\nexit 0\n`);for(const name of["git","gh","npm","pi"])chmodSync(join(bin,name),0o755);writeFileSync(join(root,"clock.mjs"),'let tick=0;Object.defineProperty(performance,"now",{value:()=>tick});Atomics.wait=(_a,_i,_v,ms)=>{tick+=ms;return "timed-out";};\n');const env={NODE_OPTIONS:`--import=${join(root,"clock.mjs")}`,PATH:`${bin}:${dirname(process.execPath)}:/usr/bin:/bin`,PI_BIN:join(bin,"pi"),HOME:root,TMPDIR:temp,RUNNER_TEMP:join(root,"runner"),REGISTRY:"https://registry.invalid/",GH_RUN:join(root,"run.json"),GH_JOBS:join(root,"jobs.json"),GH_PRS:join(root,"prs.jsonl"),NPM_DOC:join(root,"package.json"),GIT_CONFIG_NOSYSTEM:"1",GIT_CONFIG_GLOBAL:"/dev/null",EFFECT_LOG:effectLog,NPM_WRITE_LOG:join(root,"npm-writes"),NPM_LATEST_FILE:join(root,"latest"),NPM_READ_COUNT:join(root,"read-count"),GITHUB_RUN_ID:"900",GITHUB_RUN_ATTEMPT:"2",GITHUB_REPOSITORY:"JetBrains/ytdb-slate",GITHUB_OUTPUT:join(root,"output")};return{root,effectLog,env};}
+function workflowFixture(t:any,state:any){const root=mkdtempSync(join(tmpdir(),"slate-workflow-")),bin=join(root,"bin"),effectLog=join(root,"effects.log"),temp=join(root,"tmp");t.after(()=>rmSync(root,{recursive:true,force:true}));mkdirSync(bin);mkdirSync(temp);mkdirSync(join(root,"verification"));mkdirSync(join(root,"control/verification"),{recursive:true});mkdirSync(join(root,"state/archive"),{recursive:true});mkdirSync(join(root,"current-control/verification"),{recursive:true});mkdirSync(join(root,"runner"));for(const dir of["verification","control/verification","current-control/verification"])for(const file of["release-control.mjs","release-job.mjs"])cpSync(new URL(`../verification/${file}`,import.meta.url),join(root,dir,file));writeFileSync(join(root,"state.json"),JSON.stringify(state,null,2)+"\n");writeFileSync(join(root,"state/state.json"),JSON.stringify(state,null,2)+"\n");writeFileSync(join(root,"request.json"),JSON.stringify(req()));writeFileSync(join(root,"state/request.json"),JSON.stringify(req()));writeFileSync(join(root,"state/archive/package.tgz"),"archive");writeFileSync(effectLog,"");writeFileSync(join(bin,"git"),`#!/bin/sh\nprintf 'git\\t%s\\n' "$*" >>"$EFFECT_LOG"\ncase "$*" in *"rev-parse HEAD"*) printf '${C}\\n';; esac\nexit 0\n`);writeFileSync(join(bin,"gh"),`#!/bin/sh\nprintf 'gh\\t%s\\n' "$*" >>"$EFFECT_LOG"\ncase "$*" in *"/pulls?"*) if test -n "${'${GH_EXPECT_PRS_QUERY:-}'}"; then if ! { test "$#" -eq 5 && test "$1" = api && test "$2" = --paginate && test "$3" = "$GH_EXPECT_PRS_QUERY" && test "$4" = --jq && test "$5" = tojson; }; then printf 'unexpected preparation pull request query: %s\\n' "$*" >&2; exit 2; fi; fi; test "${'${GH_FAIL_PRS:-0}'}" = 1 && { printf '[]\\n'; exit 1; }; test -f "$GH_PRS" || exit 1; cat "$GH_PRS"; test "${'${GH_FAIL_PRS:-0}'}" = 0 || exit 1;; *"/jobs?"*) test "${'${GH_FAIL_JOBS:-0}'}" = 1 && exit 1; test -f "$GH_JOBS" || exit 1; cat "$GH_JOBS"; test "${'${GH_FAIL_JOBS:-0}'}" = 0 || exit 1;; *"/attempts/"*) test "${'${GH_FAIL_RUN:-0}'}" = 1 && exit 1; test -f "$GH_RUN" || exit 1; cat "$GH_RUN"; test "${'${GH_FAIL_RUN:-0}'}" = 0 || exit 1;; esac\nexit 0\n`);writeFileSync(join(root,"latest"),"0.10.0\n");writeFileSync(join(bin,"npm"),`#!/bin/sh\nprintf 'npm\\t%s\\n' "$*" >>"$EFFECT_LOG"\ncase "$*" in *"versions time"*) test "${'${NPM_FAIL:-0}'}" = 0 || { if test "${'${NPM_FAIL:-0}'}" = 4; then cat "$NPM_DOC"; exit 1; fi; echo 'E404 or network failure' >&2; exit 1; }; test -f "$NPM_DOC" && { cat "$NPM_DOC"; exit 0; }; exit 1;; *"dist-tags.latest"*) n=$(($(cat "$NPM_READ_COUNT" 2>/dev/null || echo 0)+1)); echo "$n" >"$NPM_READ_COUNT"; case "${'${NPM_READ_FAIL_FIRST:-0}'}:$n" in 1:1) echo 'PRIVATE REGISTRY RESPONSE' >&2; exit 1;; esac; case "${'${NPM_READ_FAIL_SECOND:-0}'}:$n" in 1:2) echo 'PRIVATE REGISTRY RESPONSE' >&2; exit 1;; esac; test -z "${'${NODE_AUTH_TOKEN:-}'}${'${NPM_TOKEN:-}'}${'${npm_config__authToken:-}'}" || exit 9; if test -n "${'${NPM_READS:-}'}"; then row=$(sed -n "${'$'}{n}p" "$NPM_READS"); test "$row" != FAIL || exit 1; test -n "$row" && { printf '%s\\n' "$row"; exit 0; }; fi; case "$*" in *--json*) printf '\"%s\"\\n' "$(cat "$NPM_LATEST_FILE")";; *) cat "$NPM_LATEST_FILE";; esac;; *"dist-tag add"*) printf '%s\\n' "$*" >>"$NPM_WRITE_LOG"; test "${'${NODE_AUTH_TOKEN:-}'}" = fixture-stage-token || { echo 'missing authorized token' >&2; exit 8; }; test "${'${NPM_WRITE_FAIL:-0}'}" = 0 || { if test "${'${NPM_WRITE_FAIL:-0}'}" = 3; then printf '%s\\n' "${'${3#ytdb-slate@}'}" >"$NPM_LATEST_FILE"; echo 'npm error code ETIMEDOUT' >&2; elif test "${'${NPM_WRITE_FAIL:-0}'}" = 2; then echo 'UNKNOWN npm failure' >&2; else echo 'npm error code E403' >&2; fi; exit 1; }; test "${'${NPM_WRITE_STALE:-0}'}" = 1 || printf '%s\\n' "${'${3#ytdb-slate@}'}" >"$NPM_LATEST_FILE";; esac\nexit 0\n`);writeFileSync(join(bin,"pi"),`#!/bin/sh\nprintf 'pi\\t%s\\n' "$*" >>"$EFFECT_LOG"\ncase "$*" in *"--mode rpc"*) if test "${'${PI_SUCCESS:-0}'}" = 1; then printf '{"type":"response","command":"get_commands","data":{"commands":[{"name":"slate","sourceInfo":{"source":"npm:ytdb-slate@0.10.1"}}]}}\\n'; else printf '{"type":"response","command":"get_commands","data":{"commands":[]}}\\n'; fi;; esac\nexit 0\n`);for(const name of["git","gh","npm","pi"])chmodSync(join(bin,name),0o755);writeFileSync(join(root,"clock.mjs"),`import assert from 'node:assert/strict';import {appendFileSync,writeFileSync} from 'node:fs';
+let tick=0;Object.defineProperty(performance,'now',{value:()=>tick});Atomics.wait=(_a,_i,_v,ms)=>{tick+=ms;return 'timed-out';};
+const masks=[];const log=console.log;console.log=(...args)=>{if(String(args[0]).startsWith('::add-mask::'))masks.push(String(args[0]).slice(12));log(...args);};
+globalThis.fetch=async(url,options)=>{
+ assert.equal(options.redirect,'error');assert.ok(options.signal instanceof AbortSignal);
+ const method=options.method;appendFileSync(process.env.EFFECT_LOG,'oidc\\t'+method+'\\n');
+ if(method==='GET'){assert.equal(url,'https://github.example/token?audience=npm%3Aregistry.npmjs.org');assert.equal(options.headers.Authorization,'Bearer fixture-request-token');return Response.json({value:'fixture-id-token'});}
+ if(method==='POST'){assert.equal(url,'https://registry.npmjs.org/-/npm/v1/oidc/token/exchange/package/ytdb-slate');assert.deepEqual(masks,['fixture-id-token']);assert.equal(options.headers.Authorization,'Bearer fixture-id-token');assert.equal(options.body,undefined);return Response.json({token:'fixture-npm-token'},{status:201});}
+ assert.equal(method,'PUT');assert.equal(url,'https://registry.npmjs.org/-/package/ytdb-slate/dist-tags/latest');assert.deepEqual(masks,['fixture-id-token','fixture-npm-token']);assert.equal(options.headers.Authorization,'Bearer fixture-npm-token');
+ const version=JSON.parse(options.body);appendFileSync(process.env.NPM_WRITE_LOG,version+'\\n');
+ const fail=process.env.NPM_WRITE_FAIL??'0';
+ if(fail==='3'){writeFileSync(process.env.NPM_LATEST_FILE,version+'\\n');throw new TypeError('PRIVATE fixture-npm-token',{cause:{code:'ETIMEDOUT'}});}
+ if(fail==='2')throw Error('UNKNOWN npm failure fixture-id-token');
+ if(fail==='1')return new Response('PRIVATE fixture-npm-token',{status:403});
+ if(process.env.NPM_WRITE_STALE!=='1')writeFileSync(process.env.NPM_LATEST_FILE,version+'\\n');
+ return new Response(null,{status:200});
+};\n`);const env={NODE_OPTIONS:`--import=${join(root,"clock.mjs")}`,PATH:`${bin}:${dirname(process.execPath)}:/usr/bin:/bin`,PI_BIN:join(bin,"pi"),HOME:root,TMPDIR:temp,RUNNER_TEMP:join(root,"runner"),REGISTRY:promotionRegistry,GH_RUN:join(root,"run.json"),GH_JOBS:join(root,"jobs.json"),GH_PRS:join(root,"prs.jsonl"),NPM_DOC:join(root,"package.json"),GIT_CONFIG_NOSYSTEM:"1",GIT_CONFIG_GLOBAL:"/dev/null",EFFECT_LOG:effectLog,NPM_WRITE_LOG:join(root,"npm-writes"),NPM_LATEST_FILE:join(root,"latest"),NPM_READ_COUNT:join(root,"read-count"),GITHUB_RUN_ID:"900",GITHUB_RUN_ATTEMPT:"2",GITHUB_REPOSITORY:"JetBrains/ytdb-slate",GITHUB_OUTPUT:join(root,"output")};return{root,effectLog,env};}
 function runWorkflowBlock(f:any,script:string,more:Record<string,string>={}){return spawnSync("/bin/bash",["-c",script],{cwd:f.root,env:{...f.env,...more},encoding:"utf8",timeout:10000});}
 function registryProofFixture(t:any,state:any,scenario:string){
   const f=workflowFixture(t,state),attempts=join(f.root,"npm-attempts");
@@ -513,10 +657,11 @@ test("real promotion and recovery workflows handle stale reads, unchanged result
   for(const recovery of [false,true]){
     for(const [responses,wanted] of [[["0.10.0","0.10.0","0.10.1"],"verified"],[["0.10.0"],"unchanged"],[["0.10.1"],"verified"],[["0.9.0"],"superseded"],[["0.9.0","0.10.1"],"verified"],[["0.10.0","FAIL"],"failure"],[["{bad"],"failure"],[["[]"],"failure"]] as const){
       const f=workflowFixture(t,intent),reads=join(f.root,"reads");writeFileSync(join(f.root,"latest"),responses[0]!=="{bad"&&responses[0]!=="[]"?responses[0]+"\n":"0.10.0\n");writeFileSync(reads,responses.map(s=>s==="FAIL"||s==="{bad"||s==="[]"?s:JSON.stringify(s)).join("\n")+"\n");
-      const before=readFileSync(join(f.root,"state.json"),"utf8"),r=runWorkflowBlock(f,recovery?workflowRunBlock("recover"):promotionScript(intent),{VERSION:intent.version,IDENTITY:intent.identity,GITHUB_RUN_ATTEMPT:recovery?"3":"2",...(!recovery?{NODE_AUTH_TOKEN:"fixture-stage-token",NPM_TOKEN:"alias-secret",npm_config__authToken:"alias-secret"}:{}),NPM_READS:reads,NPM_WRITE_STALE:"1"});
+      const before=readFileSync(join(f.root,"state.json"),"utf8"),r=runWorkflowBlock(f,recovery?workflowRunBlock("recover"):promotionScript(intent),{VERSION:intent.version,IDENTITY:intent.identity,GITHUB_RUN_ATTEMPT:recovery?"3":"2",...(!recovery?{ACTIONS_ID_TOKEN_REQUEST_URL:"https://github.example/token",ACTIONS_ID_TOKEN_REQUEST_TOKEN:"fixture-request-token",NPM_TOKEN:"alias-secret",npm_config__authToken:"alias-secret"}:{}),NPM_READS:reads,NPM_WRITE_STALE:"1"});
       const effects=readFileSync(f.effectLog,"utf8");assert.match(effects,/--fetch-retries=0/);assert.match(effects,/--fetch-timeout=/);
       const expectedWrites=!recovery&&responses[0]==="0.10.0"?1:0;
-      assert.equal(effects.split("\n").filter(line=>line.startsWith("npm\tdist-tag add ")).length,expectedWrites,`${recovery}/${responses}`);
+      assert.equal(effects.split("\n").filter(line=>line==="oidc\tPUT").length,expectedWrites,`${recovery}/${responses}`);
+      assert.doesNotMatch(effects,/npm\tdist-tag add/);
       if(expectedWrites)assert.equal(readFileSync(f.env.NPM_WRITE_LOG,"utf8").trim().split("\n").length,1);
       else assert.throws(()=>readFileSync(f.env.NPM_WRITE_LOG),/ENOENT/);
       if(wanted==="failure"){assert.notEqual(r.status,0,`${recovery}/${responses}`);assert.equal(readFileSync(join(f.root,"state.json"),"utf8"),before);assert.doesNotMatch(effects,/git\t.*(?:add|commit|push)/);assert.throws(()=>readFileSync(join(f.root,recovery?"promotion-recovery.json":"runner/promotion.json")),/ENOENT/);continue;}
@@ -533,7 +678,8 @@ test("real npm read timeout kills retries and reads receive no credential enviro
   const home=process.env.HOME;process.env.PATH=f.env.PATH;process.env.HOME=f.root;
   try{const start=performance.now();assert.throws(()=>observeLatest({registry:"https://registry.invalid/",version:"0.10.1",expectedLatest:"0.10.0",allowance:60}),(error:any)=>{assert.equal(error.message,"latest read timed out");assert.equal(error.cause?.code,"ETIMEDOUT");assert.equal(error.cause?.signal,"SIGKILL");return true;});assert.ok(performance.now()-start<1000,"a timed-out read must finish within one second");assert.match(readFileSync(join(f.root,"read-args"),"utf8"),/--fetch-retries=0 --fetch-timeout=\d+/);}
   finally{if(path===undefined)delete process.env.PATH;else process.env.PATH=path;if(home===undefined)delete process.env.HOME;else process.env.HOME=home;}
-  const saved=Object.fromEntries(["NODE_AUTH_TOKEN","NPM_TOKEN","npm_config__authToken"].map(k=>[k,process.env[k]]));process.env.NODE_AUTH_TOKEN="secret";process.env.NPM_TOKEN="secret";process.env.npm_config__authToken="secret";
+  const credentialNames=["NODE_AUTH_TOKEN","NPM_TOKEN","npm_config__authToken","ACTIONS_ID_TOKEN_REQUEST_URL","ACTIONS_ID_TOKEN_REQUEST_TOKEN"];
+  const saved=Object.fromEntries(credentialNames.map(k=>[k,process.env[k]]));for(const name of credentialNames)process.env[name]="secret";
   try{const opts=latestReadOptions(37);assert.equal(opts.timeout,37);assert.equal(opts.killSignal,"SIGKILL");assert.ok(Object.keys(opts.env).every(k=>!/token|auth|password/i.test(k)));assert.notEqual(opts.env.npm_config_userconfig,opts.env.npm_config_globalconfig);assert.equal(readFileSync(opts.env.npm_config_userconfig,"utf8"),"");assert.equal(readFileSync(opts.env.npm_config_globalconfig,"utf8"),"");}
   finally{for(const [k,v] of Object.entries(saved)){if(v===undefined)delete process.env[k];else process.env[k]=v;}}
 });
@@ -669,7 +815,7 @@ test("real registry-proof workflow block retries invalid metadata and stops at t
   assert.equal(run.status,0,run.stderr);
   const packs=assertRegistryProofLog(run,f,[0,5,10,20,30],["metadata-failed","invalid-metadata","invalid-metadata","invalid-metadata","complete"],2);
   assert.match(run.stdout,/ytdb-slate-0\.10\.1\.tgz/);
-  assert.deepEqual(packs,[`npm\tpack ytdb-slate@${state.version} --ignore-scripts --pack-destination registry --registry https://registry.invalid/`]);
+  assert.deepEqual(packs,[`npm\tpack ytdb-slate@${state.version} --ignore-scripts --pack-destination registry --registry ${promotionRegistry}`]);
   const result=JSON.parse(readFileSync(join(f.root,"registry/result.json"),"utf8"));
   assert.equal(result.result,"verified");assert.equal(result.identity,state.identity);assert.equal(result.execution,state.uploadExecution);
   assert.equal(JSON.parse(readFileSync(join(f.root,"state/state.json"),"utf8")).status,"upload-unknown");
@@ -951,6 +1097,55 @@ test("preparation refuses a successful-looking npm body with a nonzero read stat
 
 test("real install failure workflow records the producing attempt and closes without success effects",t=>{const pub=published(),values=workflowValues(pub),install=renderWorkflowBlock(workflowRunBlock("install-proof"),values),f=workflowFixture(t,pub),failed=runWorkflowBlock(f,install);assert.notEqual(failed.status,0);const failurePath=join(f.root,"runner/install/failure.json"),failure=JSON.parse(readFileSync(failurePath,"utf8"));assert.equal(failure.execution,"900:2");assert.equal(failure.result,"failed");mkdirSync(join(f.root,"failure"));cpSync(failurePath,join(f.root,"failure/failure.json"));const recorded=runWorkflowBlock(f,renderWorkflowBlock(workflowRunBlock("record-install-failure"),values));assert.equal(recorded.status,0,recorded.stderr);const state=JSON.parse(readFileSync(join(f.root,"state.json"),"utf8"));assert.equal(state.status,"published");assert.equal(state.installFailures[0].execution,"900:2");assert.doesNotMatch(readFileSync(f.effectLog,"utf8"),/npm\tdist-tag|git\ttag|gh\trelease create/);const closed=runWorkflowBlock(f,workflowRunBlock("close"),{VERSION:state.version,IDENTITY:state.identity});assert.equal(closed.status,0,closed.stderr);assert.equal(JSON.parse(readFileSync(join(f.root,"state.json"),"utf8")).status,"closed-unpromoted");});
 
+const oidcWorkflowEnv={ACTIONS_ID_TOKEN_REQUEST_URL:"https://github.example/token",ACTIONS_ID_TOKEN_REQUEST_TOKEN:"fixture-request-token"};
+function assertCredentialSecrecy(run:any,result:any){
+  const maskLines=run.stdout.split("\n").filter((line:string)=>line.startsWith("::add-mask::"));
+  assert.ok(maskLines.every((line:string)=>["::add-mask::fixture-id-token","::add-mask::fixture-npm-token"].includes(line)));
+  const visible=run.stdout.split("\n").filter((line:string)=>!line.startsWith("::add-mask::")).join("\n");
+  for(const [channel,text] of [["stdout",visible],["stderr",run.stderr],["result",JSON.stringify(result)]])assert.doesNotMatch(text,/fixture-(?:request|id|npm)-token/,`${channel} must contain no credential text`);
+}
+function assertPromotionAuthority(source:string){
+  const jobs=[...source.matchAll(/^  ([a-z][a-z-]*):\n([\s\S]*?)(?=^  [a-z][a-z-]*:|$(?![\s\S]))/gm)].map(match=>({name:match[1]!,body:match[2]!}));
+  assert.doesNotMatch(source,/NPM_STAGE_ONLY_TOKEN|secrets\./);
+  assert.doesNotMatch(source.slice(0,source.indexOf("\njobs:")),/id-token:/,"no workflow-wide OIDC authority");
+  assert.deepEqual(jobs.filter(job=>/id-token: write/.test(job.body)).map(job=>job.name).sort(),["promote","recover-promote","upload"]);
+  assert.deepEqual(jobs.filter(job=>/environment: npm-release\b/.test(job.body)).map(job=>job.name),["upload"]);
+  assert.deepEqual(jobs.filter(job=>/environment: npm-promote\b/.test(job.body)).map(job=>job.name).sort(),["promote","recover-promote"]);
+  for(const name of ["promote","recover-promote"]){
+    const body=jobs.find(job=>job.name===name)?.body;assert.ok(body);
+    assert.match(body,/permissions: \{ contents: read, id-token: write \}/);
+    assert.doesNotMatch(body,/registry-url:|NODE_AUTH_TOKEN|NPM_TOKEN|secrets\.|npm (ci|install|test|pack)/);
+  }
+}
+
+test("stored executor recognition uses the OIDC exchange path in every rule copy",()=>{
+  const path="/-/npm/v1/oidc/token/exchange/",current=readFileSync(new URL("../verification/release-job.mjs",import.meta.url),"utf8");
+  assert.ok(current.includes(path));assert.ok(!legacyPromotionJob.includes(path));
+  assert.ok(current.includes("NODE_AUTH_TOKEN"));assert.ok(legacyPromotionJob.includes("NODE_AUTH_TOKEN"));
+  for(const text of [releasing,agents,mechanism]){
+    assert.ok(text.includes(`Do not rerun a preparation or claim run whose stored executor lacks \`${path}\`.`));
+    assert.ok(text.includes(`The stored executor uses OIDC only when it contains \`${path}\`. An executor without that path uses the stored-token route.`));
+  }
+});
+
+test("promotion workflow authority checks reject each regression",()=>{
+  assertPromotionAuthority(workflow);
+  for(const name of ["promote","recover-promote"]){
+    const block=workflowJobBlock(name).join("\n");
+    for(const [from,to] of [["id-token: write","id-token: read"],["environment: npm-promote","environment: npm-release"],["node-version: '24.18.0'","node-version: '24.18.0', registry-url: 'https://registry.npmjs.org'"],["steps:","steps:\n      - env: { NODE_AUTH_TOKEN: '${{ secrets.OTHER_NPM_TOKEN }}' }"],["steps:","steps:\n      - run: npm install -g npm@11.21.0"]]){
+      const mutant=workflow.replace(block,()=>block.replace(from!,to!));assert.notEqual(mutant,workflow);assert.throws(()=>assertPromotionAuthority(mutant));
+    }
+  }
+  for(const name of ["recover","install-proof","finalize"]){
+    const block=workflowJobBlock(name).join("\n"),mutant=workflow.replace(block,()=>block.replace("permissions: {","permissions: { id-token: write,"));
+    assert.notEqual(mutant,workflow);assert.throws(()=>assertPromotionAuthority(mutant));
+  }
+  const upload=workflowJobBlock("upload").join("\n");
+  for(const [from,to] of [["id-token: write","id-token: read"],["environment: npm-release","environment: npm-promote"]]){
+    const mutant=workflow.replace(upload,()=>upload.replace(from!,to!));assert.notEqual(mutant,workflow);assert.throws(()=>assertPromotionAuthority(mutant));
+  }
+});
+
 test("real promotion steps and recorders retry only with a new intent",{timeout:30000},t=>{
   const values=(job:string,s:any)=>Object.fromEntries(Object.entries(workflowValues(s)).map(([k,v])=>[job.startsWith("recover")?k.replace("needs.identify.","needs.recover."):k,v]));
   const promote=(job:string,s:any)=>{const line=workflowJobBlock(job).join("\n").match(/^\s*run: (node verification\/release-job\.mjs promote[^\n]*)$/m)?.[1];assert.ok(line);return renderWorkflowBlock(line,values(job,s));};
@@ -959,21 +1154,24 @@ test("real promotion steps and recorders retry only with a new intent",{timeout:
     const steps=workflowJobBlock(job).join("\n").split(/^      - /m);
     const step=steps.filter(x=>/^\s*run: node verification\/release-job\.mjs promote\b/m.test(x));
     assert.equal(step.length,1,`${job} must have one promotion step`);
-    assert.match(step[0]!,/^\s*(?:env: \{ )?NODE_AUTH_TOKEN: (?:\$\{\{ secrets\.NPM_STAGE_ONLY_TOKEN \}\}|'\$\{\{ secrets\.NPM_STAGE_ONLY_TOKEN \}\}')(?: \})?$/m,`${job} must bind the stage-only secret on its promotion step`);
+    assert.doesNotMatch(step[0]!,/secrets\.|NODE_AUTH_TOKEN/,`${job} must not bind a token secret`);
+    assertPromotionAuthority(workflow);
   }
   for(const scenario of ["missing-token","refused"]){
     const proof=proved(),intent=beginPromotion(proof,"0.10.0",owner(proof),"900","2",NOW),f=workflowFixture(t,intent);
-    const first=runWorkflowBlock(f,promote("promote",intent),{NODE_AUTH_TOKEN:scenario==="missing-token"?"":"fixture-stage-token",NPM_READ_FAIL_FIRST:"0",NPM_WRITE_FAIL:scenario==="refused"?"1":"0"}),result=JSON.parse(readFileSync(join(f.root,"runner/promotion.json"),"utf8"));
+    const first=runWorkflowBlock(f,promote("promote",intent),{...(scenario==="missing-token"?{}:oidcWorkflowEnv),NPM_READ_FAIL_FIRST:"0",NPM_WRITE_FAIL:scenario==="refused"?"1":"0"}),result=JSON.parse(readFileSync(join(f.root,"runner/promotion.json"),"utf8"));
     assert.equal(first.status,0,first.stderr);assert.equal(result.result,scenario==="refused"?"refused":"not-attempted",`${scenario}: ${readFileSync(f.effectLog,"utf8")} read-count=${scenario==="missing-token"?"none":readFileSync(join(f.root,"read-count"),"utf8")}`);if(scenario!=="refused")assert.equal(result.cause,"missing-token");assert.deepEqual(first.stdout.split("\n").filter(line=>line.startsWith("::error::")),["::error::Promotion is not verified. Inspect the saved result before recovery."]);assert.doesNotMatch(JSON.stringify(result)+first.stdout,/PRIVATE REGISTRY RESPONSE/);
-    assert.equal((readFileSync(f.effectLog,"utf8").match(/npm\tdist-tag add/g)??[]).length,scenario==="refused"?1:0);assert.equal(readFileSync(join(f.root,"latest"),"utf8"),"0.10.0\n");
+    assertCredentialSecrecy(first,result);
+    assert.equal((readFileSync(f.effectLog,"utf8").match(/oidc\tPUT/g)??[]).length,scenario==="refused"?1:0);
+    assert.doesNotMatch(readFileSync(f.effectLog,"utf8"),/npm\tdist-tag add/);assert.equal(readFileSync(join(f.root,"latest"),"utf8"),"0.10.0\n");
     const absent=runWorkflowBlock(f,recorder("record-promotion",intent),{GITHUB_RUN_ATTEMPT:"3"});assert.notEqual(absent.status,0);assert.equal(JSON.parse(readFileSync(join(f.root,"state.json"),"utf8")).status,"promotion-unknown");
-    assert.notEqual(runWorkflowBlock(f,promote("promote",intent),{GITHUB_RUN_ATTEMPT:"3",NODE_AUTH_TOKEN:"fixture-stage-token"}).status,0);
+    assert.notEqual(runWorkflowBlock(f,promote("promote",intent),{GITHUB_RUN_ATTEMPT:"3",...oidcWorkflowEnv}).status,0);
     mkdirSync(join(f.root,"promotion"));cpSync(join(f.root,"runner/promotion.json"),join(f.root,"promotion/promotion.json"));const saved=runWorkflowBlock(f,recorder("record-promotion",intent),{GITHUB_RUN_ATTEMPT:"3"});assert.equal(saved.status,0,saved.stderr);const resolved=JSON.parse(readFileSync(join(f.root,"state.json"),"utf8"));assert.equal(resolved.status,"proved");assert.equal(resolved.promotion,result.result);assert.equal(resolved.promotionEvidence.expectedLatest,"0.10.0");
     const finalize=runWorkflowBlock(f,renderWorkflowBlock(workflowRunBlock("finalize"),workflowValues(intent)));assert.notEqual(finalize.status,0);assert.doesNotMatch(readFileSync(f.effectLog,"utf8"),/git\ttag|gh\trelease create/);
     const retry=runWorkflowBlock(f,workflowRunBlock("recover"),{VERSION:resolved.version,IDENTITY:resolved.identity,GITHUB_RUN_ATTEMPT:"3"});assert.equal(retry.status,0,retry.stderr);assert.match(readFileSync(join(f.root,"output"),"utf8"),/retry_promotion=true/);const newIntent=JSON.parse(readFileSync(join(f.root,"state.json"),"utf8"));assert.equal(newIntent.promoterExecution,"900:3");assert.equal(newIntent.promotionEvidence.expectedLatest,"0.10.0");
-    const again=runWorkflowBlock(f,promote("recover-promote",newIntent),{GITHUB_RUN_ATTEMPT:"3",NODE_AUTH_TOKEN:""});assert.equal(again.status,0,again.stderr);assert.equal(JSON.parse(readFileSync(join(f.root,"runner/promotion.json"),"utf8")).cause,"missing-token");assert.deepEqual(again.stdout.split("\n").filter(line=>line.startsWith("::error::")),["::error::Promotion is not verified. Inspect the saved result before recovery."]);assert.equal(readFileSync(join(f.root,"latest"),"utf8"),"0.10.0\n");
-    const second=runWorkflowBlock(f,promote("recover-promote",newIntent),{GITHUB_RUN_ATTEMPT:"3",NODE_AUTH_TOKEN:"fixture-stage-token"});assert.equal(second.status,0,second.stderr);assert.equal(JSON.parse(readFileSync(join(f.root,"runner/promotion.json"),"utf8")).result,"verified");assert.equal(readFileSync(join(f.root,"latest"),"utf8"),`${newIntent.version}\n`);
-    cpSync(join(f.root,"runner/promotion.json"),join(f.root,"promotion/promotion.json"));const recorded=runWorkflowBlock(f,recorder("recover-promotion-record",newIntent),{GITHUB_RUN_ATTEMPT:"4"});assert.equal(recorded.status,0,recorded.stderr);assert.equal(JSON.parse(readFileSync(join(f.root,"state.json"),"utf8")).status,"complete");assert.equal((readFileSync(f.effectLog,"utf8").match(/npm\tdist-tag add/g)??[]).length,scenario==="refused"?2:1);
+    const again=runWorkflowBlock(f,promote("recover-promote",newIntent),{GITHUB_RUN_ATTEMPT:"3"});assert.equal(again.status,0,again.stderr);assert.equal(JSON.parse(readFileSync(join(f.root,"runner/promotion.json"),"utf8")).cause,"missing-token");assert.deepEqual(again.stdout.split("\n").filter(line=>line.startsWith("::error::")),["::error::Promotion is not verified. Inspect the saved result before recovery."]);assert.equal(readFileSync(join(f.root,"latest"),"utf8"),"0.10.0\n");
+    const second=runWorkflowBlock(f,promote("recover-promote",newIntent),{GITHUB_RUN_ATTEMPT:"3",...oidcWorkflowEnv});assert.equal(second.status,0,second.stderr);const secondResult=JSON.parse(readFileSync(join(f.root,"runner/promotion.json"),"utf8"));assert.equal(secondResult.result,"verified");assertCredentialSecrecy(second,secondResult);assert.equal(readFileSync(join(f.root,"latest"),"utf8"),`${newIntent.version}\n`);
+    cpSync(join(f.root,"runner/promotion.json"),join(f.root,"promotion/promotion.json"));const recorded=runWorkflowBlock(f,recorder("recover-promotion-record",newIntent),{GITHUB_RUN_ATTEMPT:"4"});assert.equal(recorded.status,0,recorded.stderr);assert.equal(JSON.parse(readFileSync(join(f.root,"state.json"),"utf8")).status,"complete");assert.equal((readFileSync(f.effectLog,"utf8").match(/oidc\tPUT/g)??[]).length,scenario==="refused"?2:1);assert.doesNotMatch(readFileSync(f.effectLog,"utf8"),/npm\tdist-tag add/);
   }
 });
 
@@ -994,14 +1192,14 @@ test("real promoter observes failed writes and leaves other failed reads unresol
   const s=proved(),intent=beginPromotion(s,"0.10.0",owner(s),"900","2",NOW),line=workflowJobBlock("promote").join("\n").match(/^\s*run: (node verification\/release-job\.mjs promote[^\n]*)$/m)?.[1];assert.ok(line);
   const script=renderWorkflowBlock(line,workflowValues(intent));
   for(const [name,flags] of [["write",{NPM_WRITE_FAIL:"2"}],["applied failed write",{NPM_WRITE_FAIL:"3"}],["failed refusal read",{NPM_WRITE_FAIL:"1",NPM_READ_FAIL_SECOND:"1"}],["guard read",{NPM_READ_FAIL_FIRST:"1"}],["second read",{NPM_READ_FAIL_SECOND:"1"}]] as const){
-    const f=workflowFixture(t,intent),r=runWorkflowBlock(f,script,{NODE_AUTH_TOKEN:"fixture-stage-token",...flags});
+    const f=workflowFixture(t,intent),r=runWorkflowBlock(f,script,{...oidcWorkflowEnv,...flags});
     assert.equal(JSON.parse(readFileSync(join(f.root,"state.json"),"utf8")).status,"promotion-unknown");
-    assert.equal((readFileSync(f.effectLog,"utf8").match(/npm\tdist-tag add/g)??[]).length,name==="guard read"?0:1);
+    assert.equal((readFileSync(f.effectLog,"utf8").match(/oidc\tPUT/g)??[]).length,name==="guard read"?0:1);assert.doesNotMatch(readFileSync(f.effectLog,"utf8"),/npm\tdist-tag add/);
     if(["write","applied failed write","failed refusal read"].includes(name)){
       assert.equal(r.status,0,r.stderr);const result=JSON.parse(readFileSync(join(f.root,"runner/promotion.json"),"utf8"));
       assert.equal(result.result,name==="applied failed write"?"verified":"refused");assert.equal(result.errorCode,name==="write"?"unknown":name==="failed refusal read"?"E403":undefined);
       assert.equal(Object.hasOwn(result,"after"),name!=="failed refusal read");if(name!=="failed refusal read")assert.equal(result.after,name==="applied failed write"?intent.version:"0.10.0");
-      assert.equal(r.stdout.includes("::error::"),name!=="applied failed write");assert.doesNotMatch(JSON.stringify(result)+r.stdout,/UNKNOWN npm failure|PRIVATE/);
+      assert.equal(r.stdout.includes("::error::"),name!=="applied failed write");assert.doesNotMatch(JSON.stringify(result)+r.stdout,/UNKNOWN npm failure|PRIVATE/);assertCredentialSecrecy(r,result);
       mkdirSync(join(f.root,"promotion"));cpSync(join(f.root,"runner/promotion.json"),join(f.root,"promotion/promotion.json"));
       const recorded=runWorkflowBlock(f,renderWorkflowBlock(workflowRunBlock("record-promotion"),workflowValues(intent)));assert.equal(recorded.status,0,recorded.stderr);
       const state=JSON.parse(readFileSync(join(f.root,"state.json"),"utf8"));assert.equal(state.promotion,result.result);if(name==="applied failed write")assert.throws(()=>closeWithoutPromotion(state,owner(state),NOW));
@@ -1012,7 +1210,7 @@ test("real promoter observes failed writes and leaves other failed reads unresol
 
 test("production install effect writes durable failure evidence and permits a later success",t=>{const pub=published(),root=mkdtempSync(join(tmpdir(),"slate-install-failure-"));t.after(()=>rmSync(root,{recursive:true,force:true}));const failureOut=join(root,"failure.json");assert.throws(()=>executeInstall({state:pub,expected:owner(pub),runId:"17",runAttempt:"2",workspace:root,out:join(root,"proof.json"),failureOut,exec:()=>{throw new Error("offline install failed");}}));const failure=JSON.parse(readFileSync(failureOut,"utf8"));assert.deepEqual({execution:failure.execution,result:failure.result,failure:failure.failure},{execution:"17:2",result:"failed",failure:"install-command"});const recorded=recordInstallFailure(pub,failure,owner(pub),NOW);let n=0;const proof=executeInstall({state:recorded,expected:owner(recorded),runId:"17",runAttempt:"3",workspace:root,out:join(root,"proof.json"),failureOut:join(root,"later-failure.json"),exec:()=>++n===2?{stdout:'{"type":"response","command":"get_commands","data":{"commands":[{"name":"slate","sourceInfo":{"source":"npm:ytdb-slate@0.10.1"}}]}}\n'}:{stdout:""}});const success=recordInstallProof(recorded,proof,owner(recorded),NOW);assert.equal(success.status,"proved");assert.equal(success.installFailures.length,1);assert.equal(success.installProof.execution,"17:3");});
 
-test("production workflow carries immutable identity through every stage and confines the secret",()=>{const job=(name:string)=>workflow.match(new RegExp(`\\n  ${name}:\\n[\\s\\S]*?(?=\\n  [a-z][a-z-]*:\\n|$)`))?.[0]??"";for(const name of["seal-upload","upload","record-registry","install-proof","record-install-failure","record-proof","promote","record-promotion","finalize"])assert.match(job(name),/--identity/);assert.match(job("registry-proof"),/expected=\{identity:/);for(const name of["recover","recover-promote","recover-promotion-record","abandon","retire","close"])assert.match(job(name),/IDENTITY|--identity/);assert.match(job("prepare"),/--authorization "\$GITHUB_RUN_ID"/);assert.match(job("prepare"),/generationRecord/);assert.match(job("record-install-failure"),/if: \$\{\{ always\(\) && needs\.identify\.result == 'success' && needs\.install-proof\.result == 'failure'/);assert.equal(workflow.split("\n").filter(x=>x.includes("NPM_STAGE_ONLY_TOKEN")).length,2);assert.match(job("upload"),/environment: npm-release[\s\S]*id-token: write/);assert.doesNotMatch(job("promote"),/npm (ci|install|test|pack)/);for(const text of[releasing,agents,mechanism]){assert.match(text,/install-failure-<attempt>/);assert.match(text,/install-failures\//);assert.match(text,/record-install-failure/);}for(const text of [releasing,agents,mechanism]){assert.match(text,/started before pull request #439 merged/);assert.doesNotMatch(text,/started before this fix/);}assert.match(releasing,/Do not rerun only `record-install-failure`/);assert.match(releasing,/If installation fails again, the failure recorder uses the same new run attempt\./);assert.match(releasing,/If installation succeeds, the failure recorder is skipped\./);assert.match(releasing,/The release can continue only after the required proofs succeed\./);assert.match(releasing,/dependent jobs can promote `latest` and create final records/);});
+test("production workflow carries immutable identity through every stage and confines OIDC authority",()=>{const job=(name:string)=>workflow.match(new RegExp(`\\n  ${name}:\\n[\\s\\S]*?(?=\\n  [a-z][a-z-]*:\\n|$)`))?.[0]??"";for(const name of["seal-upload","upload","record-registry","install-proof","record-install-failure","record-proof","promote","record-promotion","finalize"])assert.match(job(name),/--identity/);assert.match(job("registry-proof"),/expected=\{identity:/);for(const name of["recover","recover-promote","recover-promotion-record","abandon","retire","close"])assert.match(job(name),/IDENTITY|--identity/);assert.match(job("prepare"),/--authorization "\$GITHUB_RUN_ID"/);assert.match(job("prepare"),/generationRecord/);assert.match(job("record-install-failure"),/if: \$\{\{ always\(\) && needs\.identify\.result == 'success' && needs\.install-proof\.result == 'failure'/);assertPromotionAuthority(workflow);assert.match(job("upload"),/environment: npm-release[\s\S]*id-token: write/);assert.doesNotMatch(job("promote"),/npm (ci|install|test|pack)/);for(const text of[releasing,agents,mechanism]){assert.match(text,/install-failure-<attempt>/);assert.match(text,/install-failures\//);assert.match(text,/record-install-failure/);}for(const text of [releasing,agents,mechanism]){assert.match(text,/started before pull request #439 merged/);assert.doesNotMatch(text,/started before this fix/);}assert.match(releasing,/Do not rerun only `record-install-failure`/);assert.match(releasing,/If installation fails again, the failure recorder uses the same new run attempt\./);assert.match(releasing,/If installation succeeds, the failure recorder is skipped\./);assert.match(releasing,/The release can continue only after the required proofs succeed\./);assert.match(releasing,/dependent jobs can promote `latest` and create final records/);});
 
 test("competing durable writers reject a stale compare-and-swap lease",t=>{const root=mkdtempSync(join(tmpdir(),"slate-cas-"));t.after(()=>rmSync(root,{recursive:true,force:true}));const env={PATH:process.env.PATH??"",HOME:root,GIT_CONFIG_NOSYSTEM:"1",GIT_CONFIG_GLOBAL:"/dev/null"};const run=(cwd:string,...args:string[])=>{const r=spawnSync("git",args,{cwd,env,encoding:"utf8",timeout:10000});assert.equal(r.status,0,r.stderr);return r.stdout.trim();};const remote=join(root,"remote.git"),seed=join(root,"seed");run(root,"init","--bare",remote);mkdirSync(seed);run(seed,"init","-b","main");run(seed,"config","user.name","Test");run(seed,"config","user.email","test@example.invalid");writeFileSync(join(seed,"state"),"one");run(seed,"add","state");run(seed,"commit","-m","seed");run(seed,"remote","add","origin",remote);run(seed,"push","origin","HEAD:release-state");const a=join(root,"a"),b=join(root,"b");run(root,"clone","--branch","release-state",remote,a);run(root,"clone","--branch","release-state",remote,b);for(const d of [a,b]){run(d,"config","user.name","Test");run(d,"config","user.email","test@example.invalid");}const old=run(a,"rev-parse","HEAD");writeFileSync(join(a,"state"),"a");run(a,"commit","-am","a");run(a,"push","origin","HEAD:release-state",`--force-with-lease=refs/heads/release-state:${old}`);writeFileSync(join(b,"state"),"b");run(b,"commit","-am","b");const stale=spawnSync("git",["push","origin","HEAD:release-state",`--force-with-lease=refs/heads/release-state:${old}`],{cwd:b,env,encoding:"utf8",timeout:10000});assert.notEqual(stale.status,0);});
 
