@@ -13,14 +13,11 @@
  * are and why they resolve nowhere else, see AGENTS.md § Overview). Every
  * assertion lives in the driver script, which reads this line.
  *
- * Why it exists: pi 0.83.0 exposes no rpc command and no CLI flag that
- * enumerates the registered tools — measured during adversarial review, where
- * get_commands turned out to list commands only and there is no list_tools (AD4
- * in that round) — so silently removing slate's dispatch-tool registration is
- * undetectable from outside the extension process: it exits 0 with an empty
- * stderr and a fully working /slate command. Loaded alongside the checkout under
- * test, this hook observes the registry from the inside and hands the driver the
- * tool names to check.
+ * Pi 1.0.0 exposes no remote procedure call (RPC) command or command-line
+ * interface (CLI) flag that enumerates registered tools.
+ * get_commands lists commands only. Removing a dispatch-tool registration
+ * leaves exit 0, empty stderr and a working /slate command. This hook observes
+ * the registry inside the extension process and gives the driver tool names.
  *
  * NOT part of the shipped package: package.json's `files` whitelist excludes
  * verification/, and nothing in extension/ imports this.

@@ -368,13 +368,14 @@ test("mode measures at message end, retries loading, and advances turn cadence",
     assert.equal(notifications.length, 3, "a headless refusal adds no notification");
     // The report itself must start no turn and send no message.
     assert.equal(sent.length, 0);
-    // pi runs a registered extension command BEFORE it emits the input event:
-    // AgentSession.prompt() in the pinned pi 0.83.0 calls
-    // _tryExecuteExtensionCommand(text) first and returns when a command claims
-    // the text. A real /slate resume or /slate handoff therefore never reaches
-    // this handler. Command name matching is exact and case-sensitive, and
-    // sendUserMessage() skips command handling, so a command-looking string
-    // that DOES arrive here is ordinary user input and must be refused.
+    // In pi 1.0.0, AgentSession.prompt() handles registered commands before input.
+    // _tryExecuteExtensionCommand(text) returns when a command claims the text.
+    // A real /slate resume or /slate handoff therefore never reaches this handler.
+    // Command matching is exact and case-sensitive.
+    // sendUserMessage() skips command handling by default.
+    // Setting expandPromptTemplates to true enables command handling.
+    // A command-looking string that reaches this handler is ordinary user input.
+    // The handler must refuse that input while paused.
     assert.deepEqual(await input!({ type: "input", text: "/slate resume", source: "interactive" }, ctx), { action: "handled" });
     assert.deepEqual(await input!({ type: "input", text: "/SLATE HANDOFF focus", source: "rpc" }, ctx), { action: "handled" });
     assert.deepEqual(await input!({ type: "input", text: "/slate handoff focus", source: "extension" }, ctx), { action: "handled" });

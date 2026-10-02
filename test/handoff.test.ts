@@ -89,7 +89,7 @@ function fixture(config: Record<string, unknown>, usage?: { percent: number; tok
 }
 
 test("the pinned SDK resolves the agent directory at call time, so the fixture isolation holds", async () => {
-  // slate calls getAgentDir() inside reserveTokens, and the pinned pi 0.83.0
+  // slate calls getAgentDir() inside reserveTokens, and pinned pi 1.0.0
   // reads process.env[PI_CODING_AGENT_DIR] inside that function. The value is
   // therefore never captured at import time, and the override above cannot
   // depend on when this module was loaded.

@@ -6,7 +6,7 @@ two callers, `extension/failover.ts` (orchestrator failover) and
 half of the same hazard: the guarantee in `extension/worker.ts` that a
 **worker-side per-dispatch** model/effort switch never reaches the user's global
 defaults at all. Same failure class (a slate-initiated switch leaving the user's
-pi configuration changed), different mechanism. Pi 0.85.1 makes ordinary
+pi configuration changed), different mechanism. Pi 1.0.0 makes ordinary
 extension setters session-scoped, so the production switch sites write zero
 global-settings bytes. The probe also drives the real `AgentSession` setters
 with `persist:true`. That explicit fixture keeps the compatibility restore under
@@ -208,9 +208,9 @@ Four drive modes, chosen per rung:
    performs the per-dispatch model **and** effort switch exactly as
    `threads.ts`'s `applyRoute` does (`session.setModel` then
    `session.setThinkingLevel`). Used only by `WK1`, in two phases across two pi
-   processes; `PI_OFFLINE=1` is set for it because `createAgentSession` may
-   otherwise attempt a create-time catalogue refresh and this harness has no
-   network.
+   processes. In pi 1.0.0, `createAgentSession` creates its default runtime
+   without enabling network catalog refresh. The harness sets `PI_OFFLINE=1`
+   as an additional safeguard against model-network access.
 
 ## Rungs
 
@@ -1111,11 +1111,11 @@ the directory did not change.
 
 The harness is valid because the failure modes that it covers have no other
 signal (`AGENTS.md` § How extension-load failures surface). pi drops an entry in
-`pi.extensions` that resolves nowhere, and it says nothing. A throw in
-`session_start` appears as an `extension_error` event on stdout only. A tool
+`pi.extensions` that resolves nowhere, and it says nothing. In RPC mode, a throw
+in `session_start` appears as an `extension_error` event on stdout only. A tool
 registration that disappears produces **no diagnostic at all**.
 
-The last failure mode needs a positive control, because pinned Pi 0.85.1 offers
+The last failure mode needs a positive control, because pinned Pi 1.0.0 offers
 no rpc command and no CLI flag that lists the registered tools.
 `verification/ci-canary.ts`
 loads beside the checkout, and it prints one
@@ -1174,7 +1174,7 @@ The timing figures above remain historical measurements from 2026-09-04.
 
 ```
 repo  = /home/you/src/main-as-source (02b6bf8)
-pi    = /home/you/src/main-as-source/node_modules/.bin/pi (0.85.1, pinned 0.85.1)
+pi    = /home/you/src/main-as-source/node_modules/.bin/pi (1.0.0, pinned 1.0.0)
 lab   = /tmp/slate-loadcheck.example
 
 CHECK L4                               PASS — the canary observed all three dispatch tools registered: thread, threads, episode
@@ -1347,7 +1347,7 @@ processes: 1 version-pin probe plus 2 rpc sessions.
 
 | id | what it proves |
 | --- | --- |
-| `L1` | pi **exited 0** and loaded the checkout (rpc, offline, empty agent dir, no `models.json` and no `auth.json`, environment scrubbed by name pattern). The verdict names the pattern scrub, and it claims no more than that. The run does **not** deliver an environment with no credentials of any kind: the scrub is a variable-name pattern list, and a credential under an unmatched name reaches the child, as the measured `AWS_ACCESS_KEY_ID` case above shows. What holds is that the run has nothing to spend a credential on. This check is a real signal on pinned Pi 0.85.1, where the covered load failures exit 1 |
+| `L1` | pi **exited 0** and loaded the checkout (rpc, offline, empty agent dir, no `models.json` and no `auth.json`, environment scrubbed by name pattern). The verdict names the pattern scrub, and it claims no more than that. The run does **not** deliver an environment with no credentials of any kind: the scrub is a variable-name pattern list, and a credential under an unmatched name reaches the child, as the measured `AWS_ACCESS_KEY_ID` case above shows. What holds is that the run has nothing to spend a credential on. This check is a real signal on pinned Pi 1.0.0, where the covered load failures exit 1 |
 | `L2` | stderr holds **neither** `Failed to load extension` **nor** `Extension error (`. The check reads both markers, because the first is the channel for a reported load failure and the second is the channel for a hook, which the first misses. Its own verdict line names the two markers and reproduces neither, so a grep of a CI log for either literal finds no line from a run that passed |
 | `L3` | **stdout** holds no `extension_error` event, which is the only signal from a hook that throws in rpc mode |
 | `L4` | the canary saw all three dispatch tools: `thread`, `threads` and `episode`. Nothing else detects their removal |

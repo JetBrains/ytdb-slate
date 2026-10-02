@@ -135,11 +135,11 @@ Run all five checks before you commit.
   - **A mismatch between the pin and the installed pi** stops the run. The message carries the remedy `run 'npm ci --ignore-scripts'`, which is the install that CI runs. The rpc output shapes hold for one pi version only.
 - **The verification ladder stays outside CI on purpose** (issue #24). It takes about 3 minutes, and most of that time is wall-clock wait in timing-sensitive rungs. It needs GNU coreutils, and it refuses to run as root. On a slow machine, or on a machine without the optional tools, it reports NOT RUN instead of PASS. A required check with that behaviour gives unreliable results, so the ladder stays a check for a person to read. Run it as § Verification ladder describes.
 
-### How extension-load failures surface (pi 0.83.0)
+### How extension-load failures surface (pi 1.0.0)
 
-An earlier version of this file said that pi exits 0 when extension loading fails. It also said that success is the ABSENCE of a `Failed to load extension` line on stderr. That statement is **wrong**, and issue #23 came from it. The lists below record measurements against the pinned pi 0.83.0.
+The lists below describe extension-load behavior in pinned pi 1.0.0. Check both the exit code and the diagnostic channels.
 
-pi **reports** each failure below on stderr as `Failed to load extension "<path>": <detail>`, and it **exits 1**:
+pi **reports** each failure below on stderr with `Error: Failed to load extension "<path>": <detail>`. Each failure **exits 1**.
 
 - a syntax error;
 - a broken import that the module uses;
@@ -148,12 +148,12 @@ pi **reports** each failure below on stderr as `Failed to load extension "<path>
 - `-e <path>` for a path that does not exist, with the detail `Extension path does not exist`;
 - `-e <dir>` for a directory that resolves to no module at all, with the detail `Cannot find module '<dir>'`. Such a directory has no `pi.extensions`, no `main` and no `index.*`.
 
-A directory without a `pi` field in `package.json`, or without a `package.json`, still loads correctly when the directory resolves; a bare `index.ts` is enough. For each failure above, the exit code is as reliable as the string.
+A directory can load without a `pi` field or a `package.json` file. A bare `index.ts` is enough when the directory resolves. For each load failure above, both the exit code and the diagnostic string identify failure.
 
-pi **stays silent** for each failure below: it exits 0, and it prints neither marker.
+The following failures leave the exit code at 0. Their diagnostic channels differ.
 
 - An entry in the `pi.extensions` list of a package points at a **file that does not exist**. pi drops the entry without a word, and it starts with no extension. A real install has this shape, so this case matters most.
-- A hook for `session_start` **throws**. In rpc mode pi reports an `extension_error` event on **stdout**. In text mode pi prints `Extension error (<path>): <msg>` on **stderr**. Neither string matches `Failed to load extension`, and the throw leaves the exit code at 0 in rpc mode.
+- A hook for `session_start` **throws**. RPC mode emits an `extension_error` event on **stdout**. Text mode prints `Extension error (<path>): <msg>` on **stderr**. Both modes exit 0 when the remaining invocation succeeds. Neither diagnostic matches `Failed to load extension`.
 - A **tool registration disappears**. pi prints no diagnostic at all: it exits 0, its stderr holds 0 bytes, and the `/slate` command still works.
 
 `verification/run-load-check.sh` holds all of this knowledge, so you do not have to remember it. `L1` reads the exit code. `L2` reads both stderr markers. `L3` reads the `extension_error` channel on stdout. `L4` and `L5` read the registered tool set through the positive control in `verification/ci-canary.ts`. `L6` reads which copy of slate pi loaded. `T1` through `T5` add the trusted path and the tracked package entry. Take the current identifier set from `bash verification/run-load-check.sh --repo . --list-checks` and not from this file. A measured run of that command printed 13 identifiers, and a measured clean full run printed 14 result lines, because the roster audit reports one line of its own and is not selectable.
@@ -174,7 +174,7 @@ pi **stays silent** for each failure below: it exits 0, and it prints neither ma
 
 `verification/run-ladder.sh` is the deepest regression net in this repo. It is not the only net. § CI names the five checks that run on every pull request. The sections below add the package-content check, the writing checker's two nets and the writing-reminder integration check. The ladder is the only net that touches the global model-default machinery. It covers:
 
-- `extension/model-default.ts` and both switch sites (`extension/failover.ts` failover, `extension/handoff.ts` handoff adoption): pi 0.85.1 production setters must write zero global-settings bytes. A test-only `persist:true` fixture keeps the compatibility restore, per-key rule, untrustworthy-read stand-downs, retry budget and reporting channels under test.
+- `extension/model-default.ts` and both switch sites (`extension/failover.ts` failover, `extension/handoff.ts` handoff adoption): pi 1.0.0 production setters must write zero global-settings bytes. A test-only `persist:true` fixture keeps the compatibility restore, per-key rule, untrustworthy-read stand-downs, retry budget and reporting channels under test.
 - `extension/worker.ts`'s worker-session settings isolation, in rung `WK1`: a **worker-side per-dispatch model AND effort switch** — what every routed action performs — writes zero bytes to the global settings file and does not survive into a reopened session as a sticky default. A file-backed control uses explicit persistence to prove the read-only worker settings boundary has teeth. It is the only automated net for that guarantee, and the only rung that opens a worker session at all.
 
 Everything runs against fake offline providers in a throwaway agent directory, so real pi settings are never touched (the run fails if the real file changes).

@@ -334,11 +334,11 @@ for an unknown or ambiguous route. Main recovery stays available during handoff
 pause. An unresolved stop keeps worker dispatch paused while brief writing waits
 for the user choice.
 
-Pi 0.85.1 model and effort switches are session-only unless the caller explicitly
+Pi 1.0.0 model and effort switches are session-only unless the caller explicitly
 requests persistence. Slate retains shared saved-default ownership and its
-compatibility restoration guard. The guard still protects explicit persistence
-and older behavior. A restoration failure is visible and can leave the changed
-default in place.
+compatibility restoration guard. The guard covers explicit persistence and
+hosts that persist switches. A restoration failure is visible and can leave the
+changed default in place.
 
 ## Package reliance boundary
 

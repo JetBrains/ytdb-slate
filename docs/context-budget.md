@@ -170,9 +170,9 @@ Slate reports each refused prompt once. The orchestrator must use one state-save
 worker at a time. It must wait for the result and verify success. It must report
 incomplete preparation rather than claim that the research log was saved.
 
-Remote steer or follow-up, compaction-buffered input, and input accepted before
-the pause can bypass the hook. These are accepted limits of the pinned Pi input
-surface.
+The remote procedure call (RPC) commands `steer` and `follow_up` pass through the Pi input hook.
+Pi also applies the hook when it sends input buffered during compaction.
+Input accepted before the pause can still reach the agent.
 
 ## What the always-loaded doctrine costs the budget
 
@@ -301,9 +301,9 @@ the compact JSON form after pi converts the reminder to a provider request user
 message with one text part. It excludes the volatile timestamp.
 
 The 319-byte figure is one compact persisted `custom_message` record from pi
-0.83.0, including its identifiers, timestamp, JSON framing, and final line-feed
-byte. These figures contain no installed path, so the portable and rendered
-counts are identical.
+1.0.0. It includes two eight-character identifiers, the timestamp, JSON framing
+and the final line-feed byte. These figures contain no installed path, so the
+portable and rendered counts are identical.
 
 Before automatic compaction, transcript storage grows in proportion to the number
 of turns. Cumulative request appearances grow with the square of the number of
