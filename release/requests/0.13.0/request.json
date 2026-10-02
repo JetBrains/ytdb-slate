@@ -1,0 +1,19 @@
+{
+  "schema": 2,
+  "version": "0.13.0",
+  "baseSha": "e14a856c13959605a8d429f9df967c0ca07b5e7e",
+  "authorization": "36978465222",
+  "notesSha256": "4250b93543be68a082c4334f7a10a077b450507420f34f975176dd95ccfb5696",
+  "coverageDisposition": {
+    "verdict": "WARN",
+    "parentPolicy": "exact-release-parent",
+    "allowedPaths": [
+      "package-lock.json",
+      "package.json",
+      "release/requests/0.13.0/coverage.json",
+      "release/requests/0.13.0/notes.md",
+      "release/requests/0.13.0/request.json"
+    ]
+  },
+  "identity": "38f415f312659b824d19ccaaf82e8ba325e7fe071499e1c92e307cc1dcb53492"
+}
