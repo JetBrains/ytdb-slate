@@ -146,6 +146,39 @@ Use its § Session handoff and the research log for saved-session ownership.
 
 ## Level publishing and retained history
 
+Use [pr-publishing.md](pr-publishing.md) § One draft pull request for publishing
+activation, level membership, and mergeability.
+Use its § Creation, § Ready-for-review flip, and § After the merge for approval,
+draft timing, ready safeguards, and delivery accounting.
+
+<!-- level-history-policy:begin -->
+Within a level, complete every design-track subtree before starting its code tracks.
+A plan that needs the opposite order must change its split.
+Complete one entered subtree before continuing its sibling tracks.
+Keep one sequential implementation writer.
+Independent research and reviews may run in parallel.
+
+All work forms one linear history.
+Each level pull request contains one contiguous slice of that history.
+A contiguous slice is an uninterrupted range of commits.
+Earlier completed descendant work is the foundation, not new work in an upper-level slice.
+A stacked pull request uses another pull request's branch as its base.
+Sibling subtree pull requests stack in completion order by default.
+Upper-level pull requests stack on completed lower-level work by default.
+A user-approved project arrangement may differ.
+It must preserve linear history, contiguous slices, and every gate.
+No new setting is needed to approve that arrangement.
+
+Keep branches and accepted marker history available until the root change closes.
+For each delivered level, retain its accepted history boundaries and accepted branch head.
+Bind that history to its pull request and observed merge result in the owning research log.
+The default-branch merge result proves delivery, not track completion.
+A squash merge does not replace accepted marker authority.
+
+Use [track-workflow.md](track-workflow.md) § Delivery and termination for permitted
+history rewrites, rebased-marker mappings, range updates, and unavailable history.
+<!-- level-history-policy:end -->
+
 ## Identifiers, code ranges, and design markers
 
 ## Manual records and safe writes

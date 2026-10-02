@@ -88,8 +88,8 @@ adversarial review is required, validation and final approval form one gate.
 <!-- design-review-policy:end -->
 
 Publishing depends on `workflow.draftPRs` in `slate.json`. When enabled, use
-[pr-publishing.md](pr-publishing.md) to create one umbrella draft pull request
-before implementation. When publishing is disabled, create no pull request.
+[pr-publishing.md](pr-publishing.md) § One draft pull request for level publishing.
+Its § Creation sets the draft timing. When publishing is disabled, create no pull request.
 The retained research log is the durable workflow record.
 
 ## Track size and split
@@ -695,15 +695,33 @@ git commit --allow-empty -m "Track NN complete: <short name>"
 
 Marker commits are the boundary authority for multi-track changes. Track N is
 the range after marker N-1 through marker N.
-A single-track change has no marker. Rebases move markers with history. Any
-layered process that pins marker refs must re-pin after a rebase.
+A single-track change has no marker.
+
+<!-- accepted-history-policy:begin -->
+Before a permitted rewrite, preserve accepted source history in a reachable
+branch or reference.
+Reconcile changed references before further work relies on them.
+A rebased marker counts only when the owning research log maps it to the
+preserved accepted source marker.
+Without that mapping, the original accepted marker remains evidence.
+Re-pin affected ranges after a permitted rewrite.
+Never destroy the exact state the user reviewed.
+A later aggregate package does not authorize rewriting earlier user-reviewed ranges.
+
+If marker history is unavailable, pause affected work.
+Try to recover the exact recorded history from retained branches, references, or source records.
+A status entry, merge result, or copied marker title cannot replace missing history.
+Never recreate a marker to claim an earlier boundary was proved.
+If recovery fails, ask the user to choose recovery work, abandonment, or an explicit evidence waiver.
+The waiver records its limit and does not claim recovered marker evidence.
+<!-- accepted-history-policy:end -->
 
 The track table lists names, one-line scopes, and status. It contains no commit
 identifier. Track numbers are append-only. Abandoned tracks are struck through.
 Numbers are never reused.
 
-With draft publishing, delivery is the user's final accepted merge of the
-umbrella pull request into the default development branch. When publishing is
+With draft publishing, [pr-publishing.md](pr-publishing.md) § After the merge
+owns per-level delivery accounting and root closure. When publishing is
 disabled, the final package asks for acceptance while the current research log,
 its source chain, and every implementer report remain retained. After acceptance,
 copy the required accounting from the current log and its source chain into the

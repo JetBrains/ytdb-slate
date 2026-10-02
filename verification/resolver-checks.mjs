@@ -358,6 +358,7 @@ const DOCTRINE_CONTRACT_IDS = [
 	"contract-track-size-publishing",
 	"contract-recursive-planning",
 	"contract-recursive-owner-agreement",
+	"contract-level-publishing",
 	"contract-publishing-migration",
 	"contract-acceptance-units",
 	"contract-acceptance-mutations",
@@ -2758,8 +2759,8 @@ Late areas add only specialists if Reviewer I ran.`),
 			const publishingActivation = {
 				extract: regionUnit(/^(Publishing depends on `workflow\.draftPRs`[\s\S]*?)(?=^## Track size and split)/gm),
 				expected: normalizeText(`Publishing depends on \`workflow.draftPRs\` in \`slate.json\`. When enabled, use
-[pr-publishing.md](pr-publishing.md) to create one umbrella draft pull request
-before implementation. When publishing is disabled, create no pull request.
+[pr-publishing.md](pr-publishing.md) § One draft pull request for level publishing.
+Its § Creation sets the draft timing. When publishing is disabled, create no pull request.
 The retained research log is the durable workflow record.`),
 			};
 
@@ -2804,12 +2805,31 @@ the orchestrator proposes the additional track or tracks. The orchestrator
 obtains every approval that a new track requires before implementation continues.`),
 				},
 				{
-					id: "umbrella-publishing",
-					extract: markedUnit("umbrella-publishing-policy"),
-					expected: normalizeText(`Create one umbrella draft pull request for the whole change. Keep every track
-autonomous and independently mergeable inside its branch. Only the user merges
-the pull request. Each multi-track boundary uses a marker commit after its
-required gates, as defined in track-workflow.md § Delivery and termination.
+					id: "level-publishing",
+					extract: markedUnit("level-publishing-policy"),
+					expected: normalizeText(`Apply this section only when \`workflow.draftPRs\` is enabled.
+A level contains the sibling tracks created by one split.
+A code track implements bounded approved work.
+A design track plans and completes a nested change.
+Create one draft level pull request for each level with code tracks.
+A level containing only design tracks has no pull request of its own.
+A mixed level's pull request contains only its code tracks.
+Design tracks produce the pull requests of their descendant levels.
+A change without design tracks keeps exactly one pull request.
+Do not create separate pull requests for code tracks or review-fix children.
+For nested work, use [recursive-workflow.md](recursive-workflow.md) § Level publishing
+and retained history for subtree ordering, branch bases, history slices, and retention.
+
+The level is the merge unit.
+All checks pass at each child marker.
+Agreement across documents, prompt guidance, and the extension is required at
+the level boundary.
+Do not merge an incomplete level into the default branch.
+Intermediate track packages and review intentions list each remaining difference
+across those surfaces and name the later child that owns it.
+Only the user merges the pull request.
+Each multi-track boundary uses a marker commit after its required gates,
+as defined in track-workflow.md § Delivery and termination.
 
 Draft publishing does not remove or move planning, design, focus approval,
 review, track-packet, user-note, blocking track-acceptance, final-acceptance,
@@ -2820,22 +2840,25 @@ the user may delete the change folder.`),
 				{
 					id: "publishing-after-merge",
 					extract: regionUnit(/^## After the merge\n\n([\s\S]*?)(?=^Any cleanup)/gm),
-					expected: normalizeText(`After the user merges the umbrella pull request, complete the change's
-delivery accounting. Then close the change under track-workflow.md § Session
-handoff and the research log. Abandonment at any stage also ends with
+					expected: normalizeText(`After the user merges a level pull request, verify that level's delivery accounting.
+Record its accepted history, pull request, and observed merge result in the owning log.
+The root final package lists every level delivery.
+It distinguishes merged levels from the last accepted level waiting for merge.
+Close the root change only after all delivery accounting is verified.
+Use track-workflow.md § Session handoff and the research log for closure. Abandonment at any stage also ends with
 \`slate_change close\`, even if no delivery artifact exists. Closing deletes
 nothing. Keep its folder and reports.`),
 				},
 			];
 			const resolveTrackSizePublishing = (workflowSource = workflow, publishingSource = publishing) => [
 				{ id: "track-size", expected: trackSizePublishingUnits[0].expected, ...trackSizePublishingUnits[0].extract(workflowSource) },
-				{ id: "umbrella-publishing", expected: trackSizePublishingUnits[1].expected, ...trackSizePublishingUnits[1].extract(publishingSource) },
+				{ id: "level-publishing", expected: trackSizePublishingUnits[1].expected, ...trackSizePublishingUnits[1].extract(publishingSource) },
 				{ id: "publishing-after-merge", expected: trackSizePublishingUnits[2].expected, ...trackSizePublishingUnits[2].extract(publishingSource) },
 			];
 			const publishingActivationResult = publishingActivation.extract(workflow);
 			const publishingActivationMutations = [
 				workflow.replace("When enabled, use\n[pr-publishing.md](pr-publishing.md)", "When disabled, use\n[pr-publishing.md](pr-publishing.md)"),
-				workflow.replace("to create one umbrella draft pull request", "to create separate draft pull requests"),
+				workflow.replace("§ One draft pull request for level publishing", "§ One draft pull request for per-track publishing"),
 				workflow.replace("publishing is disabled, create no pull request", "publishing is disabled, create a pull request"),
 			].map((source) => {
 				const resolved = publishingActivation.extract(source);
@@ -2862,10 +2885,10 @@ nothing. Keep its folder and reports.`),
 				[workflow.replace("completed\nwork, remaining work, and a proposed track split", "completed work"), publishing],
 				[workflow.replace("Size never permits dropping an approved\nrequirement", "Size permits dropping an approved\nrequirement"), publishing],
 				[workflow.replace("declaring partial work\ncomplete", "declaring partial work near the guideline\ncomplete"), publishing],
-				[workflow, publishing.replace("Create one umbrella draft pull request for the whole change.", "Create a draft pull request for each track.")],
+				[workflow, publishing.replace("Create one draft level pull request for each level with code tracks.", "Create a draft pull request for each code track.")],
 				[workflow, publishing.replace("Only the user merges", "The agent merges")],
 				[workflow, publishing.replace("Each multi-track boundary uses a marker commit", "Each multi-track boundary uses a merged commit")],
-				[workflow, publishing.replace("After the user merges the umbrella pull request", "Before the user merges the umbrella pull request")],
+				[workflow, publishing.replace("After the user merges a level pull request", "Before the user merges a level pull request")],
 				[workflow, publishing.replace("Draft publishing does not remove or move planning", "Draft publishing may remove or move planning")],
 				[workflow, publishing.replace("Retain the current change folder's\nresearch log and every implementer report", "Delete the current change folder's\nresearch log and every implementer report")],
 			].map(([workflowSource, publishingSource]) => ({
@@ -2874,14 +2897,14 @@ nothing. Keep its folder and reports.`),
 			}));
 			const missingTrackSizePublishing = [
 				resolveTrackSizePublishing(workflow.replace("<!-- track-size-policy:begin -->", ""), publishing)[0],
-				resolveTrackSizePublishing(workflow, publishing.replace("<!-- umbrella-publishing-policy:end -->", ""))[1],
+				resolveTrackSizePublishing(workflow, publishing.replace("<!-- level-publishing-policy:end -->", ""))[1],
 				resolveTrackSizePublishing(workflow, publishing.replace("## After the merge", "## After merging"))[2],
 			];
 			const duplicateTrackSizePublishing = resolveTrackSizePublishing(
 				`${workflow}\n\n<!-- track-size-policy:begin -->\n${trackSizePublishingUnits[0].expected}\n<!-- track-size-policy:end -->`,
-				`${publishing}\n\n<!-- umbrella-publishing-policy:begin -->\n${trackSizePublishingUnits[1].expected}\n<!-- umbrella-publishing-policy:end -->\n\n## After the merge\n\n${trackSizePublishingUnits[2].expected}\n\nAny cleanup`,
+				`${publishing}\n\n<!-- level-publishing-policy:begin -->\n${trackSizePublishingUnits[1].expected}\n<!-- level-publishing-policy:end -->\n\n## After the merge\n\n${trackSizePublishingUnits[2].expected}\n\nAny cleanup`,
 			);
-			checkAll("contract-track-size-publishing", "track sizing, publishing activation, one umbrella pull request, and post-merge cleanup are exact mutation-resistant policy units", [
+			checkAll("contract-track-size-publishing", "track sizing, publishing activation, level pull requests, and post-merge accounting are exact mutation-resistant policy units", [
 				["publishing activation and all three policy units resolve once and equal independent expectations", publishingActivationResult.count === 1 && publishingActivationResult.text === publishingActivation.expected && trackSizePublishingResults.every((unit) => unit.count === 1 && unit.text === unit.expected), { publishingActivationResult, trackSizePublishingResults }],
 				["enabled and disabled activation, one-PR rule, limit, exclusions, both estimates, metric exclusions, level consistency, coherent overrun, stopping report, false completion, marker boundary, user merge, post-merge cleanup, gate, and record-retention mutations fail", publishingActivationMutations.every(({ changed, accepted }) => changed && !accepted) && trackSizePublishingMutations.every(({ changed, accepted }) => changed && !accepted), { publishingActivationMutations, trackSizePublishingMutations }],
 				["missing and duplicated marker boundaries fail closed", missingTrackSizePublishing.every(({ count, text }) => count === 0 && text === "") && duplicateTrackSizePublishing.every(({ count }) => count === 2), { missingTrackSizePublishing, duplicateTrackSizePublishing }],
@@ -3228,14 +3251,18 @@ Use its § Session handoff and the research log for saved-session ownership.`);
 					id: "publishing-creation",
 					source: publishing,
 					extract: regionUnit(/^## Creation\n\n([\s\S]*?)(?=^## Description rules)/gm),
-					expected: normalizeText(`Create the one draft pull request for the change under this section.
+					expected: normalizeText(`Create the level's draft after all applicable pre-implementation gates.
+Create it before the level's first code track implementation.
 
-For a change with a high-level design, draft the pull request description
-before final design approval. Present the draft beside the validated design.
+For a change with a high-level design and a level pull request, draft the
+level description before final design approval.
+Present the draft beside the validated design.
+Each design track with a level pull request presents its level description
+with its validated design for one final approval.
 When an adversarial design review is required, present both after that review.
-One final approval covers the design and description. The description has no
-separate approval gate. Create the pull request after final design approval and
-before implementation.
+One final approval covers the design and description.
+The description has no separate approval gate.
+Create the pull request after final design approval.
 
 For a change without a high-level design, create the pull request after the
 confirmation gate and before implementation. If the change later requires a
@@ -3245,12 +3272,14 @@ request or apply its creation timing retrospectively.
 
 Every creation path keeps these safeguards:
 
-- Create the pull request as a DRAFT. Base the working branch on the
-  repository's default development branch.
+- Create the pull request as a DRAFT.
+  A one-level change starts from the repository's default development branch.
+  For nested work, choose its base under [recursive-workflow.md](recursive-workflow.md)
+  § Level publishing and retained history.
 - If the working branch has no diff against the base yet, land a
   bootstrap empty commit so the PR can be created.
-- At creation for every change with a high-level design, the research log's
-  Planned changes content folds into the PR description. Create the pull
+- At creation, if the change or design track has a high-level design, the owning
+  research log's Planned changes content folds into the PR description. Create the pull
   request only after final design approval, as stated above.
 
   Key decisions, Risks, and Open questions feed the corresponding
@@ -3296,6 +3325,8 @@ The publishing setting and its disabled default remain unchanged.`),
 				publishing.replace("keep the existing draft", "recreate the draft"),
 				publishing.replace("size or late-area design route", "late-area design route"),
 				publishing.replace("For a change without a design gate", "For a SMALL change without a design gate"),
+				publishing.replace("a high-level design and a level pull request", "a high-level design"),
+				publishing.replace("if the change or design track has a high-level design", "for every level with a high-level design"),
 			];
 			const migrationMutations = [
 				workflow.replace("finishes under its recorded workflow unless the user\nexplicitly authorizes migration", "always moves to the current workflow"),
@@ -3335,6 +3366,222 @@ The publishing setting and its disabled default remain unchanged.`),
 				["timing, grade-input, conditional-log, later-design, ready-presentation, and migration mutations each change input and fail", publishingMutationOutcomes.every(({ changed, accepted }) => changed && !accepted) && migrationMutationOutcomes.every(({ changed, accepted }) => changed && !accepted), { publishingMutationOutcomes, migrationMutationOutcomes }],
 				["missing and duplicated boundaries fail closed", missingPublishingMigration.every(({ count, text }) => count === 0 && text === "") && duplicatePublishingMigration.every(({ count }) => count === 2), { missingPublishingMigration, duplicatePublishingMigration }],
 				["exact prior replacements and alternative benign edits outside all three units leave every expectation exact", benignPublishingSources.every((source) => source !== publishing) && benignWorkflowSources.every((source) => source !== workflow) && benignPublishingMigrationOutcomes.every((outcome) => outcome.every((resolved, index) => resolved.count === 1 && resolved.text === publishingMigrationResults[index].expected)), benignPublishingMigrationOutcomes],
+			]);
+
+			const configuration = readFileSync(join(REPO, "docs", "configuration.md"), "utf8");
+			// Independent expectations cover each level rule and its owning section.
+			const levelPolicyUnits = [
+				{
+					id: "publishing-intro", source: publishing,
+					extract: regionUnit(/^# Draft-PR publishing\n\n([\s\S]*?)(?=^## One draft pull request)/gm),
+					expected: normalizeText(`A pull request proposes a branch's changes for review and merge.
+A draft pull request is not yet ready for that review.
+Use [track-workflow.md](track-workflow.md) for the common lifecycle.
+This document applies ONLY when
+\`workflow.draftPRs\` is enabled in home or trusted project \`slate.json\`
+(default: false). When it is disabled, the workflow creates no pull request.
+The research-log lifecycle in that case is owned by track-workflow.md § Session
+handoff and the research log.`),
+				},
+				{ ...trackSizePublishingUnits[1], source: publishing },
+				{ ...trackSizePublishingUnits[2], source: publishing },
+				publishingMigrationUnits[0],
+				{ id: "activation", ...publishingActivation, source: workflow },
+				{
+					id: "accepted-history", source: workflow, extract: markedUnit("accepted-history-policy"),
+					expected: normalizeText(`Before a permitted rewrite, preserve accepted source history in a reachable
+branch or reference.
+Reconcile changed references before further work relies on them.
+A rebased marker counts only when the owning research log maps it to the
+preserved accepted source marker.
+Without that mapping, the original accepted marker remains evidence.
+Re-pin affected ranges after a permitted rewrite.
+Never destroy the exact state the user reviewed.
+A later aggregate package does not authorize rewriting earlier user-reviewed ranges.
+
+If marker history is unavailable, pause affected work.
+Try to recover the exact recorded history from retained branches, references, or source records.
+A status entry, merge result, or copied marker title cannot replace missing history.
+Never recreate a marker to claim an earlier boundary was proved.
+If recovery fails, ask the user to choose recovery work, abandonment, or an explicit evidence waiver.
+The waiver records its limit and does not claim recovered marker evidence.`),
+				},
+				{
+					id: "cleanup-retention", source: publishing, extract: markedUnit("accepted-history-cleanup"),
+					expected: normalizeText(`Cleanup that deletes a branch or reference holding accepted marker history waits
+until the root change closes.
+A change without design tracks is unaffected because its root closes at its merge.`),
+				},
+				{
+					id: "history", source: recursive, extract: markedUnit("level-history-policy"),
+					expected: normalizeText(`Within a level, complete every design-track subtree before starting its code tracks.
+A plan that needs the opposite order must change its split.
+Complete one entered subtree before continuing its sibling tracks.
+Keep one sequential implementation writer.
+Independent research and reviews may run in parallel.
+
+All work forms one linear history.
+Each level pull request contains one contiguous slice of that history.
+A contiguous slice is an uninterrupted range of commits.
+Earlier completed descendant work is the foundation, not new work in an upper-level slice.
+A stacked pull request uses another pull request's branch as its base.
+Sibling subtree pull requests stack in completion order by default.
+Upper-level pull requests stack on completed lower-level work by default.
+A user-approved project arrangement may differ.
+It must preserve linear history, contiguous slices, and every gate.
+No new setting is needed to approve that arrangement.
+
+Keep branches and accepted marker history available until the root change closes.
+For each delivered level, retain its accepted history boundaries and accepted branch head.
+Bind that history to its pull request and observed merge result in the owning research log.
+The default-branch merge result proves delivery, not track completion.
+A squash merge does not replace accepted marker authority.
+
+Use [track-workflow.md](track-workflow.md) § Delivery and termination for permitted
+history rewrites, rebased-marker mappings, range updates, and unavailable history.`),
+				},
+				{
+					id: "history-owner-pointers", source: recursive,
+					extract: regionUnit(/^## Level publishing and retained history\n\n([\s\S]*?)(?=^<!-- level-history-policy:begin -->)/gm),
+					expected: normalizeText(`Use [pr-publishing.md](pr-publishing.md) § One draft pull request for publishing
+activation, level membership, and mergeability.
+Use its § Creation, § Ready-for-review flip, and § After the merge for approval,
+draft timing, ready safeguards, and delivery accounting.`),
+				},
+				{
+					id: "ready", source: publishing,
+					extract: regionUnit(/^## Ready-for-review flip\n\n([\s\S]*?)(?=^Flipping the current pull request)/gm),
+					expected: normalizeText(`Apply this section separately to each level pull request.
+All its code tracks and required machine reviews, track packages, requested fixes,
+and blocking user notes must be complete.
+A proved DESIGN-TRIGGERING area makes track acceptance blocking before its marker.
+Keep the last pull request of a subtree unmerged until every design track it
+closes has explicit whole-subtree acceptance and its design marker.
+A subtree contains a track and all its descendants.
+Ready status supplies neither acceptance nor permission for an agent merge.
+Root final acceptance precedes the last level merge.
+It waits for the note queue, final accounting, and every other final gate.`),
+				},
+				{
+					id: "ready-history", source: publishing,
+					extract: regionUnit(/^(- Strip the whole Tracks section[\s\S]*?)(?=^- Update the PR title)/gm),
+					expected: normalizeText(`- Strip the whole Tracks section from the description, whatever its
+  form — the table for multi-track changes or the "N/A (single-track)"
+  placeholder — plus any notes under it. Preserve required acceptance and
+  history references in Delivery accounting.
+  A squash merge does not preserve marker commits in the default-branch history.
+  For nested work, keep accepted source markers under
+  [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history.
+  Motivation and Planned changes remain in the description.`),
+				},
+				{
+					id: "ready-description", source: publishing,
+					extract: regionUnit(/^(- Update the PR title[\s\S]*?)(?=^- Resolve every remaining Open Question)/gm),
+					expected: normalizeText(`- Update the PR title and description to the final state of the
+  level: the title names what was actually delivered — preserving any
+  prefixes or markers the project's conventions require — and the
+  description, including the Planned changes section, describes the
+  level as implemented, folding in everything added, dropped, or
+  reshaped since the draft PR was opened.`),
+				},
+				{
+					id: "merge-acceptance", source: publishing,
+					extract: regionUnit(/^(The user's merge act approves[\s\S]*?)(?=^## After the merge)/gm),
+					expected: normalizeText(`The user's merge act approves the current pull request, including
+acceptance of any recorded description-size exception.
+A merge does not supply whole-subtree or root final acceptance.
+Obtain each required explicit decision before the merge.`),
+				},
+				{
+					id: "description-scope", source: publishing,
+					extract: regionUnit(/^## Description rules\n\n([\s\S]*?)(?=^Write Planned changes)/gm),
+					expected: normalizeText(`The description follows the repository's PR template, if any, and
+carries three parts: Motivation (why), "Planned changes" (detailed but
+high-level), and "Tracks" (a display table for a level with several code tracks).
+Each description states its level's scope.
+Link related level deliveries without claiming their changes as new work.`),
+				},
+				{
+					id: "description-record", source: publishing,
+					extract: regionUnit(/^(A squash merge combines[\s\S]*?)(?=^Aim to keep)/gm),
+					expected: normalizeText(`A squash merge combines a pull request's commits into one delivery commit.
+Its description becomes that commit's body on the default development branch.
+Write it as the durable record for this level.`),
+				},
+				{
+					id: "table", source: publishing,
+					extract: regionUnit(/^## Tracks table\n\n([\s\S]*?)(?=^## Keeping the PR in sync)/gm),
+					expected: normalizeText(`The description's Tracks section holds the track table; its
+constraints (display-only, no SHAs, never the source of truth for
+track boundaries) are owned by track-workflow.md § Delivery and termination.
+A level with one code track carries an "N/A (single-track)" placeholder instead
+of a table.`),
+				},
+				{
+					id: "sync", source: publishing,
+					extract: regionUnit(/^## Keeping the PR in sync\n\n([\s\S]*?)(?=^## Ready-for-review flip)/gm),
+					expected: normalizeText(`Keep the title and description synchronized with what is actually pushed.
+Update a track's table row when its marker commit lands. Append post-design
+decisions as they are made. Revise Planned changes whenever reality diverges
+from it. Before each package for this level, copy its required delivery
+accounting from the owning research log and its source chain into the
+description. A stale description fails the "deep enough" test.`),
+				},
+				{
+					id: "configuration", source: configuration,
+					extract: regionUnit(/^(\| `workflow\.draftPRs` \|[^\n]*)$/gm),
+					expected: normalizeText(`| \`workflow.draftPRs\` | boolean | \`false\` | Enable one draft pull request per level with code tracks. A change without design tracks keeps one pull request. See [pr-publishing.md](pr-publishing.md) § One draft pull request and § Creation. |`),
+				},
+			];
+			const acceptsLevelUnit = (unit, source) => {
+				const result = unit.extract(source);
+				return result.count === 1 && result.text === unit.expected;
+			};
+			const levelRuleMutations = levelPolicyUnits.flatMap((unit) => unit.expected.split(/(?<=\.) /).filter((rule) => /[a-z]/i.test(rule)).map((rule, index) => {
+				const pattern = new RegExp(rule.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+"));
+				const source = unit.source.replace(pattern, `Contradicting ${unit.id} rule ${index}.`);
+				return { id: unit.id, index, changed: source !== unit.source, rejected: !acceptsLevelUnit(unit, source) };
+			}));
+			const levelBoundaryControls = levelPolicyUnits.map((unit) => {
+				const resolved = unit.extract(unit.source);
+				const pattern = new RegExp(resolved.text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+"));
+				return {
+					id: unit.id,
+					missing: !acceptsLevelUnit(unit, unit.source.replace(pattern, "")),
+					duplicate: !acceptsLevelUnit(unit, `${unit.source}\n${unit.source}`),
+					benign: acceptsLevelUnit(unit, `${unit.source}\n<!-- Outside-unit control. -->\n`),
+				};
+			});
+			const levelMergeabilityRules = [
+				"The level is the merge unit.",
+				"All checks pass at each child marker.",
+				"Agreement across documents, prompt guidance, and the extension is required at the level boundary.",
+				"Do not merge an incomplete level into the default branch.",
+				"Intermediate track packages and review intentions list each remaining difference across those surfaces and name the later child that owns it.",
+			];
+			const levelMergeabilityCopies = [
+				{ id: "lifecycle", source: workflow, extract: markedUnit("track-size-policy") },
+				{ id: "publishing", source: publishing, extract: markedUnit("level-publishing-policy") },
+				{ id: "focus", source: blast, extract: recursiveUnits[2].extract },
+			];
+			const agreesOnLevelMergeability = (copies) => copies.every(({ source, extract }) => {
+				const resolved = extract(source);
+				return resolved.count === 1 && levelMergeabilityRules.every((rule) => resolved.text.includes(rule));
+			});
+			const levelMergeabilityAttacks = levelMergeabilityCopies.flatMap((copy, copyIndex) => levelMergeabilityRules.map((rule, ruleIndex) => {
+				const pattern = new RegExp(rule.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+"));
+				const source = copy.source.replace(pattern, `Contradicting ${copy.id} level rule ${ruleIndex}.`);
+				const copies = levelMergeabilityCopies.map((other, index) => index === copyIndex ? { ...other, source } : other);
+				return { id: copy.id, ruleIndex, changed: source !== copy.source, rejected: !agreesOnLevelMergeability(copies) };
+			}));
+			const benignLevelMergeabilityCopies = levelMergeabilityCopies.map((copy) => ({ ...copy, source: `${copy.source}\n<!-- Outside-unit control. -->\n` }));
+			checkAll("contract-level-publishing", "level membership, ordering, approval, delivery, retained histories, cleanup, rebase mappings, unavailable evidence, and publishing defaults are mutation-resistant owned rules", [
+				["every unit matches its independent expectation", levelPolicyUnits.every((unit) => acceptsLevelUnit(unit, unit.source)), levelPolicyUnits.filter((unit) => !acceptsLevelUnit(unit, unit.source)).map(({ id }) => id)],
+				["every rule mutation changes input and fails", levelRuleMutations.every(({ changed, rejected }) => changed && rejected), levelRuleMutations],
+				["missing and duplicate units fail and outside-unit controls pass", levelBoundaryControls.every(({ missing, duplicate, benign }) => missing && duplicate && benign), levelBoundaryControls],
+				["all five level constraints agree across lifecycle, publishing, and focus documents", agreesOnLevelMergeability(levelMergeabilityCopies), levelMergeabilityCopies.map(({ id }) => id)],
+				["every constraint rejects weakening in each of its three copies", levelMergeabilityAttacks.every(({ changed, rejected }) => changed && rejected), levelMergeabilityAttacks],
+				["benign edits outside all three mergeability units preserve agreement", agreesOnLevelMergeability(benignLevelMergeabilityCopies), "outside-unit controls"],
 			]);
 
 			// The rendered session instructions, through the production doctrine builder.
@@ -4005,8 +4252,8 @@ A track with only REVIEWER-ONLY areas, or no proved area,
 has no mandatory track-acceptance gate.
 In a single-track change, any blocking track acceptance and final change
 acceptance are one event. Final change acceptance is always blocking.`),
-				normalizeText(`With draft publishing, delivery is the user's final accepted merge of the
-umbrella pull request into the default development branch. When publishing is
+				normalizeText(`With draft publishing, [pr-publishing.md](pr-publishing.md) § After the merge
+owns per-level delivery accounting and root closure. When publishing is
 disabled, the final package asks for acceptance while the current research log,
 its source chain, and every implementer report remain retained. After acceptance,
 copy the required accounting from the current log and its source chain into the
@@ -4037,7 +4284,7 @@ not edit any file. It does not authorize a model selection, a new model, or a
 roster change.`),
 				reviewedReference("docs/pr-publishing.md", ["# Draft-PR publishing", "## Description rules"], `- **Delivery accounting** — the conclusions that
   [delivery-packages.md](delivery-packages.md) § Durable accounting requires.
-  Update this subsection from the current research log and its source chain before each package. Keep private
+  Update this subsection from the owning research log and its source chain before each package for this level. Keep private
   reasoning and private data out of it.`),
 				...expectedWorkflowReferenceTexts.map((text, index) => reviewedReference("docs/track-workflow.md", [
 					"# Track-based development workflow",
@@ -4095,7 +4342,7 @@ verification of that body. The accounting covers:`),
 				["the publishing-disabled accounting unit gives single-track and multi-track packages reachable sources, then transfers and verifies the final commit before cleanup", acceptsDisabledAccounting(deliveryPackages), resolveDisabledAccounting(deliveryPackages)],
 				["future-record, missing-transfer, early-cleanup, and missing-single-track counterfactuals each change the accounting sequence and fail", disabledAccountingMutationOutcomes.every(({ changed, accepted }) => changed && !accepted), disabledAccountingMutationOutcomes],
 				["missing and duplicated publishing-disabled accounting boundaries fail closed", missingDisabledAccountingBoundary.count === 0 && missingDisabledAccountingBoundary.text === "" && duplicateDisabledAccountingBoundary.count === 2 && duplicateDisabledAccountingBoundary.text === "", { missingDisabledAccountingBoundary, duplicateDisabledAccountingBoundary }],
-				["publishing, workflow, and note rules match the reachable accounting lifecycle", publishingFlat.includes("**Delivery accounting** — the conclusions that [delivery-packages.md](delivery-packages.md) § Durable accounting requires. Update this subsection from the current research log and its source chain before each package.") && publishingFlat.includes("Before each track or change package, copy the required delivery accounting from the current research log and its source chain into the description.") && workflowFlat.includes("After acceptance, copy the required accounting from the current log and its source chain into the final squashed commit body as part of creating that commit. Verify the body before calling the commit delivery.") && workflowFlat.includes("Intermediate multi-track packages continue to use the current research log and its source chain as their accounting source.") && userNotesFlat.includes("Without draft publishing, intermediate and final-acceptance packages use the current research log and its source chain as the accounting source.") && userNotesFlat.includes("After final acceptance, commit creation copies the required conclusions into the final squashed commit body. Cleanup waits for verification of that body."), { workflow: workflow.match(/With draft publishing, delivery is[\s\S]*?(?=\n\nAim for a delivery body)/)?.[0], publishing: publishing.match(/\*\*Delivery accounting\*\*[\s\S]*?(?=\n- \*\*Verification approach)/)?.[0], userNotes: userNotes.match(/Before final acceptance[\s\S]*?(?=\n\n- every finding)/)?.[0] }],
+				["publishing, workflow, and note rules match the reachable accounting lifecycle", publishingFlat.includes("**Delivery accounting** — the conclusions that [delivery-packages.md](delivery-packages.md) § Durable accounting requires. Update this subsection from the owning research log and its source chain before each package for this level.") && publishingFlat.includes("Before each package for this level, copy its required delivery accounting from the owning research log and its source chain into the description.") && workflowFlat.includes("After acceptance, copy the required accounting from the current log and its source chain into the final squashed commit body as part of creating that commit. Verify the body before calling the commit delivery.") && workflowFlat.includes("Intermediate multi-track packages continue to use the current research log and its source chain as their accounting source.") && userNotesFlat.includes("Without draft publishing, intermediate and final-acceptance packages use the current research log and its source chain as the accounting source.") && userNotesFlat.includes("After final acceptance, commit creation copies the required conclusions into the final squashed commit body. Cleanup waits for verification of that body."), { workflow: workflow.match(/With draft publishing,[\s\S]*?(?=\n\nAim for a delivery body)/)?.[0], publishing: publishing.match(/\*\*Delivery accounting\*\*[\s\S]*?(?=\n- \*\*Verification approach)/)?.[0], userNotes: userNotes.match(/Before final acceptance[\s\S]*?(?=\n\n- every finding)/)?.[0] }],
 				["the workflow loading unit and every literal filename context across README and recursive docs equal independent expectations", acceptsPackageLoading(workflow), { loading: resolvePackageLoading(workflow), contexts: packageReferenceContexts(packageDocuments) }],
 				["owned-unit, appended, and count-preserving actor-table eager-load mutations each change the source and fail", packageLoadingMutationOutcomes.every(({ changed, accepted }) => changed && !accepted), packageLoadingMutationOutcomes],
 				["missing and duplicated loading boundaries fail closed", missingLoadingBoundary.count === 0 && missingLoadingBoundary.text === "" && duplicateLoadingBoundary.count === 2 && duplicateLoadingBoundary.text === "", { missingLoadingBoundary, duplicateLoadingBoundary }],
