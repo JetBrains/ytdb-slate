@@ -47,13 +47,14 @@ Keep the current section order:
 1. What Slate does
 2. Quick start
 3. How Slate works
-4. Commands
-5. Configuration
-6. Safety and trust
-7. Roadmap
-8. Shipped docs
-9. Community
-10. License
+4. Product principles
+5. Commands
+6. Configuration
+7. Safety and trust
+8. Roadmap
+9. Shipped docs
+10. Community
+11. License
 
 Put reference material in `docs/` and link to it from the README.
 A new `docs/` file needs one export in `extension/paths.ts` and an entry in the README `## Shipped docs` list.

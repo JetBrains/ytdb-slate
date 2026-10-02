@@ -59,6 +59,12 @@ unreported failures.
 
 The orchestrator records risks for the change and each track. You approve or reject each named proof. Approved proofs select design gates and reviewers. A track with a proved risk gets one general reviewer and its required specialists. An implementer's approximate track size above 100 added plus removed lines also adds the general reviewer unless the track changes only documents that neither ship as code nor run. Lockfiles, migration files, and generated output do not count. A track that the orchestrator estimates above 100 such lines needs a high-level design before implementation, including when it changes only documents. A track with neither review trigger gets no routine implementation reviewer. See [workflow](docs/track-workflow.md) and [focus areas](docs/blast-radius.md) for the rules. Optional draft pull requests cover the whole change. Only you merge them.
 
+## Product principles
+
+- **Control without reading every line.** Many coding agents produce code that the developer accepts without reading it. Slate keeps you in control in a different way. It gives you higher-level views of the work: approved risks, designs, and review results. You direct and check each change through these views, so you do not need to read all of the generated code.
+- **Quality before cost, within limits.** We expect the cost of model use to fall over time. Slate therefore spends more model work on code quality, up to a reasonable limit. For example, Slate adds reviewers for approved risks and for large tracks that change code.
+- **Cost in proportion to the change.** The cost of a change should grow in proportion to its complexity. A small track with no approved risk gets no design gate and no routine implementation reviewer. A larger or riskier track can add design steps, review steps, or both.
+
 ## Commands
 
 | Command | Current behavior |
