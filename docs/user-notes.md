@@ -22,10 +22,13 @@ Every completed track reaches the user through the track package defined in
 keeps the full working evidence. The delivery record keeps the required durable
 accounting. The package references that record and the diff.
 
+For design tracks, use [recursive-workflow.md](recursive-workflow.md) § Whole-subtree acceptance.
+The following proved-area acceptance rules apply to code tracks.
+
 The track package states which acceptance rule applies. User acceptance of a
 track is blocking when that track proves at least one DESIGN-TRIGGERING area.
 Where a marker applies, it waits for required track acceptance and every
-requested fix. A track with only REVIEWER-ONLY areas, or no proved area, has
+requested fix. A code track with only REVIEWER-ONLY areas, or no proved area, has
 no mandatory track-acceptance gate. Its package reports progress and every
 requested decision. Without mandatory track acceptance, an
 applicable marker waits for completed machine gates, the package, and resolved
@@ -109,6 +112,7 @@ enter it:
 - every user waiver.
 - every override that changes the disposition category.
 - every user grant of an extra stuck-fix consultation.
+- every user grant of an extra repair round.
 
 Each event uses the register shape below. Its statement records the proposed
 value, the resulting value and the reason when those values apply. Only the
@@ -141,6 +145,7 @@ and the user's disposition.
 | A fix round lands no fix. | At the end of that round. | Redesign, waive, split. |
 | The two-round fix cap is exhausted with the same approved requirement still incomplete. | At the end of round two, before any further repair. | Correct or approve the investigation scope, then approve or reject the holistic solution separately. Redesign, waive, or split remain available. |
 | The two-round fix cap is exhausted for another case. | At the end of round two. | Redesign, waive, split. |
+| Further repair is proposed after the ordinary loop stops or its cap is exhausted. | Before any further repair dispatch. | Grant one specified extra repair round after required investigation approvals, or stop repair. |
 | A second regression is filed on one finding. | When the gate thread reports it. | Redesign, waive, accept the regression. |
 | A blocker is proposed for lowering. | Before the lowering takes effect. | Confirm the lowering, keep the blocker. |
 | A pre-existing defect is found. | At once, then again in every later packet until disposition. | Fix, waive, create a tracked issue. |
@@ -150,9 +155,23 @@ and the user's disposition.
 | A second repeated drain cycle occurs. | At the second repeat. | Continue, defer the rest to tracked issues, stop. |
 | Finished tracks depend on a track affected by a blocking user note. | With the report of those tracks. | Keep them, re-run them, revert them. |
 
-No silence supplies a disposition. Every escalation remains open until the user
-selects an option. The final accounting includes every escalation and its
-recorded disposition.
+<!-- review-fix-split:begin -->
+For the split option in this table, load
+[recursive-workflow.md](recursive-workflow.md) § Review-fix subtrees and repair limits
+before proposing a review-fix split.
+A review-fix split divides outstanding repairs under the affected code track.
+It resets neither repair rounds nor consultation budgets.
+<!-- review-fix-split:end -->
+
+An **extra repair-round grant** authorizes one specified round after the ordinary loop stops or its cap is exhausted.
+The user names the affected approved requirement, current round count, next cumulative round number, and repair scope.
+For an incomplete requirement after two failed ordinary rounds, investigation-scope and holistic-solution approvals precede the grant.
+Neither those approvals nor a redesign or split supplies the grant.
+Record the grant in the override log and the affected track's repair accounting.
+It resets no count, grants no consultation, and bypasses no verification or escalation.
+Each later extra round needs a separate grant.
+No silence supplies a disposition. Each escalation stays open until the user selects an option.
+Final accounting includes every escalation, grant, and recorded disposition.
 
 ## User note accounting
 
@@ -172,15 +191,13 @@ A single-track change uses the combined package defined in
 multi-track change uses the separate change package defined in that document.
 Package preparation does not delay or replace the feedback triggers above.
 
-Before final acceptance, the current research log and its read-only source
-chain provide full accounting for the current work. The transfer defined in
-[delivery-packages.md](delivery-packages.md) § Durable accounting follows the
-reachable record lifecycle. Draft publishing copies the required conclusions to
-the pull-request description before each package. Without draft publishing,
-intermediate and final-acceptance packages use the current research log and
-its source chain as the accounting source. After final acceptance, commit
-creation copies the required conclusions into the final squashed commit body.
-Cleanup waits for verification of that body. The accounting covers:
+Before final acceptance, reconcile all owning records defined in
+[delivery-packages.md](delivery-packages.md) § Durable accounting.
+With publishing, use that section's package and post-acceptance transfer sequence before merge.
+Without publishing, packages reference the owning accounting sources.
+After root final acceptance, copy every required conclusion into the final delivery commit body.
+Root closure waits for verification against all accounting sources.
+The accounting covers:
 
 - every finding and its disposition.
 - every user note, acknowledgement, route, blocking reading and disposition.

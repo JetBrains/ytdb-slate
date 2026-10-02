@@ -359,6 +359,10 @@ const DOCTRINE_CONTRACT_IDS = [
 	"contract-recursive-planning",
 	"contract-recursive-owner-agreement",
 	"contract-recursive-records",
+	"contract-recursive-split-pointers",
+	"contract-recursive-delivery",
+	"contract-recursive-acceptance-transfer",
+	"contract-repair-authorization",
 	"contract-level-publishing",
 	"contract-publishing-migration",
 	"contract-acceptance-units",
@@ -2406,8 +2410,8 @@ Do not propose a plain new pi session instead.
 The design-track boundary precedes research, expansion, and design work.
 The code-track boundary follows all required planning and pre-implementation gates.
 These include confirmation, scope-exception decisions, and applicable design gates.
-A newly created review-fix code track has that code-track boundary.
-Complete the prior track package and required acceptance before the next boundary.
+A review-fix child remains inside the affected code track and adds no new handoff boundary.
+Complete the prior ordinary track package and required acceptance before the next ordinary track boundary.
 
 The orchestrator pauses dispatch pending an actual handoff and resume or an explicit user decision to continue in the same session. The explicit same-session decision is recorded as a user waiver in the existing override log. A resumed session follows Resume order and reconciliation and does not repeat a boundary request already recorded as completed. Same-track fix rounds do not retrigger the request. Single-track changes are exempt. This workflow rule has no automated runtime enforcement.`);
 			const phaseHandoffMutationSources = [
@@ -2419,7 +2423,7 @@ The orchestrator pauses dispatch pending an actual handoff and resume or an expl
 				workflow.replace("The explicit same-session decision is recorded as a user waiver in the existing override log.", "The explicit same-session decision needs no log entry."),
 				workflow.replace("does not repeat a boundary request already recorded as completed", "repeats every boundary request"),
 				workflow.replace("Same-track fix rounds do not retrigger the request.", "Every same-track fix round retriggers the request."),
-				workflow.replace("A newly created review-fix code track has that code-track boundary.", "Review-fix code tracks have no handoff boundary."),
+				workflow.replace("A review-fix child remains inside the affected code track and adds no new handoff boundary.", "Each review-fix child has a separate code-track handoff boundary."),
 				workflow.replace("Single-track changes are exempt.", "Single-track changes follow the same rule."),
 				workflow.replace("<!-- multi-track-handoff:end -->", "A same-session continuation needs no additional decision.\n<!-- multi-track-handoff:end -->"),
 			];
@@ -2593,10 +2597,12 @@ required reviews, ordered gates, user authority, or final acceptance.`;
 					invertedDocument: "User acceptance of a track is optional when that track proves at least one DESIGN-TRIGGERING area.",
 					invertedDoctrine: "optional track acceptance.",
 				}),
+				// The document exemption is code-only. The session rendering is a
+				// separate track 1.5 surface and this check asserts its exact text.
 				noMandatory: Object.freeze({
-					document: "A track with only REVIEWER-ONLY areas, or no proved area, has no mandatory track-acceptance gate.",
+					document: "A code track with only REVIEWER-ONLY areas, or no proved area, has no mandatory track-acceptance gate.",
 					doctrine: "REVIEWER-ONLY or no-area tracks need no track acceptance.",
-					invertedDocument: "A track with only REVIEWER-ONLY areas, or no proved area, has a mandatory track-acceptance gate.",
+					invertedDocument: "A code track with only REVIEWER-ONLY areas, or no proved area, has a mandatory track-acceptance gate.",
 					invertedDoctrine: "REVIEWER-ONLY or no-area tracks need blocking track acceptance.",
 				}),
 				finalBlocking: Object.freeze({
@@ -2861,7 +2867,9 @@ Manual records and leftover record temporary files never enter a pull request.`)
 					id: "publishing-after-merge",
 					extract: regionUnit(/^## After the merge\n\n([\s\S]*?)(?=^Any cleanup)/gm),
 					expected: normalizeText(`After the user merges a level pull request, verify that level's delivery accounting.
-Record its accepted history, pull request, and observed merge result in the owning log.
+Verify the observed merge commit's identity and parents against its accepted history and pull request.
+Record the observed merge-result binding in the reachable description and owning log.
+The merge commit itself supplies that binding, including for the last level.
 The root final package lists every level delivery.
 It distinguishes merged levels from the last accepted level waiting for merge.
 Close the root change only after all delivery accounting is verified.
@@ -3142,6 +3150,13 @@ ${recordRules.join("\n")}
 
 Use [track-workflow.md](track-workflow.md) § Migration for compatibility.
 Use its § Session handoff and the research log for ownership.`);
+			const protectedRepairOwners = Object.freeze({
+				"repair-rounds": "2e8245a19e2b063a8e5e536f07a4c92c4de8958296e9178879e6ea5b38a4726a",
+				"repair-consultations": "ecfdf8d3c00137cda0d77ce2010abd2080663622b8bfcc764fd0786fb8e790f8",
+				"child-fix-title": "5aae2e552982b790e7fa15a115415cd7f204704b9ba19e464d592c7de04ec7ed",
+			});
+			const protectedRepairSummary = "de50f7fdac39d6fb3e6ac957fb19c68636eb536829be3270808ded39a96a736a";
+			const agreementDigest = (text) => createHash("sha256").update(normalizeText(text)).digest("hex");
 			const sharedRecursiveRules = [
 				{ id: "loading", rules: loadingRules, extract: regionUnit(/^## Loading and planning\n([\s\S]*?)(?=^## Nested designs and gates\n)/gm) },
 				{ id: "nested", rules: nestedRules, extract: markedUnit("nested-design-policy") },
@@ -3151,27 +3166,39 @@ Use its § Session handoff and the research log for ownership.`);
 				{ id: "repair-records", owner: markedUnit("multi-track-handoff"), rules: ["For a review-fix subtree, use the affected code track's existing records."], extract: regionUnit(/^## Manual records and safe writes\n([\s\S]*?)(?=^## Resume and folder forks\n)/gm) },
 				{ id: "append-only", owner: regionUnit(/^Use a safe write method\. ([\s\S]*?)(?=^Before a session handoff)/gm), rules: ["Research logs and implementer reports are append-only.", "A correction is a new entry."], extract: regionUnit(/^## Manual records and safe writes\n([\s\S]*?)(?=^## Resume and folder forks\n)/gm) },
 				{ id: "resume-entry", owner: regionUnit(/^## Resume order and reconciliation\n([\s\S]*?)(?=^## Review coverage\n)/gm), rules: ["Before relying on a summary, check that its named subtree entry exists."], extract: regionUnit(/^## Resume and folder forks\n([\s\S]*?)(?=^## Handoff boundaries\n)/gm) },
+				{ id: "repair-rounds", document: "reviews", owner: regionUnit(/^## Fix loop and gate verdicts\n([\s\S]*?)(?=^## Stuck-fix consultation\n)/gm), rules: ["Run at most two ordinary fix rounds."], extract: regionUnit(/^## Review-fix subtrees and repair limits\n([\s\S]*?)(?=^## Whole-subtree acceptance\n)/gm) },
+				{ id: "repair-consultations", document: "reviews", owner: regionUnit(/^## Stuck-fix consultation\n([\s\S]*?)(?=^## Termination and deferred-work routing\n)/gm), rules: ["The ordinary budget permits one consultation."], extract: regionUnit(/^## Review-fix subtrees and repair limits\n([\s\S]*?)(?=^## Whole-subtree acceptance\n)/gm) },
+				{ id: "child-fix-title", owner: regionUnit(/^Implementation commit titles use ([\s\S]*?)(?=^For each code track)/gm), rules: ["`Track <n> fix round <r>: <intent title>`", "`Track <n> user review fix <r>: <intent title>`"], extract: regionUnit(/^## Review-fix subtrees and repair limits\n([\s\S]*?)(?=^## Whole-subtree acceptance\n)/gm) },
+				{ id: "child-attribution", document: "delivery", owner: regionUnit(/^## Track package\n([\s\S]*?)(?=^## Change package\n)/gm), rules: ["Do not count accepted child work as new implementation."], extract: regionUnit(/^## Packages, attribution, and issues\n([\s\S]*)/gm) },
 			];
-			const recursiveSummariesAgree = (recursiveSource, workflowSource) => {
-				return sharedRecursiveRules.every(({ rules, extract, owner = markedUnit("recursive-planning-policy") }) => {
-					const owningUnit = owner(workflowSource);
+			const recursiveSummariesAgree = (recursiveSource, workflowSource, reviewSource = reviews, deliverySource = deliveryPackages) => {
+				return sharedRecursiveRules.every(({ id, rules, extract, document = "workflow", owner = markedUnit("recursive-planning-policy") }) => {
+					const owningUnit = owner({ workflow: workflowSource, reviews: reviewSource, delivery: deliverySource }[document]);
 					const summary = extract(recursiveSource);
-					return owningUnit.count === 1 && summary.count === 1 && rules.every((rule) => owningUnit.text.includes(rule) && summary.text.includes(rule));
+					return owningUnit.count === 1 && summary.count === 1
+						&& (!protectedRepairOwners[id] || (agreementDigest(owningUnit.text) === protectedRepairOwners[id] && agreementDigest(summary.text) === protectedRepairSummary))
+						&& rules.every((rule) => owningUnit.text.includes(rule) && summary.text.includes(rule));
 				});
 			};
 			const acceptsRecursivePrefix = (source) => {
 				const result = recursivePrefix(source);
 				return result.count === 1 && result.text === recursivePrefixExpected;
 			};
-			const recursiveAgreementAttacks = sharedRecursiveRules.flatMap(({ id, rules }) => rules.flatMap((rule, index) => ["summary", "owner"].map((side) => {
-				const source = side === "summary" ? recursive : workflow;
+			const recursiveAgreementAttacks = sharedRecursiveRules.flatMap(({ id, rules, document = "workflow" }) => rules.flatMap((rule, index) => ["summary", "owner"].map((side) => {
+				const source = side === "summary" ? recursive : { workflow, reviews, delivery: deliveryPackages }[document];
 				const normalized = normalizeText(source);
 				const altered = normalized.replace(rule, `Contradicting ${id} rule ${index}.`);
 				// Replace the same phrase in raw source without changing heading boundaries.
-				const pattern = new RegExp(rule.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+"));
+				const pattern = new RegExp(rule.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+"), "g");
 				const changed = source.replace(pattern, `Contradicting ${id} rule ${index}.`);
-				return { id, index, side, changed: changed !== source && altered !== normalized, rejected: !recursiveSummariesAgree(side === "summary" ? changed : recursive, side === "owner" ? changed : workflow) };
+				return { id, index, side, changed: changed !== source && altered !== normalized, rejected: !recursiveSummariesAgree(side === "summary" ? changed : recursive, side === "owner" && document === "workflow" ? changed : workflow, side === "owner" && document === "reviews" ? changed : reviews, side === "owner" && document === "delivery" ? changed : deliveryPackages) };
 			})));
+			const retainedPhraseAttacks = [
+				["owner-rounds-contradiction", reviews.replace("Run at most two ordinary fix rounds.", "Run at most two ordinary fix rounds. A review-fix child gets two additional rounds of its own."), workflow],
+				["owner-rounds-comment", reviews.replace("Run at most two ordinary fix rounds.", "<!-- Run at most two ordinary fix rounds. --> Run three ordinary fix rounds."), workflow],
+				["owner-title-denial", reviews, workflow.replace("An agentic-review fix commit inside a track uses", "An agentic-review fix commit inside a track must never use")],
+				["owner-consultation-contradiction", reviews.replace("The ordinary budget permits one consultation.", "The ordinary budget permits one consultation. Each child gets another consultation."), workflow],
+			].map(([id, reviewSource, workflowSource]) => ({ id, changed: reviewSource !== reviews || workflowSource !== workflow, rejected: !recursiveSummariesAgree(recursive, workflowSource, reviewSource) }));
 			const recursivePrefixAttacks = [
 				["total-track loading", "loading, the direct-child limit, and the implementer-requested split exception.", "The triggering evidence is more than twelve total tracks."],
 				["validation order", "§ Lifecycle and phases for design gates,", "User validation follows implementation and each required area review."],
@@ -3192,8 +3219,9 @@ Use its § Session handoff and the research log for ownership.`);
 			const benignOwner = `${workflow}\n<!-- Unrelated outside-unit control. -->\n`;
 			checkAll("contract-recursive-owner-agreement", "recursive summaries agree with lifecycle owners, pointer-only sections reject contradictory copies, and the level pull request term is defined", [
 				["the complete implemented recursive prefix matches an independent expectation", acceptsRecursivePrefix(recursive), recursivePrefix(recursive)],
-				["loading, nested gates, and conditional records agree with their lifecycle owner", recursiveSummariesAgree(recursive, workflow), sharedRecursiveRules.map(({ id, rules }) => ({ id, rules: rules.length }))],
+				["loading, gates, records, repair budgets, child titles, and attribution agree with their owners", recursiveSummariesAgree(recursive, workflow), sharedRecursiveRules.map(({ id, rules }) => ({ id, rules: rules.length }))],
 				["every shared rule rejects a mutation of either its summary or owner", recursiveAgreementAttacks.every(({ changed, rejected }) => changed && rejected), recursiveAgreementAttacks],
+				["complete repair owners reject contradictions and hidden rules that retain the expected phrases", retainedPhraseAttacks.every(({ changed, rejected }) => changed && rejected), retainedPhraseAttacks],
 				["contradictory loading, gate, record, sizing, level, budget, migration, small-tree, and glossary edits fail", recursivePrefixAttacks.every(({ changed, rejected }) => changed && rejected), recursivePrefixAttacks],
 				["missing and duplicate prefix boundaries fail closed", !acceptsRecursivePrefix(recursive.replace(recursivePrefixBoundary, "")) && !acceptsRecursivePrefix(`${recursive}\n${recursive}`), "missing and duplicate prefix"],
 				["harmless changes outside either owned unit pass", acceptsRecursivePrefix(benignRecursive) && recursiveSummariesAgree(benignRecursive, workflow) && recursiveSummariesAgree(recursive, benignOwner), "outside-unit controls"],
@@ -3378,6 +3406,174 @@ The publishing setting and its disabled default remain unchanged.`),
 				["exact prior replacements and alternative benign edits outside all three units leave every expectation exact", benignPublishingSources.every((source) => source !== publishing) && benignWorkflowSources.every((source) => source !== workflow) && benignPublishingMigrationOutcomes.every((outcome) => outcome.every((resolved, index) => resolved.count === 1 && resolved.text === publishingMigrationResults[index].expected)), benignPublishingMigrationOutcomes],
 			]);
 
+			// Split pointers must resolve inside the split option, not elsewhere in a document.
+			const recursiveFilename = paths.RECURSIVE_WORKFLOW_DOC.split(/[\\/]/).at(-1);
+			const splitPointers = [
+				{ id: "user-note-split", source: userNotes, section: regionUnit(/^## Mandatory escalation set\n([\s\S]*?)(?=^## User note accounting\n)/gm), position: /\| Finished tracks depend[^\n]+\n\n<!-- review-fix-split:begin -->/, expected: normalizeText(`For the split option in this table, load
+[recursive-workflow.md](recursive-workflow.md) § Review-fix subtrees and repair limits
+before proposing a review-fix split.
+A review-fix split divides outstanding repairs under the affected code track.
+It resets neither repair rounds nor consultation budgets.`) },
+				{ id: "review-loop-split", source: reviews, section: regionUnit(/^## Fix loop and gate verdicts\n([\s\S]*?)(?=^## Stuck-fix consultation\n)/gm), position: /<!-- review-fix-split:end -->\n\n<!-- requirement-investigation-review:begin -->/, expected: normalizeText(`When considering the split option in [user-notes.md](user-notes.md) § Mandatory escalation set,
+load [recursive-workflow.md](recursive-workflow.md) § Review-fix subtrees and repair limits
+before proposing a review-fix split.
+Child repairs inherit the affected requirement's round count and consultation budget.
+The split bypasses no stuck-fix consultation or required fix gate.`) },
+			];
+			const acceptsSplitPointer = (unit, source) => {
+				const section = unit.section(source);
+				const pointer = markedUnit("review-fix-split")(source);
+				const local = markedUnit("review-fix-split")(section.text);
+				return section.count === 1 && pointer.count === 1 && local.count === 1
+					&& pointer.text === unit.expected && unit.position.test(source)
+					&& pointer.text.includes(`[${recursiveFilename}](${recursiveFilename})`);
+			};
+			const splitPointerAttacks = splitPointers.flatMap((unit) => {
+				const block = /<!-- review-fix-split:begin -->[\s\S]*?<!-- review-fix-split:end -->/;
+				const relocated = unit.source.replace(block, "") + "\n" + unit.source.match(block)?.[0];
+				return [
+					["wrong-export", unit.source.replace(/\[recursive-workflow\.md\]\(recursive-workflow\.md\)(?= § Review-fix)/, "[track-workflow.md](track-workflow.md)")],
+					["load-after-proposal", unit.source.replace("before proposing a review-fix split.", "after proposing a review-fix split.")],
+					["outside-split-option", relocated],
+					["missing", unit.source.replace(block, "")],
+					["duplicate", `${unit.source}\n${unit.source.match(block)?.[0]}`],
+				].map(([kind, source]) => ({ id: unit.id, kind, changed: source !== unit.source, rejected: !acceptsSplitPointer(unit, source) }));
+			});
+			checkAll("contract-recursive-split-pointers", "both split options require loading the exported recursive document before a proposal, at their owned locations", [
+				["both pointers resolve at the split option and name the export", splitPointers.every((unit) => acceptsSplitPointer(unit, unit.source)), recursiveFilename],
+				["redirection, late loading, relocation, absence, and duplication fail", splitPointerAttacks.every(({ changed, rejected }) => changed && rejected), splitPointerAttacks],
+				["unrelated outside edits pass", splitPointers.every((unit) => acceptsSplitPointer(unit, `${unit.source}\n<!-- Outside split control. -->`)), "outside controls"],
+			]);
+
+			// These pins cover complete owned policies. Source-set pins protect every record kind.
+			const policyRegion = (start, end) => regionUnit(new RegExp(`^${start.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([\\s\\S]*?)(?=${end.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gm"));
+			const recursiveDeliveryUnits = [
+				{ id: "repairs", source: recursive, start: "## Review-fix subtrees and repair limits", end: "## Whole-subtree acceptance", expected: "de50f7fdac39d6fb3e6ac957fb19c68636eb536829be3270808ded39a96a736a" },
+				{ id: "aggregate", source: recursive, start: "## Whole-subtree acceptance", end: "## Packages, attribution, and issues", expected: "6e37e0e95c35ed0c3ede6e02f3322f43038d8653d9885ce4b2ac1ed423472b63" },
+				{ id: "issues", source: recursive, start: "## Packages, attribution, and issues", end: null, expected: "895b87ee7afdda0d4d85e071c978727e0cf962f9af42e68c534c022ac010a5a3" },
+				{ id: "sources", source: deliveryPackages, start: "## Durable accounting", end: "<!-- publishing-disabled-accounting:begin -->", expected: "cfba6ae378f8d7e3db347d9894911bd7497205f1fd76772ae97847af7f7f7a52" },
+				{ id: "workflow-accounting", source: workflow, start: "With draft publishing,", end: "\n\nAim for a delivery body", expected: "9410e62de528ba3d18269213779348a187c5f894bd2d99fa5f529dfa3fc5a4a1" },
+				{ id: "notes-accounting", source: userNotes, start: "Before final acceptance, reconcile", end: "\n\n- every finding", expected: "7efa6f8740078ef4a9f5511b485a4e95e8b0e5f7341d2e278eddfbf27011b500" },
+				{ id: "publishing-sync", source: publishing, start: "## Keeping the PR in sync", end: "## Ready-for-review flip", expected: "fb386e6f14c2f051a842cd050cc4e2834dea5e2674853cc22794792cd4c1a7cc" },
+				{ id: "public-workflow", source: projectReadme, start: "A track is a bounded", end: "## Commands", expected: "23f90e859751918fac2f72ad4819c635cf21d88f15e18d100cc0a9944018fbf3" },
+				{ id: "public-roadmap", source: readFileSync(join(REPO, "docs", "roadmap.md"), "utf8"), start: "## Larger changes", end: "## Developer experience", expected: "81ce223a5f65eb4d09f1aab6a85b0708551b892568623a13df99ebc6df3a8103" },
+			].map((unit) => ({ ...unit, extract: unit.end === null
+				? (source) => {
+					// Visible policy after the final marker belongs to the final section.
+					const marker = "<!-- recursive-delivery:end -->";
+					const parts = source.split(marker);
+					if (parts.length !== 2) return { count: 0, text: "" };
+					const visibleTail = parts[1].replace(/<!--[^<>]*-->/g, "");
+					return regionUnit(/^## Packages, attribution, and issues([\s\S]*)(?![\s\S])/gm)(parts[0] + marker + visibleTail);
+				}
+				: policyRegion(unit.start, unit.end) }));
+			const acceptsRecursiveDelivery = (unit, source) => {
+				const resolved = unit.extract(source);
+				return resolved.count === 1 && recordDigest(resolved.text) === unit.expected;
+			};
+			const recursiveDeliveryAttacks = recursiveDeliveryUnits.flatMap((unit) => {
+				const resolved = unit.extract(unit.source);
+				const rules = resolved.text.split(/(?<=\.) /).filter((rule) => /[a-z]/i.test(rule));
+				return rules.map((rule, index) => {
+					const pattern = new RegExp(rule.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+"));
+					const source = unit.source.replace(pattern, `Contradicting ${unit.id} rule ${index}.`);
+					return { id: unit.id, index, changed: source !== unit.source, rejected: !acceptsRecursiveDelivery(unit, source) };
+				});
+			});
+			const codeAcceptanceScope = "For design tracks, use [recursive-workflow.md](recursive-workflow.md) § Whole-subtree acceptance.\nThe following proved-area acceptance rules apply to code tracks.\n\n";
+			const scopedAcceptanceUnits = [
+				[workflow, "User acceptance of a track is blocking when that track proves at"],
+				[workflow, "Every completed track reaches the user through the track package defined in"],
+				[userNotes, "The track package states which acceptance rule applies."],
+				[reviews, "<!-- track-acceptance:begin -->"],
+			];
+			const acceptsCodeScope = (source, next) => source.split(codeAcceptanceScope).length === (next.startsWith("User acceptance") || next.startsWith("Every completed") ? 3 : 2) && source.split(codeAcceptanceScope + next).length === 2;
+			const finalSectionAttacks = [
+				["issues-after-owned-end", "Creating a subtree issue approves implementation."],
+				["whole-subtree-after-owned-end", "A design track with no proved area needs no whole-subtree acceptance."],
+			].map(([id, rule]) => {
+				const source = `${recursive}\n${rule}\n`;
+				return { id, changed: source !== recursive, rejected: !acceptsRecursiveDelivery(recursiveDeliveryUnits.find((unit) => unit.id === "issues"), source) };
+			});
+			checkAll("contract-recursive-delivery", "review-fix identities and budgets, whole-design acceptance, issue purposes, all-record accounting, and public guidance retain their complete owned policies", [
+				["each policy resolves exactly once and matches its independent pin", recursiveDeliveryUnits.every((unit) => acceptsRecursiveDelivery(unit, unit.source)), recursiveDeliveryUnits.map((unit) => ({ id: unit.id, count: unit.extract(unit.source).count, digest: recordDigest(unit.extract(unit.source).text) }))],
+				["every sentence mutation changes input and fails its policy", recursiveDeliveryAttacks.every(({ changed, rejected }) => changed && rejected), recursiveDeliveryAttacks],
+				["missing and duplicate units fail, while outside controls pass", recursiveDeliveryUnits.every((unit) => !acceptsRecursiveDelivery(unit, unit.source.replace(unit.start, "Missing policy anchor")) && !acceptsRecursiveDelivery(unit, `${unit.source}\n${unit.source}`) && acceptsRecursiveDelivery(unit, `${unit.source}\n<!-- Outside policy control. -->`)), "bounded policy controls"],
+				["visible contradictions after the final marker fail the complete final section", finalSectionAttacks.every(({ changed, rejected }) => changed && rejected), finalSectionAttacks],
+				["each proved-area acceptance copy is explicitly scoped to code tracks", scopedAcceptanceUnits.every(([source, next]) => acceptsCodeScope(source, next)), "lifecycle, user notes, review termination"],
+				["missing, weakened, moved, and duplicate scope qualifiers fail", scopedAcceptanceUnits.every(([source, next]) => !acceptsCodeScope(source.replace(codeAcceptanceScope + next, next), next) && !acceptsCodeScope(source.replace(codeAcceptanceScope + next, codeAcceptanceScope.replace("apply to code tracks.", "apply to all tracks.") + next), next) && !acceptsCodeScope(source.replace(codeAcceptanceScope + next, next) + codeAcceptanceScope, next) && !acceptsCodeScope(source + codeAcceptanceScope, next)), "scope counterfactuals"],
+			]);
+
+			const acceptanceTransferExpected = normalizeText(`For each required whole-subtree or root final acceptance, use this order even after the ready flip:
+
+1. Obtain and record the explicit acceptance decision after its package and prerequisites.
+2. Copy that decision and its aggregate evidence references into the closing level's description.
+3. Add a marker only for each design track newly accepted by this decision. Reuse retained marker references for tracks accepted earlier. Record each track's history references in that description.
+4. Verify the description against all accounting sources after these updates and before handoff for merge.
+5. Hand the updated description to the user for merge. Only the user merges.
+
+Repeat the description measurement and size-exception checks after each update.
+A missing acceptance or required conclusion blocks handoff for merge.
+Verify every level record and all root-wide accounting before root closure.`);
+			const transferUnit = regionUnit(/^(For each required whole-subtree or root final acceptance,[\s\S]*?)(?=^<!-- publishing-disabled-accounting:begin -->)/gm);
+			const acceptsTransfer = (source) => {
+				const unit = transferUnit(source);
+				return unit.count === 1 && unit.text === acceptanceTransferExpected;
+			};
+			const transferCopy = "2. Copy that decision and its aggregate evidence references into the closing level's description.";
+			const transferDecision = "1. Obtain and record the explicit acceptance decision after its package and prerequisites.";
+			const transferAttacks = [
+				deliveryPackages.replace(transferCopy, ""),
+				deliveryPackages.replace(transferDecision, transferCopy).replace(transferCopy + "\n" + transferCopy, transferCopy + "\n" + transferDecision),
+				deliveryPackages.replace("after these updates and before handoff for merge", "before these updates and after merge"),
+			].map((source) => ({ changed: source !== deliveryPackages, rejected: !acceptsTransfer(source) }));
+			const transferMarker = "3. Add a marker only for each design track newly accepted by this decision. Reuse retained marker references for tracks accepted earlier. Record each track's history references in that description.";
+			const sequentialAcceptanceAttacks = [
+				["subtree-merged-before-root-without-marker-distinction", deliveryPackages.replace(transferMarker, "3. Add each accepted design track's marker and record its history references in that description.")],
+				["root-recreates-earlier-subtree-marker", deliveryPackages.replace("Reuse retained marker references for tracks accepted earlier.", "Add another marker for tracks accepted and merged at an earlier subtree level.")],
+				["root-adds-marker-for-every-accepted-subtree", deliveryPackages.replace("newly accepted by this decision", "accepted by any decision")],
+			].map(([id, source]) => ({ id, changed: source !== deliveryPackages, rejected: !acceptsTransfer(source) }));
+			checkAll("contract-recursive-acceptance-transfer", "acceptance precedes public transfer, new design markers or retained references, verification, and user merge handoff, including after a ready flip", [
+				["the complete ordered sequence equals its independent expectation", acceptsTransfer(deliveryPackages), transferUnit(deliveryPackages)],
+				["removal, reordered decision and transfer, and late verification fail", transferAttacks.every(({ changed, rejected }) => changed && rejected), transferAttacks],
+				["subtree acceptance and merge followed by root acceptance retains earlier markers without creating them again", sequentialAcceptanceAttacks.every(({ changed, rejected }) => changed && rejected), sequentialAcceptanceAttacks],
+				["outside edits preserve the sequence", acceptsTransfer(`${deliveryPackages}\n<!-- Outside transfer control. -->`), "outside control"],
+			]);
+			const grantSection = regionUnit(/^## Mandatory escalation set\n([\s\S]*?)(?=^## User note accounting\n)/gm);
+			const grantDigest = "297e445db68b442fbac42fb63471bb97c76fcadeb2448238d4f672cfd730c421";
+			const acceptsGrant = (source) => {
+				const unit = grantSection(source);
+				return unit.count === 1 && recordDigest(unit.text) === grantDigest;
+			};
+			const grantAttacks = [
+				userNotes.replace("Each later extra round needs a separate grant.", "A grant permits unlimited extra rounds."),
+				userNotes.replace("investigation-scope and holistic-solution approvals precede the grant", "the grant precedes investigation approval"),
+				userNotes.replace("It resets no count, grants no consultation", "It resets every count and grants another consultation"),
+				userNotes.replace("Record the grant in the override log and the affected track's repair accounting.", "Keep no grant accounting."),
+				userNotes.replace("Grant one specified extra repair round after required investigation approvals, or stop repair.", "A split automatically grants another repair round."),
+			].map((source) => ({ changed: source !== userNotes, rejected: !acceptsGrant(source) }));
+			const grantRegister = regionUnit(/^## Override log\n([\s\S]*?)(?=^## Register entry shape\n)/gm);
+			const grantRegisterExpected = normalizeText(`The override log is created when its first event occurs. Exactly these events
+enter it:
+
+- every user waiver.
+- every override that changes the disposition category.
+- every user grant of an extra stuck-fix consultation.
+- every user grant of an extra repair round.
+
+Each event uses the register shape below. Its statement records the proposed
+value, the resulting value and the reason when those values apply. Only the
+user may waive a finding. An absent override log is reported in one line at
+delivery and is never created as an empty register.`);
+			const acceptsGrantRegister = (source) => { const unit = grantRegister(source); return unit.count === 1 && unit.text === grantRegisterExpected; };
+			checkAll("contract-repair-authorization", "one explicit extra-round grant follows required investigation approvals, retains cumulative counts and consultation limits, and enters existing accounting", [
+				["the full escalation section matches its independent pin", acceptsGrant(userNotes), grantSection(userNotes)],
+				["scope, prerequisites, counts, accounting, and split-bypass mutations fail", grantAttacks.every(({ changed, rejected }) => changed && rejected), grantAttacks],
+				["the complete override register includes repair grants", acceptsGrantRegister(userNotes), grantRegister(userNotes)],
+				["removing the grant register event fails", !acceptsGrantRegister(userNotes.replace("- every user grant of an extra repair round.\n", "")), "removed grant event"],
+				["missing, duplicate, and outside controls discriminate", !acceptsGrant(userNotes.replace("## Mandatory escalation set", "## Missing escalation")) && !acceptsGrant(`${userNotes}\n${userNotes}`) && acceptsGrant(`${userNotes}\n<!-- Outside grant control. -->`), "boundary controls"],
+			]);
+
 			const configuration = readFileSync(join(REPO, "docs", "configuration.md"), "utf8");
 			// Independent expectations cover each level rule and its owning section.
 			const levelPolicyUnits = [
@@ -3467,7 +3663,10 @@ closes has explicit whole-subtree acceptance and its design marker.
 A subtree contains a track and all its descendants.
 Ready status supplies neither acceptance nor permission for an agent merge.
 Root final acceptance precedes the last level merge.
-It waits for the note queue, final accounting, and every other final gate.`),
+It waits for the note queue, final accounting, and every other final gate.
+After each required acceptance, run the ordered acceptance-transfer sequence in
+[delivery-packages.md](delivery-packages.md) § Durable accounting before handoff for merge.
+Apply that sequence even when the pull request is already ready.`),
 				},
 				{
 					id: "ready-history", source: publishing,
@@ -3497,7 +3696,10 @@ It waits for the note queue, final accounting, and every other final gate.`),
 					expected: normalizeText(`The user's merge act approves the current pull request, including
 acceptance of any recorded description-size exception.
 A merge does not supply whole-subtree or root final acceptance.
-Obtain each required explicit decision before the merge.`),
+Obtain each required explicit decision before the merge.
+After the decision, copy it and its evidence references into the closing level's description.
+Verify that updated accounting and present the description before handing it to the user for merge.
+Ready status does not bypass this order.`),
 				},
 				{
 					id: "description-scope", source: publishing,
@@ -3531,8 +3733,9 @@ of a table.`),
 Update a track's table row when its marker commit lands. Append post-design
 decisions as they are made. Revise Planned changes whenever reality diverges
 from it. Before each package for this level, copy its required delivery
-accounting from the owning research log and its source chain into the
-description. A stale description fails the "deep enough" test.`),
+accounting from the complete accounting source set in
+[delivery-packages.md](delivery-packages.md) § Durable accounting into the description.
+A stale description fails the "deep enough" test.`),
 				},
 				{
 					id: "configuration", source: configuration,
@@ -3601,10 +3804,9 @@ description. A stale description fails the "deep enough" test.`),
 					source: workflow,
 					extract: regionUnit(focusClassesPattern),
 					segments: [
-						"DESIGN-TRIGGERING areas are data loss, concurrency defect, security weakness, performance degradation, and non-local logic defect. REVIEWER-ONLY areas are test-quality defect, unreadable user-facing prose, licensing exposure, consumer contract break, governing-rule defect, and unreported failure. Only a proved area adds a focus-dependent gate or area reviewer. Every proved area adds its specialist. A track with at least one proved area gets exactly one Reviewer I in a separate thread, including on documentation-only work. An implementer's approximate size above 100 counted lines also requires Reviewer I unless the track is documentation-only. With neither trigger, routine implementation review is `NOT REQUIRED`. Size alone adds no area reviewer, adversarial design reviewer, or blocking track acceptance. A proved DESIGN-TRIGGERING area also requires a high-level design, user validation, focus reconfirmation, its own adversarial design reviewer, and final design approval.",
+						"DESIGN-TRIGGERING areas are data loss, concurrency defect, security weakness, performance degradation, and non-local logic defect. REVIEWER-ONLY areas are test-quality defect, unreadable user-facing prose, licensing exposure, consumer contract break, governing-rule defect, and unreported failure. Only a proved area adds a focus-dependent gate or area reviewer. Every proved area adds its specialist. A track with at least one proved area gets exactly one Reviewer I in a separate thread, including on documentation-only work. An implementer's approximate size above 100 counted lines also requires Reviewer I unless the track is documentation-only. With neither trigger, routine implementation review is `NOT REQUIRED`. Size alone adds no area reviewer, adversarial design reviewer, or blocking track acceptance. A proved DESIGN-TRIGGERING area also requires a high-level design, user validation, focus reconfirmation, its own adversarial design reviewer, and final design approval. A track with no proved area also has no area reviewer. For design tracks, use [recursive-workflow.md](recursive-workflow.md) § Whole-subtree acceptance. The following proved-area acceptance rules apply to code tracks.",
 						fact("blocking"),
 						fact("noMandatory"),
-						"A track with no proved area also has no area reviewer.",
 						fact("finalBlocking"),
 					],
 				},
@@ -3753,7 +3955,7 @@ description. A stale description fails the "deep enough" test.`),
 			const endMarkerAt = reviews.indexOf("<!-- track-acceptance:end -->");
 			const acceptanceBeginAt = reviews.indexOf("<!-- track-acceptance:begin -->");
 			const reviewsWithoutUnit = normalizeText(reviews.slice(0, acceptanceBeginAt) + reviews.slice(endMarkerAt + "<!-- track-acceptance:end -->".length));
-			const droppedTarget = normalizeText(reviews.replace("Mandatory escalation set.", "the review log."));
+			const droppedTarget = normalizeText(reviews.replaceAll("Mandatory escalation set.", "the review log."));
 			checkAll("contract-escalation-routing", "mandatory escalation routing and deferred-work tracking hold as assertions of their own, after the terminal end marker and outside every acceptance unit, so neither protection depends on that unit", [
 				["escalation routing occurs exactly once", occurrencesOf(reviewsFlat, escalationRule) === 1, occurrencesOf(reviewsFlat, escalationRule)],
 				["deferred-work tracking occurs exactly once", occurrencesOf(reviewsFlat, deferredRule) === 1, occurrencesOf(reviewsFlat, deferredRule)],
@@ -4128,7 +4330,7 @@ The ordinary budget permits one consultation. A second requires an explicit user
 
 			const packageContract = block(deliveryPackages, "delivery-package-contract");
 			const digest = (text) => createHash("sha256").update(normalizeText(text)).digest("hex");
-			const EXPECTED_DELIVERY_PACKAGES_SHA256 = "769ef11d7985db8b5b800018d9f3f53c02fbf2cdd8f0419e6eb7e7462401c0d4";
+			const EXPECTED_DELIVERY_PACKAGES_SHA256 = "70d590c536f6987711c0f2d64bbfecc76c6614e904669ea85a4b05cf01810ff3";
 			const acceptsPackageContract = (source) => {
 				const owned = block(source, "delivery-package-contract");
 				return owned.count === 1 && owned.endCount === 1 && digest(source) === EXPECTED_DELIVERY_PACKAGES_SHA256;
@@ -4159,19 +4361,20 @@ The ordinary budget permits one consultation. A second requires an explicit user
 			const expectedDisabledAccounting = normalizeText(`When draft publishing is disabled, the final Git record does not exist before
 final acceptance. Use this sequence:
 
-1. Before every intermediate track package in a multi-track change, confirm
-   that the current research log and its source chain contain all required
-   accounting to date. The package references the exact range and the current
-   research log as the current accounting source. Do not claim that the final commit exists.
-2. Before a single-track combined package or the final change package in a
-   multi-track change, complete the accounting across the current research log
-   and its source chain. Keep the log and every implementer report through final acceptance.
-3. After final acceptance, create the final squashed delivery commit. Copy all
-   required accounting from the current log and its source chain into the
-   commit body as part of that commit creation.
-4. Verify that the commit body contains the required accounting. Only then
-   close the current change with \`slate_change close\`. Keep its research log and
-   every implementer report. Only the user deletes the change folder.
+1. Before each intermediate code or design package, reconcile all accounting
+   sources for that track and its subtree. Reference those owning records and
+   accepted ranges. Do not claim that a future delivery commit exists.
+2. Before the combined single-track or root final package, reconcile every
+   accounting source across the whole change. Complete each design-track
+   acceptance before its marker. Retain all records and accepted histories
+   through root final acceptance.
+3. After root final acceptance, create the final squashed delivery commit.
+   Copy every required conclusion from all accounting sources into its body.
+   Before rewriting, preserve accepted source history under
+   [track-workflow.md](track-workflow.md) § Delivery and termination.
+4. Verify the body against every accounting source and required conclusion.
+   Only then close the root change with \`slate_change close\`.
+   Keep all manual records and source chains. Only the user deletes the change folder.
 
 Abandonment at any stage ends with \`slate_change close\`. No delivery artifact is
 needed for abandonment, and the close deletes nothing.
@@ -4186,9 +4389,9 @@ exists.`);
 				return resolved.count === 1 && resolved.text === expectedDisabledAccounting;
 			};
 			const disabledAccountingMutations = [
-				["future-intermediate-record", deliveryPackages.replace(/the current\s+research log as the\s+current accounting source/, "the final squashed commit body as the current accounting source")],
-				["missing-final-transfer", deliveryPackages.replace("Copy all\n   required accounting from the current log and its source chain into the\n   commit body as part of that commit creation.", "Create the commit without copying the accounting from the research log.")],
-				["cleanup-before-verification", deliveryPackages.replace("Verify that the commit body contains the required accounting. Only then\n   close", "Close before verifying that the commit body contains the required accounting. Then\n   restore")],
+				["future-intermediate-record", deliveryPackages.replace("Reference those owning records and\n   accepted ranges.", "Reference the future final commit body.")],
+				["missing-final-transfer", deliveryPackages.replace("Copy every required conclusion from all accounting sources into its body.", "Create the commit without copying the accounting.")],
+				["cleanup-before-verification", deliveryPackages.replace("Verify the body against every accounting source and required conclusion.\n   Only then close", "Close before verifying the accounting. Then restore")],
 				["missing-single-track-route", deliveryPackages.replace("A publishing-disabled single-track change starts at step 2.", "A publishing-disabled single-track change has no accounting route.")],
 			];
 			const disabledAccountingMutationOutcomes = disabledAccountingMutations.map(([id, source]) => ({ id, changed: source !== deliveryPackages, accepted: acceptsDisabledAccounting(source) }));
@@ -4255,21 +4458,23 @@ no-change statement required by
 a track is blocking when that track proves at least one DESIGN-TRIGGERING area.
 Where a marker applies, it waits for required track acceptance and every
 requested fix.
-A track with only REVIEWER-ONLY areas, or no proved area,
+A code track with only REVIEWER-ONLY areas, or no proved area,
 has no mandatory track-acceptance gate.
 In a single-track change, any blocking track acceptance and final change
 acceptance are one event. Final change acceptance is always blocking.`),
 				normalizeText(`With draft publishing, [pr-publishing.md](pr-publishing.md) § After the merge
-owns per-level delivery accounting and root closure. When publishing is
-disabled, the final package asks for acceptance while the current research log,
-its source chain, and every implementer report remain retained. After acceptance,
-copy the required accounting from the current log and its source chain into the
-final squashed commit body as part of creating that commit. Verify the body
-before calling the commit delivery. This sequence applies to single-track and
-multi-track changes. Intermediate multi-track packages continue to use the
-current research log and its source chain as their accounting source. Explicit
-abandonment is the other delivery outcome. Resolve or hand every open question
-to the user.
+owns per-level delivery accounting and root closure.
+Without publishing, use all owning accounting sources defined in
+[delivery-packages.md](delivery-packages.md) § Durable accounting.
+These include root and design-track logs, code reports, affected-track repair
+records, and their read-only source chains.
+Intermediate packages reference those sources, not a future commit.
+After root final acceptance, copy every required conclusion into the final squashed commit body.
+Preserve accepted source history before rewriting under this section's safeguards.
+Verify the body against all accounting sources before root closure.
+This sequence applies to single-track and multi-track changes.
+Explicit abandonment is the other delivery outcome.
+Resolve or hand every open question to the user.
 Follow [user-notes.md](user-notes.md) for feedback and note accounting. Follow
 [delivery-packages.md](delivery-packages.md) for the final user-facing package
 and the complete accounting sequence. Close the change only after the whole
@@ -4291,8 +4496,49 @@ not edit any file. It does not authorize a model selection, a new model, or a
 roster change.`),
 				reviewedReference("docs/pr-publishing.md", ["# Draft-PR publishing", "## Description rules"], `- **Delivery accounting** — the conclusions that
   [delivery-packages.md](delivery-packages.md) § Durable accounting requires.
-  Update this subsection from the owning research log and its source chain before each package for this level. Keep private
-  reasoning and private data out of it.`),
+  Update this subsection from all owning accounting sources defined there
+  before each package for this level. Keep private reasoning and private data out of it.`),
+				reviewedReference("docs/pr-publishing.md", ["# Draft-PR publishing", "## Keeping the PR in sync"], `Keep the title and description synchronized with what is actually pushed.
+Update a track's table row when its marker commit lands. Append post-design
+decisions as they are made. Revise Planned changes whenever reality diverges
+from it. Before each package for this level, copy its required delivery
+accounting from the complete accounting source set in
+[delivery-packages.md](delivery-packages.md) § Durable accounting into the description.
+A stale description fails the "deep enough" test.`),
+				reviewedReference("docs/pr-publishing.md", ["# Draft-PR publishing", "## Ready-for-review flip"], `Apply this section separately to each level pull request.
+All its code tracks and required machine reviews, track packages, requested fixes,
+and blocking user notes must be complete.
+A proved DESIGN-TRIGGERING area makes track acceptance blocking before its marker.
+Keep the last pull request of a subtree unmerged until every design track it
+closes has explicit whole-subtree acceptance and its design marker.
+A subtree contains a track and all its descendants.
+Ready status supplies neither acceptance nor permission for an agent merge.
+Root final acceptance precedes the last level merge.
+It waits for the note queue, final accounting, and every other final gate.
+After each required acceptance, run the ordered acceptance-transfer sequence in
+[delivery-packages.md](delivery-packages.md) § Durable accounting before handoff for merge.
+Apply that sequence even when the pull request is already ready.`),
+				reviewedReference("docs/recursive-workflow.md", ["# Recursive workflow", "## Whole-subtree acceptance"], `Every design track requires one explicit blocking acceptance of its whole subtree.
+This requirement applies with any proved-area set and with publishing enabled or disabled.
+Present one design-track package for that aggregate decision.
+It identifies the approved design, accepted child evidence, and every subtree level delivery.
+State remaining decisions, evidence limits, deviations, and effects on later sibling tracks.
+Use [delivery-packages.md](delivery-packages.md) § Track package for the package fields.`),
+				reviewedReference("docs/recursive-workflow.md", ["# Recursive workflow", "## Whole-subtree acceptance"], `Acceptance of a descendant pull request does not accept the whole design subtree.
+A merge is not an acceptance statement.
+The user may accept the whole subtree while reviewing its last pull request.
+That statement must explicitly name the whole design subtree and its aggregate evidence.
+An earlier answer cannot accept work that was incomplete when the user gave it.
+Without publishing, request the same explicit aggregate decision directly.
+A root package cannot replace a missing design-track acceptance.
+Root final acceptance remains a separate blocking decision.
+With publishing, follow [delivery-packages.md](delivery-packages.md) § Durable accounting after each decision and before merge.
+Use § Identifiers, code ranges, and design markers for the marker after acceptance.`),
+				reviewedReference("docs/recursive-workflow.md", ["# Recursive workflow", "## Packages, attribution, and issues"], `Use [delivery-packages.md](delivery-packages.md) § Track package for code and design references.
+Use its § Change package for the root's complete level-delivery list.
+Use its § Durable accounting for all record sources and public transfer.
+Use [pr-publishing.md](pr-publishing.md) § Description rules for each level's scope and accounting.
+Do not count accepted child work as new implementation.`),
 				...expectedWorkflowReferenceTexts.map((text, index) => reviewedReference("docs/track-workflow.md", [
 					"# Track-based development workflow",
 					...(index === 0 ? [] : index === 1
@@ -4311,15 +4557,13 @@ accounting. The package references that record and the diff.`),
 [delivery-packages.md](delivery-packages.md) § Single-track combined package. A
 multi-track change uses the separate change package defined in that document.
 Package preparation does not delay or replace the feedback triggers above.`),
-				reviewedReference("docs/user-notes.md", ["# User notes and user-facing registers", "## Durable final accounting"], `Before final acceptance, the current research log and its read-only source
-chain provide full accounting for the current work. The transfer defined in
-[delivery-packages.md](delivery-packages.md) § Durable accounting follows the
-reachable record lifecycle. Draft publishing copies the required conclusions to
-the pull-request description before each package. Without draft publishing,
-intermediate and final-acceptance packages use the current research log and
-its source chain as the accounting source. After final acceptance, commit creation copies the
-required conclusions into the final squashed commit body. Cleanup waits for
-verification of that body. The accounting covers:`),
+				reviewedReference("docs/user-notes.md", ["# User notes and user-facing registers", "## Durable final accounting"], `Before final acceptance, reconcile all owning records defined in
+[delivery-packages.md](delivery-packages.md) § Durable accounting.
+With publishing, use that section's package and post-acceptance transfer sequence before merge.
+Without publishing, packages reference the owning accounting sources.
+After root final acceptance, copy every required conclusion into the final delivery commit body.
+Root closure waits for verification against all accounting sources.
+The accounting covers:`),
 			].sort((a, b) => a.file.localeCompare(b.file));
 			const acceptsPackageLoading = (source) => {
 				const resolved = resolvePackageLoading(source);
@@ -4349,7 +4593,7 @@ verification of that body. The accounting covers:`),
 				["the publishing-disabled accounting unit gives single-track and multi-track packages reachable sources, then transfers and verifies the final commit before cleanup", acceptsDisabledAccounting(deliveryPackages), resolveDisabledAccounting(deliveryPackages)],
 				["future-record, missing-transfer, early-cleanup, and missing-single-track counterfactuals each change the accounting sequence and fail", disabledAccountingMutationOutcomes.every(({ changed, accepted }) => changed && !accepted), disabledAccountingMutationOutcomes],
 				["missing and duplicated publishing-disabled accounting boundaries fail closed", missingDisabledAccountingBoundary.count === 0 && missingDisabledAccountingBoundary.text === "" && duplicateDisabledAccountingBoundary.count === 2 && duplicateDisabledAccountingBoundary.text === "", { missingDisabledAccountingBoundary, duplicateDisabledAccountingBoundary }],
-				["publishing, workflow, and note rules match the reachable accounting lifecycle", publishingFlat.includes("**Delivery accounting** — the conclusions that [delivery-packages.md](delivery-packages.md) § Durable accounting requires. Update this subsection from the owning research log and its source chain before each package for this level.") && publishingFlat.includes("Before each package for this level, copy its required delivery accounting from the owning research log and its source chain into the description.") && workflowFlat.includes("After acceptance, copy the required accounting from the current log and its source chain into the final squashed commit body as part of creating that commit. Verify the body before calling the commit delivery.") && workflowFlat.includes("Intermediate multi-track packages continue to use the current research log and its source chain as their accounting source.") && userNotesFlat.includes("Without draft publishing, intermediate and final-acceptance packages use the current research log and its source chain as the accounting source.") && userNotesFlat.includes("After final acceptance, commit creation copies the required conclusions into the final squashed commit body. Cleanup waits for verification of that body."), { workflow: workflow.match(/With draft publishing,[\s\S]*?(?=\n\nAim for a delivery body)/)?.[0], publishing: publishing.match(/\*\*Delivery accounting\*\*[\s\S]*?(?=\n- \*\*Verification approach)/)?.[0], userNotes: userNotes.match(/Before final acceptance[\s\S]*?(?=\n\n- every finding)/)?.[0] }],
+				["publishing, workflow, and note rules match the reachable accounting lifecycle", publishingFlat.includes("Update this subsection from all owning accounting sources defined there before each package for this level.") && publishingFlat.includes("accounting from the complete accounting source set in [delivery-packages.md](delivery-packages.md) § Durable accounting into the description.") && workflowFlat.includes("After root final acceptance, copy every required conclusion into the final squashed commit body.") && workflowFlat.includes("Verify the body against all accounting sources before root closure.") && userNotesFlat.includes("Without publishing, packages reference the owning accounting sources.") && userNotesFlat.includes("Root closure waits for verification against all accounting sources."), { workflow: workflow.match(/With draft publishing,[\s\S]*?(?=\n\nAim for a delivery body)/)?.[0], publishing: publishing.match(/\*\*Delivery accounting\*\*[\s\S]*?(?=\n- \*\*Verification approach)/)?.[0], userNotes: userNotes.match(/Before final acceptance[\s\S]*?(?=\n\n- every finding)/)?.[0] }],
 				["the workflow loading unit and every literal filename context across README and recursive docs equal independent expectations", acceptsPackageLoading(workflow), { loading: resolvePackageLoading(workflow), contexts: packageReferenceContexts(packageDocuments) }],
 				["owned-unit, appended, and count-preserving actor-table eager-load mutations each change the source and fail", packageLoadingMutationOutcomes.every(({ changed, accepted }) => changed && !accepted), packageLoadingMutationOutcomes],
 				["missing and duplicated loading boundaries fail closed", missingLoadingBoundary.count === 0 && missingLoadingBoundary.text === "" && duplicateLoadingBoundary.count === 2 && duplicateLoadingBoundary.text === "", { missingLoadingBoundary, duplicateLoadingBoundary }],

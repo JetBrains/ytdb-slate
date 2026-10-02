@@ -259,8 +259,19 @@ diff under § Reviewer input contract. It receives no fixer or implementer
 episode and no direct private source.
 
 A round that lands no fix stops the ordinary loop. The two-round cap also
-stops it. A second regression on one finding escalates. No silence supplies a
-disposition.
+stops it. A second regression on one finding escalates.
+Further repair requires the extra repair-round grant defined in
+[user-notes.md](user-notes.md) § Mandatory escalation set.
+A grant authorizes one specified round, resets no count, and grants no consultation.
+No silence supplies a disposition.
+
+<!-- review-fix-split:begin -->
+When considering the split option in [user-notes.md](user-notes.md) § Mandatory escalation set,
+load [recursive-workflow.md](recursive-workflow.md) § Review-fix subtrees and repair limits
+before proposing a review-fix split.
+Child repairs inherit the affected requirement's round count and consultation budget.
+The split bypasses no stuck-fix consultation or required fix gate.
+<!-- review-fix-split:end -->
 
 <!-- requirement-investigation-review:begin -->
 When two ordinary fix rounds leave the same approved requirement incomplete, the
@@ -334,11 +345,14 @@ Apply this ordered test to each finding that is not waived, moot, or rejected:
 3. Fix a major finding inside this change.
 4. Record every other finding with the ignored disposition.
 
+For design tracks, use [recursive-workflow.md](recursive-workflow.md) § Whole-subtree acceptance.
+The following proved-area acceptance rules apply to code tracks.
+
 <!-- track-acceptance:begin -->
 A track package can follow machine-review termination. Before the package, the
 durable delivery record accounts for every ignored finding. User acceptance of
 a track is blocking when that track proves at least one DESIGN-TRIGGERING area.
-A track with only REVIEWER-ONLY areas, or no proved area, has no mandatory
+A code track with only REVIEWER-ONLY areas, or no proved area, has no mandatory
 track-acceptance gate. Without mandatory track acceptance, an applicable marker
 waits for completed machine gates, the package, and resolved blocking user
 notes. In a single-track change, any blocking track acceptance and final change

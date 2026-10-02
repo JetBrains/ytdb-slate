@@ -119,7 +119,7 @@ Subsections activate when their content exists:
   carries its identifier, location, and one-line summary.
 - **Delivery accounting** — the conclusions that
   [delivery-packages.md](delivery-packages.md) § Durable accounting requires.
-  Update this subsection from the owning research log and its source chain
+  Update this subsection from all owning accounting sources defined there
   before each package for this level. Keep private reasoning and private data out of it.
 - **Verification approach** — 1–2 lines.
 
@@ -171,8 +171,9 @@ Keep the title and description synchronized with what is actually pushed.
 Update a track's table row when its marker commit lands. Append post-design
 decisions as they are made. Revise Planned changes whenever reality diverges
 from it. Before each package for this level, copy its required delivery
-accounting from the owning research log and its source chain into the
-description. A stale description fails the "deep enough" test.
+accounting from the complete accounting source set in
+[delivery-packages.md](delivery-packages.md) § Durable accounting into the description.
+A stale description fails the "deep enough" test.
 
 ## Ready-for-review flip
 
@@ -186,6 +187,9 @@ A subtree contains a track and all its descendants.
 Ready status supplies neither acceptance nor permission for an agent merge.
 Root final acceptance precedes the last level merge.
 It waits for the note queue, final accounting, and every other final gate.
+After each required acceptance, run the ordered acceptance-transfer sequence in
+[delivery-packages.md](delivery-packages.md) § Durable accounting before handoff for merge.
+Apply that sequence even when the pull request is already ready.
 
 Flipping the current pull request to ready-for-review is the agent's last act
 before handing that pull request to the user. The user performs every merge.
@@ -240,11 +244,16 @@ The user's merge act approves the current pull request, including
 acceptance of any recorded description-size exception.
 A merge does not supply whole-subtree or root final acceptance.
 Obtain each required explicit decision before the merge.
+After the decision, copy it and its evidence references into the closing level's description.
+Verify that updated accounting and present the description before handing it to the user for merge.
+Ready status does not bypass this order.
 
 ## After the merge
 
 After the user merges a level pull request, verify that level's delivery accounting.
-Record its accepted history, pull request, and observed merge result in the owning log.
+Verify the observed merge commit's identity and parents against its accepted history and pull request.
+Record the observed merge-result binding in the reachable description and owning log.
+The merge commit itself supplies that binding, including for the last level.
 The root final package lists every level delivery.
 It distinguishes merged levels from the last accepted level waiting for merge.
 Close the root change only after all delivery accounting is verified.

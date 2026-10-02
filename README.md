@@ -51,13 +51,13 @@ Through `context`, later worker threads can receive earlier episodes without ful
 
 Slate independently implements the thread-weaving architecture from the Random Labs technical report for `@randomlabs/slate`.
 
-A track is one coherent, independently mergeable part of a change. Slate supplies a track-based development workflow in orchestrator mode. Project configuration can extend the workflow rules but cannot replace them. Eleven focus areas name specific risks. They cover
+A track is a bounded part of approved work. A code track implements that work. A design track plans a nested change with child tracks. A level contains sibling tracks from one split. The level is the merge unit. Slate supplies this development workflow in orchestrator mode. Project configuration can extend the workflow rules but cannot replace them. Eleven focus areas name specific risks. They cover
 concurrency defects, data loss, security weaknesses, performance degradation,
 test-quality defects, unreadable user-facing prose, licensing exposure,
 non-local logic defects, consumer contract breaks, governing-rule defects, and
 unreported failures.
 
-The orchestrator records risks for the change and each track. You approve or reject each named proof. Approved proofs select design gates and reviewers. A track with a proved risk gets one general reviewer and its required specialists. An implementer's approximate track size above 100 added plus removed lines also adds the general reviewer unless the track changes only documents that neither ship as code nor run. Lockfiles, migration files, and generated output do not count. A track that the orchestrator estimates above 100 such lines needs a high-level design before implementation, including when it changes only documents. A track with neither review trigger gets no routine implementation reviewer. See [workflow](docs/track-workflow.md) and [focus areas](docs/blast-radius.md) for the rules. Optional draft pull requests cover the whole change. Only you merge them.
+The orchestrator records risks for the change and each track. You approve or reject each named proof. Approved proofs select design gates and reviewers. A track with a proved risk gets one general reviewer and its required specialists. An implementer's approximate track size above 100 added plus removed lines also adds the general reviewer unless the track changes only documents that neither ship as code nor run. Lockfiles, migration files, and generated output do not count. A track that the orchestrator estimates above 100 such lines needs a high-level design before implementation, including when it changes only documents. A track with neither review trigger gets no routine implementation reviewer. See [workflow](docs/track-workflow.md) and [focus areas](docs/blast-radius.md) for the rules. Optional draft pull requests cover each level with code tracks. A change without nested tracks has at most one pull request. Each design track needs your explicit acceptance of its whole subtree, which contains that track and its descendants. Final acceptance of the whole change remains a separate decision. Only you merge pull requests. See [recursive workflow](docs/recursive-workflow.md) for nested planning, repair children, and acceptance.
 
 ## Commands
 
@@ -86,9 +86,8 @@ Slate limits which extensions worker threads can load and which project settings
 The main goal is that you can guide a change through its design without reading the code. Planned work:
 
 1. Design documents that state exact guarantees and show why the design keeps them. Reviewers check the code against the approved design ([#402](https://github.com/JetBrains/ytdb-slate/issues/402), [#403](https://github.com/JetBrains/ytdb-slate/issues/403), [#404](https://github.com/JetBrains/ytdb-slate/issues/404)).
-2. Recursive decomposition for large, long-running changes ([#361](https://github.com/JetBrains/ytdb-slate/issues/361)).
-3. Better developer experience: asynchronous threads, a detailed cost breakdown, and a read-only view of thread execution.
-4. Remote development through integration with pi-agent-dashboard ([#417](https://github.com/JetBrains/ytdb-slate/issues/417)).
+2. Better developer experience: asynchronous threads, a detailed cost breakdown, and a read-only view of thread execution.
+3. Remote development through integration with pi-agent-dashboard ([#417](https://github.com/JetBrains/ytdb-slate/issues/417)).
 
 See [`docs/roadmap.md`](docs/roadmap.md) for details.
 
@@ -103,8 +102,9 @@ These documents define workflow and reference behavior. Slate cites workflow doc
 - [`docs/design-principles.md`](docs/design-principles.md) explains the architecture and its trade-offs.
 - [`docs/model-routing.md`](docs/model-routing.md) defines logical-model routing, recovery, and accepted limits.
 - [`docs/pr-publishing.md`](docs/pr-publishing.md) defines optional draft pull request publishing.
+- [`docs/recursive-workflow.md`](docs/recursive-workflow.md) defines nested planning, repair children, and whole-subtree acceptance.
 - [`docs/review-rules.md`](docs/review-rules.md) defines reviewer roles, evidence, and fix gates.
-- [`docs/roadmap.md`](docs/roadmap.md) describes planned work.
+- [`docs/roadmap.md`](docs/roadmap.md) describes current larger-change guidance and planned work.
 - [`docs/safety-and-trust.md`](docs/safety-and-trust.md) defines worker extension, provider, and trust boundaries.
 - [`docs/track-workflow.md`](docs/track-workflow.md) defines research, design, implementation, review, and delivery.
 - [`docs/user-notes.md`](docs/user-notes.md) defines user note handling.

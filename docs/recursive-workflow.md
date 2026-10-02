@@ -371,6 +371,97 @@ Existing context-budget, user-requested, and unfinished-session handoff rules st
 
 ## Review-fix subtrees and repair limits
 
+Create review-fix children only when the user approves splitting outstanding fixes.
+Use [user-notes.md](user-notes.md) § Mandatory escalation set for the split option.
+Use [review-rules.md](review-rules.md) § Fix loop and gate verdicts for repair controls.
+Load this document before proposing the split.
+The approval names the affected code track and exact incomplete approved requirements.
+A finding alone creates no child.
+Use this subtree for repairs, not new feature scope.
+
+The affected track remains a code track.
+Its children stay in its publishing slice and review accounting.
+They have no separate pull requests, research logs, or implementer reports.
+Dispatch each child with the affected code track's identifier.
+Record child path numbers only in status entries.
+Use the affected track's identifier in commit titles, packages, and report names.
+Use [track-workflow.md](track-workflow.md) § Track intention block and implementer response
+for commit title and body forms.
+Before user review, use `Track <n> fix round <r>: <intent title>`.
+After user review, use `Track <n> user review fix <r>: <intent title>` for requested fixes.
+Use `Track <n> fix round <r>: <intent title>` for gate corrections after user review.
+Here `<n>` is the affected track's identifier, never the child's path number.
+
+Reassess each child's planning, focus approvals, and applicable review gates.
+Parent approval does not cover changed child behavior automatically.
+Keep completion evidence in the affected track's report and retained repair records.
+Status may show a repair action finished while the affected track remains incomplete.
+A fix child has no independent boundary marker.
+The affected track's marker closes its accepted code track and fix subtree together.
+No status entry independently declares accepted completion.
+
+An **inherited repair budget** is the affected requirement's existing allowance for repairs and consultations.
+All child repairs inherit that requirement's round count and consultation budget.
+A new child or finding identifier resets neither count.
+Count rounds against the affected approved requirement, not separately against each child.
+Run at most two ordinary fix rounds.
+The ordinary budget permits one consultation.
+Use [review-rules.md](review-rules.md) § Stuck-fix consultation for additional grants.
+Two failed ordinary rounds on the same requirement trigger the requirement investigation.
+Use [track-workflow.md](track-workflow.md) § Confirmation gate for that investigation.
+Investigation approval and holistic-solution approval remain separate.
+Neither grants another repair round.
+After the ordinary loop stops or its cap is exhausted, further repair needs an extra repair-round grant.
+Use [user-notes.md](user-notes.md) § Mandatory escalation set for its prerequisites, scope, and accounting.
+A split bypasses no consultation, verification, or escalation rule.
+
+Before user review, child fixes join the affected cumulative implementation commit.
+After user review, keep child fixes and corrections as separate commits.
+Never fold them into the already reviewed cumulative commit.
+Re-pin permitted rewritten ranges before review or packaging.
+Required fix gates inspect the child fix differences and cumulative result.
+The affected track completes only after every child repair and required gate is resolved.
+
 ## Whole-subtree acceptance
 
+Every design track requires one explicit blocking acceptance of its whole subtree.
+This requirement applies with any proved-area set and with publishing enabled or disabled.
+Present one design-track package for that aggregate decision.
+It identifies the approved design, accepted child evidence, and every subtree level delivery.
+State remaining decisions, evidence limits, deviations, and effects on later sibling tracks.
+Use [delivery-packages.md](delivery-packages.md) § Track package for the package fields.
+
+Acceptance of a descendant pull request does not accept the whole design subtree.
+A merge is not an acceptance statement.
+The user may accept the whole subtree while reviewing its last pull request.
+That statement must explicitly name the whole design subtree and its aggregate evidence.
+An earlier answer cannot accept work that was incomplete when the user gave it.
+Without publishing, request the same explicit aggregate decision directly.
+A root package cannot replace a missing design-track acceptance.
+Root final acceptance remains a separate blocking decision.
+With publishing, follow [delivery-packages.md](delivery-packages.md) § Durable accounting after each decision and before merge.
+Use § Identifiers, code ranges, and design markers for the marker after acceptance.
+
+Code-track acceptance follows [track-workflow.md](track-workflow.md) § Delivery and termination.
+A code track without mandatory acceptance still receives its package and every other required gate.
+Merging a level supplies no missing gate or decision.
+A design node alone adds no routine implementation reviewer.
+Its aggregate evidence must show each child's required review coverage and separate fix-range verdicts.
+
 ## Packages, attribution, and issues
+
+Use [delivery-packages.md](delivery-packages.md) § Track package for code and design references.
+Use its § Change package for the root's complete level-delivery list.
+Use its § Durable accounting for all record sources and public transfer.
+Use [pr-publishing.md](pr-publishing.md) § Description rules for each level's scope and accounting.
+Do not count accepted child work as new implementation.
+
+A **subtree issue** groups approved work within this change when the user requests it.
+It neither moves work outside the change nor approves implementation.
+A **deferred-work issue** records work explicitly excluded from this change.
+Use [user-notes.md](user-notes.md) § Mandatory escalation set for the user's disposition.
+Use [review-rules.md](review-rules.md) § Findings and output for a self-contained deferred issue.
+Issue creation supplies no gate, review, or acceptance.
+Distinguish both purposes in packages and durable accounting.
+Without an issue tracker, keep an approved deferral in the delivery record.
+<!-- recursive-delivery:end -->

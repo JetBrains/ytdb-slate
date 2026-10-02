@@ -20,9 +20,9 @@ that it defines, including the first user note and a non-empty note-queue drain.
 
 Complete the required checks, reviews, finding dispositions, note accounting,
 overrides, escalations, coverage accounting, and acceptance prerequisites
-before preparing a package. Keep the full working evidence in the research log.
-Keep every required conclusion and separate verdict in the current accounting
-source and the final delivery record as the lifecycle below requires. A package
+before preparing a package. Keep full working evidence in its owning records.
+Keep every required conclusion and separate verdict in the accounting sources
+and final delivery records defined in § Durable accounting. A package
 summarizes the result. It does not replace those records.
 
 Use short, self-contained statements. Put the result and the user's next action
@@ -61,17 +61,23 @@ reporting progress. Name the action the user should take.>
 ```
 
 The **Result** states the completed outcome, not an activity log. The
-**References** field identifies the cumulative implementation commit or range.
+**References** field identifies a code track's cumulative implementation commit or exact range.
 For code ranges and design markers, use [recursive-workflow.md](recursive-workflow.md)
 § Identifiers, code ranges, and design markers.
-A design-track package references accepted child ranges without counting their work again.
-When draft publishing is enabled, it also gives the umbrella pull-request
-link. When publishing is disabled, state that no pull request exists.
+A design-track package names its approved design, accepted child ranges, and every subtree level delivery.
+It has no implementation range or extra cumulative commit.
+Do not count accepted child work as new implementation.
+With publishing, a code package links its level pull request and states its delivery state.
+A design package distinguishes merged levels from the last accepted level waiting for merge.
+Without publishing, state that no pull request exists.
 
 The **Next step** states the applicable acceptance action. Follow
 [track-workflow.md](track-workflow.md) § Delivery and termination for the
-acceptance and boundary rules. The package still reports progress and every
-requested decision.
+code-track acceptance and boundary rules.
+For a design track, use [recursive-workflow.md](recursive-workflow.md) § Whole-subtree acceptance.
+The package states deviations and their effects on later sibling tracks.
+Inside an incomplete level, list each remaining document, prompt, or extension difference and its later owner.
+The package still reports progress and every requested decision.
 
 ## Change package
 
@@ -91,8 +97,8 @@ Use this order:
 this field when none exists.>
 
 **References**
-<Umbrella pull request when publishing is enabled, exact change range, diff location, and
-supporting accounting source or delivery record.>
+<Every level delivery and its state when publishing is enabled, exact change range,
+diff location, and supporting accounting sources or delivery records.>
 
 **Model-routing recommendations**
 <Evidence-bounded advice, or the exact sentence below, only when trusted
@@ -106,6 +112,9 @@ and consequences.>
 The **Decision** field asks explicitly for the final acceptance required by
 [track-workflow.md](track-workflow.md) § Delivery and termination. Do not treat
 silence as acceptance.
+The root package lists every level delivery once.
+Distinguish merged levels from the last accepted level waiting for merge.
+A change without nested tracks has one level and at most one pull request.
 
 When trusted configuration enables `workflow.routingRecommendations`, always
 include **Model-routing recommendations** immediately before **Decision**. Use
@@ -133,40 +142,68 @@ recommendations** immediately before **Decision** when that field is enabled.
 
 ## Durable accounting
 
-The current change folder's research log and each read-only earlier log reached
-through its source chain hold the complete working evidence behind each package.
-The final delivery record holds the conclusions that must remain after local
-cleanup. It retains all check results and limits, the separate routine-review
+The **accounting sources** are the owning records behind each package.
+Read the root `research-log.md`, every entered design track's
+`track-<path-number>-research-log.md`, every code track's implementer report,
+and review-fix evidence in the affected track's records.
+Follow each record's read-only source chain within its recorded read boundary.
+Include required conclusions held in any of those records, not only the active log.
+Use `status.md` to find records, never as gate or completion evidence.
+A leftover temporary file is not an accounting source.
+Keep all manual records and their source chains through and after root closure.
+Only the user deletes the change folder.
+The final delivery records hold the conclusions that must remain after local cleanup.
+They retain all check results and limits, the separate routine-review
 and user-requested-fix verdicts, every finding and disposition, user-note
 accounting, the ignored-finding index, tracked issues, overrides, escalations,
 coverage conclusions, and approved risk changes.
+They also retain design-track acceptance, child completion references, accepted
+history bindings, review-fix accounting, and each issue's purpose and disposition.
+No required accounting may remain only in an untracked record at root closure.
 
 The delivery record uses existing publication and Git artifacts. It is not a
-new artifact. When draft publishing is enabled, the current pull-request
-description is the reachable delivery record before merge. The resulting
-default-branch commit body is the final delivery record. Before each package,
-copy the required accounting from the current log and its source chain into the
-description.
+new artifact. With draft publishing, each level description is its reachable
+record before merge. Its resulting default-branch commit body is its final record.
+The observed merge commit itself supplies the merge-result binding, including for the last level.
+After merge, verify its identity and parents against the accepted history and pull request.
+Record that binding in the reachable level description and owning log before root closure.
+The commit body needs no hash of itself.
+Before each package, copy that level's required conclusions from all accounting
+sources into its description.
+Include design-track and review-fix conclusions attributed to that level.
+Keep root-wide and whole-subtree conclusions in the last level that closes them.
+Link other level records without counting their implementation again.
+
+For each required whole-subtree or root final acceptance, use this order even after the ready flip:
+
+1. Obtain and record the explicit acceptance decision after its package and prerequisites.
+2. Copy that decision and its aggregate evidence references into the closing level's description.
+3. Add a marker only for each design track newly accepted by this decision. Reuse retained marker references for tracks accepted earlier. Record each track's history references in that description.
+4. Verify the description against all accounting sources after these updates and before handoff for merge.
+5. Hand the updated description to the user for merge. Only the user merges.
+
+Repeat the description measurement and size-exception checks after each update.
+A missing acceptance or required conclusion blocks handoff for merge.
+Verify every level record and all root-wide accounting before root closure.
 
 <!-- publishing-disabled-accounting:begin -->
 When draft publishing is disabled, the final Git record does not exist before
 final acceptance. Use this sequence:
 
-1. Before every intermediate track package in a multi-track change, confirm
-   that the current research log and its source chain contain all required
-   accounting to date. The package references the exact range and the current
-   research log as the current accounting source. Do not claim that the final
-   commit exists.
-2. Before a single-track combined package or the final change package in a
-   multi-track change, complete the accounting across the current research log
-   and its source chain. Keep the log and every implementer report through
-   final acceptance.
-3. After final acceptance, create the final squashed delivery commit. Copy all
-   required accounting from the current log and its source chain into the
-   commit body as part of that commit creation.
-4. Verify that the commit body contains the required accounting. Only then
-   close the current change with `slate_change close`. Keep its research log and
-   every implementer report. Only the user deletes the change folder.
+1. Before each intermediate code or design package, reconcile all accounting
+   sources for that track and its subtree. Reference those owning records and
+   accepted ranges. Do not claim that a future delivery commit exists.
+2. Before the combined single-track or root final package, reconcile every
+   accounting source across the whole change. Complete each design-track
+   acceptance before its marker. Retain all records and accepted histories
+   through root final acceptance.
+3. After root final acceptance, create the final squashed delivery commit.
+   Copy every required conclusion from all accounting sources into its body.
+   Before rewriting, preserve accepted source history under
+   [track-workflow.md](track-workflow.md) § Delivery and termination.
+4. Verify the body against every accounting source and required conclusion.
+   Only then close the root change with `slate_change close`.
+   Keep all manual records and source chains. Only the user deletes the change folder.
 
 Abandonment at any stage ends with `slate_change close`. No delivery artifact is
 needed for abandonment, and the close deletes nothing.

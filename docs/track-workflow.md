@@ -193,10 +193,14 @@ implementation review is `NOT REQUIRED`. Size alone adds no area reviewer,
 adversarial design reviewer, or blocking track acceptance. A proved
 DESIGN-TRIGGERING area also requires a high-level design, user validation,
 focus reconfirmation, its own adversarial design reviewer, and final design
-approval. User acceptance of a track is blocking when that track proves at
-least one DESIGN-TRIGGERING area. A track with only REVIEWER-ONLY areas, or no
-proved area, has no mandatory track-acceptance gate. A track with no proved area
-also has no area reviewer. Final change acceptance is always blocking.
+approval. A track with no proved area also has no area reviewer.
+
+For design tracks, use [recursive-workflow.md](recursive-workflow.md) § Whole-subtree acceptance.
+The following proved-area acceptance rules apply to code tracks.
+
+User acceptance of a track is blocking when that track proves at
+least one DESIGN-TRIGGERING area. A code track with only REVIEWER-ONLY areas, or no
+proved area, has no mandatory track-acceptance gate. Final change acceptance is always blocking.
 
 <!-- focus-area-table:begin -->
 | # | focus area | the gate it adds | where the gate runs |
@@ -378,8 +382,8 @@ Do not propose a plain new pi session instead.
 The design-track boundary precedes research, expansion, and design work.
 The code-track boundary follows all required planning and pre-implementation gates.
 These include confirmation, scope-exception decisions, and applicable design gates.
-A newly created review-fix code track has that code-track boundary.
-Complete the prior track package and required acceptance before the next boundary.
+A review-fix child remains inside the affected code track and adds no new handoff boundary.
+Complete the prior ordinary track package and required acceptance before the next ordinary track boundary.
 
 The orchestrator pauses dispatch pending an actual handoff and resume or an explicit user decision to continue in the same session. The explicit same-session decision is recorded as a user waiver in the existing override log. A resumed session follows Resume order and reconciliation and does not repeat a boundary request already recorded as completed. Same-track fix rounds do not retrigger the request. Single-track changes are exempt. This workflow rule has no automated runtime enforcement.
 <!-- multi-track-handoff:end -->
@@ -636,11 +640,14 @@ review. The document owns package presentation only. Continue to read
 it defines.
 <!-- delivery-package-loading:end -->
 
+For design tracks, use [recursive-workflow.md](recursive-workflow.md) § Whole-subtree acceptance.
+The following proved-area acceptance rules apply to code tracks.
+
 Every completed track reaches the user through the track package defined in
 [delivery-packages.md](delivery-packages.md) § Track package. User acceptance of
 a track is blocking when that track proves at least one DESIGN-TRIGGERING area.
 Where a marker applies, it waits for required track acceptance and every
-requested fix. A track with only REVIEWER-ONLY areas, or no proved area,
+requested fix. A code track with only REVIEWER-ONLY areas, or no proved area,
 has no mandatory track-acceptance gate.
 In a single-track change, any blocking track acceptance and final change
 acceptance are one event. Final change acceptance is always blocking.
@@ -755,16 +762,18 @@ identifier. Track numbers are append-only. Abandoned tracks are struck through.
 Numbers are never reused.
 
 With draft publishing, [pr-publishing.md](pr-publishing.md) § After the merge
-owns per-level delivery accounting and root closure. When publishing is
-disabled, the final package asks for acceptance while the current research log,
-its source chain, and every implementer report remain retained. After acceptance,
-copy the required accounting from the current log and its source chain into the
-final squashed commit body as part of creating that commit. Verify the body
-before calling the commit delivery. This sequence applies to single-track and
-multi-track changes. Intermediate multi-track packages continue to use the
-current research log and its source chain as their accounting source. Explicit
-abandonment is the other delivery outcome. Resolve or hand every open question
-to the user.
+owns per-level delivery accounting and root closure.
+Without publishing, use all owning accounting sources defined in
+[delivery-packages.md](delivery-packages.md) § Durable accounting.
+These include root and design-track logs, code reports, affected-track repair
+records, and their read-only source chains.
+Intermediate packages reference those sources, not a future commit.
+After root final acceptance, copy every required conclusion into the final squashed commit body.
+Preserve accepted source history before rewriting under this section's safeguards.
+Verify the body against all accounting sources before root closure.
+This sequence applies to single-track and multi-track changes.
+Explicit abandonment is the other delivery outcome.
+Resolve or hand every open question to the user.
 Follow [user-notes.md](user-notes.md) for feedback and note accounting. Follow
 [delivery-packages.md](delivery-packages.md) for the final user-facing package
 and the complete accounting sequence. Close the change only after the whole
