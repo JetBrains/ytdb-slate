@@ -79,7 +79,7 @@ The five checks follow. Each command reproduces its check on a laptop after `npm
 | pure-resolver checks | `bash verification/run-resolver-checks.sh --repo . --strict` |
 | unit tests + patch coverage | `npm test` |
 
-**Keep `--ignore-scripts` on the install.** The pinned pi SDK is a devDependency, and its dependency tree declares install scripts: `@google/genai` (preinstall) and `protobufjs` (postinstall). `@earendil-works/pi-coding-agent` holds a copy of each package in its shrinkwrapped tree, so `package-lock.json` carries four entries with `hasInstallScript`. A plain `npm ci` runs all four scripts on every install. CI needs none of them, so the flag keeps third-party code out of the job. npm creates `node_modules/.bin` without those scripts, so the `pi` and `tsc` launchers appear in both installs.
+**Keep `--ignore-scripts` on the install.** The pinned pi SDK is a devDependency, and its dependency tree declares install scripts: `@google/genai` (preinstall), `protobufjs` (postinstall) and `esbuild` (postinstall). `@earendil-works/pi-coding-agent` holds a copy of all three packages in its shrinkwrapped tree, and the dependency tree also holds separate copies of `@google/genai` and `protobufjs`, so `package-lock.json` carries five entries with `hasInstallScript`. A plain `npm ci` runs all five scripts on every install. CI needs none of them, so the flag keeps third-party code out of the job. npm creates `node_modules/.bin` without those scripts, so the `pi` and `tsc` launchers appear in both installs.
 
 **How the harnesses find pi.** Three of the five checks need a pi binary, and all three start with the same two steps:
 
