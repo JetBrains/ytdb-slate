@@ -2,16 +2,16 @@
   "schema": 2,
   "version": "0.13.0",
   "identity": "38f415f312659b824d19ccaaf82e8ba325e7fe071499e1c92e307cc1dcb53492",
-  "status": "published",
+  "status": "promotion-unknown",
   "upload": "verified",
-  "promotion": "none",
+  "promotion": "unknown",
   "requestBaseSha": "e14a856c13959605a8d429f9df967c0ca07b5e7e",
   "releaseSha": "e6f69caa2ad4f3318a924545c5eb406d07a65b4d",
   "releaseParent": "e14a856c13959605a8d429f9df967c0ca07b5e7e",
   "pullRequest": 493,
   "claimExecution": "36979731565:1",
   "uploadExecution": "36979731565:1",
-  "promoterExecution": null,
+  "promoterExecution": "36979731565:1",
   "artifact": {
     "file": "ytdb-slate-0.13.0.tgz",
     "sha256": "0a1ffa8a0ce7e9660e29aaa308bb17211ef4c582d807d09dbcd7a75707e44cc6",
@@ -29,10 +29,27 @@
     "integrity": "sha512-rT+SPoVqXySvxXEpbWkHi7ATJfcuPgyW5O9I7z24JKbhhzryb/rVUNr2KmCQ+ifAQ0zrA5e9kR0tN8lcADvpCA=="
   },
   "installFailures": [],
-  "installProof": null,
-  "promotionEvidence": null,
+  "installProof": {
+    "identity": "38f415f312659b824d19ccaaf82e8ba325e7fe071499e1c92e307cc1dcb53492",
+    "version": "0.13.0",
+    "releaseSha": "e6f69caa2ad4f3318a924545c5eb406d07a65b4d",
+    "releaseParent": "e14a856c13959605a8d429f9df967c0ca07b5e7e",
+    "execution": "36979731565:1",
+    "registryIntegrity": "sha512-rT+SPoVqXySvxXEpbWkHi7ATJfcuPgyW5O9I7z24JKbhhzryb/rVUNr2KmCQ+ifAQ0zrA5e9kR0tN8lcADvpCA==",
+    "proof": {
+      "command": "slate",
+      "source": "npm:ytdb-slate@0.13.0"
+    }
+  },
+  "promotionEvidence": {
+    "identity": "38f415f312659b824d19ccaaf82e8ba325e7fe071499e1c92e307cc1dcb53492",
+    "releaseSha": "e6f69caa2ad4f3318a924545c5eb406d07a65b4d",
+    "execution": "36979731565:1",
+    "expectedLatest": "0.12.1",
+    "intentAt": "2026-10-02T07:53:06.444Z"
+  },
   "tag": "v0.13.0",
   "internalTag": "slate-candidate",
   "createdAt": "2026-10-02T07:25:33.701Z",
-  "updatedAt": "2026-10-02T07:52:25.494Z"
+  "updatedAt": "2026-10-02T07:53:06.444Z"
 }
