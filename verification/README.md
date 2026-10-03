@@ -26,6 +26,26 @@ concatenated, filtered, or credited. The existing
 source-authoritative denominator, 85 percent line and branch floors, and
 small-branch-denominator warning policy remain unchanged.
 
+## Record-tool continuous integration jobs
+
+The full suite runs on Linux under the stable `Node 22` and `Node 24` check names.
+The `record-macos` job runs record-tool tests on `macos-latest` with Node 22.23.1
+and 24.18.0. The `record-windows` job runs only Windows tests on `windows-latest`
+with the same pins. Both jobs use pinned actions, no secrets, a read-only token,
+and a 15-minute timeout. WSL is tested through Linux CI and simulated drive checks.
+Record tests create disposable folders outside the checkout.
+
+`node verification/record-test-roster.mjs` audits both selections. The patterns
+are `test/**/record-*.test.ts` and `test/**/record-windows-*.test.ts`, with zero or
+more nested folders. Record imports and the `record-tool-test:` marker identify
+record-tool tests. The marker value `windows` identifies Windows-only tests.
+The audit fails on an applicable file outside its pattern or a pattern with no
+files. `test/record-test-roster.test.ts` tests both failure cases and the shared
+rules file membership. Both new jobs run the audit. `--run all` runs the
+record-tool selection, including `test/record-shared-rules.test.ts`.
+`--run windows` runs only the Windows subset. Exit 1 reports a roster or test
+failure. Exit 2 reports a bad invocation.
+
 ## Why this exists
 
 The mechanism restores the user's **global** pi defaults — `defaultProvider`,
