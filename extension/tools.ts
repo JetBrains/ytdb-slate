@@ -25,6 +25,7 @@ import {
 import { MAX_CONTEXT_EPISODES, type DispatchProgress, type ThreadManager } from "./threads.ts";
 import { JUDGEMENT_THREAD_TYPES } from "./worker.ts";
 import { REVIEW_PERSPECTIVES } from "./review-perspectives.ts";
+import { buildRecordAssignment, trackIdentifier, TRACK_IDENTIFIER_MAX, TRACK_IDENTIFIER_PATTERN, validateRecordsInput } from "./record-names.ts";
 
 const threadTypeGlosses = THREAD_TYPES.map((type) => `${type} ${THREAD_TYPE_GLOSSES[type]}`).join(", ");
 const judgementThreadTypes = JUDGEMENT_THREAD_TYPES.join(" and ");
@@ -34,6 +35,7 @@ const THREAD_TYPE_PARAMETER_DESCRIPTION =
 	`Slate adds its reviewer evidence charter to ${judgementThreadTypes} threads.`;
 
 const USAGE_FIELDS = ["input", "output", "cacheRead", "cacheWrite"] as const;
+const RECORDS_INPUT_WITNESS = "__slateRecordsInputWitness";
 
 /** Render recorded costs and usage without turning an unreported quantity into zero. */
 function dispatchCostLine(episode: EpisodeRecord): string {
@@ -59,20 +61,6 @@ function dispatchCostLine(episode: EpisodeRecord): string {
 	return `Cost: ${partialCost ? "≥" : ""}$${reportedCost.toFixed(4)}${costScope} | tokens: ${quantities.join(", ")} | ended ${model} ${effort}${warm}`;
 }
 
-const TRACK_IDENTIFIER_MAX = 128;
-const TRACK_COMPONENT_MAX = String(Number.MAX_SAFE_INTEGER);
-const TRACK_IDENTIFIER_PATTERN = "^[1-9][0-9]*(?:\\.[1-9][0-9]*)*$";
-
-/** Check the original value and the value used to name a report with one rule. */
-function trackIdentifier(value: unknown): string {
-	if (typeof value === "number" && Number.isSafeInteger(value) && value > 0) return String(value);
-	if (typeof value === "string" && value.length <= TRACK_IDENTIFIER_MAX &&
-		new RegExp(TRACK_IDENTIFIER_PATTERN).exec(value)?.[0] === value && value.split(".").every((part) =>
-			part.length < TRACK_COMPONENT_MAX.length ||
-			(part.length === TRACK_COMPONENT_MAX.length && part <= TRACK_COMPONENT_MAX))) return value;
-	throw new Error("trackNumber must be a positive safe integer or a canonical dotted identifier of at most 128 ASCII characters. Each component must be 1 through 9007199254740991, with no leading zero.");
-}
-
 export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManager: () => ThreadManager): void {
 	const parameters = Type.Object({
 		name: Type.Optional(Type.String({ description: "Short name for a NEW thread (e.g. \"recon\")" })),
@@ -84,6 +72,10 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 			description: THREAD_TYPE_PARAMETER_DESCRIPTION,
 		}),
 		task: Type.String({ description: "The single bounded action to execute" }),
+		records: Type.Optional(Type.Array(Type.String(), {
+			description: "Exact record names for this action. Use a nonempty list without duplicates or paths. Requires type general without trackNumber and an open change. Accepts research log, status, and design names, not implementer reports.",
+			minItems: 1, uniqueItems: true,
+		})),
 		context: Type.Optional(
 			Type.Array(Type.String(), { description: "Earlier episode ids to load in caller order", maxItems: MAX_CONTEXT_EPISODES }),
 		),
@@ -121,8 +113,15 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 		parameters,
 		prepareArguments(args) {
 			// Pi calls this before optional-null normalization and Value.Convert.
-			if (args && typeof args === "object" && Object.prototype.hasOwnProperty.call(args, "trackNumber")) {
-				trackIdentifier((args as Record<string, unknown>).trackNumber);
+			if (args && typeof args === "object") {
+				const original = args as Record<string, unknown>;
+				if (Object.prototype.hasOwnProperty.call(original, "trackNumber")) trackIdentifier(original.trackNumber);
+				const names = validateRecordsInput(original, store.currentChange, store.sourceChange);
+				// A private string carries original presence and order through Pi's clone.
+				const prepared = { ...(args as Static<typeof parameters>), [RECORDS_INPUT_WITNESS]: JSON.stringify(names ?? null) };
+				// Schema diagnostics serialize the original input. Pi's clone omits this non-enumerable method.
+				Object.defineProperty(prepared, "toJSON", { enumerable: false, value: () => args });
+				return prepared;
 			}
 			return args as Static<typeof parameters>;
 		},
@@ -139,6 +138,10 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 				throw new Error('The "effort" field was removed. Select a logical model. Its policy fixes the effort.');
 			}
 			if (Object.prototype.hasOwnProperty.call(raw, "trackNumber")) trackIdentifier(raw.trackNumber);
+			const entryNames = validateRecordsInput(raw, store.currentChange, store.sourceChange);
+			// Direct callers get the same comparison from execute entry to assignment.
+			const recordsWitness = Object.prototype.hasOwnProperty.call(raw, RECORDS_INPUT_WITNESS)
+				? raw[RECORDS_INPUT_WITNESS] : JSON.stringify(entryNames ?? null);
 			const type = parseThreadType(params.type, true);
 			if (type === "implementer" && store.currentChange && params.trackNumber === undefined) {
 				throw new Error("An implementer on an open change requires trackNumber for its report.");
@@ -163,12 +166,17 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 				});
 			};
 
-			// Recheck the value used for both names and retain its accepted spelling.
-			const reportIdentifier = type === "implementer" && store.currentChange ? trackIdentifier(params.trackNumber) : undefined;
-			const reportTask = reportIdentifier !== undefined
-				? `${params.task}\n\nImplementer report: slate-changes/${store.currentChange}/track-${reportIdentifier}-implementer-report.md. Create without following a symbolic link.` +
+			// Recheck assignment values after parsing the type and before dispatch.
+			const recordAssignment = buildRecordAssignment(raw, store.currentChange, store.sourceChange);
+			const assignmentNames = recordAssignment?.writerRole === "record-only" ? recordAssignment.names : undefined;
+			if (recordsWitness !== JSON.stringify(assignmentNames ?? null)) {
+				throw new Error("records changed after the original input check. Keep the original names and order.");
+			}
+			const reportName = recordAssignment?.writerRole === "implementer" ? recordAssignment.names[0] : undefined;
+			const reportTask = reportName !== undefined
+				? `${params.task}\n\nImplementer report: slate-changes/${store.currentChange}/${reportName}. Create without following a symbolic link.` +
 					(store.sourceChange
-						? ` If the source folder has this track's report, continue it in this new report and name slate-changes/${store.sourceChange}/track-${reportIdentifier}-implementer-report.md as read-only in the new report's first entry. Do not edit the source report.`
+						? ` If the source folder has this track's report, continue it in this new report and name slate-changes/${store.sourceChange}/${reportName} as read-only in the new report's first entry. Do not edit the source report.`
 						: "")
 				: params.task;
 			const result = await getManager().dispatch(
@@ -181,6 +189,7 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 					reason: params.reason,
 					tools: params.tools,
 					reviewPerspectives: raw.reviewPerspectives,
+					...(recordAssignment === undefined ? {} : { recordAssignment }),
 				},
 				ctx,
 				signal,

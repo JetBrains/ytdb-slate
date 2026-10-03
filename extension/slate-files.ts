@@ -21,6 +21,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
+import { readOnlyEarlierLogLine } from "./record-names.ts";
 import {
 	createRuntimeStorageFolder,
 	isRuntimeStorageFolder,
@@ -93,7 +94,7 @@ export function createChangeDirectory(cwd: string, folder: string, source?: stri
 	ensureRealDirectory(dir);
 	if (realpathSync(dir) !== dir) refuse("slate refused a change directory because its path changed");
 	// The fork's first entry is a reference, not a copy of the source log.
-	const text = source === undefined ? "# Research log\n" : `Read-only earlier log: slate-changes/${source}/research-log.md\n`;
+	const text = source === undefined ? "# Research log\n" : `${readOnlyEarlierLogLine(source)}\n`;
 	const fd = openSync(join(dir, "research-log.md"), constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | NO_FOLLOW);
 	try {
 		const bytes = Buffer.from(text);
