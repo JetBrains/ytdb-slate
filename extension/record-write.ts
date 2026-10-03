@@ -42,6 +42,8 @@ export interface RecordWriteOptions {
 	platform?: string;
 	/** Called only on supported systems, after resolving the destination and before changes. */
 	platformFacts?: (destination: string) => Promise<RecordPlatformFacts>;
+	/** Inputs for the default platform facts provider. */
+	platformProbe?: RecordPlatformProbe;
 	temporaryName?: () => string;
 	/** Operation boundary for deterministic fault and interleaving checks. */
 	beforeFinalCheck?: () => Promise<void>;
@@ -51,6 +53,7 @@ export class RecordPrepublicationError extends Error {
 	readonly state: "refused before publication" | "failed before publication";
 	readonly stage: string;
 	cleanup: RecordCleanup = {};
+	secondaryFailures: string[] = [];
 	constructor(state: RecordPrepublicationError["state"], reason: string, stage: string) {
 		super(reason);
 		this.state = state;
@@ -74,6 +77,7 @@ async function readRecord(io: RecordFileSystem, path: string): Promise<{ bytes: 
 	if (!entry.isFile() || entry.isSymbolicLink()) refuse("The record is not a regular file. Inspect its name before retrying.");
 	if (entry.nlink !== 1) refuse("The record has extra hard links. Stop writers and inspect the links before retrying.");
 	const held = await io.open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+	let failure: RecordPrepublicationError | undefined;
 	try {
 		const identity = await held.stat();
 		if (!identity.isFile() || identity.nlink !== 1 || !same(entry, identity)) refuse("The record changed identity. Read the safe current record again.");
@@ -82,23 +86,34 @@ async function readRecord(io: RecordFileSystem, path: string): Promise<{ bytes: 
 		const final = await held.stat();
 		if (!after.isFile() || after.nlink !== 1 || final.nlink !== 1 || !same(identity, after)) refuse("The record changed identity or links. Read the safe current record again.");
 		return { bytes, identity };
-	} finally { await held.close(); }
+	} catch (error) {
+		failure = error instanceof RecordPrepublicationError ? error : new RecordPrepublicationError("failed before publication", "Record preparation failed during record read. Inspect the record before retrying.", "record read");
+		throw failure;
+	} finally {
+		try { await held.close(); } catch {
+			const reason = "The record read handle did not close. Inspect open handles before retrying.";
+			if (failure) failure.secondaryFailures.push(reason);
+			else throw new RecordPrepublicationError("failed before publication", reason, "record read close");
+		}
+	}
 }
 
 export interface RecordPlatformProbe {
 	platform: string;
-	wsl: boolean;
+	releaseText: string;
+	environment: Readonly<Record<string, string | undefined>>;
 	readMountInfo(): Promise<string>;
 	fileSystemType(destination: string): Promise<number>;
 }
 /** Available mount and filesystem facts detect Windows drives without assuming a mount location. */
 export async function recordPlatformFacts(destination: string, probe: RecordPlatformProbe = {
 	platform: process.platform,
-	wsl: process.platform === "linux" && (/microsoft/i.test(release()) || !!process.env.WSL_INTEROP || !!process.env.WSL_DISTRO_NAME),
+	releaseText: release(),
+	environment: process.env,
 	readMountInfo: () => fs.readFile("/proc/self/mountinfo", "utf8"),
 	fileSystemType: async (path) => (await fs.statfs(path)).type,
 }): Promise<RecordPlatformFacts> {
-	const wsl = probe.platform === "linux" && probe.wsl;
+	const wsl = probe.platform === "linux" && (/microsoft/i.test(probe.releaseText) || !!probe.environment.WSL_INTEROP || !!probe.environment.WSL_DISTRO_NAME);
 	const windowsMounts: string[] = [];
 	let windowsFileSystem = false;
 	if (wsl) {
@@ -118,8 +133,8 @@ export async function recordPlatformFacts(destination: string, probe: RecordPlat
 	return { platform: probe.platform, wsl, windowsMounts, windowsFileSystem };
 }
 function supported(platform: string): void {
-	if (platform === "win32") refuse("Native Windows cannot write records safely. Use WSL on its own Linux filesystem.");
-	if (platform !== "linux" && platform !== "darwin") refuse("This system cannot write records safely. Use Linux, macOS, or WSL on its own Linux filesystem.");
+	if (platform === "win32") refuse("Native Windows cannot write records safely. Use Windows Subsystem for Linux (WSL) on its own Linux filesystem.");
+	if (platform !== "linux" && platform !== "darwin") refuse("This system cannot write records safely. Use Linux, macOS, or Windows Subsystem for Linux (WSL) on its own Linux filesystem.");
 	if (typeof constants.O_NOFOLLOW !== "number") refuse("This system cannot protect record opens. Use a supported Linux or macOS filesystem.");
 }
 
@@ -173,9 +188,12 @@ export async function prepareRecordWrite(context: RecordWriteContext, args: Reco
 		const chain = await Promise.all([root, parent, destination].map(async (path) => ({ path, identity: await directory(io, path) })));
 		const resolved = await io.realpath(destination);
 		if (resolved !== destination) refuse("The record folder resolves to another path. Restore the real folder before retrying.");
-		const facts = await (options.platformFacts ?? recordPlatformFacts)(resolved);
+		const facts = await (options.platformFacts ?? ((path) => recordPlatformFacts(path, options.platformProbe)))(resolved);
 		supported(facts.platform);
-		if (facts.wsl && (facts.windowsFileSystem || facts.windowsMounts.some((mount) => resolved === resolve(mount) || resolved.startsWith(resolve(mount) + sep)))) refuse("This destination is a Windows drive inside WSL. Move the change to WSL on its own Linux filesystem.");
+		if (facts.wsl && (facts.windowsFileSystem || facts.windowsMounts.some((mount) => {
+			const base = resolve(mount);
+			return resolved === base || resolved.startsWith(base.endsWith(sep) ? base : base + sep);
+		}))) refuse("This destination is a Windows drive inside Windows Subsystem for Linux (WSL). Move the change to WSL on its own Linux filesystem.");
 		const recheck = async () => { for (const entry of chain) await directory(io, entry.path, entry.identity); };
 		const readOnly = async () => {
 			for (const sibling of await io.readdir(parent)) {
@@ -191,7 +209,9 @@ export async function prepareRecordWrite(context: RecordWriteContext, args: Reco
 					if (matchesReadOnlyEarlierLogLine(bytes.subarray(0, newline < 0 ? bytes.length : newline), current)) refuse(`Change folder ${sibling} marks this change read-only. Write in the active successor folder instead.`);
 				} catch (error) {
 					if (error instanceof RecordPrepublicationError && error.message.startsWith("Change folder ")) throw error;
-					refuse(`Cannot safely read sibling folder ${sibling}. Inspect its root log before retrying.`);
+					const failure = new RecordPrepublicationError("refused before publication", `Cannot safely read sibling folder ${sibling}. Inspect its root log before retrying.`, "sibling read");
+					if (error instanceof RecordPrepublicationError) failure.secondaryFailures.push(...error.secondaryFailures);
+					throw failure;
 				}
 			}
 		};
@@ -202,7 +222,6 @@ export async function prepareRecordWrite(context: RecordWriteContext, args: Reco
 		if (mode === "create" && await optionalStat(io, finalPath)) refuse("The record name already exists. Inspect it or select append with its current hash.");
 		if (earlier && recordHash(earlier.bytes) !== args.expectedHash) refuse("The expected hash is stale. Read the safe current record and use its fresh hash.");
 		const candidate = earlier ? Buffer.concat([earlier.bytes, payload]) : payload;
-		if (earlier && !candidate.subarray(0, earlier.bytes.length).equals(earlier.bytes)) refuse("The candidate does not preserve the earlier bytes. Correct the append before retrying.");
 		stage = "private staging";
 		const name = options.temporaryName?.() ?? `.slate-record-${randomBytes(16).toString("hex")}.tmp`;
 		if (!/^\.slate-record-[0-9a-f]{32}\.tmp$/.test(name)) refuse("The temporary name is invalid. Correct the writer before retrying.");
@@ -256,7 +275,7 @@ export async function prepareRecordWrite(context: RecordWriteContext, args: Reco
 		};
 	} catch (error) {
 		const failure = error instanceof RecordPrepublicationError ? error : new RecordPrepublicationError("failed before publication", `Record preparation failed during ${stage}. Inspect the record and artifacts before retrying.`, stage);
-		try { await held?.close(); } catch { /* Preserve the primary failure and still attempt matching cleanup. */ }
+		try { await held?.close(); } catch { failure.secondaryFailures.push("The staging handle did not close. Inspect open handles before retrying."); }
 		if (temporaryPath && identity) failure.cleanup = await cleanupRecordTemporary(io, temporaryPath, identity);
 		else if (temporaryPath && held) failure.cleanup = { leftover: temporaryPath, reason: "The temporary identity is unknown. Leave the name untouched and inspect it." };
 		throw failure;

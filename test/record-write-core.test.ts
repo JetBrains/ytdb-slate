@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import * as fs from "node:fs/promises";
 import { constants } from "node:fs";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test, type TestContext } from "node:test";
@@ -11,6 +12,25 @@ import { cleanupRecordTemporary, prepareRecordWrite, recordHash, RecordPrepublic
 
 const name = "track-2.2-implementer-report.md";
 const tempName = `.slate-record-${"a".repeat(32)}.tmp`;
+const independentHash = (bytes: Uint8Array) => `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+function observeChanges(base: RecordFileSystem = fs) {
+  const changes: string[] = [];
+  const io: RecordFileSystem = { ...base,
+    async open(path, flags, mode) {
+      const handle = await base.open(path, flags, mode);
+      if (flags & constants.O_CREAT) {
+        changes.push("create");
+        const write = handle.writeFile.bind(handle);
+        handle.writeFile = async (...args) => { changes.push("write"); return write(...args); };
+      }
+      return handle;
+    },
+    async link(from, to) { changes.push("link"); await base.link(from, to); },
+    async rename(from, to) { changes.push("rename"); await base.rename(from, to); },
+    async unlink(path) { changes.push("unlink"); await base.unlink(path); },
+  };
+  return { io, changes };
+}
 async function fixture(t: TestContext) {
   const root = await fs.realpath(await fs.mkdtemp(join(tmpdir(), "slate-record-core-")));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
@@ -46,7 +66,7 @@ test("record-private-creation publishes through a hard link and removes only its
   assert.equal(staged.nlink, 1);
   assert.deepEqual(await fs.readFile(write.temporaryPath), Buffer.from(create.payload));
   await assert.rejects(fs.lstat(f.path), { code: "ENOENT" });
-  assert.deepEqual(await write.publish(), { publicationReturned: true, candidateHash: recordHash(Buffer.from(create.payload)) });
+  assert.deepEqual(await write.publish(), { publicationReturned: true, candidateHash: independentHash(Buffer.from(create.payload)) });
   assert.deepEqual(calls, ["link"]);
   const published = await fs.lstat(f.path);
   assert.equal(published.ino, staged.ino);
@@ -66,7 +86,7 @@ test("record-append-preservation keeps binary prefixes, repeated and empty addit
   await fs.writeFile(f.path, bytes, { mode: 0o644 });
   for (const payload of ["second\r\n😀", "", "third\n", "é".repeat(RECORD_PAYLOAD_MAX / 2)]) {
     const old = await fs.lstat(f.path);
-    const write = await f.call({ record: name, mode: "append", payload, expectedHash: recordHash(bytes) });
+    const write = await f.call({ record: name, mode: "append", payload, expectedHash: independentHash(bytes) });
     assert.equal((await fs.lstat(f.path)).mode & 0o777, old.mode & 0o777, "reading must not change manual permissions");
     await write.publish();
     assert.deepEqual(await write.cleanup(), {});
@@ -79,6 +99,20 @@ test("record-append-preservation keeps binary prefixes, repeated and empty addit
     assert.equal(fresh.mode & 0o777, 0o600);
     bytes = candidate;
   }
+  assert.deepEqual(await fs.readdir(f.dir), [name]);
+});
+
+test("record-hash-known-answer and append use an independent SHA-256 digest", async (t) => {
+  const f = await fixture(t);
+  const hash = "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+  assert.equal(recordHash(Buffer.from("abc")), hash);
+  await fs.writeFile(f.path, "abc");
+  const write = await f.call({ record: name, mode: "append", payload: "def", expectedHash: hash });
+  assert.equal(write.candidateHash, independentHash(Buffer.from("abcdef")));
+  await write.publish();
+  assert.deepEqual(await write.cleanup(), {});
+  assert.equal(await fs.readFile(f.path, "utf8"), "abcdef");
+  assert.equal((await fs.lstat(f.path)).nlink, 1);
   assert.deepEqual(await fs.readdir(f.dir), [name]);
 });
 
@@ -173,7 +207,9 @@ test("record-read-only-source skips missing sibling logs and refuses matches and
   await fs.mkdir(siblingDir);
   let write = await f.call(create); await write.cleanup();
   await fs.writeFile(log, readOnlyEarlierLogLine(f.current) + "\nremaining");
-  await refused(f.call(create), new RegExp(`${sibling}.*read-only`));
+  const markerObserver = observeChanges();
+  await refused(f.call(create, { fs: markerObserver.io }), new RegExp(`${sibling}.*read-only`));
+  assert.deepEqual(markerObserver.changes, []);
   assert.deepEqual(await fs.readdir(f.dir), []);
   for (const first of [readOnlyEarlierLogLine(f.current) + "\r", " " + readOnlyEarlierLogLine(f.current), "# unrelated"]) {
     await fs.writeFile(log, first + "\n" + readOnlyEarlierLogLine(f.current));
@@ -181,11 +217,152 @@ test("record-read-only-source skips missing sibling logs and refuses matches and
   }
   await fs.writeFile(join(f.dir, "research-log.md"), readOnlyEarlierLogLine(f.current));
   write = await f.call(create); await write.cleanup();
-  await refused(f.call(create, { fs: { ...fs, async lstat(path) { if (path === log) throw Object.assign(new Error("denied"), { code: "EACCES" }); return fs.lstat(path); } } }), new RegExp(`sibling folder ${sibling}.*Inspect`));
+  const errorObserver = observeChanges({ ...fs, async lstat(path) { if (path === log) throw Object.assign(new Error("denied"), { code: "EACCES" }); return fs.lstat(path); } });
+  await refused(f.call(create, { fs: errorObserver.io }), new RegExp(`sibling folder ${sibling}.*Inspect`));
+  assert.deepEqual(errorObserver.changes, []);
   await fs.unlink(log);
   await fs.symlink(join(f.dir, "research-log.md"), log);
   await refused(f.call(create), new RegExp(`sibling folder ${sibling}`));
   assert.deepEqual(await fs.readdir(f.dir), ["research-log.md"]);
+});
+
+test("record-sibling-read-error refuses before any mutating operation", async (t) => {
+  const f = await fixture(t);
+  const sibling = createChangeFolder();
+  const dir = join(f.parent, sibling);
+  const log = join(dir, "research-log.md");
+  await fs.mkdir(dir);
+  await fs.writeFile(log, "# unrelated");
+  const observed = observeChanges({ ...fs, async lstat(path) {
+    if (path === log) throw Object.assign(new Error("denied"), { code: "EACCES" });
+    return fs.lstat(path);
+  } });
+  await refused(f.call(create, { fs: observed.io }), new RegExp(`sibling folder ${sibling}.*Inspect`));
+  assert.deepEqual(observed.changes, []);
+  assert.deepEqual(await fs.readdir(f.dir), []);
+  assert.equal(await fs.readFile(log, "utf8"), "# unrelated");
+});
+
+test("record-sibling-shape skips unrelated files and folders without reading their contents", async (t) => {
+  const f = await fixture(t);
+  const stray = join(f.parent, ".DS_Store");
+  for (const kind of ["file", "folder"]) {
+    if (kind === "file") await fs.writeFile(stray, "outside change grammar");
+    else await fs.mkdir(stray);
+    const write = await f.call(create);
+    assert.equal(await fs.readFile(write.temporaryPath, "utf8"), create.payload);
+    assert.deepEqual(await write.cleanup(), {});
+    assert.deepEqual(await fs.readdir(f.dir), []);
+    if (kind === "file") assert.equal(await fs.readFile(stray, "utf8"), "outside change grammar");
+    else assert.deepEqual(await fs.readdir(stray), []);
+    await fs.rm(stray, { recursive: true });
+  }
+});
+
+test("record-sibling-identity refuses a folder replacement after reading its log", async (t) => {
+  const f = await fixture(t);
+  const sibling = createChangeFolder();
+  const dir = join(f.parent, sibling);
+  const log = join(dir, "research-log.md");
+  await fs.mkdir(dir);
+  await fs.writeFile(log, "# unrelated");
+  const observed = observeChanges({ ...fs, async open(path, flags, mode) {
+    const handle = await fs.open(path, flags, mode);
+    if (path === log) {
+      const close = handle.close.bind(handle);
+      handle.close = async () => {
+        await close();
+        await fs.rename(dir, dir + "-held");
+        await fs.mkdir(dir);
+        await fs.writeFile(log, "# unrelated");
+      };
+    }
+    return handle;
+  } });
+  await refused(f.call(create, { fs: observed.io }), new RegExp(`sibling folder ${sibling}.*Inspect`));
+  assert.deepEqual(observed.changes, []);
+  assert.deepEqual(await fs.readdir(f.dir), []);
+  assert.equal(await fs.readFile(log, "utf8"), "# unrelated");
+  assert.equal(await fs.readFile(join(dir + "-held", "research-log.md"), "utf8"), "# unrelated");
+});
+
+test("record-pre-staging-recheck refuses a folder replaced after the initial checks", async (t) => {
+  const f = await fixture(t);
+  let swapped = false;
+  const observed = observeChanges({ ...fs, async lstat(path) {
+    try { return await fs.lstat(path); } catch (error) {
+      if (path === f.path && !swapped) {
+        swapped = true;
+        await fs.rename(f.dir, f.dir + "-held");
+        await fs.mkdir(f.dir);
+      }
+      throw error;
+    }
+  } });
+  await refused(f.call(create, { fs: observed.io }), /folder changed identity.*Inspect/);
+  assert.equal(swapped, true);
+  assert.deepEqual(observed.changes, []);
+  assert.deepEqual(await fs.readdir(f.dir), []);
+  assert.deepEqual(await fs.readdir(f.dir + "-held"), []);
+});
+
+for (const phase of ["initial record", "final candidate", "final record"] as const) {
+  test(`record-read-close preserves the primary refusal during ${phase}`, async (t) => {
+    const f = await fixture(t);
+    await fs.writeFile(f.path, "earlier");
+    let final = false;
+    let faults = 0;
+    const io: RecordFileSystem = { ...fs, async open(path, flags, mode) {
+      const handle = await fs.open(path, flags, mode);
+      const target = phase === "final candidate" ? join(f.dir, tempName) : f.path;
+      if (path === target && !(flags & constants.O_CREAT) && (phase === "initial record" || final)) {
+        const stat = handle.stat.bind(handle);
+        handle.stat = async () => {
+          const bad = Object.create(await stat());
+          bad.nlink = 2;
+          return bad;
+        };
+        const close = handle.close.bind(handle);
+        handle.close = async () => { faults++; await close(); throw new Error("secondary close fault"); };
+      }
+      return handle;
+    } };
+    const args = { ...create, mode: "append", expectedHash: independentHash(Buffer.from("earlier")) };
+    const pending = phase === "initial record" ? f.call(args, { fs: io }) : (await f.call(args, { fs: io, beforeFinalCheck: async () => { final = true; } })).publish();
+    await assert.rejects(pending, (error: unknown) => {
+      assert.ok(error instanceof RecordPrepublicationError);
+      assert.equal(error.state, "refused before publication");
+      assert.match(error.message, /record changed identity.*Read the safe current record/);
+      assert.deepEqual(error.secondaryFailures, ["The record read handle did not close. Inspect open handles before retrying."]);
+      assert.deepEqual(error.cleanup, {});
+      return true;
+    });
+    assert.equal(faults, 1);
+    assert.equal(await fs.readFile(f.path, "utf8"), "earlier");
+    assert.equal((await fs.lstat(f.path)).nlink, 1);
+    assert.deepEqual(await fs.readdir(f.dir), [name]);
+  });
+}
+
+test("record-staging-close reports a secondary failure without hiding the write failure", async (t) => {
+  const f = await fixture(t);
+  await assert.rejects(f.call(create, { fs: { ...fs, async open(path, flags, mode) {
+    const handle = await fs.open(path, flags, mode);
+    if (flags & constants.O_CREAT) {
+      handle.writeFile = async () => { throw new Error("write fault"); };
+      const close = handle.close.bind(handle);
+      handle.close = async () => { await close(); throw new Error("close fault"); };
+    }
+    return handle;
+  } } }), (error: unknown) => {
+    assert.ok(error instanceof RecordPrepublicationError);
+    assert.equal(error.state, "failed before publication");
+    assert.match(error.message, /private staging.*Inspect/);
+    assert.deepEqual(error.secondaryFailures, ["The staging handle did not close. Inspect open handles before retrying."]);
+    assert.deepEqual(error.cleanup, {});
+    return true;
+  });
+  assert.deepEqual(await fs.readdir(f.dir), []);
 });
 
 for (const change of ["bytes", "identity", "folder", "temporary-bytes", "temporary-identity", "temporary-mode", "temporary-link"] as const) {

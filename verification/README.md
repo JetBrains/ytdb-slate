@@ -38,11 +38,18 @@ Record tests create disposable folders outside the checkout.
 `node verification/record-test-roster.mjs` audits both selections. The patterns
 are `test/**/record-*.test.ts` and `test/**/record-windows-*.test.ts`, with zero or
 more nested folders. Record imports and the `record-tool-test:` marker identify
-record-tool tests. The marker value `windows` identifies Windows-only tests.
+record-tool tests. The canonical Windows marker is `// record-tool-test: windows`.
+Indented and block-comment markers with that value also identify Windows-only tests.
+Both patterns allow an empty suffix after their final hyphen.
 The audit fails on an applicable file outside its pattern or a pattern with no
-files. `test/record-test-roster.test.ts` tests both failure cases and the shared
-rules file membership. Both new jobs run the audit. `--run all` runs the
-record-tool selection, including `test/record-shared-rules.test.ts`.
+files. Each selected file must produce one successful Node test summary and run
+at least one non-skipped test. Missing evidence, unexpected skips, pending tests
+and cancelled tests fail the runner. Only `record-native-windows-refusal uses the
+real platform on Windows` in `test/record-windows-refusal.test.ts` may skip off
+Windows. That test must run on Windows. `test/record-test-roster.test.ts` tests
+roster and execution failures and the shared rules file membership.
+Both record-tool jobs run the audit. `--run all` runs the record-tool selection,
+including `test/record-shared-rules.test.ts`.
 `--run windows` runs only the Windows subset. Exit 1 reports a roster or test
 failure. Exit 2 reports a bad invocation.
 

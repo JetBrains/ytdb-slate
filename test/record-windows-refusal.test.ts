@@ -12,7 +12,7 @@ for (const platform of ["win32", "freebsd", "aix"]) {
         { record: "invalid", mode, payload: "text" }, { platform, fs: io, platformFacts: async () => { operations++; throw new Error("facts must not run"); } }), (error: unknown) => {
         assert.ok(error instanceof RecordPrepublicationError);
         assert.equal(error.state, "refused before publication");
-        assert.match(error.message, platform === "win32" ? /Native Windows.*Use WSL on its own Linux filesystem/ : /This system.*Use Linux, macOS, or WSL on its own Linux filesystem/);
+        assert.match(error.message, platform === "win32" ? /Native Windows.*Use Windows Subsystem for Linux \(WSL\) on its own Linux filesystem/ : /This system.*Use Linux, macOS, or Windows Subsystem for Linux \(WSL\) on its own Linux filesystem/);
         return true;
       });
       assert.equal(operations, 0);
@@ -22,5 +22,5 @@ for (const platform of ["win32", "freebsd", "aix"]) {
 
 test("record-native-windows-refusal uses the real platform on Windows", { skip: process.platform !== "win32" }, async () => {
   await assert.rejects(prepareRecordWrite({ projectRoot: "C:\\project", assignment: { currentFolder: "invalid", writerRole: "record-only", names: [] } },
-    { record: "invalid", mode: "create", payload: "text" }), /Native Windows.*Use WSL on its own Linux filesystem/);
+    { record: "invalid", mode: "create", payload: "text" }), /Native Windows.*Use Windows Subsystem for Linux \(WSL\) on its own Linux filesystem/);
 });
