@@ -115,10 +115,10 @@ test("thread tool enforces the creation type and publishes the closed vocabulary
     "Non-local logic defect reviewer", "Consumer contract break reviewer", "Governing-rule defect reviewer", "Unreported failure reviewer",
   ].join(", ")}`);
   assert.equal(descriptionBytes, 973, "thread description byte budget changed; update docs/context-budget.md in the same commit");
-  assert.equal(parameterSchemaBytes, 1_921, "thread parameter schema byte budget changed; update docs/context-budget.md in the same commit");
+  assert.equal(parameterSchemaBytes, 2_137, "thread parameter schema byte budget changed; update docs/context-budget.md in the same commit");
   assert.equal(
     descriptionBytes + parameterSchemaBytes,
-    2_894,
+    3_110,
     "thread combined byte budget changed; update docs/context-budget.md in the same commit",
   );
 

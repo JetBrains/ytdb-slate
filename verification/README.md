@@ -633,54 +633,54 @@ exact current production renders are:
 | fixture | paths | portable characters | lines |
 | --- | ---: | ---: | ---: |
 | shipped logical section | 0 | 3,596 | 11 |
-| trusted shipped-default doctrine | 5 | 8,468 | 88 |
-| untrusted doctrine | 4 | 2,775 | 47 |
-| draft pull requests, shipped policy | 6 | 8,543 | 89 |
-| capped workers, shipped policy | 5 | 9,815 | 98 |
-| draft plus capped workers | 6 | 9,890 | 99 |
-| deferred issues plus capped workers | 5 | 9,889 | 99 |
-| routing recommendations plus capped workers | 5 | 9,912 | 99 |
-| draft plus deferred issues and capped workers | 6 | 9,964 | 100 |
-| draft plus routing recommendations and capped workers | 6 | 9,983 | 100 |
-| deferred issues plus routing recommendations and capped workers | 5 | 9,986 | 100 |
-| canonical maximal baseline with all workflow options | 6 | 10,057 | 101 |
-| maximal baseline with an open change | 6 | 10,255 | 102 |
-| maximal baseline with source and legacy root log | 6 | 10,485 | 104 |
-| dogfood config and extension roster | 6 | 9,182 | 100 |
-| 19,400-character policy plus draft, source and legacy log | 6 | 26,122 | 102 |
-| same policy plus draft and deferred issues, source and legacy log | 6 | 26,196 | 103 |
-| same policy plus routing recommendations, source and legacy log | 5 | 26,144 | 102 |
-| same policy plus deferred issues and routing recommendations, source and legacy log | 5 | 26,218 | 103 |
-| same policy plus draft and routing recommendations, source and legacy log | 6 | 26,215 | 103 |
-| same boundary composition plus deferred issues | 6 | 26,289 | 104 |
-| valid shipped policy plus 88 capped tools, source and legacy log | 6 | 28,159 | 187 |
+| trusted shipped-default doctrine | 5 | 8,461 | 81 |
+| untrusted doctrine | 4 | 2,768 | 40 |
+| draft pull requests, shipped policy | 6 | 8,529 | 82 |
+| capped workers, shipped policy | 5 | 9,808 | 91 |
+| draft plus capped workers | 6 | 9,876 | 92 |
+| deferred issues plus capped workers | 5 | 9,882 | 92 |
+| routing recommendations plus capped workers | 5 | 9,905 | 92 |
+| draft plus deferred issues and capped workers | 6 | 9,950 | 93 |
+| draft plus routing recommendations and capped workers | 6 | 9,969 | 93 |
+| deferred issues plus routing recommendations and capped workers | 5 | 9,979 | 93 |
+| canonical maximal baseline with all workflow options | 6 | 10,043 | 94 |
+| maximal baseline with an open change | 6 | 10,245 | 95 |
+| maximal baseline with source and legacy root log | 6 | 10,475 | 97 |
+| dogfood config and extension roster | 6 | 9,168 | 93 |
+| 19,400-character policy plus draft, source and legacy log | 6 | 26,112 | 95 |
+| same policy plus draft and deferred issues, source and legacy log | 6 | 26,186 | 96 |
+| same policy plus routing recommendations, source and legacy log | 5 | 26,141 | 95 |
+| same policy plus deferred issues and routing recommendations, source and legacy log | 5 | 26,215 | 96 |
+| same policy plus draft and routing recommendations, source and legacy log | 6 | 26,205 | 96 |
+| same boundary composition plus deferred issues | 6 | 26,279 | 97 |
+| valid shipped policy plus 88 capped tools, source and legacy log | 6 | 28,149 | 180 |
 
 The capped worker baseline has two units and four tools. Each unit label has 128
 characters. Each tool name has 64 characters. Each description has 140
 characters. The dogfood fixture reads `.pi/slate.json` and represents its two
 configured extension units.
 
-The canonical 10,057-character baseline uses all six shipped logical models,
+The canonical 10,043-character baseline uses all six shipped logical models,
 all three workflow options, and the capped worker roster. With an open change,
-a direct source folder, and a legacy root log, it measures 10,485 characters.
-Its required five-percent value is 11,010. The 26,300 whole-doctrine ceiling
+a direct source folder, and a legacy root log, it measures 10,475 characters.
+Its required five-percent value is 10,999. The 26,300 whole-doctrine ceiling
 keeps that reserve. The exact fixtures cover all eight workflow-option
 combinations.
 
 Runtime rejection controls are separate. A logical section at exactly 19,400
 portable characters or 105 lines is valid. A section at 19,401 characters or
 106 lines is rejected before work. The four routing-enabled boundary
-compositions and the 26,122-character and 26,196-character feature-off
+compositions and the 26,112-character and 26,186-character feature-off
 compatibility controls include the current change, direct source, and legacy
 root log. They prove that an exact-boundary policy fits the 26,300-character
-whole-doctrine ceiling. The 26,289-character control has the smallest margin.
-A valid third worker unit with a 5-character label and all three workflow
-options measures 26,300. A 6-character label measures 26,301 and fails. These controls are
+whole-doctrine ceiling. The 26,279-character control has the smallest margin.
+A valid third worker unit with a 15-character label and all three workflow
+options measures 26,300. A 16-character label measures 26,301 and fails. These controls are
 not reserve-bearing canonical baselines.
 
 The over-cap counterfactual keeps the shipped logical policy valid and adds 88
 supported capped worker tools. With an open change, source, and legacy log, its
-28,159 portable characters exceed the ceiling by 1,859 characters.
+28,149 portable characters exceed the ceiling by 1,849 characters.
 This transformed fixture replaces the retired six-copy physical model-row shape.
 It does not assume an old per-row or per-tool increment. Removing the whole-
 doctrine comparison makes the counterfactual pass and therefore breaks the

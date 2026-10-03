@@ -10,6 +10,11 @@ import { createChangeDirectory } from "../extension/slate-files.ts";
 import { ADOPTED_SNAPSHOT_FIELDS, SlateStore, type SlateSnapshot } from "../extension/state.ts";
 import { registerSlateTools } from "../extension/tools.ts";
 import type { ThreadManager } from "../extension/threads.ts";
+import { pathToFileURL } from "node:url";
+import type { AgentTool, runToolCall as RunToolCall } from "../node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-agent-core/dist/index.js";
+
+// Use Pi's pinned core, including prepareArguments, conversion, hooks and error results.
+const { runToolCall } = await import(pathToFileURL(join(process.cwd(), "node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-agent-core/dist/index.js")).href) as { runToolCall: typeof RunToolCall };
 
 type Tool = { execute: (...args: any[]) => Promise<{ content: Array<{ text: string }> }> };
 function harness(t: import("node:test").TestContext) {
@@ -82,7 +87,7 @@ test("start, close, resume, reload and handoff preserve one visible change witho
   const log = join(f.project, "slate-changes", name, "research-log.md");
   assert.equal(readFileSync(log, "utf8"), "# Research log\n");
   assert.match(await f.doctrine(), new RegExp(`Current research log: slate-changes/${name}/research-log.md`));
-  assert.match(await f.doctrine(), new RegExp(`slate-changes/${name}/track-<number>-implementer-report.md`));
+  assert.match(await f.doctrine(), new RegExp(`slate-changes/${name}/track-<identifier>-implementer-report.md`));
   await assert.rejects(f.action("start"), /close the current change/);
   for (const reason of ["resume", "reload", "startup"]) {
     await f.start(reason);
@@ -281,13 +286,95 @@ test("implementer receives its exact report name in the dispatch text", async ()
     } }) as unknown as ThreadManager);
   assert.ok(thread);
   const call = { name: "implementation", type: "implementer", task: "Make the fix", model: "sol-6.1", reason: "routine" };
-  await assert.rejects(thread.execute("id", call, undefined, undefined, {}), /requires a positive safe trackNumber/);
+  await assert.rejects(thread.execute("id", call, undefined, undefined, {}), /requires trackNumber/);
   await thread.execute("id", { ...call, trackNumber: 3 }, undefined, undefined, {});
   assert.match(task!, new RegExp(`slate-changes/${store.currentChange}/track-3-implementer-report.md`));
   assert.equal(task!.includes("<number>"), false);
   store.sourceChange = createChangeFolder();
   await thread.execute("id", { ...call, trackNumber: 3 }, undefined, undefined, {});
   assert.equal(task!, `Make the fix\n\nImplementer report: slate-changes/${store.currentChange}/track-3-implementer-report.md. Create without following a symbolic link. If the source folder has this track's report, continue it in this new report and name slate-changes/${store.sourceChange}/track-3-implementer-report.md as read-only in the new report's first entry. Do not edit the source report.`);
+});
+
+test("dispatch validates original and changed identifiers through real Pi preparation", { timeout: 10000 }, async () => {
+  let definition: AgentTool | undefined;
+  const tasks: string[] = [];
+  const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
+  store.currentChange = createChangeFolder();
+  store.sourceChange = createChangeFolder();
+  registerSlateTools({ registerTool(tool: { name: string }) {
+    if (tool.name === "thread") definition = tool as unknown as AgentTool;
+  } } as unknown as ExtensionAPI, store, () => ({ async dispatch(opts: { task: string }) {
+    tasks.push(opts.task);
+    return { thread: { id: "t1", name: "test", type: "implementer" },
+      episode: { id: "t1.e1", status: "ok", file: "/unused" }, episodeText: "done", warnings: [], usage: {} };
+  } }) as unknown as ThreadManager);
+  assert.ok(definition);
+  const identifierParameter = (definition.parameters as unknown as { properties: { trackNumber: { description: string } } }).properties.trackNumber;
+  assert.match(identifierParameter.description, /positive safe integer or canonical dotted path number/);
+  assert.match(identifierParameter.description, /At most 128 ASCII characters/);
+  assert.match(identifierParameter.description, /Each component is 1 through 9007199254740991, without leading zeros/);
+  const tool = { ...definition, execute: (id: string, args: unknown, signal: AbortSignal | undefined, update: unknown) =>
+    (definition as unknown as Tool).execute(id, args, signal, update, {}) } as AgentTool;
+  const call = { type: "implementer", task: "work", model: "sol-6.1", reason: "test" };
+  const invoke = (args: Record<string, unknown>, hook?: (context: any) => Promise<void>) => runToolCall(
+    { type: "toolCall", id: "test", name: "thread", arguments: args as never },
+    { tools: [tool], context: { messages: [], tools: [tool] }, assistantMessage: {} as never, beforeToolCall: hook ? async (context) => { await hook(context); return undefined; } : undefined },
+  );
+  const at128 = `${"1.".repeat(56)}1234567890123456`;
+  assert.equal(at128.length, 128);
+  const at129 = `${"1.".repeat(57)}123456789012345`;
+  assert.equal(at129.length, 129);
+  const accepted = [1, 3, 105, Number.MAX_SAFE_INTEGER, "1", "1.2", "1.2.3", "9007199254740991", "1.9007199254740991", at128];
+  for (const trackNumber of accepted) {
+    const result = await invoke({ ...call, trackNumber });
+    assert.equal(result.isError, false, JSON.stringify(trackNumber));
+    assert.equal(tasks.at(-1), `work\n\nImplementer report: slate-changes/${store.currentChange}/track-${trackNumber}-implementer-report.md. Create without following a symbolic link. If the source folder has this track's report, continue it in this new report and name slate-changes/${store.sourceChange}/track-${trackNumber}-implementer-report.md as read-only in the new report's first entry. Do not edit the source report.`);
+  }
+  const rejected = [true, false, null, undefined, 0, -1, 1.2, Number.MAX_SAFE_INTEGER + 1, NaN, Infinity,
+    "", "0", "01", "01.2", "1.02", "1..2", "1.", ".1", " 1", "1 ", "1\n", "1\u0000", "１", "١", "1/2", "../1", "1\\2", "1e2", "+1", "1-2", "9007199254740992", "1.9007199254740992", at129];
+  for (const type of ["implementer", "general"] as const) {
+    for (const trackNumber of rejected) {
+      const count = tasks.length;
+      let hookReached = false;
+      const result = await invoke({ ...call, type, trackNumber }, async () => { hookReached = true; });
+      assert.equal(result.isError, true, `${type}: ${String(trackNumber)}`);
+      assert.match(result.result.content[0]!.type === "text" ? result.result.content[0]!.text : "", /trackNumber/);
+      assert.equal(hookReached, false, "invalid original input must stop before the post-conversion hook");
+      assert.equal(tasks.length, count, "no rejected value may dispatch");
+    }
+  }
+  assert.equal((await invoke({ ...call, type: "general" })).isError, false, "omission remains valid outside implementation");
+  const count = tasks.length;
+  assert.equal((await invoke(call)).isError, true, "open implementation needs an identifier");
+  for (const changed of ["01.2", true, "1.9007199254740992", at129]) {
+    const result = await invoke({ ...call, trackNumber: "1.2" }, async ({ args }) => { args.trackNumber = changed; });
+    assert.equal(result.isError, true, "post-validation mutation must be visible");
+    assert.equal(tasks.length, count);
+  }
+  // Change the value between the execute entry check and report-name construction.
+  for (const changed of ["01.2", "1\n", "1.9007199254740992", at129]) {
+    const args = { ...call, trackNumber: "1.2" };
+    Object.defineProperty(args, "type", { get() { args.trackNumber = changed; return "implementer"; } });
+    await assert.rejects((definition as unknown as Tool).execute("late", args, undefined, undefined, {}), /trackNumber/);
+    assert.equal(tasks.length, count, "report-name check must not trust an earlier validation");
+  }
+  store.currentChange = undefined;
+  assert.equal((await invoke(call)).isError, false, "closed implementation may omit the identifier");
+  assert.equal((await invoke({ ...call, trackNumber: null })).isError, true, "closed change still rejects supplied invalid input");
+  const maxName = `track-${at128}-implementer-report.md`;
+  assert.equal(Buffer.byteLength(maxName), 156);
+  assert.equal(Buffer.byteLength(`track-${at128}-research-log.md`), 150);
+  assert.ok(Buffer.byteLength(maxName) <= 255);
+  const folder = mkdtempSync(join(tmpdir(), "slate-report-name-"));
+  try {
+    writeFileSync(join(folder, maxName), "report", { flag: "wx" });
+    writeFileSync(join(folder, `track-${at128}-research-log.md`), "log", { flag: "wx" });
+    assert.equal(readFileSync(join(folder, maxName), "utf8"), "report");
+  } finally { rmSync(folder, { recursive: true }); }
+  const recursive = readFileSync(join(process.cwd(), "docs/recursive-workflow.md"), "utf8");
+  assert.match(recursive, /The identifier has at most 128 characters\./);
+  assert.match(recursive, /Each component is at most 9,007,199,254,740,991\./);
+  assert.match(recursive, /len\(number\) <= 128 and all\(int\(p\) <= 9007199254740991/);
 });
 
 test("legacy root research log is only named as read-only earlier input", { timeout: 10000 }, async (t) => {

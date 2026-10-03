@@ -132,12 +132,12 @@ test("logical doctrine production renders match published portable measurements"
   ], paths: [], toolNames: [] };
   const metric = (text: string) => ({ portable: text.split(docsDirectory).join("").length, lines: text.split("\n").length, paths: text.split(docsDirectory).length - 1 });
   assert.deepEqual(metric(runtime.promptText()!), { portable: 3596, lines: 11, paths: 0 });
-  assert.deepEqual(metric(await renderDoctrine(runtime)), { portable: 8468, lines: 88, paths: 5 });
-  assert.deepEqual(metric(await renderDoctrine(runtime, {}, false)), { portable: 2775, lines: 47, paths: 4 });
-  assert.deepEqual(metric(await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped)), { portable: 10057, lines: 101, paths: 6 });
+  assert.deepEqual(metric(await renderDoctrine(runtime)), { portable: 8461, lines: 81, paths: 5 });
+  assert.deepEqual(metric(await renderDoctrine(runtime, {}, false)), { portable: 2768, lines: 40, paths: 4 });
+  assert.deepEqual(metric(await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped)), { portable: 10043, lines: 94, paths: 6 });
   const change = { current: `change-20260101T000000Z-${"a".repeat(32)}`, source: `change-20260101T000001Z-${"b".repeat(32)}`, legacy: true };
   const linked = await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped, change);
-  assert.deepEqual(metric(linked), { portable: 10485, lines: 104, paths: 6 });
+  assert.deepEqual(metric(linked), { portable: 10475, lines: 97, paths: 6 });
   assert.ok(metric(linked).portable * 1.05 < 26300);
   assert.match(linked, /Follow each log's first entry to read the full source chain and accounting/);
   assert.match(linked, /Read-only legacy root log: research-log.md/);
@@ -342,7 +342,7 @@ test("doctrine uses approved focus states, the four-part proof, and effective ga
   const doctrine = (await renderDoctrine()).replace(/\s+/g, " ");
   assert.ok(doctrine.includes("Keep separate change/track records. NAMED: defect, place, consequence, review contribution. User approval proves it. Rejection is SKIPPED."));
   assert.ok(doctrine.includes("Proved areas add specialists and one Reviewer I."));
-  assert.ok(doctrine.includes("Above 100 counted lines requires design before work, even documentation-only."));
+  assert.ok(doctrine.includes("Estimate tracks first. Multi-track work or estimates >100 counted lines need design before work, even documentation-only."));
   assert.ok(doctrine.includes("Implementer reports approximate size in response and report. Above 100 adds Reviewer I except documentation-only."));
   assert.ok(doctrine.includes("Size adds no specialist, design adversary or track acceptance."));
   assert.ok(doctrine.includes("If size crosses 100 late, add Reviewer I unless documentation-only. No late design. Use larger size later."));
@@ -360,7 +360,7 @@ test("doctrine uses approved focus states, the four-part proof, and effective ga
 
 test("doctrine reuses known facts and only applicable user authorization", { timeout: 5000 }, async () => {
   const doctrine = (await renderDoctrine()).replace(/\s+/g, " ");
-  assert.ok(doctrine.includes("Apply evidence and prior answers before asking."));
+  assert.ok(doctrine.includes("Apply evidence and prior answers first."));
   assert.ok(doctrine.includes("Evidence cannot authorize."));
   assert.ok(doctrine.includes("Reuse approvals only for covered decisions with current conditions and prerequisites complete when answered."));
   assert.ok(doctrine.includes("Ask only unresolved parts. Explain changes. Preserve gates and reviews."));
@@ -400,12 +400,12 @@ test("rule 8 renders exact feature-off and enabled publishing tails", { timeout:
   assert.doesNotMatch(local, /Publish one umbrella draft PR/);
 
   const published = (await renderDoctrine(undefined, { workflow: { draftPRs: true } })).replace(/\s+/g, " ");
-  assert.ok(published.includes("Publish one umbrella draft PR for the change. Keep tracks mergeable. Only users merge."));
+  assert.ok(published.includes("Publish one draft PR per level. Merge the level, not a track. Only users merge."));
   assert.ok(published.includes(`Mechanics: ${PR_PUBLISHING_DOC}.`));
   assert.doesNotMatch(published, /repo-root (?:workflow|research) log/);
 
   const combined = (await renderDoctrine(undefined, { workflow: { draftPRs: true, routingRecommendations: true } })).replace(/\s+/g, " ");
-  assert.ok(combined.includes("Publish one umbrella draft PR for the change. Keep tracks mergeable. Only users merge."));
+  assert.ok(combined.includes("Publish one draft PR per level. Merge the level, not a track. Only users merge."));
   assert.ok(combined.includes(`Follow ${PR_PUBLISHING_DOC}.`));
 });
 

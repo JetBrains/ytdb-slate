@@ -1393,14 +1393,14 @@ try {
 			dogfood: metrics(await doctrine(dogExtensions, () => dogRuntime, true, dogConfig)),
 		};
 		const exact = {
-			prompt: { portable: 3596, lines: 11, paths: 0 }, trusted: { portable: 8468, lines: 88, paths: 5 },
-			untrusted: { portable: 2775, lines: 47, paths: 4 }, draft: { portable: 8543, lines: 89, paths: 6 },
-			extensions: { portable: 9815, lines: 98, paths: 5 }, allTails: { portable: 9890, lines: 99, paths: 6 },
-			followUp: { portable: 9889, lines: 99, paths: 5 }, routing: { portable: 9912, lines: 99, paths: 5 },
-			draftFollowUp: { portable: 9964, lines: 100, paths: 6 }, draftRouting: { portable: 9983, lines: 100, paths: 6 },
-			followUpRouting: { portable: 9986, lines: 100, paths: 5 }, maximal: { portable: 10057, lines: 101, paths: 6 },
-			maximalOpen: { portable: 10255, lines: 102, paths: 6 }, maximalLinked: { portable: 10485, lines: 104, paths: 6 },
-			dogfood: { portable: 9182, lines: 100, paths: 6 },
+			prompt: { portable: 3596, lines: 11, paths: 0 }, trusted: { portable: 8461, lines: 81, paths: 5 },
+			untrusted: { portable: 2768, lines: 40, paths: 4 }, draft: { portable: 8529, lines: 82, paths: 6 },
+			extensions: { portable: 9808, lines: 91, paths: 5 }, allTails: { portable: 9876, lines: 92, paths: 6 },
+			followUp: { portable: 9882, lines: 92, paths: 5 }, routing: { portable: 9905, lines: 92, paths: 5 },
+			draftFollowUp: { portable: 9950, lines: 93, paths: 6 }, draftRouting: { portable: 9969, lines: 93, paths: 6 },
+			followUpRouting: { portable: 9979, lines: 93, paths: 5 }, maximal: { portable: 10043, lines: 94, paths: 6 },
+			maximalOpen: { portable: 10245, lines: 95, paths: 6 }, maximalLinked: { portable: 10475, lines: 97, paths: 6 },
+			dogfood: { portable: 9168, lines: 93, paths: 6 },
 		};
 		const doctrineBaselines = Object.values(rendered);
 		checkAll("doctrine-budget", "exact production renders match published portable baselines and every current baseline keeps five-percent reserve", [
@@ -1434,17 +1434,17 @@ try {
 		const overExtensions = { units: [{ path: "/fixture/over", source: "z".repeat(128), isDirectory: true, tools: Array.from({ length: 88 }, (_, i) => ({ name: (`t${i}`).padEnd(64, "x"), description: "q".repeat(140) })) }], paths: [], toolNames: [] };
 		const over = await doctrine(overExtensions, () => activeRuntime, true, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, change);
 		const portable = (text) => text.split(docsDirectory).join("").length;
-		const wholeAt = await doctrine({ ...capped, units: [...capped.units, { path: "/fixture/c", source: "c".repeat(5), isDirectory: true, tools: [] }] }, () => atChars, true, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, change);
-		const wholeAbove = await doctrine({ ...capped, units: [...capped.units, { path: "/fixture/c", source: "c".repeat(6), isDirectory: true, tools: [] }] }, () => atChars, true, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, change);
+		const wholeAt = await doctrine({ ...capped, units: [...capped.units, { path: "/fixture/c", source: "c".repeat(15), isDirectory: true, tools: [] }] }, () => atChars, true, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, change);
+		const wholeAbove = await doctrine({ ...capped, units: [...capped.units, { path: "/fixture/c", source: "c".repeat(16), isDirectory: true, tools: [] }] }, () => atChars, true, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, change);
 		checkAll("doctrine-budget-boundaries", "runtime equality, first-over-limit rejection, maximum composition, and valid-router doctrine growth remain discriminatory", [
 			["19,400 accepted", atChars.promptText().length === 19400 && atChars.criticalErrors.length === 0, { length: atChars.promptText()?.length, errors: atChars.criticalErrors }],
 			["19,401 rejected", aboveChars.promptText() === undefined && aboveChars.criticalErrors.some((x) => /19401 portable characters/.test(x)), aboveChars.criticalErrors],
 			["105 lines accepted", atLines.promptText()?.split("\n").length === 105, atLines.criticalErrors],
 			["106 lines rejected", aboveLines.promptText() === undefined && aboveLines.criticalErrors.some((x) => /106 lines/.test(x)), aboveLines.criticalErrors],
 			["whole-doctrine equality is accepted and first-over-limit is rejected", portable(wholeAt) === DOCTRINE_LIMITS.maximalChars && portable(wholeAbove) === DOCTRINE_LIMITS.maximalChars + 1, { at: portable(wholeAt), above: portable(wholeAbove), ceiling: DOCTRINE_LIMITS.maximalChars }],
-			["boundary compositions stay exact and below whole-doctrine cap", portable(featureOffDraft) === 26122 && portable(featureOffTight) === 26196 && portable(routingWithoutDrafts) === 26144 && portable(routingWithFollowUp) === 26218 && portable(routing) === 26215 && portable(deferred) === 26289 && [featureOffDraft, featureOffTight, routingWithoutDrafts, routingWithFollowUp, routing, deferred].every((text) => portable(text) <= DOCTRINE_LIMITS.maximalChars), { featureOffDraft: portable(featureOffDraft), featureOffTight: portable(featureOffTight), routingWithoutDrafts: portable(routingWithoutDrafts), routingWithFollowUp: portable(routingWithFollowUp), routing: portable(routing), deferred: portable(deferred) }],
-			["boundary composition line counts match the published tables", featureOffDraft.split("\n").length === 102 && featureOffTight.split("\n").length === 103 && routingWithoutDrafts.split("\n").length === 102 && routingWithFollowUp.split("\n").length === 103 && routing.split("\n").length === 103 && deferred.split("\n").length === 104, { featureOffDraft: featureOffDraft.split("\n").length, featureOffTight: featureOffTight.split("\n").length, routingWithoutDrafts: routingWithoutDrafts.split("\n").length, routingWithFollowUp: routingWithFollowUp.split("\n").length, routing: routing.split("\n").length, deferred: deferred.split("\n").length }],
-			["fresh valid-router over-cap control reaches whole-doctrine guard", portable(over) === 28159 && portable(over) > DOCTRINE_LIMITS.maximalChars, portable(over)],
+			["boundary compositions stay exact and below whole-doctrine cap", portable(featureOffDraft) === 26112 && portable(featureOffTight) === 26186 && portable(routingWithoutDrafts) === 26141 && portable(routingWithFollowUp) === 26215 && portable(routing) === 26205 && portable(deferred) === 26279 && [featureOffDraft, featureOffTight, routingWithoutDrafts, routingWithFollowUp, routing, deferred].every((text) => portable(text) <= DOCTRINE_LIMITS.maximalChars), { featureOffDraft: portable(featureOffDraft), featureOffTight: portable(featureOffTight), routingWithoutDrafts: portable(routingWithoutDrafts), routingWithFollowUp: portable(routingWithFollowUp), routing: portable(routing), deferred: portable(deferred) }],
+			["boundary composition line counts match the published tables", featureOffDraft.split("\n").length === 95 && featureOffTight.split("\n").length === 96 && routingWithoutDrafts.split("\n").length === 95 && routingWithFollowUp.split("\n").length === 96 && routing.split("\n").length === 96 && deferred.split("\n").length === 97, { featureOffDraft: featureOffDraft.split("\n").length, featureOffTight: featureOffTight.split("\n").length, routingWithoutDrafts: routingWithoutDrafts.split("\n").length, routingWithFollowUp: routingWithFollowUp.split("\n").length, routing: routing.split("\n").length, deferred: deferred.split("\n").length }],
+			["fresh valid-router over-cap control reaches whole-doctrine guard", portable(over) === 28149 && portable(over) > DOCTRINE_LIMITS.maximalChars, portable(over)],
 		]);
 	});
 
@@ -2597,13 +2597,12 @@ required reviews, ordered gates, user authority, or final acceptance.`;
 					invertedDocument: "User acceptance of a track is optional when that track proves at least one DESIGN-TRIGGERING area.",
 					invertedDoctrine: "optional track acceptance.",
 				}),
-				// The document exemption is code-only. The session rendering is a
-				// separate track 1.5 surface and this check asserts its exact text.
+				// Both document and session exemptions apply only to code tracks.
 				noMandatory: Object.freeze({
 					document: "A code track with only REVIEWER-ONLY areas, or no proved area, has no mandatory track-acceptance gate.",
-					doctrine: "REVIEWER-ONLY or no-area tracks need no track acceptance.",
+					doctrine: "REVIEWER-ONLY or no-area code tracks need no track acceptance.",
 					invertedDocument: "A code track with only REVIEWER-ONLY areas, or no proved area, has a mandatory track-acceptance gate.",
-					invertedDoctrine: "REVIEWER-ONLY or no-area tracks need blocking track acceptance.",
+					invertedDoctrine: "REVIEWER-ONLY or no-area code tracks need blocking track acceptance.",
 				}),
 				finalBlocking: Object.freeze({
 					document: "Final change acceptance is always blocking.",
@@ -2743,8 +2742,8 @@ duplicate action for the same required perspective.`),
 					extract: regionUnit(/(Keep separate change\/track records\.[\s\S]*?)(?=Definitions: )/g),
 					expected: normalizeText(`Keep separate change/track records. NAMED: defect, place,
 consequence, review contribution. User approval proves it. Rejection is
-SKIPPED. Proved areas add specialists and one Reviewer I. Estimate each track
-first. Above 100 counted lines requires design before work, even
+SKIPPED. Proved areas add specialists and one Reviewer I. Estimate tracks
+first. Multi-track work or estimates >100 counted lines need design before work, even
 documentation-only. Implementer reports approximate size in response and
 report. Above 100 adds Reviewer I except documentation-only.
 Size adds no specialist, design adversary or track acceptance. If size crosses 100
@@ -3938,6 +3937,7 @@ A stale description fails the "deep enough" test.`),
 					blockingRemoved: normalizeText(actual.replace(blocking, "")),
 					blockingInverted: actual.replace(blocking, renderFact(ACCEPTANCE_FACTS, "blocking", inverted)),
 					noMandatoryInverted: actual.replace(noMandatory, renderFact(ACCEPTANCE_FACTS, "noMandatory", inverted)),
+					noMandatoryUnscoped: actual.replace(noMandatory, noMandatory.replace("code track", "track")),
 				};
 			};
 			const staleFacts = Object.freeze({
