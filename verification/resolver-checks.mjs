@@ -3449,7 +3449,7 @@ The split bypasses no stuck-fix consultation or required fix gate.`) },
 			]);
 
 			// These pins cover complete owned policies. Source-set pins protect every record kind.
-			const policyRegion = (start, end) => regionUnit(new RegExp(`^${start.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([\\s\\S]*?)(?=${end.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gm"));
+			const policyRegion = (start, end, endAtLineStart = false) => regionUnit(new RegExp(`^${start.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([\\s\\S]*?)(?=${endAtLineStart ? "^" : ""}${end.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gm"));
 			const recursiveDeliveryUnits = [
 				{ id: "repairs", source: recursive, start: "## Review-fix subtrees and repair limits", end: "## Whole-subtree acceptance", expected: protectedRepairSummary },
 				{ id: "aggregate", source: recursive, start: "## Whole-subtree acceptance", end: "## Packages, attribution, and issues", expected: "6e37e0e95c35ed0c3ede6e02f3322f43038d8653d9885ce4b2ac1ed423472b63" },
@@ -3458,7 +3458,7 @@ The split bypasses no stuck-fix consultation or required fix gate.`) },
 				{ id: "workflow-accounting", source: workflow, start: "With draft publishing,", end: "\n\nAim for a delivery body", expected: "9410e62de528ba3d18269213779348a187c5f894bd2d99fa5f529dfa3fc5a4a1" },
 				{ id: "notes-accounting", source: userNotes, start: "Before final acceptance, reconcile", end: "\n\n- every finding", expected: "7efa6f8740078ef4a9f5511b485a4e95e8b0e5f7341d2e278eddfbf27011b500" },
 				{ id: "publishing-sync", source: publishing, start: "## Keeping the PR in sync", end: "## Ready-for-review flip", expected: "fb386e6f14c2f051a842cd050cc4e2834dea5e2674853cc22794792cd4c1a7cc" },
-				{ id: "public-workflow", source: projectReadme, start: "A track is a bounded", end: "## Commands", expected: "23f90e859751918fac2f72ad4819c635cf21d88f15e18d100cc0a9944018fbf3" },
+				{ id: "public-workflow", source: projectReadme, start: "A track is a bounded", end: "## ", endAtLineStart: true, expected: "23f90e859751918fac2f72ad4819c635cf21d88f15e18d100cc0a9944018fbf3" },
 				{ id: "public-roadmap", source: readFileSync(join(REPO, "docs", "roadmap.md"), "utf8"), start: "## Larger changes", end: "## Developer experience", expected: "ffd9a4e0a96809b60debc7a45d6b0bb09881622889ae571c09bd888a7d09da17" },
 			].map((unit) => ({ ...unit, extract: unit.end === null
 				? (source) => {
@@ -3469,7 +3469,7 @@ The split bypasses no stuck-fix consultation or required fix gate.`) },
 					const visibleTail = parts[1].replace(/<!--[^<>]*-->/g, "");
 					return regionUnit(/^## Packages, attribution, and issues([\s\S]*)(?![\s\S])/gm)(parts[0] + marker + visibleTail);
 				}
-				: policyRegion(unit.start, unit.end) }));
+				: policyRegion(unit.start, unit.end, unit.endAtLineStart) }));
 			const acceptsRecursiveDelivery = (unit, source) => {
 				const resolved = unit.extract(source);
 				return resolved.count === 1 && recordDigest(resolved.text) === unit.expected;
@@ -3482,6 +3482,19 @@ The split bypasses no stuck-fix consultation or required fix gate.`) },
 					const source = unit.source.replace(pattern, `Contradicting ${unit.id} rule ${index}.`);
 					return { id: unit.id, index, changed: source !== unit.source, rejected: !acceptsRecursiveDelivery(unit, source) };
 				});
+			});
+			// Public workflow text ends at the next level-two heading at line start.
+			const publicWorkflowUnit = recursiveDeliveryUnits.find((unit) => unit.id === "public-workflow");
+			const publicWorkflowRaw = projectReadme.match(/^A track is a bounded[\s\S]*?(?=^## )/m)?.[0] ?? "";
+			const publicWorkflowOutsideSection = projectReadme.replace(publicWorkflowRaw, `${publicWorkflowRaw}## Unrelated section\n\nUnrelated public guidance.\n\n`);
+			const publicWorkflowHeadingAttacks = [
+				["level-two", "## Inserted heading"],
+				["inline", "Inline ## Inserted heading"],
+				["indented", "  ## Inserted heading"],
+				["level-three", "### Inserted heading"],
+			].map(([id, heading]) => {
+				const source = projectReadme.replace("The orchestrator records risks", `${heading}\n\nThe orchestrator records risks`);
+				return { id, changed: source !== projectReadme, rejected: !acceptsRecursiveDelivery(publicWorkflowUnit, source) };
 			});
 			const codeAcceptanceScope = "For design tracks, use [recursive-workflow.md](recursive-workflow.md) § Whole-subtree acceptance.\nThe following proved-area acceptance rules apply to code tracks.\n\n";
 			const scopedAcceptanceUnits = [
@@ -3502,6 +3515,8 @@ The split bypasses no stuck-fix consultation or required fix gate.`) },
 				["each policy resolves exactly once and matches its independent pin", recursiveDeliveryUnits.every((unit) => acceptsRecursiveDelivery(unit, unit.source)), recursiveDeliveryUnits.map((unit) => ({ id: unit.id, count: unit.extract(unit.source).count, digest: recordDigest(unit.extract(unit.source).text) }))],
 				["every sentence mutation changes input and fails its policy", recursiveDeliveryAttacks.every(({ changed, rejected }) => changed && rejected), recursiveDeliveryAttacks],
 				["missing and duplicate units fail, while outside controls pass", recursiveDeliveryUnits.every((unit) => !acceptsRecursiveDelivery(unit, unit.source.replace(unit.start, "Missing policy anchor")) && !acceptsRecursiveDelivery(unit, `${unit.source}\n${unit.source}`) && acceptsRecursiveDelivery(unit, `${unit.source}\n<!-- Outside policy control. -->`)), "bounded policy controls"],
+				["an unrelated section after public workflow text preserves its pin", publicWorkflowRaw !== "" && publicWorkflowOutsideSection !== projectReadme && acceptsRecursiveDelivery(publicWorkflowUnit, publicWorkflowOutsideSection), "next level-two heading control"],
+				["headings inside public workflow text fail without hiding remaining rules", publicWorkflowHeadingAttacks.every(({ changed, rejected }) => changed && rejected), publicWorkflowHeadingAttacks],
 				["visible contradictions after the final marker fail the complete final section", finalSectionAttacks.every(({ changed, rejected }) => changed && rejected), finalSectionAttacks],
 				["each proved-area acceptance copy is explicitly scoped to code tracks", scopedAcceptanceUnits.every(([source, next]) => acceptsCodeScope(source, next)), "lifecycle, user notes, review termination"],
 				["missing, weakened, moved, and duplicate scope qualifiers fail", scopedAcceptanceUnits.every(([source, next]) => !acceptsCodeScope(source.replace(codeAcceptanceScope + next, next), next) && !acceptsCodeScope(source.replace(codeAcceptanceScope + next, codeAcceptanceScope.replace("apply to code tracks.", "apply to all tracks.") + next), next) && !acceptsCodeScope(source.replace(codeAcceptanceScope + next, next) + codeAcceptanceScope, next) && !acceptsCodeScope(source + codeAcceptanceScope, next)), "scope counterfactuals"],
