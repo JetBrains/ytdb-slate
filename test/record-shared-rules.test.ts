@@ -1,0 +1,221 @@
+import assert from "node:assert/strict";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { test, type TestContext } from "node:test";
+import { pathToFileURL } from "node:url";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { AgentTool, runToolCall as RunToolCall } from "../node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-agent-core/dist/index.js";
+import { createChangeFolder } from "../extension/artifact-names.ts";
+import { createLogicalRuntime } from "../extension/logical-model-runtime.ts";
+import {
+  buildRecordAssignment, implementerReportName, matchesReadOnlyEarlierLogLine, readOnlyEarlierLogLine,
+  recordNameRule, RECORD_NAME_RULES, trackIdentifier,
+} from "../extension/record-names.ts";
+import { createChangeDirectory } from "../extension/slate-files.ts";
+import { ADOPTED_SNAPSHOT_FIELDS, ADOPTED_THREAD_FIELDS, SlateStore, type SlateSnapshot, type ThreadRecord } from "../extension/state.ts";
+import { ThreadManager, type DispatchOptions, type DispatchResult } from "../extension/threads.ts";
+import { registerSlateTools } from "../extension/tools.ts";
+
+const { runToolCall } = await import(pathToFileURL(join(process.cwd(), "node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-agent-core/dist/index.js")).href) as { runToolCall: typeof RunToolCall };
+const at128 = `${"1.".repeat(56)}1234567890123456`;
+const at129 = `${"1.".repeat(57)}123456789012345`;
+const badIdentifiers = ["", "0", "01", "1.02", "1..2", "1.", ".1", " 1", "1 ", "1\n", "1\r", "1\0", "１", "١", "1/2", "../1", "1\\2", "1e2", "+1", "1-2", "9007199254740992", "1.9007199254740992", at129];
+
+function fixture(t: TestContext) {
+  const cwd = mkdtempSync(join(tmpdir(), "slate-record-rules-"));
+  t.after(() => rmSync(cwd, { recursive: true, force: true }));
+  const snapshots: SlateSnapshot[] = [];
+  const store = new SlateStore({ appendEntry(_name: string, data: SlateSnapshot) { snapshots.push(structuredClone(data)); } } as unknown as ExtensionAPI);
+  store.currentChange = createChangeFolder();
+  createChangeDirectory(cwd, store.currentChange);
+  const runtime = createLogicalRuntime({ trusted: true, projectConfig: { router: { models: { include: [], add: [{ model: "fixture", capabilityRating: 50, effort: "off", costRating: 50, preferredProvider: "test", providers: { test: "worker" }, guidelines: [], cautions: [] }] } } } });
+  const manager = new ThreadManager(store, {}, undefined, Object.freeze({ ...runtime, validateRoute: async () => ({ ok: true } as const) }));
+  const actions: DispatchOptions[] = [];
+  // Stop at the admitted action. This track does not activate workers.
+  (manager as unknown as { runDispatch(thread: ThreadRecord, opts: DispatchOptions): Promise<DispatchResult> }).runDispatch = async (thread, opts) => {
+    actions.push(opts);
+    return { thread, episode: { id: `${thread.id}.e1`, threadId: thread.id, task: opts.task, status: "ok", file: "/unused", createdAt: 1 },
+      episodeText: "done", warnings: [], usage: { turns: 0, input: 0, output: 0, cost: 0, contextTokens: 0 } };
+  };
+  const tools: AgentTool[] = [];
+  registerSlateTools({ registerTool(tool: AgentTool) { tools.push(tool); } } as unknown as ExtensionAPI, store, () => manager);
+  const definition = tools.find((tool) => tool.name === "thread")!;
+  const ctx = { cwd } as ExtensionContext;
+  const execute = (args: unknown) => (definition as unknown as { execute(...args: unknown[]): Promise<unknown> }).execute("direct", args, undefined, undefined, ctx);
+  const tool = { ...definition, execute: (id: string, args: unknown, signal: AbortSignal | undefined, update: unknown) =>
+    (definition as unknown as { execute(...args: unknown[]): Promise<unknown> }).execute(id, args, signal, update, ctx) } as AgentTool;
+  const invoke = (args: Record<string, unknown>, hook?: (args: Record<string, unknown>) => void) => runToolCall(
+    { type: "toolCall", id: "host", name: "thread", arguments: args as never },
+    { tools: [tool], context: { messages: [], tools: [tool] }, assistantMessage: {} as never,
+      beforeToolCall: hook ? async ({ args }) => { hook(args as Record<string, unknown>); return undefined; } : undefined },
+  );
+  return { store, actions, snapshots, tools, definition, invoke, execute, ctx };
+}
+const call = { type: "general", task: "work", model: "fixture", reason: "test" };
+function errorText(result: Awaited<ReturnType<typeof runToolCall>>) {
+  return result.result.content.filter((part) => part.type === "text").map((part) => part.text).join("\n");
+}
+
+test("record-name agreement includes exact classes, roles, modes, and identifier bounds", () => {
+  assert.equal(at128.length, 128);
+  assert.equal(at129.length, 129);
+  const expected = [
+    ["research-log.md", "research-log", "record-only", ["append"]],
+    ["track-1.2-research-log.md", "research-log", "record-only", ["create", "append"]],
+    ["track-1.2-implementer-report.md", "implementer-report", "implementer", ["create", "append"]],
+    ["status.md", "status", "record-only", ["create", "replace"]],
+    ["root-design.md", "design", "record-only", ["create", "replace"]],
+    ["track-1.2-design.md", "design", "record-only", ["create", "replace"]],
+  ] as const;
+  assert.equal(RECORD_NAME_RULES.length, expected.length);
+  for (const [name, recordClass, writerRole, modes] of expected) {
+    const rule = recordNameRule(name);
+    assert.ok(rule, name);
+    assert.equal(rule.recordClass, recordClass);
+    assert.equal(rule.writerRole, writerRole);
+    assert.deepEqual(rule.modes, modes);
+  }
+  for (const value of [1, 105, Number.MAX_SAFE_INTEGER, "1", "1.2.3", "1.9007199254740991", at128]) {
+    const name = implementerReportName(value);
+    assert.equal(name, `track-${value}-implementer-report.md`);
+    assert.equal(recordNameRule(name)?.writerRole, "implementer");
+    for (const suffix of ["design", "research-log"]) assert.ok(recordNameRule(`track-${trackIdentifier(value)}-${suffix}.md`));
+  }
+  for (const identifier of badIdentifiers) {
+    assert.throws(() => implementerReportName(identifier), /trackNumber/);
+    for (const suffix of ["design", "research-log", "implementer-report"]) assert.equal(recordNameRule(`track-${identifier}-${suffix}.md`), undefined);
+  }
+  for (const name of [null, 1, "", "other.md", "Research-log.md", "status.md\n", "root-design.md ", "./status.md", "../status.md", "folder/status.md", "folder\\status.md", "track-1-fix-1-design.md"]) {
+    assert.equal(recordNameRule(name), undefined, String(name));
+  }
+});
+
+test("record-read-only line agrees with the real producer and compares bytes exactly", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "slate-record-line-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const source = createChangeFolder();
+  const current = createChangeFolder();
+  createChangeDirectory(root, source);
+  createChangeDirectory(root, current, source);
+  const bytes = readFileSync(join(root, "slate-changes", current, "research-log.md"));
+  const firstLine = bytes.subarray(0, bytes.indexOf(10));
+  assert.equal(readOnlyEarlierLogLine(source), `Read-only earlier log: slate-changes/${source}/research-log.md`);
+  assert.equal(matchesReadOnlyEarlierLogLine(firstLine, source), true);
+  assert.equal(matchesReadOnlyEarlierLogLine(firstLine, current), false);
+  for (const text of [readOnlyEarlierLogLine(source) + "\r", readOnlyEarlierLogLine(source) + "\n", " " + readOnlyEarlierLogLine(source), readOnlyEarlierLogLine(source).replace("Read-only", "Read only"), "# Research log"]) {
+    assert.equal(matchesReadOnlyEarlierLogLine(Buffer.from(text), source), false, text);
+  }
+  assert.throws(() => readOnlyEarlierLogLine("../source"), /valid change folder/);
+});
+
+test("records rejects original values before real Pi conversion, hooks, or dispatch", { timeout: 10000 }, async (t) => {
+  const f = fixture(t);
+  const invalid = [undefined, null, true, false, 1, "status.md", { 0: "status.md", length: 1 }, [], ["status.md", "status.md"], [null], [1], [true], ["track-1.2-implementer-report.md"], ["status.md "], ["status.md\n"], ["./status.md"], ["../status.md"], ["slate-changes/x/status.md"], ["track-01-design.md"], ["track-1.9007199254740992-design.md"], [`track-${at129}-design.md`], ["other.md"], Array(1)];
+  for (const records of invalid) {
+    let reachedHook = false;
+    const result = await f.invoke({ ...call, records }, () => { reachedHook = true; });
+    assert.equal(result.isError, true, JSON.stringify(records));
+    assert.match(errorText(result), /records/);
+    assert.equal(reachedHook, false, "the original invalid value must stop before conversion hooks");
+    assert.equal(f.actions.length, 0);
+    assert.equal(f.store.threads.size, 0);
+  }
+});
+
+test("records requires general type, no trackNumber, and validated current and source facts", { timeout: 10000 }, async (t) => {
+  const f = fixture(t);
+  for (const type of ["implementer", "reviewer", "researcher", "planner", "adversarial", undefined]) {
+    const result = await f.invoke({ ...call, type, records: ["status.md"] });
+    assert.equal(result.isError, true);
+    assert.match(errorText(result), /records requires type general without trackNumber/);
+  }
+  assert.equal((await f.invoke({ ...call, trackNumber: "1.2", records: ["status.md"] })).isError, true);
+  await assert.rejects(f.execute({ ...call, trackNumber: undefined, records: ["status.md"] }), /trackNumber must be/);
+  assert.throws(() => buildRecordAssignment({ ...call, trackNumber: undefined, records: ["status.md"] }, f.store.currentChange, undefined), /without trackNumber/);
+  const current = f.store.currentChange;
+  for (const folder of [undefined, "", "../outside", "change-20260230T000000Z-" + "0".repeat(32)]) {
+    f.store.currentChange = folder;
+    const result = await f.invoke({ ...call, records: ["status.md"] });
+    assert.equal(result.isError, true);
+    assert.match(errorText(result), /open change with a valid folder/);
+  }
+  f.store.currentChange = current;
+  for (const source of [current, "../source", ""]) {
+    f.store.sourceChange = source;
+    const result = await f.invoke({ ...call, records: ["status.md"] });
+    assert.equal(result.isError, true);
+    assert.match(errorText(result), /read-only source folder/);
+  }
+  assert.equal(f.actions.length, 0);
+  assert.equal(f.store.threads.size, 0);
+});
+
+test("records rechecks changed assignment values before dispatch", { timeout: 10000 }, async (t) => {
+  const f = fixture(t);
+  for (const changed of [null, "status.md", [], ["status.md", "status.md"], ["status.md "], ["track-1-implementer-report.md"]]) {
+    const result = await f.invoke({ ...call, records: ["status.md"] }, (args) => { args.records = changed; });
+    assert.equal(result.isError, true);
+    assert.match(errorText(result), /records/);
+  }
+  // Mutate after the execute entry check, while parsing the thread type.
+  const args = { ...call, records: ["status.md"] };
+  let reads = 0;
+  Object.defineProperty(args, "type", { get() { if (++reads === 2) args.records = ["track-1-implementer-report.md"]; return "general"; } });
+  await assert.rejects(f.execute(args), /records accepts only/);
+  const result = await f.invoke({ ...call, records: ["status.md"] }, () => { f.store.sourceChange = f.store.currentChange; });
+  assert.equal(result.isError, true);
+  assert.match(errorText(result), /read-only source folder/);
+  assert.equal(f.actions.length, 0);
+  assert.equal(f.store.threads.size, 0);
+});
+
+test("records reaches an immutable action-local assignment and never saved authority", { timeout: 10000 }, async (t) => {
+  const f = fixture(t);
+  const names = ["research-log.md", "track-2.1-research-log.md", "status.md", "root-design.md", "track-2-design.md", `track-${at128}-design.md`];
+  const result = await f.invoke({ ...call, records: names });
+  assert.equal(result.isError, false);
+  const assignment = f.actions[0]!.recordAssignment;
+  assert.deepEqual(assignment, { currentFolder: `slate-changes/${f.store.currentChange}`, writerRole: "record-only", names });
+  assert.equal(f.actions[0]!.task, "work", "no dispatch guidance changes in this track");
+  names.push("other.md");
+  assert.equal(assignment!.names.includes("other.md"), false);
+  assert.ok(Object.isFrozen(assignment));
+  assert.ok(Object.isFrozen(assignment!.names));
+  assert.equal(f.tools.some((tool) => tool.name === "slate_record"), false);
+  assert.equal("recordAssignment" in ADOPTED_THREAD_FIELDS, false);
+  assert.equal("recordAssignment" in ADOPTED_SNAPSHOT_FIELDS, false);
+  for (const snapshot of f.snapshots) assert.equal(JSON.stringify(snapshot).includes("recordAssignment"), false);
+  const forged = { ...f.snapshots.at(-1)!, recordAssignment: assignment };
+  forged.threads = forged.threads.map((thread) => ({ ...thread, recordAssignment: assignment }));
+  f.store.adoptSnapshot(forged, f.ctx);
+  assert.equal("recordAssignment" in f.store, false);
+  assert.equal("recordAssignment" in f.store.threads.get("t1")!, false);
+  await f.invoke(call);
+  assert.equal(f.actions.at(-1)!.recordAssignment, undefined, "a restored action cannot reuse assignment authority");
+});
+
+test("implementer assignment and dispatch use one report name while existing calls stay unchanged", { timeout: 10000 }, async (t) => {
+  const f = fixture(t);
+  f.store.sourceChange = createChangeFolder();
+  for (const trackNumber of [3, Number.MAX_SAFE_INTEGER, "2.1", at128]) {
+    const result = await f.invoke({ ...call, type: "implementer", trackNumber });
+    assert.equal(result.isError, false);
+    const action = f.actions.at(-1)!;
+    const name = implementerReportName(trackNumber);
+    assert.equal(name, `track-${trackNumber}-implementer-report.md`);
+    assert.deepEqual(action.recordAssignment, { currentFolder: `slate-changes/${f.store.currentChange}`, writerRole: "implementer", names: [name] });
+    assert.equal(action.task, `work\n\nImplementer report: slate-changes/${f.store.currentChange}/${name}. Create without following a symbolic link. If the source folder has this track's report, continue it in this new report and name slate-changes/${f.store.sourceChange}/${name} as read-only in the new report's first entry. Do not edit the source report.`);
+  }
+  for (const type of ["general", "reviewer", "researcher", "adversarial"]) {
+    assert.equal((await f.invoke({ ...call, type })).isError, false);
+    assert.equal(f.actions.at(-1)!.recordAssignment, undefined);
+    assert.equal(f.actions.at(-1)!.task, "work");
+  }
+  f.store.currentChange = undefined;
+  f.store.sourceChange = undefined;
+  assert.equal((await f.invoke({ ...call, type: "implementer" })).isError, false);
+  assert.equal(f.actions.at(-1)!.recordAssignment, undefined);
+  assert.equal(f.actions.at(-1)!.task, "work");
+  assert.equal(buildRecordAssignment(call, undefined, undefined), undefined);
+});
