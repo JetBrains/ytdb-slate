@@ -261,7 +261,7 @@ function buildDoctrine(
 	sourceChange?: string,
 	legacyLog = false,
 ): string {
-	// Rule 8 tail: publishing uses one draft pull request per level.
+	// Rule 8 tail: publishing uses one draft pull request per level with code tracks.
 	// Otherwise durable records live in the research log. The completion
 	// pointer is trusted and opt-in. Its combined publishing form cites the full
 	// publishing rules so the fixed whole-doctrine boundary keeps its headroom.
@@ -269,10 +269,10 @@ function buildDoctrine(
 	const rule8Tail =
 		config.workflow?.draftPRs === true
 			? routingRecommendations
-				? `Publish one draft PR per level. Merge the level, not a track.
-   Only users merge. Follow ${PR_PUBLISHING_DOC}.`
-				: `Publish one draft PR per level. Merge the level, not a track.
-   Only users merge. Mechanics: ${PR_PUBLISHING_DOC}.`
+				? `Draft PRs: one per level with code tracks.
+   Only users merge levels, not tracks. Follow ${PR_PUBLISHING_DOC}.`
+				: `Draft PRs: one per level with code tracks.
+   Only users merge levels, not tracks. Mechanics: ${PR_PUBLISHING_DOC}.`
 			: `Keep workflow records in the change folder.`;
 	const routingRecommendationTail = routingRecommendations
 		? "\n   At change completion, follow Lifecycle's routing-recommendation rule before final acceptance."

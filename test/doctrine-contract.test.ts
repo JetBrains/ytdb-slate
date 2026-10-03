@@ -400,12 +400,12 @@ test("rule 8 renders exact feature-off and enabled publishing tails", { timeout:
   assert.doesNotMatch(local, /Publish one umbrella draft PR/);
 
   const published = (await renderDoctrine(undefined, { workflow: { draftPRs: true } })).replace(/\s+/g, " ");
-  assert.ok(published.includes("Publish one draft PR per level. Merge the level, not a track. Only users merge."));
+  assert.ok(published.includes("Draft PRs: one per level with code tracks. Only users merge levels, not tracks."));
   assert.ok(published.includes(`Mechanics: ${PR_PUBLISHING_DOC}.`));
   assert.doesNotMatch(published, /repo-root (?:workflow|research) log/);
 
   const combined = (await renderDoctrine(undefined, { workflow: { draftPRs: true, routingRecommendations: true } })).replace(/\s+/g, " ");
-  assert.ok(combined.includes("Publish one draft PR per level. Merge the level, not a track. Only users merge."));
+  assert.ok(combined.includes("Draft PRs: one per level with code tracks. Only users merge levels, not tracks."));
   assert.ok(combined.includes(`Follow ${PR_PUBLISHING_DOC}.`));
 });
 
