@@ -10,7 +10,7 @@ import { createChangeFolder } from "../extension/artifact-names.ts";
 import { createLogicalRuntime } from "../extension/logical-model-runtime.ts";
 import {
   buildRecordAssignment, implementerReportName, matchesReadOnlyEarlierLogLine, readOnlyEarlierLogLine,
-  recordNameRule, RECORD_NAME_RULES, trackIdentifier,
+  recordNameRule, RECORD_NAME_RULES, trackIdentifier, validateRecordsInput,
 } from "../extension/record-names.ts";
 import { createChangeDirectory } from "../extension/slate-files.ts";
 import { ADOPTED_SNAPSHOT_FIELDS, ADOPTED_THREAD_FIELDS, SlateStore, type SlateSnapshot, type ThreadRecord } from "../extension/state.ts";
@@ -45,10 +45,10 @@ function fixture(t: TestContext) {
   const execute = (args: unknown) => (definition as unknown as { execute(...args: unknown[]): Promise<unknown> }).execute("direct", args, undefined, undefined, ctx);
   const tool = { ...definition, execute: (id: string, args: unknown, signal: AbortSignal | undefined, update: unknown) =>
     (definition as unknown as { execute(...args: unknown[]): Promise<unknown> }).execute(id, args, signal, update, ctx) } as AgentTool;
-  const invoke = (args: Record<string, unknown>, hook?: (args: Record<string, unknown>) => void) => runToolCall(
+  const invoke = (args: Record<string, unknown>, hook?: (args: Record<string, unknown>) => void | Promise<void>) => runToolCall(
     { type: "toolCall", id: "host", name: "thread", arguments: args as never },
     { tools: [tool], context: { messages: [], tools: [tool] }, assistantMessage: {} as never,
-      beforeToolCall: hook ? async ({ args }) => { hook(args as Record<string, unknown>); return undefined; } : undefined },
+      beforeToolCall: hook ? async ({ args }) => { await hook(args as Record<string, unknown>); return undefined; } : undefined },
   );
   return { store, actions, snapshots, tools, definition, invoke, execute, ctx };
 }
@@ -162,12 +162,109 @@ test("records rechecks changed assignment values before dispatch", { timeout: 10
   const args = { ...call, records: ["status.md"] };
   let reads = 0;
   Object.defineProperty(args, "type", { get() { if (++reads === 2) args.records = ["track-1-implementer-report.md"]; return "general"; } });
-  await assert.rejects(f.execute(args), /records accepts only/);
+  await assert.rejects(f.execute(args), /records accepts research-log\.md/);
   const result = await f.invoke({ ...call, records: ["status.md"] }, () => { f.store.sourceChange = f.store.currentChange; });
   assert.equal(result.isError, true);
   assert.match(errorText(result), /read-only source folder/);
   assert.equal(f.actions.length, 0);
   assert.equal(f.store.threads.size, 0);
+});
+
+for (const [label, mutate] of [
+  ["deletion", (args: Record<string, unknown>) => { delete args.records; }],
+  ["valid subset", (args: Record<string, unknown>) => { args.records = ["status.md"]; }],
+  ["valid substitution", (args: Record<string, unknown>) => { args.records = ["status.md", "root-design.md"]; }],
+  ["addition", (args: Record<string, unknown>) => { (args.records as string[]).push("root-design.md"); }],
+  ["reorder", (args: Record<string, unknown>) => { (args.records as string[]).reverse(); }],
+] as const) {
+  test(`records reports ${label} after real Pi validation before dispatch`, { timeout: 10000 }, async (t) => {
+    const f = fixture(t);
+    const result = await f.invoke({ ...call, records: ["status.md", "research-log.md"] }, mutate);
+    assert.equal(result.isError, true);
+    assert.match(errorText(result), /records changed after the original input check/);
+    assert.equal(f.actions.length, 0);
+    assert.equal(f.store.threads.size, 0);
+  });
+}
+
+test("records reports an added selection when the original field is absent", { timeout: 10000 }, async (t) => {
+  const f = fixture(t);
+  const result = await f.invoke(call, (args) => { args.records = ["status.md"]; });
+  assert.equal(result.isError, true);
+  assert.match(errorText(result), /records changed after the original input check/);
+  assert.equal(f.actions.length, 0);
+  assert.equal(f.store.threads.size, 0);
+});
+
+test("records compares direct entry values with the names used for assignment", { timeout: 10000 }, async (t) => {
+  const f = fixture(t);
+  for (const changed of [undefined, ["status.md"], ["status.md", "root-design.md"], ["research-log.md", "status.md"]]) {
+    const args: Record<string, unknown> = { ...call, records: ["status.md", "research-log.md"] };
+    let reads = 0;
+    Object.defineProperty(args, "type", { get() {
+      if (++reads === 2) {
+        if (changed === undefined) delete args.records;
+        else args.records = changed;
+      }
+      return "general";
+    } });
+    await assert.rejects(f.execute(args), /records changed after the original input check/);
+  }
+  assert.equal(f.actions.length, 0);
+  assert.equal(f.store.threads.size, 0);
+});
+
+test("records preparation replaces caller-supplied witness values without changing original arguments", { timeout: 10000 }, async (t) => {
+  const f = fixture(t);
+  const args = { ...call, records: ["status.md"], __slateRecordsInputWitness: "null" };
+  assert.equal((await f.invoke(args)).isError, false);
+  assert.equal(args.__slateRecordsInputWitness, "null");
+  assert.deepEqual(f.actions[0]!.recordAssignment?.names, ["status.md"]);
+  assert.equal((await f.invoke({ ...call, __slateRecordsInputWitness: '["status.md"]' })).isError, false);
+  assert.equal(f.actions.at(-1)!.recordAssignment, undefined);
+});
+
+test("records keeps each witness local across interleaved real Pi calls", { timeout: 10000 }, async (t) => {
+  const f = fixture(t);
+  let release!: () => void;
+  let entered!: () => void;
+  const waiting = new Promise<void>((resolve) => { release = resolve; });
+  const ready = new Promise<void>((resolve) => { entered = resolve; });
+  const first = f.invoke({ ...call, records: ["status.md", "research-log.md"] }, async () => { entered(); await waiting; });
+  await ready;
+  const second = await f.invoke({ ...call, records: ["root-design.md"] });
+  release();
+  assert.equal(second.isError, false);
+  assert.equal((await first).isError, false);
+  assert.deepEqual(f.actions.map((action) => action.recordAssignment?.names), [["root-design.md"], ["status.md", "research-log.md"]]);
+  assert.equal((await f.invoke(call)).isError, false);
+  assert.equal(f.actions.at(-1)!.recordAssignment, undefined);
+});
+
+test("records duplicate validation avoids repeated array scans and keeps no length limit", () => {
+  const names = Array.from({ length: 4000 }, (_, i) => `track-${i + 1}-design.md`);
+  const current = createChangeFolder();
+  const includes = Array.prototype.includes;
+  // Trap scans of accepted names, not scans inside the fixed name-rule table.
+  Array.prototype.includes = function (value: unknown, fromIndex?: number): boolean {
+    if (typeof value === "string" && /^track-[0-9]+-design\.md$/.test(value)) throw new Error("repeated name scan");
+    return includes.call(this, value, fromIndex);
+  };
+  try {
+    const accepted = validateRecordsInput({ ...call, records: names }, current, undefined);
+    assert.equal(accepted?.length, names.length);
+    assert.throws(() => validateRecordsInput({ ...call, records: [...names, names[0]] }, current, undefined), /duplicate names/);
+  } finally {
+    Array.prototype.includes = includes;
+  }
+});
+
+test("records rejection lists exact filename forms and explains number and path rules", { timeout: 10000 }, async (t) => {
+  const f = fixture(t);
+  const result = await f.invoke({ ...call, records: ["design.md"] });
+  assert.equal(result.isError, true);
+  assert.equal(errorText(result), "records accepts research-log.md, track-<number>-research-log.md, status.md, root-design.md, or track-<number>-design.md. Use the trackNumber rules for <number>. Names must not contain paths.");
+  assert.equal(f.actions.length, 0);
 });
 
 test("records reaches an immutable action-local assignment and never saved authority", { timeout: 10000 }, async (t) => {
@@ -178,6 +275,7 @@ test("records reaches an immutable action-local assignment and never saved autho
   const assignment = f.actions[0]!.recordAssignment;
   assert.deepEqual(assignment, { currentFolder: `slate-changes/${f.store.currentChange}`, writerRole: "record-only", names });
   assert.equal(f.actions[0]!.task, "work", "no dispatch guidance changes in this track");
+  assert.equal("__slateRecordsInputWitness" in f.actions[0]!, false);
   names.push("other.md");
   assert.equal(assignment!.names.includes("other.md"), false);
   assert.ok(Object.isFrozen(assignment));
@@ -185,7 +283,10 @@ test("records reaches an immutable action-local assignment and never saved autho
   assert.equal(f.tools.some((tool) => tool.name === "slate_record"), false);
   assert.equal("recordAssignment" in ADOPTED_THREAD_FIELDS, false);
   assert.equal("recordAssignment" in ADOPTED_SNAPSHOT_FIELDS, false);
-  for (const snapshot of f.snapshots) assert.equal(JSON.stringify(snapshot).includes("recordAssignment"), false);
+  for (const snapshot of f.snapshots) {
+    assert.equal(JSON.stringify(snapshot).includes("recordAssignment"), false);
+    assert.equal(JSON.stringify(snapshot).includes("__slateRecordsInputWitness"), false);
+  }
   const forged = { ...f.snapshots.at(-1)!, recordAssignment: assignment };
   forged.threads = forged.threads.map((thread) => ({ ...thread, recordAssignment: assignment }));
   f.store.adoptSnapshot(forged, f.ctx);

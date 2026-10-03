@@ -89,11 +89,13 @@ export function validateRecordsInput(args: Record<string, unknown>, current: unk
 	const value = args.records;
 	if (!Array.isArray(value) || value.length === 0) throw new Error("records must be a nonempty list of exact record names.");
 	const names: string[] = [];
+	const seen = new Set<string>();
 	for (const name of value) {
 		if (recordNameRule(name)?.writerRole !== "record-only") {
-			throw new Error("records accepts only research log, status, or design names. Use exact names without paths.");
+			throw new Error("records accepts research-log.md, track-<number>-research-log.md, status.md, root-design.md, or track-<number>-design.md. Use the trackNumber rules for <number>. Names must not contain paths.");
 		}
-		if (names.includes(name)) throw new Error("records must not contain duplicate names.");
+		if (seen.has(name)) throw new Error("records must not contain duplicate names.");
+		seen.add(name);
 		names.push(name);
 	}
 	if (args.type !== "general" || Object.prototype.hasOwnProperty.call(args, "trackNumber")) {

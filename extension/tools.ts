@@ -35,6 +35,7 @@ const THREAD_TYPE_PARAMETER_DESCRIPTION =
 	`Slate adds its reviewer evidence charter to ${judgementThreadTypes} threads.`;
 
 const USAGE_FIELDS = ["input", "output", "cacheRead", "cacheWrite"] as const;
+const RECORDS_INPUT_WITNESS = "__slateRecordsInputWitness";
 
 /** Render recorded costs and usage without turning an unreported quantity into zero. */
 function dispatchCostLine(episode: EpisodeRecord): string {
@@ -115,7 +116,9 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 			if (args && typeof args === "object") {
 				const original = args as Record<string, unknown>;
 				if (Object.prototype.hasOwnProperty.call(original, "trackNumber")) trackIdentifier(original.trackNumber);
-				validateRecordsInput(original, store.currentChange, store.sourceChange);
+				const names = validateRecordsInput(original, store.currentChange, store.sourceChange);
+				// A private string carries original presence and order through Pi's clone.
+				return { ...(args as Static<typeof parameters>), [RECORDS_INPUT_WITNESS]: JSON.stringify(names ?? null) };
 			}
 			return args as Static<typeof parameters>;
 		},
@@ -132,7 +135,10 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 				throw new Error('The "effort" field was removed. Select a logical model. Its policy fixes the effort.');
 			}
 			if (Object.prototype.hasOwnProperty.call(raw, "trackNumber")) trackIdentifier(raw.trackNumber);
-			validateRecordsInput(raw, store.currentChange, store.sourceChange);
+			const entryNames = validateRecordsInput(raw, store.currentChange, store.sourceChange);
+			// Direct callers get the same comparison from execute entry to assignment.
+			const recordsWitness = Object.prototype.hasOwnProperty.call(raw, RECORDS_INPUT_WITNESS)
+				? raw[RECORDS_INPUT_WITNESS] : JSON.stringify(entryNames ?? null);
 			const type = parseThreadType(params.type, true);
 			if (type === "implementer" && store.currentChange && params.trackNumber === undefined) {
 				throw new Error("An implementer on an open change requires trackNumber for its report.");
@@ -159,6 +165,10 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 
 			// Recheck assignment values after parsing the type and before dispatch.
 			const recordAssignment = buildRecordAssignment(raw, store.currentChange, store.sourceChange);
+			const assignmentNames = recordAssignment?.writerRole === "record-only" ? recordAssignment.names : undefined;
+			if (recordsWitness !== JSON.stringify(assignmentNames ?? null)) {
+				throw new Error("records changed after the original input check. Keep the original names and order.");
+			}
 			const reportName = recordAssignment?.writerRole === "implementer" ? recordAssignment.names[0] : undefined;
 			const reportTask = reportName !== undefined
 				? `${params.task}\n\nImplementer report: slate-changes/${store.currentChange}/${reportName}. Create without following a symbolic link.` +
