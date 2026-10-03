@@ -19,7 +19,7 @@ The mandatory phases run in this order:
 
 1. research.
 2. propose the eleven-line risk record and obtain user approval.
-3. design and validate when a proved DESIGN-TRIGGERING area or a per-track size estimate above 100 counted lines requires a design.
+3. design and validate for a multi-track change, a proved DESIGN-TRIGGERING area, or a per-track estimate above 100 counted lines.
 4. when a design exists, reconfirm the focus list against the validated design.
 5. when a design exists, run one adversarial design review for each proved
    DESIGN-TRIGGERING area that has not reviewed the applicable design.
@@ -88,8 +88,8 @@ adversarial review is required, validation and final approval form one gate.
 <!-- design-review-policy:end -->
 
 Publishing depends on `workflow.draftPRs` in `slate.json`. When enabled, use
-[pr-publishing.md](pr-publishing.md) to create one umbrella draft pull request
-before implementation. When publishing is disabled, create no pull request.
+[pr-publishing.md](pr-publishing.md) § One draft pull request for level publishing.
+Its § Creation sets the draft timing. When publishing is disabled, create no pull request.
 The retained research log is the durable workflow record.
 
 ## Track size and split
@@ -109,10 +109,18 @@ the implementer reports above 100, do not require a design after the fact.
 Reviewer I still runs when the track is not documentation-only. Use the larger
 size to estimate remaining tracks.
 
-Plan each track as an autonomous, independently mergeable unit inside the
-change. Aim for a coherent boundary close to 400 changed lines without
-exceeding the guideline.
-If the nearest coherent, independently mergeable unit needs a small overrun,
+Plan each code track as one coherent review unit inside a level.
+A code track implements bounded approved work, including document changes.
+A level contains the sibling tracks created by one split.
+The level is the merge unit.
+All checks pass at each child marker.
+Agreement across documents, prompt guidance, and the extension is required at
+the level boundary.
+Intermediate track packages and review intentions list each remaining difference
+across those surfaces and name the later child that owns it.
+Do not merge an incomplete level into the default branch.
+Aim for a coherent boundary close to 400 counted changed lines.
+If the nearest coherent unit needs a small overrun,
 finish that unit and report the reason. Size never permits dropping an approved
 requirement, reducing implementation or test quality, or declaring partial work
 complete.
@@ -124,6 +132,50 @@ a small overrun. If the remaining approved work cannot fit in the coherent unit,
 the orchestrator proposes the additional track or tracks. The orchestrator
 obtains every approval that a new track requires before implementation continues.
 <!-- track-size-policy:end -->
+
+## Recursive planning and loading
+
+<!-- recursive-planning-policy:begin -->
+A design track plans and completes a nested change.
+A multi-track change requires a high-level design.
+An estimate above 100 counted lines and a proved DESIGN-TRIGGERING area remain
+separate design triggers.
+A required high-level design alone does not create a design track.
+Expand a design track when work reaches it.
+Each subtree root receives its own high-level design and independent risk assessment.
+A subtree contains a node and its descendant tracks.
+Design-track designs have no size cap.
+Each design track completes the gates of a nested multi-track change.
+Each code track keeps its independent gates.
+Reuse applicable evidence only under § Confirmation gate's user-decision reuse rule.
+
+An ordinary split creates at most five direct child tracks.
+An ordinary plan that needs more than five direct children must add a design track.
+Load [recursive-workflow.md](recursive-workflow.md) for that design track.
+An implementer-requested split may add siblings beyond five to the same level.
+The exception does not automatically create another level.
+Obtain each new track's required approvals before implementation.
+The exception changes neither review requirements nor repair budgets.
+Track numbers remain stable and are never reused.
+
+Every change reads § Identifiers, code ranges, and design markers and § Manual records and safe writes in [recursive-workflow.md](recursive-workflow.md).
+Load its other sections when the current or proposed plan contains a design track or review-fix child track.
+A review-fix child track repairs outstanding work under a user-approved split.
+Check the loading condition during planning and again during resume reconciliation.
+Load the document before proposing a review-fix split.
+Read the applicable sections before relying on their rules.
+A lazy plan needs no total descendant count to apply the condition.
+A small tree with a design track still loads the whole document.
+A change with neither triggering track type reads only the named common sections.
+
+The approved plan supplies specific evidence for proportional process.
+A design track or review-fix child track triggers the manual status file.
+Entering a design track triggers its research log and nested gates.
+An ordinary code track or a high-level design alone triggers neither extra record.
+These conditions add no unconditional-artifact exception.
+Questions follow unresolved decisions rather than record or track counts.
+[recursive-workflow.md](recursive-workflow.md) owns the nested planning relations.
+<!-- recursive-planning-policy:end -->
 
 ## Focus classes and gates
 
@@ -141,10 +193,14 @@ implementation review is `NOT REQUIRED`. Size alone adds no area reviewer,
 adversarial design reviewer, or blocking track acceptance. A proved
 DESIGN-TRIGGERING area also requires a high-level design, user validation,
 focus reconfirmation, its own adversarial design reviewer, and final design
-approval. User acceptance of a track is blocking when that track proves at
-least one DESIGN-TRIGGERING area. A track with only REVIEWER-ONLY areas, or no
-proved area, has no mandatory track-acceptance gate. A track with no proved area
-also has no area reviewer. Final change acceptance is always blocking.
+approval. A track with no proved area also has no area reviewer.
+
+For design tracks, use [recursive-workflow.md](recursive-workflow.md) § Whole-subtree acceptance.
+The following proved-area acceptance rules apply to code tracks.
+
+User acceptance of a track is blocking when that track proves at
+least one DESIGN-TRIGGERING area. A code track with only REVIEWER-ONLY areas, or no
+proved area, has no mandatory track-acceptance gate. Final change acceptance is always blocking.
 
 <!-- focus-area-table:begin -->
 | # | focus area | the gate it adds | where the gate runs |
@@ -270,8 +326,13 @@ acceptance. Final change acceptance remains a separate blocking decision.
 <!-- user-decision-reuse:end -->
 
 <!-- requirement-investigation-workflow:begin -->
-After two ordinary fix rounds leave the same approved requirement incomplete,
-stop repair dispatch before another repair. The requirement is the exact
+After two failed ordinary fix rounds leave the same approved requirement incomplete,
+stop repair dispatch before another repair.
+Count failed rounds across the affected code track and all its review-fix children.
+A split never resets that requirement count.
+After a completed investigation, two further failed ordinary rounds trigger it again.
+Complete a triggered investigation and its approvals before starting a child.
+The requirement is the exact
 user-approved requirement named in the track intention or design approval
 record. If those records name different requirements, ask the user to identify
 the requirement before counting rounds. Do not choose between them or treat a
@@ -284,7 +345,9 @@ before investigation starts.
 
 Record the trigger, proposed scope, user corrections, approved scope, findings,
 evidence, limits, holistic solution, verification plan, and decision as typed
-entries in the current change's `research-log.md`. The investigation must distinguish a symptom
+entries in the affected code track's owning research log.
+Use [recursive-workflow.md](recursive-workflow.md) § Manual records and safe writes for record ownership.
+The investigation must distinguish a symptom
 repair from closure of the full approved requirement. After investigation,
 present a holistic solution for the full requirement and wait for a separate
 user approval before implementation resumes. Existing repair caps, the
@@ -311,15 +374,26 @@ they change approved behavior or constraints. If an implementer discovers a
 design gap later, pause affected work and complete this route before continuing.
 
 <!-- multi-track-handoff:begin -->
-For a multi-track change, immediately before the implementation of every track, the orchestrator saves a current state summary in the current change's `research-log.md` and appends a typed `handoff` entry. The orchestrator then asks the user whether to run `/slate handoff [focus]`. This command continues the work in a fresh session and restores all threads and episodes. The orchestrator does not propose a plain new pi session instead.
+For a multi-track change, ask for handoff at the start of each design track.
+Ask again immediately before each code track's implementation.
+A design track plans a nested change before implementation.
+Save subtree detail in the active subtree log first.
+Save the state summary in the root `research-log.md` last as a typed `handoff` entry.
+The summary names the subtree entry it relies on.
+For a review-fix subtree, use the affected code track's existing records.
+When no subtree log exists, save the summary in the root log alone.
+The orchestrator then asks whether to run `/slate handoff [focus]`.
+This command restores all threads and episodes in a fresh session.
+Do not propose a plain new pi session instead.
 
-The first boundary is after all required planning and pre-implementation gates for the affected track are complete, including the confirmation gate, any scope-exception decisions, and every applicable design gate. It is immediately before the first track implementation. At each later boundary, the orchestrator completes the current track packet and required acceptance before saving state and asking for handoff before the next track implementation.
+The design-track boundary precedes research, expansion, and design work.
+The code-track boundary follows all required planning and pre-implementation gates.
+These include confirmation, scope-exception decisions, and applicable design gates.
+A review-fix child remains inside the affected code track and adds no new handoff boundary.
+Complete the prior ordinary track package and required acceptance before the next ordinary track boundary.
 
 The orchestrator pauses dispatch pending an actual handoff and resume or an explicit user decision to continue in the same session. The explicit same-session decision is recorded as a user waiver in the existing override log. A resumed session follows Resume order and reconciliation and does not repeat a boundary request already recorded as completed. Same-track fix rounds do not retrigger the request. Single-track changes are exempt. This workflow rule has no automated runtime enforcement.
 <!-- multi-track-handoff:end -->
-
-If the planned split exceeds twelve tracks, stop and present the split to the
-user. The user chooses whether and how the change proceeds.
 
 ## Risk planning and reconciliation
 
@@ -419,7 +493,7 @@ For that title, `<r>` starts at 1 and increases by one for each user-review fix
 commit in the track. That section also defines the distinct cumulative
 implementation body.
 
-For each track, the implementer creates
+For each code track, the implementer creates
 `track-<number>-implementer-report.md` in the current change folder when the track
 starts. The dispatch gives the exact path. The report is untracked working
 material. After a session with a different identifier takes ownership, create
@@ -440,7 +514,7 @@ A later track builds on the accepted boundary before it.
 Start a change with `slate_change start` before the first implementation
 dispatch. Slate creates `slate-changes/<change>/research-log.md` without waiting
 for a retained trigger. It records the generated folder name and owning Pi
-session identifier in saved state. Each track creates its implementer report
+session identifier in saved state. Each code track creates its implementer report
 there at track start. Append a retained entry immediately when any trigger
 below fires. `slate_change close` clears the current change after delivery or
 abandonment. It deletes no files.
@@ -469,11 +543,16 @@ omitted and why.
 
 Use a safe write method. Create each file without following a symbolic link.
 Append through a temporary file and atomic rename when replacement is needed.
-Slate checks the folder chain when it creates the change. Slate cannot enforce
-the safe-write rule for each file that Pi's file tools write. Keep the log and
-every implementer report untracked and visible in repository status. Do not add
-them to an ignore file. Never overwrite either from a stale in-memory copy.
-An implementer report never enters a pull request. When a session adopts a
+Use [recursive-workflow.md](recursive-workflow.md) § Manual records and safe writes
+for the runnable recipe, including implementer reports.
+Research logs and implementer reports are append-only.
+A correction is a new entry.
+Slate checks the folder chain when it creates the change.
+Manual writers must also check the destination.
+Keep all manual records and leftover temporary files untracked and visible in repository status.
+Do not add them to an ignore file or a pull request.
+Exclude their references and contents from reviewer inputs.
+Never overwrite a record from a stale in-memory copy. When a session adopts a
 change owned by a different Pi session identifier, Slate starts a new folder.
 Its log first names the direct source folder as a read-only earlier log. Each
 source log's first entry links to its own source. Follow those links to read the
@@ -485,7 +564,8 @@ Slate saves no open change and reports the failure. If that save fails, Slate
 reports it too. A legacy root `research-log.md` remains read-only. Only the user
 deletes a delivered or abandoned change folder.
 
-Before a session handoff, append a state summary. It names the proved focus
+Before a session handoff, use § Confirmation gate's handoff block for record order and the subtree-entry reference.
+The root state summary names the proved focus
 areas and risk-record location, current track, current implementer
 report location, last boundary marker, live registers, open findings, checks
 run, and next action. A
@@ -497,9 +577,12 @@ work triggers this summary.
 Resume in this fixed order:
 
 1. Read the initial request and latest state summary.
-2. Read decisions, rulings, risks, and open questions added since the prior
-   summary. When the state summary names an existing current implementer
-   report, read it at that location.
+   Before relying on a summary, check that its named subtree entry exists.
+   An older summary without a subtree reference still resumes under its recorded workflow.
+2. Read later decisions and the active subtree's records.
+   When the summary names an existing current implementer report, read it there.
+   Use [recursive-workflow.md](recursive-workflow.md) § Resume and folder forks
+   for tree reconciliation and read-only source boundaries.
 3. Inspect marker commits and the current branch state.
 4. Reconcile the declared file list, track table, coverage register, proved
    focus areas, risk record, and live diff.
@@ -564,11 +647,14 @@ review. The document owns package presentation only. Continue to read
 it defines.
 <!-- delivery-package-loading:end -->
 
+For design tracks, use [recursive-workflow.md](recursive-workflow.md) § Whole-subtree acceptance.
+The following proved-area acceptance rules apply to code tracks.
+
 Every completed track reaches the user through the track package defined in
 [delivery-packages.md](delivery-packages.md) § Track package. User acceptance of
 a track is blocking when that track proves at least one DESIGN-TRIGGERING area.
 Where a marker applies, it waits for required track acceptance and every
-requested fix. A track with only REVIEWER-ONLY areas, or no proved area,
+requested fix. A code track with only REVIEWER-ONLY areas, or no proved area,
 has no mandatory track-acceptance gate.
 In a single-track change, any blocking track acceptance and final change
 acceptance are one event. Final change acceptance is always blocking.
@@ -584,11 +670,12 @@ The note queue is drained before final acceptance. Every escalation has a
 disposition. The coverage
 invariant holds. The user accepts the final change.
 
-A track contributes one cumulative implementation commit and zero or more
+A code track contributes one cumulative implementation commit and zero or more
 user-review fix commits. It also contributes zero or more correction commits,
 as defined later in [track-workflow.md](track-workflow.md) § Delivery and
-termination. Each track in a multi-track change also contributes one marker
-commit. During machine review, the implementer commits fixes separately so a
+termination. Each code track in a multi-track change also contributes one marker
+commit. For design markers, use [recursive-workflow.md](recursive-workflow.md)
+§ Identifiers, code ranges, and design markers. During machine review, the implementer commits fixes separately so a
 gate thread can inspect each fix difference. Before user review, squash the
 original implementation commit and every agentic-review fix commit into the cumulative
 implementation commit. This commit exists so the user reviews the high-level
@@ -622,8 +709,8 @@ escalation rules in
 The correction remains a separate commit after the cumulative implementation
 commit. Do not squash it. A track with no user-review fix commit adds neither
 this range nor this gate action. Where a marker applies, it comes last because
-it defines the track range. A fix after the marker would belong to the next
-track.
+it defines the track range. Later feedback follows [user-notes.md](user-notes.md).
+It does not extend the closed range or automatically belong to the next track.
 
 A bootstrap commit created to open a draft pull request uses
 `Bootstrap: <intent title>`. It is not part of any track. Re-pin every recorded
@@ -641,29 +728,59 @@ notes are resolved before the marker. When track acceptance is mandatory, the
 marker also waits for that acceptance and every requested fix:
 
 ```bash
-git commit --allow-empty -m "Track NN complete: <short name>"
+git commit --allow-empty -m "Track <path-number> complete: <short name>"
 ```
 
-Marker commits are the boundary authority for multi-track changes. Track N is
-the range after marker N-1 through marker N.
-A single-track change has no marker. Rebases move markers with history. Any
-layered process that pins marker refs must re-pin after a rebase.
+<!-- marker-identity-policy:begin -->
+A canonical path number identifies a track through its numbered ancestors.
+Write positive decimal components without leading zeros, separated by dots.
+Use this unpadded template for every change begun under the current workflow.
+A flat-workflow change began before this workflow shipped.
+It keeps padded `Track NN complete` markers and its recorded range form:
+track N is the range after marker N-1 through marker N.
+Do not rename those markers or rewrite their history.
+Marker commits remain the boundary authority.
+For current code ranges and design markers, use
+[recursive-workflow.md](recursive-workflow.md) § Identifiers, code ranges, and design markers.
+A single-track change has no marker.
+<!-- marker-identity-policy:end -->
+
+<!-- accepted-history-policy:begin -->
+Before a permitted rewrite, preserve accepted source history in a reachable
+branch or reference.
+Reconcile changed references before further work relies on them.
+A rebased marker counts only when the owning research log maps it to the
+preserved accepted source marker.
+Without that mapping, the original accepted marker remains evidence.
+Re-pin affected ranges after a permitted rewrite.
+Never destroy the exact state the user reviewed.
+A later aggregate package does not authorize rewriting earlier user-reviewed ranges.
+
+If marker history is unavailable, pause affected work.
+Try to recover the exact recorded history from retained branches, references, or source records.
+A status entry, merge result, or copied marker title cannot replace missing history.
+Never recreate a marker to claim an earlier boundary was proved.
+If recovery fails, ask the user to choose recovery work, abandonment, or an explicit evidence waiver.
+The waiver records its limit and does not claim recovered marker evidence.
+<!-- accepted-history-policy:end -->
 
 The track table lists names, one-line scopes, and status. It contains no commit
 identifier. Track numbers are append-only. Abandoned tracks are struck through.
 Numbers are never reused.
 
-With draft publishing, delivery is the user's final accepted merge of the
-umbrella pull request into the default development branch. When publishing is
-disabled, the final package asks for acceptance while the current research log,
-its source chain, and every implementer report remain retained. After acceptance,
-copy the required accounting from the current log and its source chain into the
-final squashed commit body as part of creating that commit. Verify the body
-before calling the commit delivery. This sequence applies to single-track and
-multi-track changes. Intermediate multi-track packages continue to use the
-current research log and its source chain as their accounting source. Explicit
-abandonment is the other delivery outcome. Resolve or hand every open question
-to the user.
+With draft publishing, [pr-publishing.md](pr-publishing.md) § After the merge
+owns per-level delivery accounting and root closure.
+Without publishing, use all owning accounting sources defined in
+[delivery-packages.md](delivery-packages.md) § Durable accounting.
+These include root and design-track logs, code reports, affected-track repair
+records, and their read-only source chains.
+Intermediate packages reference those sources, not a future commit.
+After root final acceptance, copy every required conclusion into the final squashed commit body.
+Preserve accepted source history before rewriting under this section's safeguards.
+Verify the body against all accounting sources before root closure.
+This sequence applies to single-track and multi-track changes.
+Explicit abandonment is the other delivery outcome.
+Resolve or hand every open question to the user.
 Follow [user-notes.md](user-notes.md) for feedback and note accounting. Follow
 [delivery-packages.md](delivery-packages.md) for the final user-facing package
 and the complete accounting sequence. Close the change only after the whole
@@ -686,9 +803,14 @@ project release runbook.
 
 ## Migration
 
-A change approved under an earlier workflow finishes under its recorded
-workflow. New work uses the focus-area workflow. Historical records may name
-earlier gates only to identify the governing rule set.
+An existing change finishes under its recorded workflow unless the user
+explicitly authorizes migration. Keep its recorded marker spelling and publishing
+arrangement. Do not rename markers or rewrite history to resemble a tree.
+Every new change uses the current workflow.
+A new change without design tracks or review-fix children has one level.
+It needs no manual status file or design-track research log.
+Missing manual tree records do not make an existing session unreadable.
+The publishing setting and its disabled default remain unchanged.
 
 ## Layering richer workflows on top
 

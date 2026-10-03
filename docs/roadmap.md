@@ -1,6 +1,6 @@
 # Roadmap
 
-This document describes planned work, not current Slate features.
+This document separates current larger-change guidance from planned work.
 
 ## Design that readers can verify
 
@@ -21,7 +21,21 @@ Code reviewers will check for established code practices and avoid patterns that
 
 ## Larger changes
 
-Planned recursive decomposition will split large, long-running changes into smaller parts that can themselves be split when needed ([#361](https://github.com/JetBrains/ytdb-slate/issues/361)).
+The current workflow supports nested planning through design tracks.
+A **design track** plans a nested change with child tracks.
+A **code track** implements bounded approved work.
+A **level** contains sibling tracks created by one split.
+Each level with code tracks has one optional draft pull request.
+A **subtree** contains a track and its descendants.
+Complete an entered subtree before starting its siblings.
+Each design track needs explicit acceptance of its whole subtree.
+Root final acceptance covers the whole change.
+Only the user merges pull requests.
+A **review-fix child track** repairs outstanding work under a user-approved split.
+It stays in the affected code track's delivery.
+Each new child starts at round zero with two ordinary rounds and one stuck-fix consultation.
+Use [recursive-workflow.md](recursive-workflow.md) for the nested rules.
+Use [track-workflow.md](track-workflow.md) for the common lifecycle.
 
 ## Developer experience
 

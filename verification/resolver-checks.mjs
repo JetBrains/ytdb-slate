@@ -356,6 +356,14 @@ const DOCTRINE_CONTRACT_IDS = [
 	"contract-risk-lifecycle",
 	"contract-focus-gates",
 	"contract-track-size-publishing",
+	"contract-recursive-planning",
+	"contract-recursive-owner-agreement",
+	"contract-recursive-records",
+	"contract-recursive-split-pointers",
+	"contract-recursive-delivery",
+	"contract-recursive-acceptance-transfer",
+	"contract-repair-authorization",
+	"contract-level-publishing",
 	"contract-publishing-migration",
 	"contract-acceptance-units",
 	"contract-acceptance-mutations",
@@ -1385,14 +1393,14 @@ try {
 			dogfood: metrics(await doctrine(dogExtensions, () => dogRuntime, true, dogConfig)),
 		};
 		const exact = {
-			prompt: { portable: 3596, lines: 11, paths: 0 }, trusted: { portable: 8468, lines: 88, paths: 5 },
-			untrusted: { portable: 2775, lines: 47, paths: 4 }, draft: { portable: 8543, lines: 89, paths: 6 },
-			extensions: { portable: 9815, lines: 98, paths: 5 }, allTails: { portable: 9890, lines: 99, paths: 6 },
-			followUp: { portable: 9889, lines: 99, paths: 5 }, routing: { portable: 9912, lines: 99, paths: 5 },
-			draftFollowUp: { portable: 9964, lines: 100, paths: 6 }, draftRouting: { portable: 9983, lines: 100, paths: 6 },
-			followUpRouting: { portable: 9986, lines: 100, paths: 5 }, maximal: { portable: 10057, lines: 101, paths: 6 },
-			maximalOpen: { portable: 10255, lines: 102, paths: 6 }, maximalLinked: { portable: 10485, lines: 104, paths: 6 },
-			dogfood: { portable: 9182, lines: 100, paths: 6 },
+			prompt: { portable: 3596, lines: 11, paths: 0 }, trusted: { portable: 8461, lines: 81, paths: 5 },
+			untrusted: { portable: 2768, lines: 40, paths: 4 }, draft: { portable: 8529, lines: 82, paths: 6 },
+			extensions: { portable: 9808, lines: 91, paths: 5 }, allTails: { portable: 9876, lines: 92, paths: 6 },
+			followUp: { portable: 9882, lines: 92, paths: 5 }, routing: { portable: 9905, lines: 92, paths: 5 },
+			draftFollowUp: { portable: 9950, lines: 93, paths: 6 }, draftRouting: { portable: 9969, lines: 93, paths: 6 },
+			followUpRouting: { portable: 9979, lines: 93, paths: 5 }, maximal: { portable: 10043, lines: 94, paths: 6 },
+			maximalOpen: { portable: 10245, lines: 95, paths: 6 }, maximalLinked: { portable: 10475, lines: 97, paths: 6 },
+			dogfood: { portable: 9168, lines: 93, paths: 6 },
 		};
 		const doctrineBaselines = Object.values(rendered);
 		checkAll("doctrine-budget", "exact production renders match published portable baselines and every current baseline keeps five-percent reserve", [
@@ -1426,17 +1434,17 @@ try {
 		const overExtensions = { units: [{ path: "/fixture/over", source: "z".repeat(128), isDirectory: true, tools: Array.from({ length: 88 }, (_, i) => ({ name: (`t${i}`).padEnd(64, "x"), description: "q".repeat(140) })) }], paths: [], toolNames: [] };
 		const over = await doctrine(overExtensions, () => activeRuntime, true, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, change);
 		const portable = (text) => text.split(docsDirectory).join("").length;
-		const wholeAt = await doctrine({ ...capped, units: [...capped.units, { path: "/fixture/c", source: "c".repeat(5), isDirectory: true, tools: [] }] }, () => atChars, true, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, change);
-		const wholeAbove = await doctrine({ ...capped, units: [...capped.units, { path: "/fixture/c", source: "c".repeat(6), isDirectory: true, tools: [] }] }, () => atChars, true, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, change);
+		const wholeAt = await doctrine({ ...capped, units: [...capped.units, { path: "/fixture/c", source: "c".repeat(15), isDirectory: true, tools: [] }] }, () => atChars, true, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, change);
+		const wholeAbove = await doctrine({ ...capped, units: [...capped.units, { path: "/fixture/c", source: "c".repeat(16), isDirectory: true, tools: [] }] }, () => atChars, true, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, change);
 		checkAll("doctrine-budget-boundaries", "runtime equality, first-over-limit rejection, maximum composition, and valid-router doctrine growth remain discriminatory", [
 			["19,400 accepted", atChars.promptText().length === 19400 && atChars.criticalErrors.length === 0, { length: atChars.promptText()?.length, errors: atChars.criticalErrors }],
 			["19,401 rejected", aboveChars.promptText() === undefined && aboveChars.criticalErrors.some((x) => /19401 portable characters/.test(x)), aboveChars.criticalErrors],
 			["105 lines accepted", atLines.promptText()?.split("\n").length === 105, atLines.criticalErrors],
 			["106 lines rejected", aboveLines.promptText() === undefined && aboveLines.criticalErrors.some((x) => /106 lines/.test(x)), aboveLines.criticalErrors],
 			["whole-doctrine equality is accepted and first-over-limit is rejected", portable(wholeAt) === DOCTRINE_LIMITS.maximalChars && portable(wholeAbove) === DOCTRINE_LIMITS.maximalChars + 1, { at: portable(wholeAt), above: portable(wholeAbove), ceiling: DOCTRINE_LIMITS.maximalChars }],
-			["boundary compositions stay exact and below whole-doctrine cap", portable(featureOffDraft) === 26122 && portable(featureOffTight) === 26196 && portable(routingWithoutDrafts) === 26144 && portable(routingWithFollowUp) === 26218 && portable(routing) === 26215 && portable(deferred) === 26289 && [featureOffDraft, featureOffTight, routingWithoutDrafts, routingWithFollowUp, routing, deferred].every((text) => portable(text) <= DOCTRINE_LIMITS.maximalChars), { featureOffDraft: portable(featureOffDraft), featureOffTight: portable(featureOffTight), routingWithoutDrafts: portable(routingWithoutDrafts), routingWithFollowUp: portable(routingWithFollowUp), routing: portable(routing), deferred: portable(deferred) }],
-			["boundary composition line counts match the published tables", featureOffDraft.split("\n").length === 102 && featureOffTight.split("\n").length === 103 && routingWithoutDrafts.split("\n").length === 102 && routingWithFollowUp.split("\n").length === 103 && routing.split("\n").length === 103 && deferred.split("\n").length === 104, { featureOffDraft: featureOffDraft.split("\n").length, featureOffTight: featureOffTight.split("\n").length, routingWithoutDrafts: routingWithoutDrafts.split("\n").length, routingWithFollowUp: routingWithFollowUp.split("\n").length, routing: routing.split("\n").length, deferred: deferred.split("\n").length }],
-			["fresh valid-router over-cap control reaches whole-doctrine guard", portable(over) === 28159 && portable(over) > DOCTRINE_LIMITS.maximalChars, portable(over)],
+			["boundary compositions stay exact and below whole-doctrine cap", portable(featureOffDraft) === 26112 && portable(featureOffTight) === 26186 && portable(routingWithoutDrafts) === 26141 && portable(routingWithFollowUp) === 26215 && portable(routing) === 26205 && portable(deferred) === 26279 && [featureOffDraft, featureOffTight, routingWithoutDrafts, routingWithFollowUp, routing, deferred].every((text) => portable(text) <= DOCTRINE_LIMITS.maximalChars), { featureOffDraft: portable(featureOffDraft), featureOffTight: portable(featureOffTight), routingWithoutDrafts: portable(routingWithoutDrafts), routingWithFollowUp: portable(routingWithFollowUp), routing: portable(routing), deferred: portable(deferred) }],
+			["boundary composition line counts match the published tables", featureOffDraft.split("\n").length === 95 && featureOffTight.split("\n").length === 96 && routingWithoutDrafts.split("\n").length === 95 && routingWithFollowUp.split("\n").length === 96 && routing.split("\n").length === 96 && deferred.split("\n").length === 97, { featureOffDraft: featureOffDraft.split("\n").length, featureOffTight: featureOffTight.split("\n").length, routingWithoutDrafts: routingWithoutDrafts.split("\n").length, routingWithFollowUp: routingWithFollowUp.split("\n").length, routing: routing.split("\n").length, deferred: deferred.split("\n").length }],
+			["fresh valid-router over-cap control reaches whole-doctrine guard", portable(over) === 28149 && portable(over) > DOCTRINE_LIMITS.maximalChars, portable(over)],
 		]);
 	});
 
@@ -2364,7 +2372,20 @@ Reviewer composition and merging belong to
 
 			const focusGates = normalizeText(workflow.match(/^## Focus classes and gates\n([\s\S]*?)(?=^<!-- focus-area-table:begin -->)/m)?.[1] ?? "");
 			const phases = normalizeText(workflow.match(/The mandatory phases run in this order:[\s\S]*?9\. deliver\./)?.[0] ?? "");
-			const designEntry = normalizeText(workflow.match(/Before each track implementation,[\s\S]*?(?=If the planned split exceeds)/)?.[0] ?? "");
+			const resolveDesignEntry = (source) => {
+				const matches = [...source.matchAll(/^Before each track implementation,[\s\S]*?(?=^<!-- multi-track-handoff:begin -->)/gm)];
+				return { count: matches.length, text: matches.length === 1 ? normalizeText(matches[0][0]) : "" };
+			};
+			const acceptsDesignEntry = (source) => {
+				const { count, text } = resolveDesignEntry(source);
+				return count === 1 && /Before each track implementation/.test(text) && /newly proves a DESIGN-TRIGGERING area[\s\S]*?enter or re-enter the design sequence[\s\S]*?before the affected implementation/.test(text) && /Reuse adequate unchanged approved design and completed applicable gates/.test(text) && /Reusing text does not bypass a newly required area-specific design review/.test(text) && /Routine low-level design choices need no user approval unless[\s\S]*?change approved behavior or constraints/.test(text);
+			};
+			const designEntryMutations = [
+				workflow.replace("Reuse adequate unchanged approved design and completed", "Assume the parent approved design and completed"),
+				workflow.replace("before the affected implementation", "after the affected implementation"),
+				workflow.replace("<!-- multi-track-handoff:begin -->", ""),
+				`${workflow}\n${workflow}`,
+			].map((source) => ({ changed: source !== workflow, rejected: !acceptsDesignEntry(source) }));
 			const resolvePhaseHandoff = (source) => {
 				const resolution = block(source, "multi-track-handoff");
 				return {
@@ -2374,17 +2395,35 @@ Reviewer composition and merging belong to
 				};
 			};
 			const phaseHandoff = resolvePhaseHandoff(workflow);
-			const expectedPhaseHandoff = normalizeText(`For a multi-track change, immediately before the implementation of every track, the orchestrator saves a current state summary in the current change's \`research-log.md\` and appends a typed \`handoff\` entry. The orchestrator then asks the user whether to run \`/slate handoff [focus]\`. This command continues the work in a fresh session and restores all threads and episodes. The orchestrator does not propose a plain new pi session instead.
+			const expectedPhaseHandoff = normalizeText(`For a multi-track change, ask for handoff at the start of each design track.
+Ask again immediately before each code track's implementation.
+A design track plans a nested change before implementation.
+Save subtree detail in the active subtree log first.
+Save the state summary in the root \`research-log.md\` last as a typed \`handoff\` entry.
+The summary names the subtree entry it relies on.
+For a review-fix subtree, use the affected code track's existing records.
+When no subtree log exists, save the summary in the root log alone.
+The orchestrator then asks whether to run \`/slate handoff [focus]\`.
+This command restores all threads and episodes in a fresh session.
+Do not propose a plain new pi session instead.
 
-The first boundary is after all required planning and pre-implementation gates for the affected track are complete, including the confirmation gate, any scope-exception decisions, and every applicable design gate. It is immediately before the first track implementation. At each later boundary, the orchestrator completes the current track packet and required acceptance before saving state and asking for handoff before the next track implementation.
+The design-track boundary precedes research, expansion, and design work.
+The code-track boundary follows all required planning and pre-implementation gates.
+These include confirmation, scope-exception decisions, and applicable design gates.
+A review-fix child remains inside the affected code track and adds no new handoff boundary.
+Complete the prior ordinary track package and required acceptance before the next ordinary track boundary.
 
 The orchestrator pauses dispatch pending an actual handoff and resume or an explicit user decision to continue in the same session. The explicit same-session decision is recorded as a user waiver in the existing override log. A resumed session follows Resume order and reconciliation and does not repeat a boundary request already recorded as completed. Same-track fix rounds do not retrigger the request. Single-track changes are exempt. This workflow rule has no automated runtime enforcement.`);
 			const phaseHandoffMutationSources = [
 				workflow.replace("For a multi-track change", "For every change"),
-				workflow.replace("immediately before the implementation of every track", "after implementation of every track"),
+				workflow.replace("immediately before each code track's implementation", "after each code track's implementation"),
+				workflow.replace("at the start of each design track", "after each design track"),
+				workflow.replace("active subtree log first", "active subtree log last"),
+				workflow.replace("The summary names the subtree entry it relies on.", "The summary needs no subtree entry."),
 				workflow.replace("The explicit same-session decision is recorded as a user waiver in the existing override log.", "The explicit same-session decision needs no log entry."),
 				workflow.replace("does not repeat a boundary request already recorded as completed", "repeats every boundary request"),
 				workflow.replace("Same-track fix rounds do not retrigger the request.", "Every same-track fix round retriggers the request."),
+				workflow.replace("A review-fix child remains inside the affected code track and adds no new handoff boundary.", "Each review-fix child has a separate code-track handoff boundary."),
 				workflow.replace("Single-track changes are exempt.", "Single-track changes follow the same rule."),
 				workflow.replace("<!-- multi-track-handoff:end -->", "A same-session continuation needs no additional decision.\n<!-- multi-track-handoff:end -->"),
 			];
@@ -2514,7 +2553,8 @@ required reviews, ordered gates, user authority, or final acceptance.`;
 				["100 lines, 101 lines, documentation-only and proved areas select the correct reviewers", /at least one proved area gets exactly one\s+Reviewer I/.test(focusGates) && /above 100 counted lines also requires Reviewer I\s+unless the track is documentation-only/.test(focusGates) && reviewerRows.length === 3 && reviewerRows[0]?.[0] === "one or more proved areas" && reviewerRows[0]?.[1].startsWith("exactly one Reviewer I plus one specialist for every proved area") && reviewerRows[1]?.[0] === "no proved area, more than 100 counted lines, not documentation-only" && reviewerRows[1]?.[1] === "exactly one Reviewer I" && reviewerRows[2]?.[0] === "no proved area, at most 100 counted lines or documentation-only" && reviewerRows[2]?.[1].includes("NOT REQUIRED"), { focusGates, reviewerRows }],
 				["no-design phases skip design-only gates while final acceptance remains mandatory", /when a design exists, reconfirm/.test(phases) && /when a design exists, run one adversarial design review/.test(phases) && /when a design exists, obtain final design approval/.test(phases) && /obtain blocking final acceptance/.test(phases), phases],
 				["design validation and reconfirmation precede one area adversary and final approval", /user validation, focus reconfirmation, its own adversarial\s*design reviewer, and final design approval/.test(focusGates), focusGates],
-				["each track assesses design coverage and re-enters before affected implementation", /Before each track implementation/.test(designEntry) && /newly proves a DESIGN-TRIGGERING area[\s\S]*?enter or re-enter the design sequence[\s\S]*?before the affected implementation/.test(designEntry) && /Reuse adequate unchanged approved design and completed applicable gates/.test(designEntry) && /Reusing text does not bypass a newly required area-specific design review/.test(designEntry) && /Routine low-level design choices need no user approval unless[\s\S]*?change approved behavior or constraints/.test(designEntry), designEntry],
+				["each track assesses design coverage and re-enters before affected implementation", acceptsDesignEntry(workflow), resolveDesignEntry(workflow)],
+				["design-entry rule and boundary mutations fail while an outside edit passes", designEntryMutations.every(({ changed, rejected }) => changed && rejected) && acceptsDesignEntry(`${workflow}\nUnrelated outside-unit text.\n`), designEntryMutations],
 				["multi-track implementation boundaries require state save, handoff request, pause, override, resume de-duplication, and single-track exemption", phaseHandoff.count === 1 && phaseHandoff.endCount === 1 && phaseHandoff.text === expectedPhaseHandoff, { phaseHandoff, expectedPhaseHandoff }],
 				["weakened scope, ordering, logging, resume, fix-round, single-track, and contradictory additions fail through the same validator", phaseHandoffMutationOutcomes.every(({ changed, accepted }) => changed && !accepted), phaseHandoffMutationOutcomes],
 				["missing, duplicate, and malformed handoff boundaries fail closed", phaseHandoffBoundaryMutations.every(({ count, endCount, text }) => count !== 1 || endCount !== 1 || text === ""), phaseHandoffBoundaryMutations],
@@ -2557,11 +2597,12 @@ required reviews, ordered gates, user authority, or final acceptance.`;
 					invertedDocument: "User acceptance of a track is optional when that track proves at least one DESIGN-TRIGGERING area.",
 					invertedDoctrine: "optional track acceptance.",
 				}),
+				// Both document and session exemptions apply only to code tracks.
 				noMandatory: Object.freeze({
-					document: "A track with only REVIEWER-ONLY areas, or no proved area, has no mandatory track-acceptance gate.",
-					doctrine: "REVIEWER-ONLY or no-area tracks need no track acceptance.",
-					invertedDocument: "A track with only REVIEWER-ONLY areas, or no proved area, has a mandatory track-acceptance gate.",
-					invertedDoctrine: "REVIEWER-ONLY or no-area tracks need blocking track acceptance.",
+					document: "A code track with only REVIEWER-ONLY areas, or no proved area, has no mandatory track-acceptance gate.",
+					doctrine: "REVIEWER-ONLY or no-area code tracks need no track acceptance.",
+					invertedDocument: "A code track with only REVIEWER-ONLY areas, or no proved area, has a mandatory track-acceptance gate.",
+					invertedDoctrine: "REVIEWER-ONLY or no-area code tracks need blocking track acceptance.",
 				}),
 				finalBlocking: Object.freeze({
 					document: "Final change acceptance is always blocking.",
@@ -2701,8 +2742,8 @@ duplicate action for the same required perspective.`),
 					extract: regionUnit(/(Keep separate change\/track records\.[\s\S]*?)(?=Definitions: )/g),
 					expected: normalizeText(`Keep separate change/track records. NAMED: defect, place,
 consequence, review contribution. User approval proves it. Rejection is
-SKIPPED. Proved areas add specialists and one Reviewer I. Estimate each track
-first. Above 100 counted lines requires design before work, even
+SKIPPED. Proved areas add specialists and one Reviewer I. Estimate tracks
+first. Multi-track work or estimates >100 counted lines need design before work, even
 documentation-only. Implementer reports approximate size in response and
 report. Above 100 adds Reviewer I except documentation-only.
 Size adds no specialist, design adversary or track acceptance. If size crosses 100
@@ -2742,8 +2783,8 @@ Late areas add only specialists if Reviewer I ran.`),
 			const publishingActivation = {
 				extract: regionUnit(/^(Publishing depends on `workflow\.draftPRs`[\s\S]*?)(?=^## Track size and split)/gm),
 				expected: normalizeText(`Publishing depends on \`workflow.draftPRs\` in \`slate.json\`. When enabled, use
-[pr-publishing.md](pr-publishing.md) to create one umbrella draft pull request
-before implementation. When publishing is disabled, create no pull request.
+[pr-publishing.md](pr-publishing.md) § One draft pull request for level publishing.
+Its § Creation sets the draft timing. When publishing is disabled, create no pull request.
 The retained research log is the durable workflow record.`),
 			};
 
@@ -2764,10 +2805,18 @@ the implementer reports above 100, do not require a design after the fact.
 Reviewer I still runs when the track is not documentation-only. Use the larger
 size to estimate remaining tracks.
 
-Plan each track as an autonomous, independently mergeable unit inside the
-change. Aim for a coherent boundary close to 400 changed lines without
-exceeding the guideline.
-If the nearest coherent, independently mergeable unit needs a small overrun,
+Plan each code track as one coherent review unit inside a level.
+A code track implements bounded approved work, including document changes.
+A level contains the sibling tracks created by one split.
+The level is the merge unit.
+All checks pass at each child marker.
+Agreement across documents, prompt guidance, and the extension is required at
+the level boundary.
+Intermediate track packages and review intentions list each remaining difference
+across those surfaces and name the later child that owns it.
+Do not merge an incomplete level into the default branch.
+Aim for a coherent boundary close to 400 counted changed lines.
+If the nearest coherent unit needs a small overrun,
 finish that unit and report the reason. Size never permits dropping an approved
 requirement, reducing implementation or test quality, or declaring partial work
 complete.
@@ -2780,38 +2829,63 @@ the orchestrator proposes the additional track or tracks. The orchestrator
 obtains every approval that a new track requires before implementation continues.`),
 				},
 				{
-					id: "umbrella-publishing",
-					extract: markedUnit("umbrella-publishing-policy"),
-					expected: normalizeText(`Create one umbrella draft pull request for the whole change. Keep every track
-autonomous and independently mergeable inside its branch. Only the user merges
-the pull request. Each multi-track boundary uses a marker commit after its
-required gates, as defined in track-workflow.md § Delivery and termination.
+					id: "level-publishing",
+					extract: markedUnit("level-publishing-policy"),
+					expected: normalizeText(`Apply this section only when \`workflow.draftPRs\` is enabled.
+A level contains the sibling tracks created by one split.
+A code track implements bounded approved work.
+A design track plans and completes a nested change.
+Create one draft level pull request for each level with code tracks.
+A level containing only design tracks has no pull request of its own.
+A mixed level's pull request contains only its code tracks.
+Design tracks produce the pull requests of their descendant levels.
+A change without design tracks keeps exactly one pull request.
+Do not create separate pull requests for code tracks or review-fix children.
+For nested work, use [recursive-workflow.md](recursive-workflow.md) § Level publishing
+and retained history for subtree ordering, branch bases, history slices, and retention.
+
+The level is the merge unit.
+All checks pass at each child marker.
+Agreement across documents, prompt guidance, and the extension is required at
+the level boundary.
+Do not merge an incomplete level into the default branch.
+Intermediate track packages and review intentions list each remaining difference
+across those surfaces and name the later child that owns it.
+Only the user merges the pull request.
+Each multi-track boundary uses a marker commit after its required gates,
+as defined in track-workflow.md § Delivery and termination.
 
 Draft publishing does not remove or move planning, design, focus approval,
 review, track-packet, user-note, blocking track-acceptance, final-acceptance,
 or finding-disposition requirements. Retain the current change folder's
 research log and every implementer report through and after delivery. Only
-the user may delete the change folder.`),
+the user may delete the change folder.
+Manual records and leftover record temporary files never enter a pull request.`),
 				},
 				{
 					id: "publishing-after-merge",
 					extract: regionUnit(/^## After the merge\n\n([\s\S]*?)(?=^Any cleanup)/gm),
-					expected: normalizeText(`After the user merges the umbrella pull request, complete the change's
-delivery accounting. Then close the change under track-workflow.md § Session
-handoff and the research log. Abandonment at any stage also ends with
+					expected: normalizeText(`After the user merges a level pull request, verify that level's delivery accounting.
+Verify the observed merge commit's identity and parents against its accepted history and pull request.
+Record the observed merge-result binding in the reachable description and owning log.
+The merge commit itself supplies that binding, including for the last level.
+The root final package lists every level delivery.
+It distinguishes merged levels from the last accepted level waiting for merge.
+Close the root change only after all delivery accounting is verified.
+Use track-workflow.md § Session handoff and the research log for closure. Abandonment at any stage also ends with
 \`slate_change close\`, even if no delivery artifact exists. Closing deletes
 nothing. Keep its folder and reports.`),
 				},
 			];
 			const resolveTrackSizePublishing = (workflowSource = workflow, publishingSource = publishing) => [
 				{ id: "track-size", expected: trackSizePublishingUnits[0].expected, ...trackSizePublishingUnits[0].extract(workflowSource) },
-				{ id: "umbrella-publishing", expected: trackSizePublishingUnits[1].expected, ...trackSizePublishingUnits[1].extract(publishingSource) },
+				{ id: "level-publishing", expected: trackSizePublishingUnits[1].expected, ...trackSizePublishingUnits[1].extract(publishingSource) },
 				{ id: "publishing-after-merge", expected: trackSizePublishingUnits[2].expected, ...trackSizePublishingUnits[2].extract(publishingSource) },
 			];
 			const publishingActivationResult = publishingActivation.extract(workflow);
 			const publishingActivationMutations = [
 				workflow.replace("When enabled, use\n[pr-publishing.md](pr-publishing.md)", "When disabled, use\n[pr-publishing.md](pr-publishing.md)"),
-				workflow.replace("to create one umbrella draft pull request", "to create separate draft pull requests"),
+				workflow.replace("§ One draft pull request for level publishing", "§ One draft pull request for per-track publishing"),
 				workflow.replace("publishing is disabled, create no pull request", "publishing is disabled, create a pull request"),
 			].map((source) => {
 				const resolved = publishingActivation.extract(source);
@@ -2829,16 +2903,19 @@ nothing. Keep its folder and reports.`),
 				[workflow.replace("do not require a design after the fact", "require a design after the fact"), publishing],
 				[workflow.replace("Reviewer I still runs when the track is not documentation-only", "Reviewer I does not run when the estimate was at most 100"), publishing],
 				[workflow.replace("Use the larger\nsize to estimate remaining tracks", "Ignore the larger size for remaining tracks"), publishing],
-				[workflow.replace("autonomous, independently mergeable unit", "dependent partial change"), publishing],
+				[workflow.replace("coherent review unit inside a level", "independently mergeable partial change"), publishing],
+				[workflow.replace("All checks pass at each child marker.", "Checks may fail at a child marker."), publishing],
+				[workflow.replace("The level is the merge unit.", "Each child is the merge unit."), publishing],
+				[workflow.replace("at\nthe level boundary", "at\nevery child boundary"), publishing],
 				[workflow.replace("needs a small overrun,\nfinish that unit and report the reason", "needs a small overrun,\ncut required work to stay below the guideline"), publishing],
 				[workflow.replace("stops adding\nscope", "keeps adding\nscope"), publishing],
 				[workflow.replace("completed\nwork, remaining work, and a proposed track split", "completed work"), publishing],
 				[workflow.replace("Size never permits dropping an approved\nrequirement", "Size permits dropping an approved\nrequirement"), publishing],
 				[workflow.replace("declaring partial work\ncomplete", "declaring partial work near the guideline\ncomplete"), publishing],
-				[workflow, publishing.replace("Create one umbrella draft pull request for the whole change.", "Create a draft pull request for each track.")],
+				[workflow, publishing.replace("Create one draft level pull request for each level with code tracks.", "Create a draft pull request for each code track.")],
 				[workflow, publishing.replace("Only the user merges", "The agent merges")],
 				[workflow, publishing.replace("Each multi-track boundary uses a marker commit", "Each multi-track boundary uses a merged commit")],
-				[workflow, publishing.replace("After the user merges the umbrella pull request", "Before the user merges the umbrella pull request")],
+				[workflow, publishing.replace("After the user merges a level pull request", "Before the user merges a level pull request")],
 				[workflow, publishing.replace("Draft publishing does not remove or move planning", "Draft publishing may remove or move planning")],
 				[workflow, publishing.replace("Retain the current change folder's\nresearch log and every implementer report", "Delete the current change folder's\nresearch log and every implementer report")],
 			].map(([workflowSource, publishingSource]) => ({
@@ -2847,17 +2924,361 @@ nothing. Keep its folder and reports.`),
 			}));
 			const missingTrackSizePublishing = [
 				resolveTrackSizePublishing(workflow.replace("<!-- track-size-policy:begin -->", ""), publishing)[0],
-				resolveTrackSizePublishing(workflow, publishing.replace("<!-- umbrella-publishing-policy:end -->", ""))[1],
+				resolveTrackSizePublishing(workflow, publishing.replace("<!-- level-publishing-policy:end -->", ""))[1],
 				resolveTrackSizePublishing(workflow, publishing.replace("## After the merge", "## After merging"))[2],
 			];
 			const duplicateTrackSizePublishing = resolveTrackSizePublishing(
 				`${workflow}\n\n<!-- track-size-policy:begin -->\n${trackSizePublishingUnits[0].expected}\n<!-- track-size-policy:end -->`,
-				`${publishing}\n\n<!-- umbrella-publishing-policy:begin -->\n${trackSizePublishingUnits[1].expected}\n<!-- umbrella-publishing-policy:end -->\n\n## After the merge\n\n${trackSizePublishingUnits[2].expected}\n\nAny cleanup`,
+				`${publishing}\n\n<!-- level-publishing-policy:begin -->\n${trackSizePublishingUnits[1].expected}\n<!-- level-publishing-policy:end -->\n\n## After the merge\n\n${trackSizePublishingUnits[2].expected}\n\nAny cleanup`,
 			);
-			checkAll("contract-track-size-publishing", "track sizing, publishing activation, one umbrella pull request, and post-merge cleanup are exact mutation-resistant policy units", [
+			checkAll("contract-track-size-publishing", "track sizing, publishing activation, level pull requests, and post-merge accounting are exact mutation-resistant policy units", [
 				["publishing activation and all three policy units resolve once and equal independent expectations", publishingActivationResult.count === 1 && publishingActivationResult.text === publishingActivation.expected && trackSizePublishingResults.every((unit) => unit.count === 1 && unit.text === unit.expected), { publishingActivationResult, trackSizePublishingResults }],
-				["enabled and disabled activation, one-PR rule, limit, exclusions, both estimates, metric exclusions, autonomy, coherent overrun, stopping report, false completion, marker boundary, user merge, post-merge cleanup, gate, and record-retention mutations fail", publishingActivationMutations.every(({ changed, accepted }) => changed && !accepted) && trackSizePublishingMutations.every(({ changed, accepted }) => changed && !accepted), { publishingActivationMutations, trackSizePublishingMutations }],
+				["enabled and disabled activation, one-PR rule, limit, exclusions, both estimates, metric exclusions, level consistency, coherent overrun, stopping report, false completion, marker boundary, user merge, post-merge cleanup, gate, and record-retention mutations fail", publishingActivationMutations.every(({ changed, accepted }) => changed && !accepted) && trackSizePublishingMutations.every(({ changed, accepted }) => changed && !accepted), { publishingActivationMutations, trackSizePublishingMutations }],
 				["missing and duplicated marker boundaries fail closed", missingTrackSizePublishing.every(({ count, text }) => count === 0 && text === "") && duplicateTrackSizePublishing.every(({ count }) => count === 2), { missingTrackSizePublishing, duplicateTrackSizePublishing }],
+			]);
+
+			const recursive = readFileSync(join(REPO, "docs", "recursive-workflow.md"), "utf8");
+			const recursiveUnits = [
+				{
+					id: "lifecycle-planning", source: workflow,
+					extract: markedUnit("recursive-planning-policy"),
+					boundary: "<!-- recursive-planning-policy:end -->",
+					expected: normalizeText(`A design track plans and completes a nested change.
+A multi-track change requires a high-level design.
+An estimate above 100 counted lines and a proved DESIGN-TRIGGERING area remain
+separate design triggers.
+A required high-level design alone does not create a design track.
+Expand a design track when work reaches it.
+Each subtree root receives its own high-level design and independent risk assessment.
+A subtree contains a node and its descendant tracks.
+Design-track designs have no size cap.
+Each design track completes the gates of a nested multi-track change.
+Each code track keeps its independent gates.
+Reuse applicable evidence only under § Confirmation gate's user-decision reuse rule.
+
+An ordinary split creates at most five direct child tracks.
+An ordinary plan that needs more than five direct children must add a design track.
+Load [recursive-workflow.md](recursive-workflow.md) for that design track.
+An implementer-requested split may add siblings beyond five to the same level.
+The exception does not automatically create another level.
+Obtain each new track's required approvals before implementation.
+The exception changes neither review requirements nor repair budgets.
+Track numbers remain stable and are never reused.
+
+Every change reads § Identifiers, code ranges, and design markers and § Manual records and safe writes in [recursive-workflow.md](recursive-workflow.md).
+Load its other sections when the current or proposed plan contains a design track or review-fix child track.
+A review-fix child track repairs outstanding work under a user-approved split.
+Check the loading condition during planning and again during resume reconciliation.
+Load the document before proposing a review-fix split.
+Read the applicable sections before relying on their rules.
+A lazy plan needs no total descendant count to apply the condition.
+A small tree with a design track still loads the whole document.
+A change with neither triggering track type reads only the named common sections.
+
+The approved plan supplies specific evidence for proportional process.
+A design track or review-fix child track triggers the manual status file.
+Entering a design track triggers its research log and nested gates.
+An ordinary code track or a high-level design alone triggers neither extra record.
+These conditions add no unconditional-artifact exception.
+Questions follow unresolved decisions rather than record or track counts.
+[recursive-workflow.md](recursive-workflow.md) owns the nested planning relations.`),
+				},
+				{
+					id: "nested-design", source: recursive,
+					extract: markedUnit("nested-design-policy"),
+					boundary: "<!-- nested-design-policy:end -->",
+					expected: normalizeText(`Expand a design track when work reaches it.
+Each subtree root receives its own high-level design and independent risk assessment.
+A multi-track change requires a high-level design.
+An estimate above 100 counted lines and a proved DESIGN-TRIGGERING area remain
+separate design triggers.
+Design-track designs have no size cap.
+Each design track completes the gates of a nested multi-track change.
+Each code track keeps its independent gates.
+Use [track-workflow.md](track-workflow.md) § Confirmation gate for user-decision reuse.`),
+				},
+				{
+					id: "blast-level", source: blast,
+					extract: regionUnit(/^(Each track must be one coherent unit[\s\S]*?)(?=^## Focus areas and their gates)/gm),
+					boundary: "## Focus areas and their gates",
+					expected: normalizeText(`Each track must be one coherent unit that a human can review in one sitting.
+The orchestrator owns the split and records its rationale.
+A code track implements bounded approved work, including document changes.
+A level contains the sibling tracks created by one split.
+The level is the merge unit.
+All checks pass at each child marker.
+Agreement across documents, prompt guidance, and the extension is required at
+the level boundary.
+Intermediate track packages and review intentions list each remaining difference
+across those surfaces and name the later child that owns it.
+Do not merge an incomplete level into the default branch.
+[track-workflow.md](track-workflow.md) § Recursive planning and loading owns split
+limits, the implementer-requested exception, and the recursive-document loading condition.`),
+				},
+			];
+			const acceptsRecursiveUnit = (unit, source) => {
+				const result = unit.extract(source);
+				return result.count === 1 && result.text === unit.expected;
+			};
+			const recursiveAttacks = [
+				[0, "five-child limit", "at most five direct child tracks", "at most nine direct child tracks"],
+				[0, "larger ordinary plan", "must add a design track", "may remain flat"],
+				[0, "larger-plan loading", "Load [recursive-workflow.md](recursive-workflow.md) for that design track.", "Skip the recursive document."],
+				[0, "split exception", "may add siblings beyond five to the same level", "must create a new level beyond five"],
+				[0, "new approvals", "required approvals before implementation", "approvals after implementation"],
+				[0, "budgets", "changes neither review requirements nor repair budgets", "resets review requirements and repair budgets"],
+				[0, "stable numbers", "are never reused", "may be reused"],
+				[0, "loading trigger", "design track or review-fix child track", "design track only"],
+				[0, "resume loading", "and again during resume reconciliation", "but not during resume reconciliation"],
+				[0, "proposal loading", "before proposing a review-fix split", "after proposing a review-fix split"],
+				[0, "small tree", "A small tree with a design track still loads the whole document.", "Small trees never load the document."],
+				[0, "conditional records", "triggers neither extra record", "requires both extra records"],
+				[0, "proportional process", "add no unconditional-artifact exception", "add an unconditional-artifact exception"],
+				[1, "lazy expansion", "when work reaches it", "at root planning"],
+				[1, "independent risk", "independent risk assessment", "inherited risk approval"],
+				[1, "multi-track design", "requires a high-level design", "needs no high-level design"],
+				[1, "size trigger", "above 100 counted lines", "above 400 counted lines"],
+				[1, "uncapped design", "have no size cap", "have a 400-line cap"],
+				[1, "nested gates", "completes the gates", "skips the gates"],
+				[1, "code gates", "keeps its independent gates", "uses only parent gates"],
+				[2, "merge unit", "The level is the merge unit.", "Each child is the merge unit."],
+				[2, "child checks", "All checks pass at each child marker.", "Child checks may fail."],
+				[2, "agreement boundary", "at\nthe level boundary", "at\nevery child boundary"],
+				[2, "remaining owners", "name the later child that owns it", "omit the later owner"],
+			].map(([index, id, before, after]) => {
+				const unit = recursiveUnits[index];
+				const source = unit.source.replace(before, after);
+				return { id, changed: source !== unit.source, rejected: !acceptsRecursiveUnit(unit, source) };
+			});
+			const recursiveBoundaries = recursiveUnits.map((unit) => {
+				const missing = unit.source.replace(unit.boundary, "");
+				const duplicate = `${unit.source}\n${unit.source}`;
+				return { id: unit.id, missing: !acceptsRecursiveUnit(unit, missing), duplicate: !acceptsRecursiveUnit(unit, duplicate), benign: acceptsRecursiveUnit(unit, `${unit.source}\nUnrelated outside-unit text.\n`) };
+			});
+			const noTotalStop = (source) => !/\b(?:twelve|12)\s+tracks\b|\bTwelve is an escalation/i.test(source);
+			checkAll("contract-recursive-planning", "the lifecycle owns the five-child rule, split exception and loading, nested designs preserve gates, and child checks precede level agreement", [
+				["three independent owned units resolve exactly once and match", recursiveUnits.every((unit) => acceptsRecursiveUnit(unit, unit.source)), recursiveUnits.map((unit) => ({ id: unit.id, ...unit.extract(unit.source) }))],
+				["every rule mutation changes input and fails its production predicate", recursiveAttacks.every(({ changed, rejected }) => changed && rejected), recursiveAttacks],
+				["missing and duplicate units fail, while outside-unit edits pass", recursiveBoundaries.every(({ missing, duplicate, benign }) => missing && duplicate && benign), recursiveBoundaries],
+				["both total-track stops are absent and restoring either fails", [workflow, blast].every((source) => noTotalStop(source) && !noTotalStop(`${source}\nIf the planned split exceeds twelve tracks, stop.`)), "workflow and blast-radius"],
+				["the phase list includes the separate multi-track design trigger", workflow.includes("3. design and validate for a multi-track change, a proved DESIGN-TRIGGERING area, or a per-track estimate above 100 counted lines."), workflow.match(/^3\. .*$/m)?.[0]],
+				["one exported document identity resolves without an always-loaded prompt import", paths.RECURSIVE_WORKFLOW_DOC === join(REPO, "docs", "recursive-workflow.md") && readFileSync(paths.RECURSIVE_WORKFLOW_DOC, "utf8") === recursive && !readFileSync(join(REPO, "extension", "mode.ts"), "utf8").includes("RECURSIVE_WORKFLOW_DOC"), paths.RECURSIVE_WORKFLOW_DOC],
+			]);
+
+			// Protect the complete implemented prefix, including pointer-only sections.
+			// Later tracks own the sections after this boundary. Shared summaries must
+			// also match the lifecycle owner, not merely independent document pins.
+			const loadingRules = [
+				"Every change reads § Identifiers, code ranges, and design markers and § Manual records and safe writes in [recursive-workflow.md](recursive-workflow.md).",
+				"Load its other sections when the current or proposed plan contains a design track or review-fix child track.",
+				"Check the loading condition during planning and again during resume reconciliation.",
+				"Load the document before proposing a review-fix split.",
+			];
+			const nestedRules = [
+				"Expand a design track when work reaches it.",
+				"Each subtree root receives its own high-level design and independent risk assessment.",
+				"A multi-track change requires a high-level design.",
+				"An estimate above 100 counted lines and a proved DESIGN-TRIGGERING area remain separate design triggers.",
+				"Design-track designs have no size cap.",
+				"Each design track completes the gates of a nested multi-track change.",
+				"Each code track keeps its independent gates.",
+			];
+			const recordRules = [
+				"Entering a design track triggers its research log and nested gates.",
+				"An ordinary code track or a high-level design alone triggers neither extra record.",
+				"Questions follow unresolved decisions rather than record or track counts.",
+			];
+			const recursivePrefix = regionUnit(/^# Recursive workflow\n([\s\S]*?)(?=^## Level publishing and retained history\n)/gm);
+			const recursivePrefixExpected = normalizeText(`Use [track-workflow.md](track-workflow.md) for the lifecycle.
+This document owns nested-track relations.
+
+## Terms and scope
+
+A **change tree** records tracks and their parent-child relationships.
+The **change root** represents the whole request.
+A **design track** plans a nested change.
+A **code track** implements bounded approved work, including documents.
+A **level** contains sibling tracks created by one split, not all tracks at one depth.
+A **level pull request** contains the code tracks of one level.
+A **subtree** contains a node and its descendants.
+A **review-fix child track** repairs outstanding work under a user-approved split.
+An **inner node** has children.
+The root and design tracks are ordinary inner nodes.
+A code track becomes an inner node only through review-fix children.
+Ordinary leaves are code tracks.
+Slate maintains no tree controller.
+
+## Loading and planning
+
+Use [track-workflow.md](track-workflow.md) § Recursive planning and loading for
+loading, the direct-child limit, and the implementer-requested split exception.
+Apply its split rule to the root and each expanded design track.
+Use its § Confirmation gate for approvals and § Track intention block and
+implementer response for scope.
+
+${loadingRules.join("\n")}
+
+## Nested designs and gates
+
+<!-- nested-design-policy:begin -->
+${nestedRules.join("\n")}
+Use [track-workflow.md](track-workflow.md) § Confirmation gate for user-decision reuse.
+<!-- nested-design-policy:end -->
+
+Parent approval does not approve children.
+Use [track-workflow.md](track-workflow.md) § Lifecycle and phases for design gates,
+§ Risk planning and reconciliation for risk records, and § Review coverage for reviews.
+Use its § Delivery and termination for acceptance.
+
+## Code-track sizing and split requests
+
+Use [track-workflow.md](track-workflow.md) § Track size and split for sizing and stopping.
+Use its § Recursive planning and loading for split exceptions.
+
+## Level consistency
+
+Use [track-workflow.md](track-workflow.md) § Track size and split for level consistency.
+
+## Proportional process
+
+Use [design-principles.md](design-principles.md) § 4. Operating principles for proportional process.
+Use [track-workflow.md](track-workflow.md) § Recursive planning and loading for record triggers.
+${recordRules.join("\n")}
+
+## Recorded-workflow compatibility
+
+Use [track-workflow.md](track-workflow.md) § Migration for compatibility.
+Use its § Session handoff and the research log for ownership.`);
+			const protectedRepairOwners = Object.freeze({
+				"repair-rounds": "25a681e30d96285c7d65fa9285b46c073a958fe1c9500b206273b64ba28a873b",
+				"repair-consultations": "86f0f04219e871881c7f99263689d848fc78772d2b034e3d359cdc6662f4d780",
+				"child-fix-title": "5aae2e552982b790e7fa15a115415cd7f204704b9ba19e464d592c7de04ec7ed",
+			});
+			const protectedRepairSummary = "f1bfd2437621d5ba83c8a04619f92b71c5e4e0862e8454957fb7757471e69874";
+			const agreementDigest = (text) => createHash("sha256").update(normalizeText(text)).digest("hex");
+			const sharedRecursiveRules = [
+				{ id: "loading", rules: loadingRules, extract: regionUnit(/^## Loading and planning\n([\s\S]*?)(?=^## Nested designs and gates\n)/gm) },
+				{ id: "nested", rules: nestedRules, extract: markedUnit("nested-design-policy") },
+				{ id: "records", rules: recordRules, extract: regionUnit(/^## Proportional process\n([\s\S]*?)(?=^## Recorded-workflow compatibility\n)/gm) },
+				{ id: "status-trigger", rules: ["A design track or review-fix child track triggers the manual status file."], extract: regionUnit(/^## Manual records and safe writes\n([\s\S]*?)(?=^## Resume and folder forks\n)/gm) },
+				{ id: "canonical-grammar", owner: markedUnit("marker-identity-policy"), rules: ["Write positive decimal components without leading zeros, separated by dots."], extract: regionUnit(/^## Identifiers, code ranges, and design markers\n([\s\S]*?)(?=^## Manual records and safe writes\n)/gm) },
+				{ id: "repair-records", owner: markedUnit("multi-track-handoff"), rules: ["For a review-fix subtree, use the affected code track's existing records."], extract: regionUnit(/^## Manual records and safe writes\n([\s\S]*?)(?=^## Resume and folder forks\n)/gm) },
+				{ id: "append-only", owner: regionUnit(/^Use a safe write method\. ([\s\S]*?)(?=^Before a session handoff)/gm), rules: ["Research logs and implementer reports are append-only.", "A correction is a new entry."], extract: regionUnit(/^## Manual records and safe writes\n([\s\S]*?)(?=^## Resume and folder forks\n)/gm) },
+				{ id: "resume-entry", owner: regionUnit(/^## Resume order and reconciliation\n([\s\S]*?)(?=^## Review coverage\n)/gm), rules: ["Before relying on a summary, check that its named subtree entry exists."], extract: regionUnit(/^## Resume and folder forks\n([\s\S]*?)(?=^## Handoff boundaries\n)/gm) },
+				{ id: "repair-rounds", document: "reviews", owner: regionUnit(/^## Fix loop and gate verdicts\n([\s\S]*?)(?=^## Stuck-fix consultation\n)/gm), rules: ["Run at most two ordinary fix rounds."], extract: regionUnit(/^## Review-fix subtrees and repair limits\n([\s\S]*?)(?=^## Whole-subtree acceptance\n)/gm) },
+				{ id: "repair-consultations", document: "reviews", owner: regionUnit(/^## Stuck-fix consultation\n([\s\S]*?)(?=^## Termination and deferred-work routing\n)/gm), rules: ["The ordinary budget permits one consultation."], extract: regionUnit(/^## Review-fix subtrees and repair limits\n([\s\S]*?)(?=^## Whole-subtree acceptance\n)/gm) },
+				{ id: "child-fix-title", owner: regionUnit(/^Implementation commit titles use ([\s\S]*?)(?=^For each code track)/gm), rules: ["`Track <n> fix round <r>: <intent title>`", "`Track <n> user review fix <r>: <intent title>`"], extract: regionUnit(/^## Review-fix subtrees and repair limits\n([\s\S]*?)(?=^## Whole-subtree acceptance\n)/gm) },
+				{ id: "child-attribution", document: "delivery", owner: regionUnit(/^## Track package\n([\s\S]*?)(?=^## Change package\n)/gm), rules: ["Do not count accepted child work as new implementation."], extract: regionUnit(/^## Packages, attribution, and issues\n([\s\S]*)/gm) },
+			];
+			const recursiveSummariesAgree = (recursiveSource, workflowSource, reviewSource = reviews, deliverySource = deliveryPackages) => {
+				return sharedRecursiveRules.every(({ id, rules, extract, document = "workflow", owner = markedUnit("recursive-planning-policy") }) => {
+					const owningUnit = owner({ workflow: workflowSource, reviews: reviewSource, delivery: deliverySource }[document]);
+					const summary = extract(recursiveSource);
+					return owningUnit.count === 1 && summary.count === 1
+						&& (!protectedRepairOwners[id] || (agreementDigest(owningUnit.text) === protectedRepairOwners[id] && agreementDigest(summary.text) === protectedRepairSummary))
+						&& rules.every((rule) => owningUnit.text.includes(rule) && summary.text.includes(rule));
+				});
+			};
+			const acceptsRecursivePrefix = (source) => {
+				const result = recursivePrefix(source);
+				return result.count === 1 && result.text === recursivePrefixExpected;
+			};
+			const recursiveAgreementAttacks = sharedRecursiveRules.flatMap(({ id, rules, document = "workflow" }) => rules.flatMap((rule, index) => ["summary", "owner"].map((side) => {
+				const source = side === "summary" ? recursive : { workflow, reviews, delivery: deliveryPackages }[document];
+				const normalized = normalizeText(source);
+				const altered = normalized.replace(rule, `Contradicting ${id} rule ${index}.`);
+				// Replace the same phrase in raw source without changing heading boundaries.
+				const pattern = new RegExp(rule.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+"), "g");
+				const changed = source.replace(pattern, `Contradicting ${id} rule ${index}.`);
+				return { id, index, side, changed: changed !== source && altered !== normalized, rejected: !recursiveSummariesAgree(side === "summary" ? changed : recursive, side === "owner" && document === "workflow" ? changed : workflow, side === "owner" && document === "reviews" ? changed : reviews, side === "owner" && document === "delivery" ? changed : deliveryPackages) };
+			})));
+			const retainedPhraseAttacks = [
+				["owner-rounds-contradiction", reviews.replace("Run at most two ordinary fix rounds.", "Run at most two ordinary fix rounds. A review-fix child gets three ordinary rounds."), workflow],
+				["owner-rounds-comment", reviews.replace("Run at most two ordinary fix rounds.", "<!-- Run at most two ordinary fix rounds. --> Run three ordinary fix rounds."), workflow],
+				["owner-title-denial", reviews, workflow.replace("An agentic-review fix commit inside a track uses", "An agentic-review fix commit inside a track must never use")],
+				["owner-consultation-contradiction", reviews.replace("The ordinary budget permits one consultation.", "The ordinary budget permits one consultation. Each child gets unlimited consultations."), workflow],
+			].map(([id, reviewSource, workflowSource]) => ({ id, changed: reviewSource !== reviews || workflowSource !== workflow, rejected: !recursiveSummariesAgree(recursive, workflowSource, reviewSource) }));
+			const recursivePrefixAttacks = [
+				["total-track loading", "loading, the direct-child limit, and the implementer-requested split exception.", "The triggering evidence is more than twelve total tracks."],
+				["validation order", "§ Lifecycle and phases for design gates,", "User validation follows implementation and each required area review."],
+				["record trigger", "triggers neither extra record", "requires both extra records"],
+				["sizing copy", "for sizing and stopping.", "Every code track must stay below 400 lines."],
+				["level copy", "for level consistency.", "Each child is the merge unit and may have failing checks."],
+				["budget copy", "for split exceptions.", "A split renews repair rounds and consultation budgets."],
+				["migration copy", "§ Migration for compatibility.", "Every existing change migrates without user approval."],
+				["small-tree copy", "plan contains a design track or review-fix child track.", "Small trees never load the document."],
+				["missing glossary term", "A **level pull request** contains the code tracks of one level.", ""],
+				["incorrect glossary term", "A **level pull request** contains the code tracks of one level.", "A **level pull request** contains the whole change tree."],
+			].map(([id, before, after]) => {
+				const source = recursive.replace(before, after);
+				return { id, changed: source !== recursive, rejected: !acceptsRecursivePrefix(source) };
+			});
+			const recursivePrefixBoundary = "## Level publishing and retained history\n";
+			const benignRecursive = `${recursive}\n<!-- Unrelated outside-unit control. -->\n`;
+			const benignOwner = `${workflow}\n<!-- Unrelated outside-unit control. -->\n`;
+			checkAll("contract-recursive-owner-agreement", "recursive summaries agree with lifecycle owners, pointer-only sections reject contradictory copies, and the level pull request term is defined", [
+				["the complete implemented recursive prefix matches an independent expectation", acceptsRecursivePrefix(recursive), recursivePrefix(recursive)],
+				["loading, gates, records, repair budgets, child titles, and attribution agree with their owners", recursiveSummariesAgree(recursive, workflow), sharedRecursiveRules.map(({ id, rules }) => ({ id, rules: rules.length }))],
+				["every shared rule rejects a mutation of either its summary or owner", recursiveAgreementAttacks.every(({ changed, rejected }) => changed && rejected), recursiveAgreementAttacks],
+				["complete repair owners reject contradictions and hidden rules that retain the expected phrases", retainedPhraseAttacks.every(({ changed, rejected }) => changed && rejected), retainedPhraseAttacks],
+				["contradictory loading, gate, record, sizing, level, budget, migration, small-tree, and glossary edits fail", recursivePrefixAttacks.every(({ changed, rejected }) => changed && rejected), recursivePrefixAttacks],
+				["missing and duplicate prefix boundaries fail closed", !acceptsRecursivePrefix(recursive.replace(recursivePrefixBoundary, "")) && !acceptsRecursivePrefix(`${recursive}\n${recursive}`), "missing and duplicate prefix"],
+				["harmless changes outside either owned unit pass", acceptsRecursivePrefix(benignRecursive) && recursiveSummariesAgree(benignRecursive, workflow) && recursiveSummariesAgree(recursive, benignOwner), "outside-unit controls"],
+			]);
+
+			const recordDigest = (text) => createHash("sha256").update(normalizeText(text)).digest("hex");
+			const recursiveRecordUnits = [
+				{ id: "identifiers-ranges", source: recursive, extract: regionUnit(/^## Identifiers, code ranges, and design markers\n([\s\S]*?)(?=^## Manual records and safe writes\n)/gm), expected: "cfe3c89907795c13cb1a7a08893bdb666ba1f9f92988b911e2c24a85095e4fd4" },
+				{ id: "manual-records", source: recursive, extract: regionUnit(/^## Manual records and safe writes\n([\s\S]*?)(?=^## Resume and folder forks\n)/gm), expected: "401dc5437b292584d9125379dbfecf802edb551f6ca70615d5548c0aad3d2e7e" },
+				{ id: "resume-forks", source: recursive, extract: regionUnit(/^## Resume and folder forks\n([\s\S]*?)(?=^## Handoff boundaries\n)/gm), expected: "cb377b1eaf800101fb37f1aeffcff33c2beeba6fb9bea0870c71c838e0e937b6" },
+				{ id: "handoff-pointer", source: recursive, extract: regionUnit(/^## Handoff boundaries\n([\s\S]*?)(?=^## Review-fix subtrees and repair limits\n)/gm), expected: "fc5ca34c11f5f1defb5989c10af42cbac9af901c102dc18c6c8d1b55a98cd52f" },
+				{ id: "marker-identity", source: workflow, extract: markedUnit("marker-identity-policy"), expected: "846764c07a6b2c925091bd80f944c888d49994a71f2799b5cd2b8368b415a3c9" },
+				{ id: "resume-order", source: workflow, extract: regionUnit(/^## Resume order and reconciliation\n([\s\S]*?)(?=^## Review coverage\n)/gm), expected: "9edb063aea53ffc494d650f1a2306b975bbf31f1700a874ea0fd004bb1d0e244" },
+				{ id: "general-handoff", source: workflow, extract: regionUnit(/^Before a session handoff, ([\s\S]*?)(?=^## Resume order and reconciliation\n)/gm), expected: "7b7447512bbd7bb34344b322c744da57896fd849a7b050ff04ffaead47ed16ae" },
+				{ id: "closed-range-feedback", source: workflow, extract: regionUnit(/^The correction remains a separate commit ([\s\S]*?)(?=^A bootstrap commit)/gm), expected: "bed41eb1f1f38a00f40bc2a217a87454a6c2a1cdf55ac15f0e4fb1ab0ccecd3e" },
+			];
+			const acceptsRecordUnit = (unit, source) => {
+				const resolved = unit.extract(source);
+				return resolved.count === 1 && recordDigest(resolved.text) === unit.expected;
+			};
+			const recordUnitAttacks = recursiveRecordUnits.flatMap((unit) => {
+				const text = unit.extract(unit.source).text;
+				const rawPattern = new RegExp(text.slice(0, 70).replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+"), "g");
+				const changed = unit.source.replace(rawPattern, "Contradictory record policy.");
+				return [
+					{ id: unit.id, kind: "contradiction", changed: changed !== unit.source, rejected: !acceptsRecordUnit(unit, changed) },
+					{ id: unit.id, kind: "missing", changed: true, rejected: !acceptsRecordUnit(unit, "") },
+					{ id: unit.id, kind: "duplicate", changed: true, rejected: !acceptsRecordUnit(unit, `${unit.source}\n${unit.source}`) },
+				];
+			});
+			const recordRecipe = regionUnit(/^<!-- safe-record-recipe:begin -->\n```python\n([\s\S]*?)\n```\n<!-- safe-record-recipe:end -->/gm);
+			const recipeResolution = recordRecipe(recursive);
+			const recipeRaw = recursive.match(/^<!-- safe-record-recipe:begin -->\n```python\n([\s\S]*?)\n```\n<!-- safe-record-recipe:end -->/m)?.[1] ?? "";
+			const canonicalMarkerCommand = 'git commit --allow-empty -m "Track <path-number> complete: <short name>"';
+			const acceptsMarkerCommand = (source) => {
+				const visible = source.replace(/<!--[\s\S]*?-->/g, "");
+				const fences = [...visible.matchAll(/^```bash\n([\s\S]*?)\n```/gm)];
+				const displayed = fences.filter((match) => match[1] === canonicalMarkerCommand);
+				const commands = [...visible.replace(/\\\r?\n/g, " ").matchAll(/git commit\b[^\n]*Track[^\n]*complete:[^\n]*/g)];
+				return displayed.length === 1 && commands.length === 1 && commands[0][0] === canonicalMarkerCommand;
+			};
+			const markerCommandAttacks = [
+				workflow.replace(canonicalMarkerCommand, 'git commit --allow-empty -m "Track NN complete: <short name>"'),
+				workflow.replace(canonicalMarkerCommand, 'git commit --allow-empty -m "Track 07 complete: <short name>"'),
+				workflow.replace(canonicalMarkerCommand, 'git commit --allow-empty -m "Track 1.03 complete: <short name>"'),
+				workflow.replace(canonicalMarkerCommand, 'git commit --allow-empty \\\n-m "Track NN complete: <short name>"') + `\n<!-- ${canonicalMarkerCommand} -->`,
+				workflow.replace(canonicalMarkerCommand, `<!-- ${canonicalMarkerCommand} -->`),
+				`${workflow}\n${canonicalMarkerCommand}`,
+			].map((source) => ({ changed: source !== workflow, rejected: !acceptsMarkerCommand(source) }));
+			console.log(`NOTE recursive document: ${[...recursive].length} characters. Target: 16000. Report and explain any overrun in delivery evidence.`);
+			checkAll("contract-recursive-records", "canonical markers, actual code boundaries, design evidence, manual ownership, durable safe writes, resume, and forks remain complete", [
+				["each bounded record policy equals its reviewed digest exactly once", recursiveRecordUnits.every((unit) => acceptsRecordUnit(unit, unit.source)), recursiveRecordUnits.map((unit) => ({ id: unit.id, resolved: unit.extract(unit.source), expected: unit.expected }))],
+				["contradictions, missing units, and duplicate units fail closed", recordUnitAttacks.every(({ changed, rejected }) => changed && rejected), recordUnitAttacks],
+				["outside-unit controls preserve each policy", recursiveRecordUnits.every((unit) => acceptsRecordUnit(unit, `${unit.source}\n<!-- Unrelated control. -->`)), "outside controls"],
+				["the runnable recipe has one exact raw source, including indentation", recipeResolution.count === 1 && createHash("sha256").update(recipeRaw).digest("hex") === "2e78b7f0ab687c7fdd68adccdd4d0c539fcbadada76d437c014d06fa8221a9d9", recipeRaw],
+				["the displayed marker command is canonical and unique, excluding exception prose", acceptsMarkerCommand(workflow), "visible fenced command"],
+				["numeric padding, multiline padding, hidden canonical text, and duplicate commands fail", markerCommandAttacks.every(({ changed, rejected }) => changed && rejected), markerCommandAttacks],
+				["exception prose and outside-unit comments preserve the displayed command", acceptsMarkerCommand(`${workflow}\n<!-- benign control -->`), "flat-workflow exception retained"],
 			]);
 
 			// Publishing and migration are complete bounded policy units. Their
@@ -2867,14 +3288,18 @@ nothing. Keep its folder and reports.`),
 					id: "publishing-creation",
 					source: publishing,
 					extract: regionUnit(/^## Creation\n\n([\s\S]*?)(?=^## Description rules)/gm),
-					expected: normalizeText(`Create the one draft pull request for the change under this section.
+					expected: normalizeText(`Create the level's draft after all applicable pre-implementation gates.
+Create it before the level's first code track implementation.
 
-For a change with a high-level design, draft the pull request description
-before final design approval. Present the draft beside the validated design.
+For a change with a high-level design and a level pull request, draft the
+level description before final design approval.
+Present the draft beside the validated design.
+Each design track with a level pull request presents its level description
+with its validated design for one final approval.
 When an adversarial design review is required, present both after that review.
-One final approval covers the design and description. The description has no
-separate approval gate. Create the pull request after final design approval and
-before implementation.
+One final approval covers the design and description.
+The description has no separate approval gate.
+Create the pull request after final design approval.
 
 For a change without a high-level design, create the pull request after the
 confirmation gate and before implementation. If the change later requires a
@@ -2884,12 +3309,14 @@ request or apply its creation timing retrospectively.
 
 Every creation path keeps these safeguards:
 
-- Create the pull request as a DRAFT. Base the working branch on the
-  repository's default development branch.
+- Create the pull request as a DRAFT.
+  A one-level change starts from the repository's default development branch.
+  For nested work, choose its base under [recursive-workflow.md](recursive-workflow.md)
+  § Level publishing and retained history.
 - If the working branch has no diff against the base yet, land a
   bootstrap empty commit so the PR can be created.
-- At creation for every change with a high-level design, the research log's
-  Planned changes content folds into the PR description. Create the pull
+- At creation, if the change or design track has a high-level design, the owning
+  research log's Planned changes content folds into the PR description. Create the pull
   request only after final design approval, as stated above.
 
   Key decisions, Risks, and Open questions feed the corresponding
@@ -2916,9 +3343,14 @@ Every creation path keeps these safeguards:
 					id: "workflow-migration",
 					source: workflow,
 					extract: regionUnit(/^## Migration\n\n([\s\S]*?)(?=^## Layering richer workflows on top)/gm),
-					expected: normalizeText(`A change approved under an earlier workflow finishes under its recorded
-workflow. New work uses the focus-area workflow. Historical records may name
-earlier gates only to identify the governing rule set.`),
+					expected: normalizeText(`An existing change finishes under its recorded workflow unless the user
+explicitly authorizes migration. Keep its recorded marker spelling and publishing
+arrangement. Do not rename markers or rewrite history to resemble a tree.
+Every new change uses the current workflow.
+A new change without design tracks or review-fix children has one level.
+It needs no manual status file or design-track research log.
+Missing manual tree records do not make an existing session unreadable.
+The publishing setting and its disabled default remain unchanged.`),
 				},
 			];
 			const publishingMigrationResults = publishingMigrationUnits.map((unit) => ({ id: unit.id, expected: unit.expected, ...unit.extract(unit.source) }));
@@ -2930,10 +3362,17 @@ earlier gates only to identify the governing rule set.`),
 				publishing.replace("keep the existing draft", "recreate the draft"),
 				publishing.replace("size or late-area design route", "late-area design route"),
 				publishing.replace("For a change without a design gate", "For a SMALL change without a design gate"),
+				publishing.replace("a high-level design and a level pull request", "a high-level design"),
+				publishing.replace("if the change or design track has a high-level design", "for every level with a high-level design"),
 			];
 			const migrationMutations = [
-				workflow.replace("finishes under its recorded\nworkflow", "moves to the current\nworkflow"),
-				workflow.replace("New work uses the focus-area workflow", "New work may use an earlier workflow"),
+				workflow.replace("finishes under its recorded workflow unless the user\nexplicitly authorizes migration", "always moves to the current workflow"),
+				workflow.replace("Every new change uses the current workflow", "New work may use an earlier workflow"),
+				workflow.replace("Keep its recorded marker spelling and publishing\narrangement", "Replace its recorded marker spelling and publishing arrangement"),
+				workflow.replace("has one level", "has several levels"),
+				workflow.replace("It needs no manual status file", "It requires a manual status file"),
+				workflow.replace("do not make an existing session unreadable", "make an existing session unreadable"),
+				workflow.replace("disabled default remain unchanged", "enabled default apply"),
 			];
 			const resolvePublishingMigration = (publishingSource = publishing, workflowSource = workflow) => publishingMigrationUnits.map((unit) => unit.extract(unit.source === publishing ? publishingSource : workflowSource));
 			const publishingMutationOutcomes = publishingMutations.map((source) => ({ changed: source !== publishing, accepted: resolvePublishingMigration(source, workflow).every((resolved, index) => resolved.count === 1 && resolved.text === publishingMigrationResults[index].expected) }));
@@ -2966,6 +3405,438 @@ earlier gates only to identify the governing rule set.`),
 				["exact prior replacements and alternative benign edits outside all three units leave every expectation exact", benignPublishingSources.every((source) => source !== publishing) && benignWorkflowSources.every((source) => source !== workflow) && benignPublishingMigrationOutcomes.every((outcome) => outcome.every((resolved, index) => resolved.count === 1 && resolved.text === publishingMigrationResults[index].expected)), benignPublishingMigrationOutcomes],
 			]);
 
+			// Split pointers must resolve inside the split option, not elsewhere in a document.
+			const recursiveFilename = paths.RECURSIVE_WORKFLOW_DOC.split(/[\\/]/).at(-1);
+			const splitPointers = [
+				{ id: "user-note-split", source: userNotes, section: regionUnit(/^## Mandatory escalation set\n([\s\S]*?)(?=^## User note accounting\n)/gm), position: /\| Finished tracks depend[^\n]+\n\n<!-- review-fix-split:begin -->/, expected: normalizeText(`For the split option in this table, load
+[recursive-workflow.md](recursive-workflow.md) § Review-fix subtrees and repair limits
+before proposing a review-fix split.
+Only the user chooses a review-fix split under the affected code track.
+The split option discloses two ordinary rounds and one stuck-fix consultation per child.
+The split escalation record stores that budget.
+Each child starts at round zero.
+A split never resets the per-requirement count that triggers investigation.`) },
+				{ id: "review-loop-split", source: reviews, section: regionUnit(/^## Fix loop and gate verdicts\n([\s\S]*?)(?=^## Stuck-fix consultation\n)/gm), position: /<!-- review-fix-split:end -->\n\n<!-- requirement-investigation-review:begin -->/, expected: normalizeText(`When considering the split option in [user-notes.md](user-notes.md) § Mandatory escalation set,
+load [recursive-workflow.md](recursive-workflow.md) § Review-fix subtrees and repair limits
+before proposing a review-fix split.
+Each review-fix child starts at round zero with two ordinary fix rounds and one stuck-fix consultation.
+Only the user chooses a split through the escalation table.
+The split bypasses no stuck-fix consultation or required fix gate.`) },
+			];
+			const acceptsSplitPointer = (unit, source) => {
+				const section = unit.section(source);
+				const pointer = markedUnit("review-fix-split")(source);
+				const local = markedUnit("review-fix-split")(section.text);
+				return section.count === 1 && pointer.count === 1 && local.count === 1
+					&& pointer.text === unit.expected && unit.position.test(source)
+					&& pointer.text.includes(`[${recursiveFilename}](${recursiveFilename})`);
+			};
+			const splitPointerAttacks = splitPointers.flatMap((unit) => {
+				const block = /<!-- review-fix-split:begin -->[\s\S]*?<!-- review-fix-split:end -->/;
+				const relocated = unit.source.replace(block, "") + "\n" + unit.source.match(block)?.[0];
+				return [
+					["wrong-export", unit.source.replace(/\[recursive-workflow\.md\]\(recursive-workflow\.md\)(?= § Review-fix)/, "[track-workflow.md](track-workflow.md)")],
+					["load-after-proposal", unit.source.replace("before proposing a review-fix split.", "after proposing a review-fix split.")],
+					["outside-split-option", relocated],
+					["missing", unit.source.replace(block, "")],
+					["duplicate", `${unit.source}\n${unit.source.match(block)?.[0]}`],
+				].map(([kind, source]) => ({ id: unit.id, kind, changed: source !== unit.source, rejected: !acceptsSplitPointer(unit, source) }));
+			});
+			checkAll("contract-recursive-split-pointers", "both split options require loading the exported recursive document before a proposal, at their owned locations", [
+				["both pointers resolve at the split option and name the export", splitPointers.every((unit) => acceptsSplitPointer(unit, unit.source)), recursiveFilename],
+				["redirection, late loading, relocation, absence, and duplication fail", splitPointerAttacks.every(({ changed, rejected }) => changed && rejected), splitPointerAttacks],
+				["unrelated outside edits pass", splitPointers.every((unit) => acceptsSplitPointer(unit, `${unit.source}\n<!-- Outside split control. -->`)), "outside controls"],
+			]);
+
+			// These pins cover complete owned policies. Source-set pins protect every record kind.
+			const policyRegion = (start, end, endAtLineStart = false) => regionUnit(new RegExp(`^${start.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([\\s\\S]*?)(?=${endAtLineStart ? "^" : ""}${end.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gm"));
+			const recursiveDeliveryUnits = [
+				{ id: "repairs", source: recursive, start: "## Review-fix subtrees and repair limits", end: "## Whole-subtree acceptance", expected: protectedRepairSummary },
+				{ id: "aggregate", source: recursive, start: "## Whole-subtree acceptance", end: "## Packages, attribution, and issues", expected: "6e37e0e95c35ed0c3ede6e02f3322f43038d8653d9885ce4b2ac1ed423472b63" },
+				{ id: "issues", source: recursive, start: "## Packages, attribution, and issues", end: null, expected: "895b87ee7afdda0d4d85e071c978727e0cf962f9af42e68c534c022ac010a5a3" },
+				{ id: "sources", source: deliveryPackages, start: "## Durable accounting", end: "<!-- publishing-disabled-accounting:begin -->", expected: "cfba6ae378f8d7e3db347d9894911bd7497205f1fd76772ae97847af7f7f7a52" },
+				{ id: "workflow-accounting", source: workflow, start: "With draft publishing,", end: "\n\nAim for a delivery body", expected: "9410e62de528ba3d18269213779348a187c5f894bd2d99fa5f529dfa3fc5a4a1" },
+				{ id: "notes-accounting", source: userNotes, start: "Before final acceptance, reconcile", end: "\n\n- every finding", expected: "7efa6f8740078ef4a9f5511b485a4e95e8b0e5f7341d2e278eddfbf27011b500" },
+				{ id: "publishing-sync", source: publishing, start: "## Keeping the PR in sync", end: "## Ready-for-review flip", expected: "fb386e6f14c2f051a842cd050cc4e2834dea5e2674853cc22794792cd4c1a7cc" },
+				{ id: "public-workflow", source: projectReadme, start: "A track is a bounded", end: "## ", endAtLineStart: true, expected: "23f90e859751918fac2f72ad4819c635cf21d88f15e18d100cc0a9944018fbf3" },
+				{ id: "public-roadmap", source: readFileSync(join(REPO, "docs", "roadmap.md"), "utf8"), start: "## Larger changes", end: "## Developer experience", expected: "ffd9a4e0a96809b60debc7a45d6b0bb09881622889ae571c09bd888a7d09da17" },
+			].map((unit) => ({ ...unit, extract: unit.end === null
+				? (source) => {
+					// Visible policy after the final marker belongs to the final section.
+					const marker = "<!-- recursive-delivery:end -->";
+					const parts = source.split(marker);
+					if (parts.length !== 2) return { count: 0, text: "" };
+					const visibleTail = parts[1].replace(/<!--[^<>]*-->/g, "");
+					return regionUnit(/^## Packages, attribution, and issues([\s\S]*)(?![\s\S])/gm)(parts[0] + marker + visibleTail);
+				}
+				: policyRegion(unit.start, unit.end, unit.endAtLineStart) }));
+			const acceptsRecursiveDelivery = (unit, source) => {
+				const resolved = unit.extract(source);
+				return resolved.count === 1 && recordDigest(resolved.text) === unit.expected;
+			};
+			const recursiveDeliveryAttacks = recursiveDeliveryUnits.flatMap((unit) => {
+				const resolved = unit.extract(unit.source);
+				const rules = resolved.text.split(/(?<=\.) /).filter((rule) => /[a-z]/i.test(rule));
+				return rules.map((rule, index) => {
+					const pattern = new RegExp(rule.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+"));
+					const source = unit.source.replace(pattern, `Contradicting ${unit.id} rule ${index}.`);
+					return { id: unit.id, index, changed: source !== unit.source, rejected: !acceptsRecursiveDelivery(unit, source) };
+				});
+			});
+			// Public workflow text ends at the next level-two heading at line start.
+			const publicWorkflowUnit = recursiveDeliveryUnits.find((unit) => unit.id === "public-workflow");
+			const publicWorkflowRaw = projectReadme.match(/^A track is a bounded[\s\S]*?(?=^## )/m)?.[0] ?? "";
+			const publicWorkflowOutsideSection = projectReadme.replace(publicWorkflowRaw, `${publicWorkflowRaw}## Unrelated section\n\nUnrelated public guidance.\n\n`);
+			const publicWorkflowHeadingAttacks = [
+				["level-two", "## Inserted heading"],
+				["inline", "Inline ## Inserted heading"],
+				["indented", "  ## Inserted heading"],
+				["level-three", "### Inserted heading"],
+			].map(([id, heading]) => {
+				const source = projectReadme.replace("The orchestrator records risks", `${heading}\n\nThe orchestrator records risks`);
+				return { id, changed: source !== projectReadme, rejected: !acceptsRecursiveDelivery(publicWorkflowUnit, source) };
+			});
+			const codeAcceptanceScope = "For design tracks, use [recursive-workflow.md](recursive-workflow.md) § Whole-subtree acceptance.\nThe following proved-area acceptance rules apply to code tracks.\n\n";
+			const scopedAcceptanceUnits = [
+				[workflow, "User acceptance of a track is blocking when that track proves at"],
+				[workflow, "Every completed track reaches the user through the track package defined in"],
+				[userNotes, "The track package states which acceptance rule applies."],
+				[reviews, "<!-- track-acceptance:begin -->"],
+			];
+			const acceptsCodeScope = (source, next) => source.split(codeAcceptanceScope).length === (next.startsWith("User acceptance") || next.startsWith("Every completed") ? 3 : 2) && source.split(codeAcceptanceScope + next).length === 2;
+			const finalSectionAttacks = [
+				["issues-after-owned-end", "Creating a subtree issue approves implementation."],
+				["whole-subtree-after-owned-end", "A design track with no proved area needs no whole-subtree acceptance."],
+			].map(([id, rule]) => {
+				const source = `${recursive}\n${rule}\n`;
+				return { id, changed: source !== recursive, rejected: !acceptsRecursiveDelivery(recursiveDeliveryUnits.find((unit) => unit.id === "issues"), source) };
+			});
+			checkAll("contract-recursive-delivery", "review-fix identities and budgets, whole-design acceptance, issue purposes, all-record accounting, and public guidance retain their complete owned policies", [
+				["each policy resolves exactly once and matches its independent pin", recursiveDeliveryUnits.every((unit) => acceptsRecursiveDelivery(unit, unit.source)), recursiveDeliveryUnits.map((unit) => ({ id: unit.id, count: unit.extract(unit.source).count, digest: recordDigest(unit.extract(unit.source).text) }))],
+				["every sentence mutation changes input and fails its policy", recursiveDeliveryAttacks.every(({ changed, rejected }) => changed && rejected), recursiveDeliveryAttacks],
+				["missing and duplicate units fail, while outside controls pass", recursiveDeliveryUnits.every((unit) => !acceptsRecursiveDelivery(unit, unit.source.replace(unit.start, "Missing policy anchor")) && !acceptsRecursiveDelivery(unit, `${unit.source}\n${unit.source}`) && acceptsRecursiveDelivery(unit, `${unit.source}\n<!-- Outside policy control. -->`)), "bounded policy controls"],
+				["an unrelated section after public workflow text preserves its pin", publicWorkflowRaw !== "" && publicWorkflowOutsideSection !== projectReadme && acceptsRecursiveDelivery(publicWorkflowUnit, publicWorkflowOutsideSection), "next level-two heading control"],
+				["headings inside public workflow text fail without hiding remaining rules", publicWorkflowHeadingAttacks.every(({ changed, rejected }) => changed && rejected), publicWorkflowHeadingAttacks],
+				["visible contradictions after the final marker fail the complete final section", finalSectionAttacks.every(({ changed, rejected }) => changed && rejected), finalSectionAttacks],
+				["each proved-area acceptance copy is explicitly scoped to code tracks", scopedAcceptanceUnits.every(([source, next]) => acceptsCodeScope(source, next)), "lifecycle, user notes, review termination"],
+				["missing, weakened, moved, and duplicate scope qualifiers fail", scopedAcceptanceUnits.every(([source, next]) => !acceptsCodeScope(source.replace(codeAcceptanceScope + next, next), next) && !acceptsCodeScope(source.replace(codeAcceptanceScope + next, codeAcceptanceScope.replace("apply to code tracks.", "apply to all tracks.") + next), next) && !acceptsCodeScope(source.replace(codeAcceptanceScope + next, next) + codeAcceptanceScope, next) && !acceptsCodeScope(source + codeAcceptanceScope, next)), "scope counterfactuals"],
+			]);
+
+			const acceptanceTransferExpected = normalizeText(`For each required whole-subtree or root final acceptance, use this order even after the ready flip:
+
+1. Obtain and record the explicit acceptance decision after its package and prerequisites.
+2. Copy that decision and its aggregate evidence references into the closing level's description.
+3. Add a marker only for each design track newly accepted by this decision. Reuse retained marker references for tracks accepted earlier. Record each track's history references in that description.
+4. Verify the description against all accounting sources after these updates and before handoff for merge.
+5. Hand the updated description to the user for merge. Only the user merges.
+
+Repeat the description measurement and size-exception checks after each update.
+A missing acceptance or required conclusion blocks handoff for merge.
+Verify every level record and all root-wide accounting before root closure.`);
+			const transferUnit = regionUnit(/^(For each required whole-subtree or root final acceptance,[\s\S]*?)(?=^<!-- publishing-disabled-accounting:begin -->)/gm);
+			const acceptsTransfer = (source) => {
+				const unit = transferUnit(source);
+				return unit.count === 1 && unit.text === acceptanceTransferExpected;
+			};
+			const transferCopy = "2. Copy that decision and its aggregate evidence references into the closing level's description.";
+			const transferDecision = "1. Obtain and record the explicit acceptance decision after its package and prerequisites.";
+			const transferAttacks = [
+				deliveryPackages.replace(transferCopy, ""),
+				deliveryPackages.replace(transferDecision, transferCopy).replace(transferCopy + "\n" + transferCopy, transferCopy + "\n" + transferDecision),
+				deliveryPackages.replace("after these updates and before handoff for merge", "before these updates and after merge"),
+			].map((source) => ({ changed: source !== deliveryPackages, rejected: !acceptsTransfer(source) }));
+			const transferMarker = "3. Add a marker only for each design track newly accepted by this decision. Reuse retained marker references for tracks accepted earlier. Record each track's history references in that description.";
+			const sequentialAcceptanceAttacks = [
+				["subtree-merged-before-root-without-marker-distinction", deliveryPackages.replace(transferMarker, "3. Add each accepted design track's marker and record its history references in that description.")],
+				["root-recreates-earlier-subtree-marker", deliveryPackages.replace("Reuse retained marker references for tracks accepted earlier.", "Add another marker for tracks accepted and merged at an earlier subtree level.")],
+				["root-adds-marker-for-every-accepted-subtree", deliveryPackages.replace("newly accepted by this decision", "accepted by any decision")],
+			].map(([id, source]) => ({ id, changed: source !== deliveryPackages, rejected: !acceptsTransfer(source) }));
+			checkAll("contract-recursive-acceptance-transfer", "acceptance precedes public transfer, new design markers or retained references, verification, and user merge handoff, including after a ready flip", [
+				["the complete ordered sequence equals its independent expectation", acceptsTransfer(deliveryPackages), transferUnit(deliveryPackages)],
+				["removal, reordered decision and transfer, and late verification fail", transferAttacks.every(({ changed, rejected }) => changed && rejected), transferAttacks],
+				["subtree acceptance and merge followed by root acceptance retains earlier markers without creating them again", sequentialAcceptanceAttacks.every(({ changed, rejected }) => changed && rejected), sequentialAcceptanceAttacks],
+				["outside edits preserve the sequence", acceptsTransfer(`${deliveryPackages}\n<!-- Outside transfer control. -->`), "outside control"],
+			]);
+			const repairEscalation = regionUnit(/^## Mandatory escalation set\n([\s\S]*?)(?=^## User note accounting\n)/gm);
+			const repairEscalationDigest = "b9ebf47c2dceb335adfd3fb1cd694e2e23e6d210f5d962ef5c5c6d709cdc3de4";
+			const repairState = regionUnit(/^(Its plain-text \*\*repair state\*\* column[\s\S]*?)(?=^Create `track-<path-number>-research-log\.md`)/gm);
+			const repairStateExpected = normalizeText(`Its plain-text **repair state** column shows each code track and review-fix child's repair use.
+Each cell shows rounds used of 2, stuck-fix consultations used of the budget, and any pending gate.
+No fixed machine-readable format is required.
+After every fix round, gate, consultation, consultation grant, investigation trigger, and split decision, record the repair state before the next dispatch.
+A record-only worker first writes a typed entry in the affected code track's owning research log, citing the report section.
+Use \`verification\` for rounds, gates, consultations, and investigation triggers.
+Use \`decision\` for consultation grants and split decisions.
+The worker updates the \`status.md\` entry and cell second, before the next dispatch.
+The typed log entries are the evidence for each count.
+A cell grants no round.
+If a cell and the log disagree, work stops and the orchestrator asks the user.
+No automatic correction lowers a count.
+A change without a design track or review-fix child has no \`status.md\`.
+A user-chosen split in such a change creates review-fix children, loads this document, and creates \`status.md\`.`);
+			const repairRegister = regionUnit(/^## Override log\n([\s\S]*?)(?=^## Register entry shape\n)/gm);
+			const repairRegisterExpected = normalizeText(`The override log is created when its first event occurs. Exactly these events
+enter it:
+
+- every user waiver.
+- every override that changes the disposition category.
+- every user grant of an extra stuck-fix consultation.
+
+Each event uses the register shape below. Its statement records the proposed
+value, the resulting value and the reason when those values apply. Only the
+user may waive a finding. An absent override log is reported in one line at
+delivery and is never created as an empty register.`);
+			const acceptsRepairRegister = (source) => { const unit = repairRegister(source); return unit.count === 1 && unit.text === repairRegisterExpected; };
+			const acceptsRepairAuthorization = (notesSource = userNotes, recursiveSource = recursive, reviewSource = reviews) => {
+				const escalation = repairEscalation(notesSource);
+				const state = repairState(recursiveSource);
+				const repairs = sharedRecursiveRules.find(({ id }) => id === "repair-rounds").extract(recursiveSource);
+				return escalation.count === 1 && recordDigest(escalation.text) === repairEscalationDigest
+					&& state.count === 1 && state.text === repairStateExpected
+					&& repairs.count === 1 && recordDigest(repairs.text) === protectedRepairSummary
+					&& recursiveSummariesAgree(recursiveSource, workflow, reviewSource)
+					&& acceptsRepairRegister(notesSource)
+					&& [notesSource, recursiveSource, reviewSource].every((source) => !/extra repair[- ]round|extra round|inherited repair budget|(?:child repairs|children) inherit/i.test(source));
+			};
+			const repairAuthorizationAttacks = [
+				["grant", userNotes + "\nAn extra repair-round grant permits another round.", recursive, reviews],
+				["override-grant-event", userNotes.replace("- every user grant of an extra stuck-fix consultation.", "- every user grant of an extra stuck-fix consultation.\n- every user grant of an extra repair round."), recursive, reviews],
+				["inheritance", userNotes, recursive.replace("Each review-fix child starts at round zero.", "All child repairs inherit the affected requirement's round count and consultation budget."), reviews],
+				["requirement-count", userNotes, recursive.replace("A split never resets the per-requirement count of failed ordinary rounds.", "A split resets the per-requirement count of failed ordinary rounds."), reviews],
+				["sibling-identity", userNotes, recursive.replace("A split at any depth creates sibling review-fix children under the same affected code track.", "A split of a child creates grandchildren with their own reports."), reviews],
+				["log-before-cell", userNotes, recursive.replace("A record-only worker first writes a typed entry", "A record-only worker writes the cell first, then a typed entry"), reviews],
+				["automatic-lowering", userNotes, recursive.replace("No automatic correction lowers a count.", "An automatic correction may lower a count."), reviews],
+				["investigation-trigger-record", userNotes, recursive.replace("consultation grant, investigation trigger, and split decision", "consultation grant and split decision"), reviews],
+				["leftover-repairs", userNotes, recursive.replace("Those repairs take redesign or waive only.", "Those repairs get two further rounds."), reviews],
+				["budget-disclosure", userNotes.replace("The split escalation record stores that budget.", "The split escalation record omits that budget."), recursive, reviews],
+			].map(([id, notesSource, recursiveSource, reviewSource]) => ({ id, changed: notesSource !== userNotes || recursiveSource !== recursive || reviewSource !== reviews, rejected: !acceptsRepairAuthorization(notesSource, recursiveSource, reviewSource) }));
+			checkAll("contract-repair-authorization", "user-chosen splits create bounded child budgets, preserve requirement counts and identity, and record plain-text repair state after log evidence without automatic lowering", [
+				["complete escalation, repair, consultation, state, and override policies match independent expectations", acceptsRepairAuthorization(), { escalation: repairEscalation(userNotes), state: repairState(recursive), register: repairRegister(userNotes) }],
+				["grant, inheritance, requirement reset, nested identity, write-order, automatic lowering, trigger accounting, leftover, and disclosure mutations fail", repairAuthorizationAttacks.every(({ changed, rejected }) => changed && rejected), repairAuthorizationAttacks],
+				["missing and duplicate escalation or state units fail closed", !acceptsRepairAuthorization(userNotes.replace("## Mandatory escalation set", "## Missing escalation")) && !acceptsRepairAuthorization(`${userNotes}\n${userNotes}`) && !acceptsRepairAuthorization(userNotes, recursive.replace("Its plain-text **repair state** column", "Missing repair-state anchor")) && !acceptsRepairAuthorization(userNotes, `${recursive}\n${recursive}`), "boundary controls"],
+				["outside comments preserve all policies", acceptsRepairAuthorization(`${userNotes}\n<!-- Outside control. -->`, `${recursive}\n<!-- Outside control. -->`, `${reviews}\n<!-- Outside control. -->`), "outside controls"],
+			]);
+
+			const configuration = readFileSync(join(REPO, "docs", "configuration.md"), "utf8");
+			// Independent expectations cover each level rule and its owning section.
+			const levelPolicyUnits = [
+				{
+					id: "publishing-intro", source: publishing,
+					extract: regionUnit(/^# Draft-PR publishing\n\n([\s\S]*?)(?=^## One draft pull request)/gm),
+					expected: normalizeText(`A pull request proposes a branch's changes for review and merge.
+A draft pull request is not yet ready for that review.
+Use [track-workflow.md](track-workflow.md) for the common lifecycle.
+This document applies ONLY when
+\`workflow.draftPRs\` is enabled in home or trusted project \`slate.json\`
+(default: false). When it is disabled, the workflow creates no pull request.
+The research-log lifecycle in that case is owned by track-workflow.md § Session
+handoff and the research log.`),
+				},
+				{ ...trackSizePublishingUnits[1], source: publishing },
+				{ ...trackSizePublishingUnits[2], source: publishing },
+				publishingMigrationUnits[0],
+				{ id: "activation", ...publishingActivation, source: workflow },
+				{
+					id: "accepted-history", source: workflow, extract: markedUnit("accepted-history-policy"),
+					expected: normalizeText(`Before a permitted rewrite, preserve accepted source history in a reachable
+branch or reference.
+Reconcile changed references before further work relies on them.
+A rebased marker counts only when the owning research log maps it to the
+preserved accepted source marker.
+Without that mapping, the original accepted marker remains evidence.
+Re-pin affected ranges after a permitted rewrite.
+Never destroy the exact state the user reviewed.
+A later aggregate package does not authorize rewriting earlier user-reviewed ranges.
+
+If marker history is unavailable, pause affected work.
+Try to recover the exact recorded history from retained branches, references, or source records.
+A status entry, merge result, or copied marker title cannot replace missing history.
+Never recreate a marker to claim an earlier boundary was proved.
+If recovery fails, ask the user to choose recovery work, abandonment, or an explicit evidence waiver.
+The waiver records its limit and does not claim recovered marker evidence.`),
+				},
+				{
+					id: "cleanup-retention", source: publishing, extract: markedUnit("accepted-history-cleanup"),
+					expected: normalizeText(`Cleanup that deletes a branch or reference holding accepted marker history waits
+until the root change closes.
+A change without design tracks is unaffected because its root closes at its merge.`),
+				},
+				{
+					id: "history", source: recursive, extract: markedUnit("level-history-policy"),
+					expected: normalizeText(`Within a level, complete every design-track subtree before starting its code tracks.
+A plan that needs the opposite order must change its split.
+Complete one entered subtree before continuing its sibling tracks.
+Keep one sequential implementation writer.
+Independent research and reviews may run in parallel.
+
+All work forms one linear history.
+Each level pull request contains one contiguous slice of that history.
+A contiguous slice is an uninterrupted range of commits.
+Earlier completed descendant work is the foundation, not new work in an upper-level slice.
+A stacked pull request uses another pull request's branch as its base.
+Sibling subtree pull requests stack in completion order by default.
+Upper-level pull requests stack on completed lower-level work by default.
+A user-approved project arrangement may differ.
+It must preserve linear history, contiguous slices, and every gate.
+No new setting is needed to approve that arrangement.
+
+Keep branches and accepted marker history available until the root change closes.
+For each delivered level, retain its accepted history boundaries and accepted branch head.
+Bind that history to its pull request and observed merge result in the owning research log.
+The default-branch merge result proves delivery, not track completion.
+A squash merge does not replace accepted marker authority.
+
+Use [track-workflow.md](track-workflow.md) § Delivery and termination for permitted
+history rewrites, rebased-marker mappings, range updates, and unavailable history.`),
+				},
+				{
+					id: "history-owner-pointers", source: recursive,
+					extract: regionUnit(/^## Level publishing and retained history\n\n([\s\S]*?)(?=^<!-- level-history-policy:begin -->)/gm),
+					expected: normalizeText(`Use [pr-publishing.md](pr-publishing.md) for activation, approval, ready safeguards, and accounting.`),
+				},
+				{
+					id: "ready", source: publishing,
+					extract: regionUnit(/^## Ready-for-review flip\n\n([\s\S]*?)(?=^Flipping the current pull request)/gm),
+					expected: normalizeText(`Apply this section separately to each level pull request.
+All its code tracks and required machine reviews, track packages, requested fixes,
+and blocking user notes must be complete.
+A proved DESIGN-TRIGGERING area makes track acceptance blocking before its marker.
+Keep the last pull request of a subtree unmerged until every design track it
+closes has explicit whole-subtree acceptance and its design marker.
+A subtree contains a track and all its descendants.
+Ready status supplies neither acceptance nor permission for an agent merge.
+Root final acceptance precedes the last level merge.
+It waits for the note queue, final accounting, and every other final gate.
+After each required acceptance, run the ordered acceptance-transfer sequence in
+[delivery-packages.md](delivery-packages.md) § Durable accounting before handoff for merge.
+Apply that sequence even when the pull request is already ready.`),
+				},
+				{
+					id: "ready-history", source: publishing,
+					extract: regionUnit(/^(- Strip the whole Tracks section[\s\S]*?)(?=^- Update the PR title)/gm),
+					expected: normalizeText(`- Strip the whole Tracks section from the description, whatever its
+  form — the table for multi-track changes or the "N/A (single-track)"
+  placeholder — plus any notes under it. Preserve required acceptance and
+  history references in Delivery accounting.
+  A squash merge does not preserve marker commits in the default-branch history.
+  For nested work, keep accepted source markers under
+  [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history.
+  Motivation and Planned changes remain in the description.`),
+				},
+				{
+					id: "ready-description", source: publishing,
+					extract: regionUnit(/^(- Update the PR title[\s\S]*?)(?=^- Resolve every remaining Open Question)/gm),
+					expected: normalizeText(`- Update the PR title and description to the final state of the
+  level: the title names what was actually delivered — preserving any
+  prefixes or markers the project's conventions require — and the
+  description, including the Planned changes section, describes the
+  level as implemented, folding in everything added, dropped, or
+  reshaped since the draft PR was opened.`),
+				},
+				{
+					id: "merge-acceptance", source: publishing,
+					extract: regionUnit(/^(The user's merge act approves[\s\S]*?)(?=^## After the merge)/gm),
+					expected: normalizeText(`The user's merge act approves the current pull request, including
+acceptance of any recorded description-size exception.
+A merge does not supply whole-subtree or root final acceptance.
+Obtain each required explicit decision before the merge.
+After the decision, copy it and its evidence references into the closing level's description.
+Verify that updated accounting and present the description before handing it to the user for merge.
+Ready status does not bypass this order.`),
+				},
+				{
+					id: "description-scope", source: publishing,
+					extract: regionUnit(/^## Description rules\n\n([\s\S]*?)(?=^Write Planned changes)/gm),
+					expected: normalizeText(`The description follows the repository's PR template, if any, and
+carries three parts: Motivation (why), "Planned changes" (detailed but
+high-level), and "Tracks" (a display table for a level with several code tracks).
+Each description states its level's scope.
+Link related level deliveries without claiming their changes as new work.`),
+				},
+				{
+					id: "description-record", source: publishing,
+					extract: regionUnit(/^(A squash merge combines[\s\S]*?)(?=^Aim to keep)/gm),
+					expected: normalizeText(`A squash merge combines a pull request's commits into one delivery commit.
+Its description becomes that commit's body on the default development branch.
+Write it as the durable record for this level.`),
+				},
+				{
+					id: "table", source: publishing,
+					extract: regionUnit(/^## Tracks table\n\n([\s\S]*?)(?=^## Keeping the PR in sync)/gm),
+					expected: normalizeText(`The description's Tracks section holds the track table; its
+constraints (display-only, no SHAs, never the source of truth for
+track boundaries) are owned by track-workflow.md § Delivery and termination.
+A level with one code track carries an "N/A (single-track)" placeholder instead
+of a table.`),
+				},
+				{
+					id: "sync", source: publishing,
+					extract: regionUnit(/^## Keeping the PR in sync\n\n([\s\S]*?)(?=^## Ready-for-review flip)/gm),
+					expected: normalizeText(`Keep the title and description synchronized with what is actually pushed.
+Update a track's table row when its marker commit lands. Append post-design
+decisions as they are made. Revise Planned changes whenever reality diverges
+from it. Before each package for this level, copy its required delivery
+accounting from the complete accounting source set in
+[delivery-packages.md](delivery-packages.md) § Durable accounting into the description.
+A stale description fails the "deep enough" test.`),
+				},
+				{
+					id: "configuration", source: configuration,
+					extract: regionUnit(/^(\| `workflow\.draftPRs` \|[^\n]*)$/gm),
+					expected: normalizeText(`| \`workflow.draftPRs\` | boolean | \`false\` | Enable one draft pull request per level with code tracks. A change without design tracks keeps one pull request. See [pr-publishing.md](pr-publishing.md) § One draft pull request and § Creation. |`),
+				},
+			];
+			const acceptsLevelUnit = (unit, source) => {
+				const result = unit.extract(source);
+				return result.count === 1 && result.text === unit.expected;
+			};
+			const levelRuleMutations = levelPolicyUnits.flatMap((unit) => unit.expected.split(/(?<=\.) /).filter((rule) => /[a-z]/i.test(rule)).map((rule, index) => {
+				const pattern = new RegExp(rule.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+"));
+				const source = unit.source.replace(pattern, `Contradicting ${unit.id} rule ${index}.`);
+				return { id: unit.id, index, changed: source !== unit.source, rejected: !acceptsLevelUnit(unit, source) };
+			}));
+			const levelBoundaryControls = levelPolicyUnits.map((unit) => {
+				const resolved = unit.extract(unit.source);
+				const pattern = new RegExp(resolved.text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+"));
+				return {
+					id: unit.id,
+					missing: !acceptsLevelUnit(unit, unit.source.replace(pattern, "")),
+					duplicate: !acceptsLevelUnit(unit, `${unit.source}\n${unit.source}`),
+					benign: acceptsLevelUnit(unit, `${unit.source}\n<!-- Outside-unit control. -->\n`),
+				};
+			});
+			const levelMergeabilityRules = [
+				"The level is the merge unit.",
+				"All checks pass at each child marker.",
+				"Agreement across documents, prompt guidance, and the extension is required at the level boundary.",
+				"Do not merge an incomplete level into the default branch.",
+				"Intermediate track packages and review intentions list each remaining difference across those surfaces and name the later child that owns it.",
+			];
+			const levelMergeabilityCopies = [
+				{ id: "lifecycle", source: workflow, extract: markedUnit("track-size-policy") },
+				{ id: "publishing", source: publishing, extract: markedUnit("level-publishing-policy") },
+				{ id: "focus", source: blast, extract: recursiveUnits[2].extract },
+			];
+			const agreesOnLevelMergeability = (copies) => copies.every(({ source, extract }) => {
+				const resolved = extract(source);
+				return resolved.count === 1 && levelMergeabilityRules.every((rule) => resolved.text.includes(rule));
+			});
+			const levelMergeabilityAttacks = levelMergeabilityCopies.flatMap((copy, copyIndex) => levelMergeabilityRules.map((rule, ruleIndex) => {
+				const pattern = new RegExp(rule.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+"));
+				const source = copy.source.replace(pattern, `Contradicting ${copy.id} level rule ${ruleIndex}.`);
+				const copies = levelMergeabilityCopies.map((other, index) => index === copyIndex ? { ...other, source } : other);
+				return { id: copy.id, ruleIndex, changed: source !== copy.source, rejected: !agreesOnLevelMergeability(copies) };
+			}));
+			const benignLevelMergeabilityCopies = levelMergeabilityCopies.map((copy) => ({ ...copy, source: `${copy.source}\n<!-- Outside-unit control. -->\n` }));
+			checkAll("contract-level-publishing", "level membership, ordering, approval, delivery, retained histories, cleanup, rebase mappings, unavailable evidence, and publishing defaults are mutation-resistant owned rules", [
+				["every unit matches its independent expectation", levelPolicyUnits.every((unit) => acceptsLevelUnit(unit, unit.source)), levelPolicyUnits.filter((unit) => !acceptsLevelUnit(unit, unit.source)).map(({ id }) => id)],
+				["every rule mutation changes input and fails", levelRuleMutations.every(({ changed, rejected }) => changed && rejected), levelRuleMutations],
+				["missing and duplicate units fail and outside-unit controls pass", levelBoundaryControls.every(({ missing, duplicate, benign }) => missing && duplicate && benign), levelBoundaryControls],
+				["all five level constraints agree across lifecycle, publishing, and focus documents", agreesOnLevelMergeability(levelMergeabilityCopies), levelMergeabilityCopies.map(({ id }) => id)],
+				["every constraint rejects weakening in each of its three copies", levelMergeabilityAttacks.every(({ changed, rejected }) => changed && rejected), levelMergeabilityAttacks],
+				["benign edits outside all three mergeability units preserve agreement", agreesOnLevelMergeability(benignLevelMergeabilityCopies), "outside-unit controls"],
+			]);
+
 			// The rendered session instructions, through the production doctrine builder.
 			const sessionDoctrine = await doctrine(we.EMPTY_WORKER_EXTENSION_SET, undefined, true, {});
 			const acceptanceUnits = [
@@ -2976,10 +3847,9 @@ earlier gates only to identify the governing rule set.`),
 					source: workflow,
 					extract: regionUnit(focusClassesPattern),
 					segments: [
-						"DESIGN-TRIGGERING areas are data loss, concurrency defect, security weakness, performance degradation, and non-local logic defect. REVIEWER-ONLY areas are test-quality defect, unreadable user-facing prose, licensing exposure, consumer contract break, governing-rule defect, and unreported failure. Only a proved area adds a focus-dependent gate or area reviewer. Every proved area adds its specialist. A track with at least one proved area gets exactly one Reviewer I in a separate thread, including on documentation-only work. An implementer's approximate size above 100 counted lines also requires Reviewer I unless the track is documentation-only. With neither trigger, routine implementation review is `NOT REQUIRED`. Size alone adds no area reviewer, adversarial design reviewer, or blocking track acceptance. A proved DESIGN-TRIGGERING area also requires a high-level design, user validation, focus reconfirmation, its own adversarial design reviewer, and final design approval.",
+						"DESIGN-TRIGGERING areas are data loss, concurrency defect, security weakness, performance degradation, and non-local logic defect. REVIEWER-ONLY areas are test-quality defect, unreadable user-facing prose, licensing exposure, consumer contract break, governing-rule defect, and unreported failure. Only a proved area adds a focus-dependent gate or area reviewer. Every proved area adds its specialist. A track with at least one proved area gets exactly one Reviewer I in a separate thread, including on documentation-only work. An implementer's approximate size above 100 counted lines also requires Reviewer I unless the track is documentation-only. With neither trigger, routine implementation review is `NOT REQUIRED`. Size alone adds no area reviewer, adversarial design reviewer, or blocking track acceptance. A proved DESIGN-TRIGGERING area also requires a high-level design, user validation, focus reconfirmation, its own adversarial design reviewer, and final design approval. A track with no proved area also has no area reviewer. For design tracks, use [recursive-workflow.md](recursive-workflow.md) § Whole-subtree acceptance. The following proved-area acceptance rules apply to code tracks.",
 						fact("blocking"),
 						fact("noMandatory"),
-						"A track with no proved area also has no area reviewer.",
 						fact("finalBlocking"),
 					],
 				},
@@ -3082,6 +3952,7 @@ earlier gates only to identify the governing rule set.`),
 					blockingRemoved: normalizeText(actual.replace(blocking, "")),
 					blockingInverted: actual.replace(blocking, renderFact(ACCEPTANCE_FACTS, "blocking", inverted)),
 					noMandatoryInverted: actual.replace(noMandatory, renderFact(ACCEPTANCE_FACTS, "noMandatory", inverted)),
+					noMandatoryUnscoped: actual.replace(noMandatory, noMandatory.replace("code track", "track")),
 				};
 			};
 			const staleFacts = Object.freeze({
@@ -3128,7 +3999,7 @@ earlier gates only to identify the governing rule set.`),
 			const endMarkerAt = reviews.indexOf("<!-- track-acceptance:end -->");
 			const acceptanceBeginAt = reviews.indexOf("<!-- track-acceptance:begin -->");
 			const reviewsWithoutUnit = normalizeText(reviews.slice(0, acceptanceBeginAt) + reviews.slice(endMarkerAt + "<!-- track-acceptance:end -->".length));
-			const droppedTarget = normalizeText(reviews.replace("Mandatory escalation set.", "the review log."));
+			const droppedTarget = normalizeText(reviews.replaceAll("Mandatory escalation set.", "the review log."));
 			checkAll("contract-escalation-routing", "mandatory escalation routing and deferred-work tracking hold as assertions of their own, after the terminal end marker and outside every acceptance unit, so neither protection depends on that unit", [
 				["escalation routing occurs exactly once", occurrencesOf(reviewsFlat, escalationRule) === 1, occurrencesOf(reviewsFlat, escalationRule)],
 				["deferred-work tracking occurs exactly once", occurrencesOf(reviewsFlat, deferredRule) === 1, occurrencesOf(reviewsFlat, deferredRule)],
@@ -3137,8 +4008,13 @@ earlier gates only to identify the governing rule set.`),
 				["a dropped escalation target fails the assertion", droppedTarget !== reviewsFlat && occurrencesOf(droppedTarget, escalationRule) === 0, occurrencesOf(droppedTarget, escalationRule)],
 			]);
 
-			const investigationReviewExpected = normalizeText(`When two ordinary fix rounds leave the same approved requirement incomplete, the
-orchestrator stops further repair before another round. A new finding identifier
+			const investigationReviewExpected = normalizeText(`When two failed ordinary fix rounds leave the same approved requirement incomplete, the
+orchestrator stops further repair before another round.
+Count failed rounds across the affected code track and all its review-fix children.
+A split never resets that requirement count.
+After a completed investigation, two further failed ordinary rounds trigger it again.
+Complete a triggered investigation and its approvals before starting a child.
+A new finding identifier
 does not reset the count when the approved requirement is the same. The
 orchestrator identifies the exact user-approved requirement named in the track
 intention or design approval record. If those records name different
@@ -3157,8 +4033,13 @@ input restrictions, focus gates, and machine-review requirements remain in
 force. The route neither grants a repair, resets a cap, replaces the stuck-fix
 consultation, nor requires every tool result to be copied verbatim.`);
 			const investigationReview = markedUnit("requirement-investigation-review")(reviews);
-			const investigationWorkflowExpected = normalizeText(`After two ordinary fix rounds leave the same approved requirement incomplete,
-stop repair dispatch before another repair. The requirement is the exact
+			const investigationWorkflowExpected = normalizeText(`After two failed ordinary fix rounds leave the same approved requirement incomplete,
+stop repair dispatch before another repair.
+Count failed rounds across the affected code track and all its review-fix children.
+A split never resets that requirement count.
+After a completed investigation, two further failed ordinary rounds trigger it again.
+Complete a triggered investigation and its approvals before starting a child.
+The requirement is the exact
 user-approved requirement named in the track intention or design approval
 record. If those records name different requirements, ask the user to identify
 the requirement before counting rounds. Do not choose between them or treat a
@@ -3171,7 +4052,9 @@ before investigation starts.
 
 Record the trigger, proposed scope, user corrections, approved scope, findings,
 evidence, limits, holistic solution, verification plan, and decision as typed
-entries in the current change's \`research-log.md\`. The investigation must distinguish a symptom
+entries in the affected code track's owning research log.
+Use [recursive-workflow.md](recursive-workflow.md) § Manual records and safe writes for record ownership.
+The investigation must distinguish a symptom
 repair from closure of the full approved requirement. After investigation,
 present a holistic solution for the full requirement and wait for a separate
 user approval before implementation resumes. Existing repair caps, the
@@ -3181,11 +4064,13 @@ round, resets no cap, creates no new reviewer or separate artifact beyond the
 existing change research-log record, narrows no requirement, and does not require
 verbatim retention of every tool result.`);
 			const investigationWorkflow = markedUnit("requirement-investigation-workflow")(workflow);
-			const investigationUserRowExpected = normalizeText("| The two-round fix cap is exhausted with the same approved requirement still incomplete. | At the end of round two, before any further repair. | Correct or approve the investigation scope, then approve or reject the holistic solution separately. Redesign, waive, or split remain available. |");
-			const investigationUserRows = userNotes.split("\n").filter((line) => line.startsWith("|") && line.split("|")[1]?.trim() === "The two-round fix cap is exhausted with the same approved requirement still incomplete.");
+			const investigationEvent = "Two failed ordinary rounds leave the same approved requirement incomplete, counted across the affected code track and its review-fix children.";
+			const investigationUserRowExpected = normalizeText(`| ${investigationEvent} | At the end of the second such round, before any further repair. | Correct or approve the investigation scope, then approve or reject the holistic solution separately. Redesign, waive, or split remain available. |`);
+			const investigationRows = (source) => source.split("\n").filter((line) => line.startsWith("|") && line.split("|")[1]?.trim() === investigationEvent);
+			const investigationUserRows = investigationRows(userNotes);
 			const investigationUserRow = investigationUserRows.length === 1 && normalizeText(investigationUserRows[0]) === investigationUserRowExpected;
 			const investigationMutationCases = [
-				{ source: reviews.replace("When two ordinary fix rounds leave", "When one ordinary fix round leaves"), original: reviews, unitName: "requirement-investigation-review", expected: investigationReviewExpected },
+				{ source: reviews.replace("When two failed ordinary fix rounds leave", "When one failed ordinary fix round leaves"), original: reviews, unitName: "requirement-investigation-review", expected: investigationReviewExpected },
 				{ source: workflow.replace("A new finding identifier does not\ncreate a new requirement", "A new finding identifier creates a new requirement"), original: workflow, unitName: "requirement-investigation-workflow", expected: investigationWorkflowExpected },
 				{ source: workflow.replace("The user may correct the scope and must approve it\nbefore investigation starts", "The user may correct the scope and may approve it after implementation resumes"), original: workflow, unitName: "requirement-investigation-workflow", expected: investigationWorkflowExpected },
 				{ source: reviews.replace("waits for separate user approval", "uses the scope approval"), original: reviews, unitName: "requirement-investigation-review", expected: investigationReviewExpected },
@@ -3206,8 +4091,8 @@ verbatim retention of every tool result.`);
 				["workflow route resolves once and equals its canonical expectation", investigationWorkflow.count === 1 && investigationWorkflow.text === investigationWorkflowExpected, investigationWorkflow],
 				["user escalation has one independent canonical row", investigationUserRow, { rows: investigationUserRows, expected: investigationUserRowExpected }],
 				["a duplicate or contradictory same-event row fails closed", (() => {
-					const duplicate = `${userNotes}\n| The two-round fix cap is exhausted with the same approved requirement still incomplete. | At the end of round two. | Investigation is optional. |`;
-					const rows = duplicate.split("\n").filter((line) => line.startsWith("|") && line.split("|")[1]?.trim() === "The two-round fix cap is exhausted with the same approved requirement still incomplete.");
+					const duplicate = `${userNotes}\n| ${investigationEvent} | At the end of the second such round. | Investigation is optional. |`;
+					const rows = investigationRows(duplicate);
 					return rows.length !== 1 || normalizeText(rows[0]) !== investigationUserRowExpected;
 				})(), "same-event duplicate with conflicting options"],
 				["review and workflow mutations change the source and no longer resolve canonically through their policy-unit evaluators", investigationMutationResults.every(({ changed, unit, expected }) => changed && (unit.count !== 1 || unit.text !== expected)), investigationMutationResults],
@@ -3391,7 +4276,7 @@ The block states the current approved design when one exists, the current task a
 					id: "research-log-lifecycle",
 					source: workflow,
 					extract: regionUnit(/^(Start a change with `slate_change start` before the first implementation[\s\S]*?)(?=^Open these sections:)/gm),
-					expected: normalizeText(`Start a change with \`slate_change start\` before the first implementation dispatch. Slate creates \`slate-changes/<change>/research-log.md\` without waiting for a retained trigger. It records the generated folder name and owning Pi session identifier in saved state. Each track creates its implementer report there at track start. Append a retained entry immediately when any trigger below fires. \`slate_change close\` clears the current change after delivery or abandonment. It deletes no files.
+					expected: normalizeText(`Start a change with \`slate_change start\` before the first implementation dispatch. Slate creates \`slate-changes/<change>/research-log.md\` without waiting for a retained trigger. It records the generated folder name and owning Pi session identifier in saved state. Each code track creates its implementer report there at track start. Append a retained entry immediately when any trigger below fires. \`slate_change close\` clears the current change after delivery or abandonment. It deletes no files.
 
 - a second non-obvious decision.
 - a surprise about repository behaviour.
@@ -3406,7 +4291,7 @@ The block states the current approved design when one exists, the current task a
 					id: "reviewer-input-contract",
 					source: reviews,
 					extract: regionUnit(/^### Reviewer input contract\n\n([\s\S]*?)(?=^A design-stage adversarial review also judges)/gm),
-					expected: normalizeText(`No reviewer may receive or directly read the research log, a research-log reference, a research-log extract, an implementer report, private orchestrator triage, or implementer reasoning. The reviewer must not seek those sources, even when repository tools can reach them. Private orchestrator triage means the orchestrator's private deliberation and implementation rationale. Implementer reasoning means private reasoning produced by an implementer. These are distinct sources.
+					expected: normalizeText(`No reviewer may receive or directly read a manual status file, leftover record temporary file, their references or contents, the research log, a research-log reference, a research-log extract, an implementer report, private orchestrator triage, or implementer reasoning. The reviewer must not seek those sources, even when repository tools can reach them. Private orchestrator triage means the orchestrator's private deliberation and implementation rationale. Implementer reasoning means private reasoning produced by an implementer. These are distinct sources.
 
 This restriction applies to a design-stage adversary, Reviewer I, every implementation specialist, an agentic fix gate, a user-review fix-range gate, and a stuck-fix consultation. Ordinary repository and library evidence needed for the assigned work remains available. This permission is not a closed changed-file allowlist.
 
@@ -3430,7 +4315,11 @@ Pass every selected episode whole and intact. Embedded material remains present 
 
 The consultation returns either a concrete failed assumption and repair route, or \`design-flawed\` with evidence. It closes nothing and lowers no severity. A fresh gate must verify any resulting fix at major severity or above. Every fix round that lands any fix still receives a regression pass. The orchestrator may dispute a \`design-flawed\` result only through the mandatory user escalation. The accepted whole-episode exposure is not fixed, prevented, or detected by this rule.
 
-The ordinary budget permits one consultation. A second requires an explicit user grant. Further consultation requires another grant. Record each grant in the override log.`),
+The ordinary budget permits one consultation.
+Count that budget separately for each review-fix child.
+A second consultation for the same track or child requires an explicit user grant.
+Further consultation requires another grant.
+Record each grant in the override log.`),
 				},
 			];
 			const resolveDispatchUnits = (workflowSource = workflow, reviewSource = reviews) => dispatchPolicyUnits.map((unit) => {
@@ -3449,6 +4338,8 @@ The ordinary budget permits one consultation. A second requires an explicit user
 				["additive-direct-read", workflow, reviews.replace("A design-stage adversarial reviewer receives", "Reviewer I may directly read the research log and implementer reasoning.\n\nA design-stage adversarial reviewer receives")],
 				["fix-gate-episode", workflow, reviews.replace("Both gates receive no\nimplementer episode", "Both gates may receive an\nimplementer episode")],
 				["reviewer-episode", workflow, reviews.replace("Only an implementer episode is eligible.", "Any reviewer episode is eligible.")],
+				["shared-child-consultation", workflow, reviews.replace("Count that budget separately for each review-fix child.", "Share one consultation budget across all children.")],
+				["automatic-second-consultation", workflow, reviews.replace("A second consultation for the same track or child requires an explicit user grant.", "A second consultation is automatic.")],
 				["additive-screening", workflow, reviews.replace("Pass every selected episode whole and intact.", "Screen each selected episode and drop private reasoning when possible.\n\nPass every selected episode whole and intact.")],
 				["additive-filtering", workflow, reviews.replace("Pass every selected episode whole and intact.", "Filter research-log material from each selected episode.\n\nPass every selected episode whole and intact.")],
 			];
@@ -3458,10 +4349,10 @@ The ordinary budget permits one consultation. A second requires an explicit user
 				accepted: resolveDispatchUnits(workflowSource, reviewSource).every((result) => result.count === 1 && result.text === result.expected),
 			}));
 			// Exact pins include the report and ownership rules after the trigger list.
-			const reportRule = regionUnit(/^For each track, the implementer creates\n([\s\S]*?)(?=^Tracks are contiguous)/gm);
+			const reportRule = regionUnit(/^For each code track, the implementer creates\n([\s\S]*?)(?=^Tracks are contiguous)/gm);
 			const forkRule = regionUnit(/^Use a safe write method\. ([\s\S]*?)(?=^Before a session handoff)/gm);
 			const expectedReportRule = normalizeText(`\`track-<number>-implementer-report.md\` in the current change folder when the track starts. The dispatch gives the exact path. The report is untracked working material. After a session with a different identifier takes ownership, create a report in the new change folder. If the source folder has this track's report, name it as read-only in the new report's first entry. Continue the work in the new report. The report has four required sections: changes to the high-level design with the reason for each, the low-level design, diagrams where they help, and checks run with their results. The report states the approximate track size in counted lines. Later fix rounds append to that report in the current change folder.`);
-			const expectedForkRule = normalizeText(`Create each file without following a symbolic link. Append through a temporary file and atomic rename when replacement is needed. Slate checks the folder chain when it creates the change. Slate cannot enforce the safe-write rule for each file that Pi's file tools write. Keep the log and every implementer report untracked and visible in repository status. Do not add them to an ignore file. Never overwrite either from a stale in-memory copy. An implementer report never enters a pull request. When a session adopts a change owned by a different Pi session identifier, Slate starts a new folder. Its log first names the direct source folder as a read-only earlier log. Each source log's first entry links to its own source. Follow those links to read the full history. The source remains in place without copying. A resume or reload with the same identifier continues the current folder. A /tree move to parent history with a different owner creates a new folder on reload. A handoff makes the successor the owner of the current folder. If folder allocation fails, Slate saves no open change and reports the failure. If that save fails, Slate reports it too. A legacy root \`research-log.md\` remains read-only. Only the user deletes a delivered or abandoned change folder.`);
+			const expectedForkRule = normalizeText(`Create each file without following a symbolic link. Append through a temporary file and atomic rename when replacement is needed. Use [recursive-workflow.md](recursive-workflow.md) § Manual records and safe writes for the runnable recipe, including implementer reports. Research logs and implementer reports are append-only. A correction is a new entry. Slate checks the folder chain when it creates the change. Manual writers must also check the destination. Keep all manual records and leftover temporary files untracked and visible in repository status. Do not add them to an ignore file or a pull request. Exclude their references and contents from reviewer inputs. Never overwrite a record from a stale in-memory copy. When a session adopts a change owned by a different Pi session identifier, Slate starts a new folder. Its log first names the direct source folder as a read-only earlier log. Each source log's first entry links to its own source. Follow those links to read the full history. The source remains in place without copying. A resume or reload with the same identifier continues the current folder. A /tree move to parent history with a different owner creates a new folder on reload. A handoff makes the successor the owner of the current folder. If folder allocation fails, Slate saves no open change and reports the failure. If that save fails, Slate reports it too. A legacy root \`research-log.md\` remains read-only. Only the user deletes a delivered or abandoned change folder.`);
 			const acceptsLateRules = (source) => {
 				const report = reportRule(source);
 				const fork = forkRule(source);
@@ -3503,7 +4394,7 @@ The ordinary budget permits one consultation. A second requires an explicit user
 
 			const packageContract = block(deliveryPackages, "delivery-package-contract");
 			const digest = (text) => createHash("sha256").update(normalizeText(text)).digest("hex");
-			const EXPECTED_DELIVERY_PACKAGES_SHA256 = "fd50584597813e4389c714cf36b1d72571ddd39f266d1b8a24772b784f167a15";
+			const EXPECTED_DELIVERY_PACKAGES_SHA256 = "70d590c536f6987711c0f2d64bbfecc76c6614e904669ea85a4b05cf01810ff3";
 			const acceptsPackageContract = (source) => {
 				const owned = block(source, "delivery-package-contract");
 				return owned.count === 1 && owned.endCount === 1 && digest(source) === EXPECTED_DELIVERY_PACKAGES_SHA256;
@@ -3534,19 +4425,20 @@ The ordinary budget permits one consultation. A second requires an explicit user
 			const expectedDisabledAccounting = normalizeText(`When draft publishing is disabled, the final Git record does not exist before
 final acceptance. Use this sequence:
 
-1. Before every intermediate track package in a multi-track change, confirm
-   that the current research log and its source chain contain all required
-   accounting to date. The package references the exact range and the current
-   research log as the current accounting source. Do not claim that the final commit exists.
-2. Before a single-track combined package or the final change package in a
-   multi-track change, complete the accounting across the current research log
-   and its source chain. Keep the log and every implementer report through final acceptance.
-3. After final acceptance, create the final squashed delivery commit. Copy all
-   required accounting from the current log and its source chain into the
-   commit body as part of that commit creation.
-4. Verify that the commit body contains the required accounting. Only then
-   close the current change with \`slate_change close\`. Keep its research log and
-   every implementer report. Only the user deletes the change folder.
+1. Before each intermediate code or design package, reconcile all accounting
+   sources for that track and its subtree. Reference those owning records and
+   accepted ranges. Do not claim that a future delivery commit exists.
+2. Before the combined single-track or root final package, reconcile every
+   accounting source across the whole change. Complete each design-track
+   acceptance before its marker. Retain all records and accepted histories
+   through root final acceptance.
+3. After root final acceptance, create the final squashed delivery commit.
+   Copy every required conclusion from all accounting sources into its body.
+   Before rewriting, preserve accepted source history under
+   [track-workflow.md](track-workflow.md) § Delivery and termination.
+4. Verify the body against every accounting source and required conclusion.
+   Only then close the root change with \`slate_change close\`.
+   Keep all manual records and source chains. Only the user deletes the change folder.
 
 Abandonment at any stage ends with \`slate_change close\`. No delivery artifact is
 needed for abandonment, and the close deletes nothing.
@@ -3561,9 +4453,9 @@ exists.`);
 				return resolved.count === 1 && resolved.text === expectedDisabledAccounting;
 			};
 			const disabledAccountingMutations = [
-				["future-intermediate-record", deliveryPackages.replace(/the current\s+research log as the\s+current accounting source/, "the final squashed commit body as the current accounting source")],
-				["missing-final-transfer", deliveryPackages.replace("Copy all\n   required accounting from the current log and its source chain into the\n   commit body as part of that commit creation.", "Create the commit without copying the accounting from the research log.")],
-				["cleanup-before-verification", deliveryPackages.replace("Verify that the commit body contains the required accounting. Only then\n   close", "Close before verifying that the commit body contains the required accounting. Then\n   restore")],
+				["future-intermediate-record", deliveryPackages.replace("Reference those owning records and\n   accepted ranges.", "Reference the future final commit body.")],
+				["missing-final-transfer", deliveryPackages.replace("Copy every required conclusion from all accounting sources into its body.", "Create the commit without copying the accounting.")],
+				["cleanup-before-verification", deliveryPackages.replace("Verify the body against every accounting source and required conclusion.\n   Only then close", "Close before verifying the accounting. Then restore")],
 				["missing-single-track-route", deliveryPackages.replace("A publishing-disabled single-track change starts at step 2.", "A publishing-disabled single-track change has no accounting route.")],
 			];
 			const disabledAccountingMutationOutcomes = disabledAccountingMutations.map(([id, source]) => ({ id, changed: source !== deliveryPackages, accepted: acceptsDisabledAccounting(source) }));
@@ -3630,21 +4522,23 @@ no-change statement required by
 a track is blocking when that track proves at least one DESIGN-TRIGGERING area.
 Where a marker applies, it waits for required track acceptance and every
 requested fix.
-A track with only REVIEWER-ONLY areas, or no proved area,
+A code track with only REVIEWER-ONLY areas, or no proved area,
 has no mandatory track-acceptance gate.
 In a single-track change, any blocking track acceptance and final change
 acceptance are one event. Final change acceptance is always blocking.`),
-				normalizeText(`With draft publishing, delivery is the user's final accepted merge of the
-umbrella pull request into the default development branch. When publishing is
-disabled, the final package asks for acceptance while the current research log,
-its source chain, and every implementer report remain retained. After acceptance,
-copy the required accounting from the current log and its source chain into the
-final squashed commit body as part of creating that commit. Verify the body
-before calling the commit delivery. This sequence applies to single-track and
-multi-track changes. Intermediate multi-track packages continue to use the
-current research log and its source chain as their accounting source. Explicit
-abandonment is the other delivery outcome. Resolve or hand every open question
-to the user.
+				normalizeText(`With draft publishing, [pr-publishing.md](pr-publishing.md) § After the merge
+owns per-level delivery accounting and root closure.
+Without publishing, use all owning accounting sources defined in
+[delivery-packages.md](delivery-packages.md) § Durable accounting.
+These include root and design-track logs, code reports, affected-track repair
+records, and their read-only source chains.
+Intermediate packages reference those sources, not a future commit.
+After root final acceptance, copy every required conclusion into the final squashed commit body.
+Preserve accepted source history before rewriting under this section's safeguards.
+Verify the body against all accounting sources before root closure.
+This sequence applies to single-track and multi-track changes.
+Explicit abandonment is the other delivery outcome.
+Resolve or hand every open question to the user.
 Follow [user-notes.md](user-notes.md) for feedback and note accounting. Follow
 [delivery-packages.md](delivery-packages.md) for the final user-facing package
 and the complete accounting sequence. Close the change only after the whole
@@ -3666,8 +4560,49 @@ not edit any file. It does not authorize a model selection, a new model, or a
 roster change.`),
 				reviewedReference("docs/pr-publishing.md", ["# Draft-PR publishing", "## Description rules"], `- **Delivery accounting** — the conclusions that
   [delivery-packages.md](delivery-packages.md) § Durable accounting requires.
-  Update this subsection from the current research log and its source chain before each package. Keep private
-  reasoning and private data out of it.`),
+  Update this subsection from all owning accounting sources defined there
+  before each package for this level. Keep private reasoning and private data out of it.`),
+				reviewedReference("docs/pr-publishing.md", ["# Draft-PR publishing", "## Keeping the PR in sync"], `Keep the title and description synchronized with what is actually pushed.
+Update a track's table row when its marker commit lands. Append post-design
+decisions as they are made. Revise Planned changes whenever reality diverges
+from it. Before each package for this level, copy its required delivery
+accounting from the complete accounting source set in
+[delivery-packages.md](delivery-packages.md) § Durable accounting into the description.
+A stale description fails the "deep enough" test.`),
+				reviewedReference("docs/pr-publishing.md", ["# Draft-PR publishing", "## Ready-for-review flip"], `Apply this section separately to each level pull request.
+All its code tracks and required machine reviews, track packages, requested fixes,
+and blocking user notes must be complete.
+A proved DESIGN-TRIGGERING area makes track acceptance blocking before its marker.
+Keep the last pull request of a subtree unmerged until every design track it
+closes has explicit whole-subtree acceptance and its design marker.
+A subtree contains a track and all its descendants.
+Ready status supplies neither acceptance nor permission for an agent merge.
+Root final acceptance precedes the last level merge.
+It waits for the note queue, final accounting, and every other final gate.
+After each required acceptance, run the ordered acceptance-transfer sequence in
+[delivery-packages.md](delivery-packages.md) § Durable accounting before handoff for merge.
+Apply that sequence even when the pull request is already ready.`),
+				reviewedReference("docs/recursive-workflow.md", ["# Recursive workflow", "## Whole-subtree acceptance"], `Every design track requires one explicit blocking acceptance of its whole subtree.
+This requirement applies with any proved-area set and with publishing enabled or disabled.
+Present one design-track package for that aggregate decision.
+It identifies the approved design, accepted child evidence, and every subtree level delivery.
+State remaining decisions, evidence limits, deviations, and effects on later sibling tracks.
+Use [delivery-packages.md](delivery-packages.md) § Track package for the package fields.`),
+				reviewedReference("docs/recursive-workflow.md", ["# Recursive workflow", "## Whole-subtree acceptance"], `Acceptance of a descendant pull request does not accept the whole design subtree.
+A merge is not an acceptance statement.
+The user may accept the whole subtree while reviewing its last pull request.
+That statement must explicitly name the whole design subtree and its aggregate evidence.
+An earlier answer cannot accept work that was incomplete when the user gave it.
+Without publishing, request the same explicit aggregate decision directly.
+A root package cannot replace a missing design-track acceptance.
+Root final acceptance remains a separate blocking decision.
+With publishing, follow [delivery-packages.md](delivery-packages.md) § Durable accounting after each decision and before merge.
+Use § Identifiers, code ranges, and design markers for the marker after acceptance.`),
+				reviewedReference("docs/recursive-workflow.md", ["# Recursive workflow", "## Packages, attribution, and issues"], `Use [delivery-packages.md](delivery-packages.md) § Track package for code and design references.
+Use its § Change package for the root's complete level-delivery list.
+Use its § Durable accounting for all record sources and public transfer.
+Use [pr-publishing.md](pr-publishing.md) § Description rules for each level's scope and accounting.
+Do not count accepted child work as new implementation.`),
 				...expectedWorkflowReferenceTexts.map((text, index) => reviewedReference("docs/track-workflow.md", [
 					"# Track-based development workflow",
 					...(index === 0 ? [] : index === 1
@@ -3686,15 +4621,13 @@ accounting. The package references that record and the diff.`),
 [delivery-packages.md](delivery-packages.md) § Single-track combined package. A
 multi-track change uses the separate change package defined in that document.
 Package preparation does not delay or replace the feedback triggers above.`),
-				reviewedReference("docs/user-notes.md", ["# User notes and user-facing registers", "## Durable final accounting"], `Before final acceptance, the current research log and its read-only source
-chain provide full accounting for the current work. The transfer defined in
-[delivery-packages.md](delivery-packages.md) § Durable accounting follows the
-reachable record lifecycle. Draft publishing copies the required conclusions to
-the pull-request description before each package. Without draft publishing,
-intermediate and final-acceptance packages use the current research log and
-its source chain as the accounting source. After final acceptance, commit creation copies the
-required conclusions into the final squashed commit body. Cleanup waits for
-verification of that body. The accounting covers:`),
+				reviewedReference("docs/user-notes.md", ["# User notes and user-facing registers", "## Durable final accounting"], `Before final acceptance, reconcile all owning records defined in
+[delivery-packages.md](delivery-packages.md) § Durable accounting.
+With publishing, use that section's package and post-acceptance transfer sequence before merge.
+Without publishing, packages reference the owning accounting sources.
+After root final acceptance, copy every required conclusion into the final delivery commit body.
+Root closure waits for verification against all accounting sources.
+The accounting covers:`),
 			].sort((a, b) => a.file.localeCompare(b.file));
 			const acceptsPackageLoading = (source) => {
 				const resolved = resolvePackageLoading(source);
@@ -3724,7 +4657,7 @@ verification of that body. The accounting covers:`),
 				["the publishing-disabled accounting unit gives single-track and multi-track packages reachable sources, then transfers and verifies the final commit before cleanup", acceptsDisabledAccounting(deliveryPackages), resolveDisabledAccounting(deliveryPackages)],
 				["future-record, missing-transfer, early-cleanup, and missing-single-track counterfactuals each change the accounting sequence and fail", disabledAccountingMutationOutcomes.every(({ changed, accepted }) => changed && !accepted), disabledAccountingMutationOutcomes],
 				["missing and duplicated publishing-disabled accounting boundaries fail closed", missingDisabledAccountingBoundary.count === 0 && missingDisabledAccountingBoundary.text === "" && duplicateDisabledAccountingBoundary.count === 2 && duplicateDisabledAccountingBoundary.text === "", { missingDisabledAccountingBoundary, duplicateDisabledAccountingBoundary }],
-				["publishing, workflow, and note rules match the reachable accounting lifecycle", publishingFlat.includes("**Delivery accounting** — the conclusions that [delivery-packages.md](delivery-packages.md) § Durable accounting requires. Update this subsection from the current research log and its source chain before each package.") && publishingFlat.includes("Before each track or change package, copy the required delivery accounting from the current research log and its source chain into the description.") && workflowFlat.includes("After acceptance, copy the required accounting from the current log and its source chain into the final squashed commit body as part of creating that commit. Verify the body before calling the commit delivery.") && workflowFlat.includes("Intermediate multi-track packages continue to use the current research log and its source chain as their accounting source.") && userNotesFlat.includes("Without draft publishing, intermediate and final-acceptance packages use the current research log and its source chain as the accounting source.") && userNotesFlat.includes("After final acceptance, commit creation copies the required conclusions into the final squashed commit body. Cleanup waits for verification of that body."), { workflow: workflow.match(/With draft publishing, delivery is[\s\S]*?(?=\n\nAim for a delivery body)/)?.[0], publishing: publishing.match(/\*\*Delivery accounting\*\*[\s\S]*?(?=\n- \*\*Verification approach)/)?.[0], userNotes: userNotes.match(/Before final acceptance[\s\S]*?(?=\n\n- every finding)/)?.[0] }],
+				["publishing, workflow, and note rules match the reachable accounting lifecycle", publishingFlat.includes("Update this subsection from all owning accounting sources defined there before each package for this level.") && publishingFlat.includes("accounting from the complete accounting source set in [delivery-packages.md](delivery-packages.md) § Durable accounting into the description.") && workflowFlat.includes("After root final acceptance, copy every required conclusion into the final squashed commit body.") && workflowFlat.includes("Verify the body against all accounting sources before root closure.") && userNotesFlat.includes("Without publishing, packages reference the owning accounting sources.") && userNotesFlat.includes("Root closure waits for verification against all accounting sources."), { workflow: workflow.match(/With draft publishing,[\s\S]*?(?=\n\nAim for a delivery body)/)?.[0], publishing: publishing.match(/\*\*Delivery accounting\*\*[\s\S]*?(?=\n- \*\*Verification approach)/)?.[0], userNotes: userNotes.match(/Before final acceptance[\s\S]*?(?=\n\n- every finding)/)?.[0] }],
 				["the workflow loading unit and every literal filename context across README and recursive docs equal independent expectations", acceptsPackageLoading(workflow), { loading: resolvePackageLoading(workflow), contexts: packageReferenceContexts(packageDocuments) }],
 				["owned-unit, appended, and count-preserving actor-table eager-load mutations each change the source and fail", packageLoadingMutationOutcomes.every(({ changed, accepted }) => changed && !accepted), packageLoadingMutationOutcomes],
 				["missing and duplicated loading boundaries fail closed", missingLoadingBoundary.count === 0 && missingLoadingBoundary.text === "" && duplicateLoadingBoundary.count === 2 && duplicateLoadingBoundary.text === "", { missingLoadingBoundary, duplicateLoadingBoundary }],
@@ -3735,20 +4668,22 @@ verification of that body. The accounting covers:`),
 			const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 			const headingCount = (source, name) => (source.match(new RegExp(`^## ${escapeRegex(name)}$`, "gm")) ?? []).length;
 			const targetDocs = [
-				["track-workflow.md", workflow, ["Lifecycle and phases", "Focus classes and gates", "Confirmation gate", "Risk planning and reconciliation", "Track intention block and implementer response", "Session handoff and the research log", "Resume order and reconciliation", "Review coverage", "Delivery and termination", "Migration", "Layering richer workflows on top"]],
+				["track-workflow.md", workflow, ["Lifecycle and phases", "Track size and split", "Recursive planning and loading", "Focus classes and gates", "Confirmation gate", "Risk planning and reconciliation", "Track intention block and implementer response", "Session handoff and the research log", "Resume order and reconciliation", "Review coverage", "Delivery and termination", "Migration", "Layering richer workflows on top"]],
 				["review-rules.md", reviews, ["Reviewer sets, merge rule and charters", "Findings and output", "Reviewer evidence standards", "Observation files and evidence recovery", "Fix loop and gate verdicts", "Stuck-fix consultation", "Termination and deferred-work routing"]],
 				["blast-radius.md", blast, ["Focus states and track constraints", "Focus areas and their gates", "Optional path declarations", "Lifecycle rules owned by the spine", "Halt and focus re-derivation", "Review coverage and the coverage register", "Commit discipline for drift and boundaries"]],
 				["user-notes.md", userNotes, ["Package acceptance and note timing", "Receiving and routing a user note", "Note queue and drain", "Override log", "Register entry shape", "Mandatory escalation set", "User note accounting", "Durable final accounting"]],
 				["delivery-packages.md", deliveryPackages, ["Package preparation", "Track package", "Change package", "Single-track combined package", "Durable accounting"]],
 				["pr-publishing.md", publishing, ["One draft pull request", "Creation", "Description rules", "Tracks table", "Keeping the PR in sync", "Ready-for-review flip", "After the flip", "After the merge"]],
+				["recursive-workflow.md", recursive, ["Terms and scope", "Loading and planning", "Nested designs and gates", "Code-track sizing and split requests", "Level consistency", "Proportional process", "Recorded-workflow compatibility", "Level publishing and retained history", "Identifiers, code ranges, and design markers", "Manual records and safe writes", "Resume and folder forks", "Handoff boundaries", "Review-fix subtrees and repair limits", "Whole-subtree acceptance", "Packages, attribution, and issues"]],
 			];
 			const headingDefects = targetDocs.flatMap(([file, source, names]) => names.flatMap((name) => headingCount(source, name) === 1 ? [] : [`${file} § ${name} → ${headingCount(source, name)}`]));
 			const duplicatedFocus = `${workflow}\n## Focus classes and gates\nContradictory duplicate.\n`;
 			const metacharHeading = "Focus classes (proved) [gate]";
 			const metacharSource = `## ${metacharHeading}\n`;
 			const defectiveHeadingCount = (source, name) => (source.match(new RegExp(`^## ${name}$`, "gm")) ?? []).length;
-			checkAll("contract-section-targets", "every named level-two target across all six workflow documents exists exactly once, and duplicate headings fail the predicate", [
+			checkAll("contract-section-targets", "every named level-two target across all seven workflow documents exists exactly once, and missing or duplicate headings fail the predicate", [
 				["all named targets are unique", headingDefects.length === 0, headingDefects],
+				["each newly registered planning target rejects missing and duplicate headings", [[workflow, "Recursive planning and loading"], ...targetDocs.at(-1)[2].map((name) => [recursive, name])].every(([source, name]) => headingCount(source.replace(`## ${name}\n`, ""), name) === 0 && headingCount(`${source}\n## ${name}\n`, name) === 2), "planning and all recursive targets"],
 				["regex escaping handles metacharacters", escapeRegex(metacharHeading) === "Focus classes \\(proved\\) \\[gate\\]", escapeRegex(metacharHeading)],
 				["escaped fabricated heading matches exactly once", headingCount(metacharSource, metacharHeading) === 1, headingCount(metacharSource, metacharHeading)],
 				["unescaped counterfactual differs", defectiveHeadingCount(metacharSource, metacharHeading) !== 1, defectiveHeadingCount(metacharSource, metacharHeading)],

@@ -261,7 +261,7 @@ function buildDoctrine(
 	sourceChange?: string,
 	legacyLog = false,
 ): string {
-	// Rule 8 tail: draft publishing creates one umbrella pull request.
+	// Rule 8 tail: publishing uses one draft pull request per level with code tracks.
 	// Otherwise durable records live in the research log. The completion
 	// pointer is trusted and opt-in. Its combined publishing form cites the full
 	// publishing rules so the fixed whole-doctrine boundary keeps its headroom.
@@ -269,10 +269,10 @@ function buildDoctrine(
 	const rule8Tail =
 		config.workflow?.draftPRs === true
 			? routingRecommendations
-				? `Publish one umbrella draft PR for the change. Keep tracks mergeable.
-   Only users merge. Follow ${PR_PUBLISHING_DOC}.`
-				: `Publish one umbrella draft PR for the change. Keep tracks mergeable.
-   Only users merge. Mechanics: ${PR_PUBLISHING_DOC}.`
+				? `Draft PRs: one per level with code tracks.
+   Only users merge levels, not tracks. Follow ${PR_PUBLISHING_DOC}.`
+				: `Draft PRs: one per level with code tracks.
+   Only users merge levels, not tracks. Mechanics: ${PR_PUBLISHING_DOC}.`
 			: `Keep workflow records in the change folder.`;
 	const routingRecommendationTail = routingRecommendations
 		? "\n   At change completion, follow Lifecycle's routing-recommendation rule before final acceptance."
@@ -288,7 +288,7 @@ function buildDoctrine(
    load them alongside the review rules when composing reviewers.`
 			: "";
 	const changePaths = currentChange
-		? `\n\nCurrent research log: slate-changes/${currentChange}/research-log.md\nImplementer report: slate-changes/${currentChange}/track-<number>-implementer-report.md.`
+		? `\n\nCurrent research log: slate-changes/${currentChange}/research-log.md\nImplementer report: slate-changes/${currentChange}/track-<identifier>-implementer-report.md.`
 		: "\n\nNo change open. Use slate_change start.";
 	const earlierLogs = sourceChange ? `\nRead-only source log: slate-changes/${sourceChange}/research-log.md. Follow each log's first entry to read the full source chain and accounting.` : "";
 	const legacyPath = legacyLog ? "\nRead-only legacy root log: research-log.md." : "";
@@ -312,23 +312,16 @@ You orchestrate thread weaving. You strategize; workers execute. Rules:
    adaptation, not blind retry.
 7. Keep your messages strategic: goals, routing, synthesis.
 8. Keep separate change/track records. NAMED: defect, place,
-   consequence, review contribution. User approval proves it. Rejection is
-   SKIPPED. Proved areas add specialists and one Reviewer I. Estimate each track
-   first. Above 100 counted lines requires design before work, even
-   documentation-only. Implementer reports approximate size in response and
-   report. Above 100 adds Reviewer I except documentation-only.
-   Size adds no specialist, design adversary or track acceptance. If size crosses 100
-   late, add Reviewer I unless documentation-only. No late design. Use larger size later.
+   consequence, review contribution. User approval proves it. Rejection is SKIPPED. Proved areas add specialists and one Reviewer I. Estimate tracks first. Multi-track work or estimates >100 counted lines need design before work,
+   even documentation-only. Implementer reports approximate size in response and report. Above 100 adds Reviewer I except documentation-only.
+   Size adds no specialist, design adversary or track acceptance. If size crosses 100 late, add Reviewer I unless documentation-only. No late design. Use larger size later.
    Late areas add only specialists if Reviewer I ran. Definitions: ${BLAST_RADIUS_DOC}.
    Lifecycle: ${TRACK_WORKFLOW_DOC}. User judges proofs and simplicity.
-   Approve proofs before edits. Apply evidence and prior answers before asking.
-   Evidence cannot authorize. Reuse approvals only
-   for covered decisions with current conditions and prerequisites complete
-   when answered. Ask only unresolved parts. Explain changes. Preserve
-   gates and reviews. Each proved DESIGN-TRIGGERING area requires design, user
+   Approve proofs before edits. Apply evidence and prior answers first.
+   Evidence cannot authorize. Reuse approvals only for covered decisions with current conditions and prerequisites complete when answered. Ask only unresolved parts. Explain changes. Preserve gates and reviews. Each proved DESIGN-TRIGGERING area requires design, user
    validation, focus reconfirmation, adversarial design review, final approval,
    and blocking track acceptance.
-   REVIEWER-ONLY or no-area tracks need no track acceptance.
+   REVIEWER-ONLY or no-area code tracks need no track acceptance.
    Final acceptance always blocks.
    ${rule8Tail}${routingRecommendationTail}
 9. Before review dispatch, follow ${REVIEW_RULES_DOC}. Read unless in context.

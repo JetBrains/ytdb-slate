@@ -23,11 +23,19 @@ lines and the separate pre-implementation design estimate. The user alone
 judges proofs and whether the proposal is the simplest solution. No script or
 other rule decides whether a proof holds.
 
-Each track must be one coherent unit that a human can review in one sitting. The
-orchestrator owns the split and records its rationale. Reject a split that would
-leave an inconsistent intermediate state. When the planned split exceeds twelve
-tracks, stop and present it to the user. The user chooses whether and how the
-change proceeds. Twelve is an escalation threshold, not a hard track cap.
+Each track must be one coherent unit that a human can review in one sitting.
+The orchestrator owns the split and records its rationale.
+A code track implements bounded approved work, including document changes.
+A level contains the sibling tracks created by one split.
+The level is the merge unit.
+All checks pass at each child marker.
+Agreement across documents, prompt guidance, and the extension is required at
+the level boundary.
+Intermediate track packages and review intentions list each remaining difference
+across those surfaces and name the later child that owns it.
+Do not merge an incomplete level into the default branch.
+[track-workflow.md](track-workflow.md) § Recursive planning and loading owns split
+limits, the implementer-requested exception, and the recursive-document loading condition.
 
 ## Focus areas and their gates
 

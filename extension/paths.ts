@@ -18,6 +18,7 @@ export const WRITING_CHECKER = join(EXTENSION_DIR, "writing-check.mjs");
 // treat `#` or `?` in an install directory as URL syntax.
 export const WRITING_CHECKER_URL = pathToFileURL(WRITING_CHECKER).href;
 export const TRACK_WORKFLOW_DOC = join(DOCS_DIR, "track-workflow.md");
+export const RECURSIVE_WORKFLOW_DOC = join(DOCS_DIR, "recursive-workflow.md");
 export const PR_PUBLISHING_DOC = join(DOCS_DIR, "pr-publishing.md");
 export const REVIEW_RULES_DOC = join(DOCS_DIR, "review-rules.md");
 export const REVIEW_COMMON_POLICY_DOC = join(DOCS_DIR, "review-common-policy.md");

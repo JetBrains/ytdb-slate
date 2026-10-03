@@ -4,7 +4,7 @@
 
 import { readFileSync } from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Type } from "typebox";
+import { Type, type Static } from "typebox";
 import { renderThreadCall, renderThreadResult } from "./render.ts";
 import { sanitizeForNotify } from "./notify.ts";
 import {
@@ -59,7 +59,42 @@ function dispatchCostLine(episode: EpisodeRecord): string {
 	return `Cost: ${partialCost ? "≥" : ""}$${reportedCost.toFixed(4)}${costScope} | tokens: ${quantities.join(", ")} | ended ${model} ${effort}${warm}`;
 }
 
+const TRACK_IDENTIFIER_MAX = 128;
+const TRACK_COMPONENT_MAX = String(Number.MAX_SAFE_INTEGER);
+const TRACK_IDENTIFIER_PATTERN = "^[1-9][0-9]*(?:\\.[1-9][0-9]*)*$";
+
+/** Check the original value and the value used to name a report with one rule. */
+function trackIdentifier(value: unknown): string {
+	if (typeof value === "number" && Number.isSafeInteger(value) && value > 0) return String(value);
+	if (typeof value === "string" && value.length <= TRACK_IDENTIFIER_MAX &&
+		new RegExp(TRACK_IDENTIFIER_PATTERN).exec(value)?.[0] === value && value.split(".").every((part) =>
+			part.length < TRACK_COMPONENT_MAX.length ||
+			(part.length === TRACK_COMPONENT_MAX.length && part <= TRACK_COMPONENT_MAX))) return value;
+	throw new Error("trackNumber must be a positive safe integer or a canonical dotted identifier of at most 128 ASCII characters. Each component must be 1 through 9007199254740991, with no leading zero.");
+}
+
 export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManager: () => ThreadManager): void {
+	const parameters = Type.Object({
+		name: Type.Optional(Type.String({ description: "Short name for a NEW thread (e.g. \"recon\")" })),
+		trackNumber: Type.Optional(Type.Union([
+			Type.String({ pattern: TRACK_IDENTIFIER_PATTERN, maxLength: TRACK_IDENTIFIER_MAX }),
+			Type.Integer({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER }),
+		], { description: "Required for an implementer on an open change. A positive safe integer or canonical dotted path number. At most 128 ASCII characters. Each component is 1 through 9007199254740991, without leading zeros." })),
+		type: Type.Union(THREAD_TYPES.map((value) => Type.Literal(value)), {
+			description: THREAD_TYPE_PARAMETER_DESCRIPTION,
+		}),
+		task: Type.String({ description: "The single bounded action to execute" }),
+		context: Type.Optional(
+			Type.Array(Type.String(), { description: "Earlier episode ids to load in caller order", maxItems: MAX_CONTEXT_EPISODES }),
+		),
+		model: Type.String({ description: "Required logical model name from the active Slate policy." }),
+		reason: Type.String({ description: "Required short reason for this logical model choice.", maxLength: 200 }),
+		tools: Type.Optional(Type.Array(Type.String(), { description: "Worker tool allowlist (new threads only)" })),
+		reviewPerspectives: Type.Optional(Type.Array(
+			Type.String({ description: `Names: ${REVIEW_PERSPECTIVES.map((role) => role.name).join(", ")}` }),
+			{ description: "Built-in implementation review only, type reviewer. Reviewer I and Test-quality and structure reviewer each run alone. Other specialists may merge only with matching scope and evidence." },
+		)),
+	});
 	pi.registerTool({
 		name: "thread",
 		label: "Thread",
@@ -83,29 +118,14 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 			"Use the thread tool to delegate bounded tactical actions to worker threads; dispatch independent actions to different threads in the same message to run them in parallel.",
 			"Pass prior episode ids in the thread tool's context parameter instead of restating their content.",
 		],
-		parameters: Type.Object({
-			name: Type.Optional(Type.String({ description: "Short name for a NEW thread (e.g. \"recon\")" })),
-			trackNumber: Type.Optional(Type.Integer({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER, description: "Required for an implementer on an open change. The exact report track number." })),
-			type: Type.Union(THREAD_TYPES.map((value) => Type.Literal(value)), {
-				description: THREAD_TYPE_PARAMETER_DESCRIPTION,
-			}),
-			task: Type.String({ description: "The single bounded action to execute" }),
-			context: Type.Optional(
-				Type.Array(Type.String(), { description: "Earlier episode ids to load in caller order", maxItems: MAX_CONTEXT_EPISODES }),
-			),
-			model: Type.String({
-				description: "Required logical model name from the active Slate policy.",
-			}),
-			reason: Type.String({
-				description: "Required short reason for this logical model choice.",
-				maxLength: 200,
-			}),
-			tools: Type.Optional(Type.Array(Type.String(), { description: "Worker tool allowlist (new threads only)" })),
-			reviewPerspectives: Type.Optional(Type.Array(
-				Type.String({ description: `Names: ${REVIEW_PERSPECTIVES.map((role) => role.name).join(", ")}` }),
-				{ description: "Built-in implementation review only, type reviewer. Reviewer I and Test-quality and structure reviewer each run alone. Other specialists may merge only with matching scope and evidence." },
-			)),
-		}),
+		parameters,
+		prepareArguments(args) {
+			// Pi calls this before optional-null normalization and Value.Convert.
+			if (args && typeof args === "object" && Object.prototype.hasOwnProperty.call(args, "trackNumber")) {
+				trackIdentifier((args as Record<string, unknown>).trackNumber);
+			}
+			return args as Static<typeof parameters>;
+		},
 
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
 			const raw = params as unknown as Record<string, unknown>;
@@ -118,10 +138,10 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 			if (Object.prototype.hasOwnProperty.call(raw, "effort")) {
 				throw new Error('The "effort" field was removed. Select a logical model. Its policy fixes the effort.');
 			}
+			if (Object.prototype.hasOwnProperty.call(raw, "trackNumber")) trackIdentifier(raw.trackNumber);
 			const type = parseThreadType(params.type, true);
-			if (type === "implementer" && store.currentChange &&
-				(!Number.isSafeInteger(params.trackNumber) || (params.trackNumber ?? 0) < 1)) {
-				throw new Error("An implementer on an open change requires a positive safe trackNumber for its report.");
+			if (type === "implementer" && store.currentChange && params.trackNumber === undefined) {
+				throw new Error("An implementer on an open change requires trackNumber for its report.");
 			}
 			const displayedType = (threadId: string) => displayThreadType(store.threads.get(threadId)?.type ?? type);
 			const onProgress = (p: DispatchProgress) => {
@@ -143,10 +163,12 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 				});
 			};
 
-			const reportTask = params.type === "implementer" && store.currentChange
-				? `${params.task}\n\nImplementer report: slate-changes/${store.currentChange}/track-${params.trackNumber}-implementer-report.md. Create without following a symbolic link.` +
+			// Recheck the value used for both names and retain its accepted spelling.
+			const reportIdentifier = type === "implementer" && store.currentChange ? trackIdentifier(params.trackNumber) : undefined;
+			const reportTask = reportIdentifier !== undefined
+				? `${params.task}\n\nImplementer report: slate-changes/${store.currentChange}/track-${reportIdentifier}-implementer-report.md. Create without following a symbolic link.` +
 					(store.sourceChange
-						? ` If the source folder has this track's report, continue it in this new report and name slate-changes/${store.sourceChange}/track-${params.trackNumber}-implementer-report.md as read-only in the new report's first entry. Do not edit the source report.`
+						? ` If the source folder has this track's report, continue it in this new report and name slate-changes/${store.sourceChange}/track-${reportIdentifier}-implementer-report.md as read-only in the new report's first entry. Do not edit the source report.`
 						: "")
 				: params.task;
 			const result = await getManager().dispatch(

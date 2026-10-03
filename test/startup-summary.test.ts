@@ -265,10 +265,10 @@ const PANEL = [
 	"What Slate does, step by step:",
 	"1. Research: Slate studies your request and the code through worker threads.",
 	"2. Risk approval: Slate lists the risks of the change, and you approve or reject each one.",
-	"3. Design: a proved design risk or a track estimated above 100 counted lines needs a design before work. You validate and approve it. Only proved design risks add adversarial design reviewers.",
+	"3. Design: multi-track work, a proved design risk, or an estimate above 100 counted lines needs a design. You validate and approve it. Only proved design risks add adversarial design reviewers.",
 	"4. Tracks: workers implement and report approximate size. A proved risk adds reviewers. More than 100 counted lines adds a general reviewer unless the track changes only documents that neither ship as code nor run.",
 	"5. Final acceptance: you review the whole change and accept it.",
-	"6. Delivery: Slate prepares the final commit, or a pull request that only you merge.",
+	"6. Delivery: Slate prepares a final commit or optional level pull requests. A level contains tracks from one split. Only you merge. A merge is not final acceptance.",
 	"Run /slate summary off or /slate summary on to hide or show this summary when orchestrator mode starts.",
 ];
 
@@ -276,10 +276,10 @@ const STYLED_PANEL = [
 	"<b><accent>What Slate does, step by step:</accent></b>",
 	"<b><accent>1. Research:</accent></b> Slate studies your request and the code through worker threads.",
 	"<b><accent>2. Risk approval:</accent></b> Slate lists the risks of the change, and <b><warning>you approve or reject</warning></b> each one.",
-	"<b><accent>3. Design:</accent></b> a proved design risk or a track estimated above 100 counted lines needs a design before work. <b><warning>You validate and approve it</warning></b>. Only proved design risks add adversarial design reviewers.",
+	"<b><accent>3. Design:</accent></b> multi-track work, a proved design risk, or an estimate above 100 counted lines needs a design. <b><warning>You validate and approve it</warning></b>. Only proved design risks add adversarial design reviewers.",
 	"<b><accent>4. Tracks:</accent></b> workers implement and report approximate size. A proved risk adds reviewers. More than 100 counted lines adds a general reviewer unless the track changes only documents that neither ship as code nor run.",
 	"<b><accent>5. Final acceptance:</accent></b> you review the whole change and <b><warning>accept it</warning></b>.",
-	"<b><accent>6. Delivery:</accent></b> Slate prepares the final commit, or a pull request that <b><warning>only you merge</warning></b>.",
+	"<b><accent>6. Delivery:</accent></b> Slate prepares a final commit or optional level pull requests. A level contains tracks from one split. <b><warning>Only you merge</warning></b>. A merge is not final acceptance.",
 	"<dim>Run </dim><mdCode>/slate summary off</mdCode><dim> or </dim><mdCode>/slate summary on</mdCode><dim> to hide or show this summary when orchestrator mode starts.</dim>",
 ];
 
@@ -645,7 +645,7 @@ test("the short phase list follows all nine lifecycle phases in the shipped docu
 	assert.deepEqual(phases, [
 		"research.",
 		"propose the eleven-line risk record and obtain user approval.",
-		"design and validate when a proved DESIGN-TRIGGERING area or a per-track size estimate above 100 counted lines requires a design.",
+		"design and validate for a multi-track change, a proved DESIGN-TRIGGERING area, or a per-track estimate above 100 counted lines.",
 		"when a design exists, reconfirm the focus list against the validated design.",
 		"when a design exists, run one adversarial design review for each proved DESIGN-TRIGGERING area that has not reviewed the applicable design.",
 		"when a design exists, obtain final design approval.",

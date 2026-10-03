@@ -8,7 +8,8 @@ reviewer is read-only. Independent reviewers run in parallel.
 
 ### Reviewer input contract
 
-No reviewer may receive or directly read the research log, a research-log
+No reviewer may receive or directly read a manual status file, leftover record
+temporary file, their references or contents, the research log, a research-log
 reference, a research-log extract, an implementer report, private orchestrator
 triage, or implementer reasoning. The reviewer must not seek those sources, even
 when repository tools can reach them. Private orchestrator triage means the
@@ -258,12 +259,26 @@ diff under § Reviewer input contract. It receives no fixer or implementer
 episode and no direct private source.
 
 A round that lands no fix stops the ordinary loop. The two-round cap also
-stops it. A second regression on one finding escalates. No silence supplies a
-disposition.
+stops it. A second regression on one finding escalates.
+No silence supplies a disposition.
+
+<!-- review-fix-split:begin -->
+When considering the split option in [user-notes.md](user-notes.md) § Mandatory escalation set,
+load [recursive-workflow.md](recursive-workflow.md) § Review-fix subtrees and repair limits
+before proposing a review-fix split.
+Each review-fix child starts at round zero with two ordinary fix rounds and one stuck-fix consultation.
+Only the user chooses a split through the escalation table.
+The split bypasses no stuck-fix consultation or required fix gate.
+<!-- review-fix-split:end -->
 
 <!-- requirement-investigation-review:begin -->
-When two ordinary fix rounds leave the same approved requirement incomplete, the
-orchestrator stops further repair before another round. A new finding identifier
+When two failed ordinary fix rounds leave the same approved requirement incomplete, the
+orchestrator stops further repair before another round.
+Count failed rounds across the affected code track and all its review-fix children.
+A split never resets that requirement count.
+After a completed investigation, two further failed ordinary rounds trigger it again.
+Complete a triggered investigation and its approvals before starting a child.
+A new finding identifier
 does not reset the count when the approved requirement is the same. The
 orchestrator identifies the exact user-approved requirement named in the track
 intention or design approval record. If those records name different
@@ -313,9 +328,11 @@ dispute a `design-flawed` result only through the mandatory user escalation.
 The accepted whole-episode exposure is not fixed, prevented, or detected by
 this rule.
 
-The ordinary budget permits one consultation. A second requires an explicit
-user grant. Further consultation requires another grant. Record each grant in
-the override log.
+The ordinary budget permits one consultation.
+Count that budget separately for each review-fix child.
+A second consultation for the same track or child requires an explicit user grant.
+Further consultation requires another grant.
+Record each grant in the override log.
 
 ## Termination and deferred-work routing
 
@@ -333,11 +350,14 @@ Apply this ordered test to each finding that is not waived, moot, or rejected:
 3. Fix a major finding inside this change.
 4. Record every other finding with the ignored disposition.
 
+For design tracks, use [recursive-workflow.md](recursive-workflow.md) § Whole-subtree acceptance.
+The following proved-area acceptance rules apply to code tracks.
+
 <!-- track-acceptance:begin -->
 A track package can follow machine-review termination. Before the package, the
 durable delivery record accounts for every ignored finding. User acceptance of
 a track is blocking when that track proves at least one DESIGN-TRIGGERING area.
-A track with only REVIEWER-ONLY areas, or no proved area, has no mandatory
+A code track with only REVIEWER-ONLY areas, or no proved area, has no mandatory
 track-acceptance gate. Without mandatory track acceptance, an applicable marker
 waits for completed machine gates, the package, and resolved blocking user
 notes. In a single-track change, any blocking track acceptance and final change
