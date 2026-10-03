@@ -4,8 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test, type TestContext } from "node:test";
 import { pathToFileURL } from "node:url";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { AgentTool, runToolCall as RunToolCall } from "../node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-agent-core/dist/index.js";
+import { convertToLlm, SessionManager, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { createAssistantMessageEventStream, type AssistantMessage, type Model, type TranscriptContext } from "@earendil-works/pi-ai";
+import type { AgentTool, runAgentLoop as RunAgentLoop, runToolCall as RunToolCall } from "../node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-agent-core/dist/index.js";
 import { createChangeFolder } from "../extension/artifact-names.ts";
 import { createLogicalRuntime } from "../extension/logical-model-runtime.ts";
 import {
@@ -17,7 +18,7 @@ import { ADOPTED_SNAPSHOT_FIELDS, ADOPTED_THREAD_FIELDS, SlateStore, type SlateS
 import { ThreadManager, type DispatchOptions, type DispatchResult } from "../extension/threads.ts";
 import { registerSlateTools } from "../extension/tools.ts";
 
-const { runToolCall } = await import(pathToFileURL(join(process.cwd(), "node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-agent-core/dist/index.js")).href) as { runToolCall: typeof RunToolCall };
+const { runAgentLoop, runToolCall } = await import(pathToFileURL(join(process.cwd(), "node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-agent-core/dist/index.js")).href) as { runAgentLoop: typeof RunAgentLoop; runToolCall: typeof RunToolCall };
 const at128 = `${"1.".repeat(56)}1234567890123456`;
 const at129 = `${"1.".repeat(57)}123456789012345`;
 const badIdentifiers = ["", "0", "01", "1.02", "1..2", "1.", ".1", " 1", "1 ", "1\n", "1\r", "1\0", "１", "١", "1/2", "../1", "1\\2", "1e2", "+1", "1-2", "9007199254740992", "1.9007199254740992", at129];
@@ -50,12 +51,105 @@ function fixture(t: TestContext) {
     { tools: [tool], context: { messages: [], tools: [tool] }, assistantMessage: {} as never,
       beforeToolCall: hook ? async ({ args }) => { await hook(args as Record<string, unknown>); return undefined; } : undefined },
   );
-  return { store, actions, snapshots, tools, definition, invoke, execute, ctx };
+  return { store, actions, snapshots, tools, definition, tool, invoke, execute, ctx };
 }
 const call = { type: "general", task: "work", model: "fixture", reason: "test" };
 function errorText(result: Awaited<ReturnType<typeof runToolCall>>) {
   return result.result.content.filter((part) => part.type === "text").map((part) => part.text).join("\n");
 }
+
+async function schemaRejection(t: TestContext, args: Record<string, unknown>) {
+  const f = fixture(t);
+  const session = SessionManager.create(f.ctx.cwd, join(f.ctx.cwd, "sessions"));
+  const requests: TranscriptContext[] = [];
+  const model: Model<"openai-completions"> = {
+    id: "offline", name: "offline", provider: "test", api: "openai-completions", baseUrl: "http://127.0.0.1:9",
+    reasoning: false, input: ["text"], contextWindow: 1000, maxTokens: 100,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+  };
+  let reachedHook = false;
+  const messages = await runAgentLoop([{ role: "user", content: "check schema", timestamp: 1 }],
+    { messages: [], tools: [f.tool] }, {
+      model, convertToLlm,
+      beforeToolCall: async () => { reachedHook = true; return undefined; },
+    }, (event) => {
+      if (event.type === "message_end" && (event.message.role === "system" || event.message.role === "user" ||
+        event.message.role === "assistant" || event.message.role === "toolResult")) session.appendMessage(event.message);
+    }, undefined, (_model, context) => {
+      requests.push(structuredClone(context));
+      const first = requests.length === 1;
+      const message: AssistantMessage = {
+        role: "assistant", api: model.api, provider: model.provider, model: model.id, timestamp: 2,
+        content: first ? [{ type: "toolCall", id: "schema-rejection", name: "thread", arguments: args as never }]
+          : [{ type: "text", text: "done" }],
+        stopReason: first ? "toolUse" : "stop",
+        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+      };
+      const stream = createAssistantMessageEventStream();
+      stream.push({ type: "done", reason: first ? "toolUse" : "stop", message });
+      stream.end();
+      return stream;
+    });
+  assert.equal(requests.length, 2, "the real loop must reach the continuation provider request");
+  assert.equal(reachedHook, false, "schema rejection must precede the hook");
+  assert.equal(f.actions.length, 0);
+  assert.equal(f.store.threads.size, 0);
+  const result = messages.find((message) => message.role === "toolResult");
+  assert.ok(result && result.role === "toolResult");
+  assert.equal(result.isError, true);
+  const text = result.content.filter((part) => part.type === "text").map((part) => part.text).join("\n");
+  const persisted = SessionManager.open(session.getSessionFile()!).buildSessionContext().messages;
+  const savedResult = persisted.find((message) => message.role === "toolResult");
+  const replayedResult = requests[1]!.messages.find((message) => message.role === "toolResult");
+  assert.deepEqual(savedResult, JSON.parse(JSON.stringify(result)), "the file-backed session must preserve the rejection");
+  assert.deepEqual(replayedResult, result, "the continuation provider must receive the rejection");
+  return { text, transcript: readFileSync(session.getSessionFile()!, "utf8"), request: requests[1]! };
+}
+
+for (const [label, selection] of [["with records", { records: ["status.md"] }], ["without records", {}]] as const) {
+  test(`schema rejection ${label} keeps the witness out of errors, saved transcripts, and provider requests`, { timeout: 10000 }, async (t) => {
+    const args = { type: "general", model: "fixture", reason: "test", ...selection };
+    const result = await schemaRejection(t, args);
+    assert.match(result.text, /Validation failed for tool "thread"/);
+    assert.match(result.text, /task:/);
+    assert.equal(result.text.includes("__slateRecordsInputWitness"), false);
+    assert.equal(result.transcript.includes("__slateRecordsInputWitness"), false);
+    assert.equal(JSON.stringify(result.request).includes("__slateRecordsInputWitness"), false);
+    assert.deepEqual(JSON.parse(result.text.split("Received arguments:\n")[1]!), args);
+  });
+}
+
+test("schema rejection without records retains byte-identical errors from 9c27716", { timeout: 10000 }, async (t) => {
+  const f = fixture(t);
+  // Exact diagnostic prefixes for calls without records.
+  for (const [args, detail] of [
+    [{ type: "general", model: "fixture", reason: "test" }, "task: must have required properties task"],
+    [{ ...call, task: {} }, "task: must be string"],
+    [{ ...call, task: {}, toJSON: "caller data" }, "task: must be string"],
+    [{ ...call, reason: "x".repeat(201) }, "reason: must not have more than 200 characters"],
+  ] as const) {
+    const result = await f.invoke(args);
+    assert.equal(result.isError, true);
+    assert.equal(errorText(result), `Validation failed for tool "thread":\n  - ${detail}\n\nReceived arguments:\n${JSON.stringify(args, null, 2)}`);
+  }
+  assert.equal(f.actions.length, 0);
+  assert.equal(f.store.threads.size, 0);
+});
+
+test("records preparation serializes original input while Pi cloning preserves the witness", (t) => {
+  const f = fixture(t);
+  const args = { ...call, records: ["status.md"] };
+  const prepared = f.definition.prepareArguments!(args);
+  assert.deepEqual(JSON.parse(JSON.stringify(prepared)), args);
+  assert.equal(Object.getOwnPropertyDescriptor(prepared, "toJSON")?.enumerable, false);
+  const clone = structuredClone(prepared);
+  assert.ok(clone && typeof clone === "object" && "__slateRecordsInputWitness" in clone);
+  assert.equal(Object.prototype.hasOwnProperty.call(clone, "toJSON"), false);
+  assert.equal(clone.__slateRecordsInputWitness, '["status.md"]');
+  assert.equal(Object.prototype.hasOwnProperty.call(args, "toJSON"), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(args, "__slateRecordsInputWitness"), false);
+});
 
 test("record-name agreement includes exact classes, roles, modes, and identifier bounds", () => {
   assert.equal(at128.length, 128);

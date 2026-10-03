@@ -118,7 +118,10 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 				if (Object.prototype.hasOwnProperty.call(original, "trackNumber")) trackIdentifier(original.trackNumber);
 				const names = validateRecordsInput(original, store.currentChange, store.sourceChange);
 				// A private string carries original presence and order through Pi's clone.
-				return { ...(args as Static<typeof parameters>), [RECORDS_INPUT_WITNESS]: JSON.stringify(names ?? null) };
+				const prepared = { ...(args as Static<typeof parameters>), [RECORDS_INPUT_WITNESS]: JSON.stringify(names ?? null) };
+				// Schema diagnostics serialize the original input. Pi's clone omits this non-enumerable method.
+				Object.defineProperty(prepared, "toJSON", { enumerable: false, value: () => args });
+				return prepared;
 			}
 			return args as Static<typeof parameters>;
 		},
