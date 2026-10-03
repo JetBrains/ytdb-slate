@@ -51,6 +51,7 @@ import {
 import { EMPTY_WORKER_EXTENSION_SET, type WorkerExtensionSet } from "./worker-extensions.ts";
 import { isWorkerReminderMessage, workerReminderDeliveryMissing } from "./worker-reminder.ts";
 import { loadImplementationReviewGuidance, validateReviewPerspectives, type ReviewFileReader } from "./review-perspectives.ts";
+import type { RecordAssignment } from "./record-names.ts";
 
 /**
  * One prompt-cache key for ONE main slate session.
@@ -114,6 +115,8 @@ export interface DispatchOptions {
 	tools?: string[];
 	/** Optional built-in implementation-review selection. Never persisted. */
 	reviewPerspectives?: unknown;
+	/** Action-local record authority. Never persisted in a thread or snapshot. */
+	recordAssignment?: RecordAssignment;
 }
 
 /**
