@@ -28,7 +28,7 @@ This repo runs slate on itself:
 
 - **There is no build step, but there is a typecheck.** pi loads raw TypeScript through jiti, and it uses `extension/index.ts` as it is. No tool compiles the sources before pi runs them. jiti removes the types, and it does not check them. The typecheck is therefore the only check of the types, and it has no other purpose. `npm run typecheck` runs `tsc --noEmit -p tsconfig.json`, and it writes no output: no artifact, no `dist/` directory, and no input for a later step.
 
-The typecheck reads `extension/**/*.ts`, `test/**/*.ts`, `verification/probe.ts`, `verification/ci-canary.ts` and `verification/worker-reminder-canary.ts`. Test imports also bring `verification/logical-model-import-check.ts` into the checked graph. It skips `verification/*.mjs`, because that code is JavaScript without type annotations. `tsconfig.json` sets `strict`, `noUncheckedIndexedAccess`, `noUncheckedSideEffectImports` and `erasableSyntaxOnly`. The last flag carries a second job beyond type safety: it keeps every source under `extension/` executable by Node's native type stripping, which is how the `node:test` suite imports the shipped modules with no build step (§ Unit tests and the coverage gate). It also sets `skipLibCheck: true`, and that flag is necessary. Without it, `tsc` reports more errors, and all of them sit inside third-party `.d.ts` files under the pi SDK. This repo cannot correct those files.
+The typecheck reads `extension/**/*.ts`, `test/**/*.ts`, `verification/probe.ts`, `verification/ci-canary.ts`, `verification/worker-reminder-canary.ts` and `verification/record-worker-canary.ts`. Test imports also bring `verification/logical-model-import-check.ts` into the checked graph. It skips `verification/*.mjs`, because that code is JavaScript without type annotations. `tsconfig.json` sets `strict`, `noUncheckedIndexedAccess`, `noUncheckedSideEffectImports` and `erasableSyntaxOnly`. The last flag carries a second job beyond type safety: it keeps every source under `extension/` executable by Node's native type stripping, which is how the `node:test` suite imports the shipped modules with no build step (§ Unit tests and the coverage gate). It also sets `skipLibCheck: true`, and that flag is necessary. Without it, `tsc` reports more errors, and all of them sit inside third-party `.d.ts` files under the pi SDK. This repo cannot correct those files.
   `exactOptionalPropertyTypes` and `noPropertyAccessFromIndexSignature` stay off. This repo measured both flags, then deferred the first and rejected the second, and `tsconfig.json` records the reasons together with the two commands that re-derive the current diagnostics. It records no counts on purpose: the include list moves them, and a recorded count went stale twice, most recently when `test/**/*.ts` joined the include list. Nobody must repeat that decision without re-measuring. Every flag in the set passes on the current tree. Add a new flag together with its fix. A flag that fails makes the check unreliable, and people then ignore it.
 
   A passing `npm run typecheck` does NOT make the TypeScript brands (`SessionBaseline`, `OpenModel` in `extension/logical-model-runtime.ts`) tamper-proof: TypeScript permits an assertion to a branded subtype, so `someString as OpenModel` — the exact shape that reintroduced a shipped defect while the full suite stayed green — still typechecks cleanly. The resolver checks' source scan is therefore load-bearing. It rejects direct and `unknown` or `any` two-step named `as` assertions in every scanned extension source except the exact producer `extension/logical-model-runtime.ts`. In the bounded consumer `extension/threads.ts`, it also rejects angle-bracket assertions to either brand and `as never`. The scan uses syntax only. It does not resolve renamed imports, local or transitive type aliases, type flow, or arbitrary loader forms. The typecheck and source scan cover different failures, and neither makes the brands tamper-proof.
@@ -47,6 +47,7 @@ The typecheck reads `extension/**/*.ts`, `test/**/*.ts`, `verification/probe.ts`
      - the writing checker's scaling gate (§ Writing-checker nets).
      - the writing-reminder integration check (§ Writing-reminder integration check).
      - the worker-reminder integration check (§ Worker-reminder integration check).
+     - the record-worker integration check (§ Record-worker integration check).
 
      Each section states its own re-run trigger. CI excludes the ladder on purpose. The other hand-run nets are not wired into the workflow. The unit tests and the patch-coverage gate are NOT in this set any more: CI runs them (§ Unit tests and the coverage gate).
 
@@ -167,7 +168,7 @@ The following failures leave the exit code at 0. Their diagnostic channels diffe
 
   **Run the typecheck after ANY TypeScript change.** That trigger is wide on purpose, and the deep nets below use a narrow trigger instead. The run takes about 2 seconds, and it checks every file that it covers in one pass. Spend no time on a decision about the type relevance of your edit.
 
-  The silent-failure nets are the ladder, pure-resolver checks, packaging guards, extension-load check, unit tests with the patch-coverage gate, and package-content check. They also include both writing-checker nets, the writing-reminder integration check and the worker-reminder integration check. The sections below define their scope.
+  The silent-failure nets are the ladder, pure-resolver checks, packaging guards, extension-load check, unit tests with the patch-coverage gate, and package-content check. They also include both writing-checker nets, the writing-reminder integration check, the worker-reminder integration check and the record-worker integration check. The sections below define their scope.
 
   This inventory intentionally has no total. Earlier totals went stale twice. Add each new net to this inventory when you add it.
 
@@ -328,6 +329,12 @@ Re-run it after these changes:
 - Custom-message or steer semantics.
 - `verification/run-worker-reminder-check.sh` or `verification/worker-reminder-canary.ts`.
 - The pi pin, RPC shape, provider-evidence shape or JSON Lines shape.
+
+### Record-worker integration check
+
+`node verification/run-record-worker-check.mjs .` runs a real offline Pi parent session and its real `thread` tool. A deterministic in-process provider dispatches two assigned workers. The scenario checks active tool names, blocked built-in writes, independent record assignments, same-turn stale appends, one-link final records, durable outcome facts and visible internal-factory failure. It keeps `workerExtensions` empty and disables cache keys. It reads persisted worker and parent transcripts. A fixed roster checks every reported result.
+
+This manual net creates its fixtures outside the checkout. It uses isolated project, agent and home directories. It starts the child with explicit environment values and `PI_OFFLINE=1`. The provider opens no network connection. The child has a 60-second termination bound. A clean run removes its scratch directory. A failed run retains its scratch directory and prints that path. Re-run this net after changes to record assignment, ownership, guard resolution, internal factory loading, activation, outcome facts, dispatch guidance, the canary, the driver or the Pi pin. Run the worker-reminder integration check and the full ladder after worker-loading changes too.
 
 ### Package-content check (package-resolved runtime files)
 

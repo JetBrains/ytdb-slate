@@ -174,7 +174,7 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 			}
 			const reportName = recordAssignment?.writerRole === "implementer" ? recordAssignment.names[0] : undefined;
 			const reportTask = reportName !== undefined
-				? `${params.task}\n\nImplementer report: slate-changes/${store.currentChange}/${reportName}. Create without following a symbolic link.` +
+				? `${params.task}\n\nImplementer report: slate-changes/${store.currentChange}/${reportName}. Use slate_record to create this report and append later entries.` +
 					(store.sourceChange
 						? ` If the source folder has this track's report, continue it in this new report and name slate-changes/${store.sourceChange}/${reportName} as read-only in the new report's first entry. Do not edit the source report.`
 						: "")

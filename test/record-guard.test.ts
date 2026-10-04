@@ -1,0 +1,33 @@
+// record-tool-test: all
+import assert from "node:assert/strict";
+import { mkdtemp, mkdir, rm, symlink } from "node:fs/promises";
+import { tmpdir, homedir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+import { test } from "node:test";
+import { recordGuardBlocks, resolveRecordGuardPath } from "../extension/record-guard.ts";
+const piResolver = await import(pathToFileURL(join(process.cwd(), "node_modules/@earendil-works/pi-coding-agent/dist/core/tools/path-utils.js")).href);
+
+test("record-path-protection uses pi path forms and nearest ancestor identity without prefix confusion", { timeout: 10000 }, async (t) => {
+  const cwd = await mkdtemp(join(tmpdir(), "slate-record-guard-"));
+  t.after(() => rm(cwd, { recursive: true, force: true }));
+  await mkdir(join(cwd, "slate-changes", "change", "versions"), { recursive: true });
+  await mkdir(join(cwd, "slate-changes-other"));
+  await symlink(join(cwd, "slate-changes", "change"), join(cwd, "alias"));
+  const forms = ["slate-changes/change/report.md", join(cwd, "slate-changes/change/report.md"), "@slate-changes/change/report.md", pathToFileURL(join(cwd, "slate-changes/change/report.md")).href,
+    "./slate-changes/change/versions/missing/a.md", "alias/new.md", "~/slate-record-unused", "~", "@~/slate-record-unused", "space\u00a0name", "x/../slate-changes/change/report.md"];
+  for (const input of forms) assert.equal(resolveRecordGuardPath(input, cwd), piResolver.resolveToCwd(input, cwd), input);
+  for (const input of forms.slice(0, 6)) assert.equal(await recordGuardBlocks(input, cwd, cwd), true, input);
+  assert.equal(await recordGuardBlocks("slate-changes-other/new.md", cwd, cwd), false);
+  assert.equal(await recordGuardBlocks(join(homedir(), "outside-file"), cwd, cwd), false);
+  assert.equal(await recordGuardBlocks("source.ts", cwd, cwd), false);
+  assert.equal(await recordGuardBlocks(null, cwd, cwd), true);
+});
+
+test("record-path-protection with no change folder allows established outside writes and blocks future record writes", { timeout: 10000 }, async (t) => {
+  const cwd = await mkdtemp(join(tmpdir(), "slate-record-no-folder-"));
+  t.after(() => rm(cwd, { recursive: true, force: true }));
+  assert.equal(await recordGuardBlocks("source.ts", cwd, cwd), false);
+  assert.equal(await recordGuardBlocks("slate-changes/change/report.md", cwd, cwd), true);
+  assert.equal(await recordGuardBlocks("unresolved/source.ts", cwd, cwd), true);
+});

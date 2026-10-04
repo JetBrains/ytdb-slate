@@ -405,6 +405,8 @@ export interface CompressEpisodeOptions {
 	messages: unknown[]; // AgentMessages produced during this action, used for observation compatibility
 	/** Stable bounded facts captured before mutable Pi history can be rewritten. */
 	completedFacts?: FrozenCompletedFacts;
+	/** Trusted call evidence retained verbatim outside language-model compression. */
+	recordFactsText?: string;
 	/** Durable final-message facts. Transient capture fields are not rendered. */
 	observations: ObservationRecord;
 	/**
@@ -701,7 +703,7 @@ export async function compressEpisode(opts: CompressEpisodeOptions): Promise<Com
 		"",
 	].join("\n");
 
-	const text = `${header}${body}\n`;
+	const text = `${header}${body}\n${opts.recordFactsText ?? ""}`;
 	// The directory is now created HERE rather than before the compression call.
 	// Nothing reads it in between, and the write itself keeps its historical
 	// failure policy: a refusal or an fs error throws out of this function.
