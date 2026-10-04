@@ -1,5 +1,5 @@
 /**
- * Unexposed create and append primitives. Publication evidence is not a durability outcome.
+ * Unexposed record writes with version retention and publication settlement.
  * Node path checks assume serialized writers. A folder swap and restore between checks
  * can redirect a write. Cleanup has a separate check-and-removal window.
  */
@@ -10,7 +10,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { release } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { isChangeFolder } from "./artifact-names.ts";
-import { matchesReadOnlyEarlierLogLine, recordNameRule, type RecordAssignment } from "./record-names.ts";
+import { matchesReadOnlyEarlierLogLine, recordNameRule, type RecordAssignment, type RecordMode } from "./record-names.ts";
 
 export const RECORD_PAYLOAD_MAX = 1_048_576;
 export function recordHash(bytes: Uint8Array): string {
@@ -21,6 +21,7 @@ export interface RecordFileSystem {
 	open(path: string, flags: number, mode?: number): Promise<FileHandle>;
 	realpath(path: string): Promise<string>;
 	readdir(path: string): Promise<string[]>;
+	mkdir(path: string, options: { mode: number }): Promise<unknown>;
 	link(from: string, to: string): Promise<void>;
 	rename(from: string, to: string): Promise<void>;
 	unlink(path: string): Promise<void>;
@@ -47,9 +48,28 @@ export interface RecordWriteOptions {
 	temporaryName?: () => string;
 	/** Operation boundary for deterministic fault and interleaving checks. */
 	beforeFinalCheck?: () => Promise<void>;
+	signal?: AbortSignal;
 }
 export interface RecordCleanup { leftover?: string; reason?: string }
+export type RecordOutcomeState = "refused before publication" | "failed before publication" |
+	"published and synced" | "published with uncertain durability" | "unknown outcome";
+export interface RecordArtifact { path: string; kind: "temporary" | "version"; complete: boolean; reason: string }
+export interface RecordWriteOutcome {
+	record: string;
+	mode: RecordMode;
+	state: RecordOutcomeState;
+	reason: string;
+	abortObserved: boolean;
+	observedBeforeHash?: string;
+	observedAfterHash?: string;
+	intendedHash?: string;
+	publication: "not attempted" | "not published" | "returned" | "observed" | "unknown";
+	sync: { candidate: boolean; version: boolean; record: boolean; folders: boolean; cleanup: boolean };
+	artifacts: RecordArtifact[];
+	replacement?: { version: string; oldHash: string; newHash: string };
+}
 export class RecordPrepublicationError extends Error {
+	outcome?: RecordWriteOutcome;
 	readonly state: "refused before publication" | "failed before publication";
 	readonly stage: string;
 	cleanup: RecordCleanup = {};
@@ -150,18 +170,59 @@ export async function cleanupRecordTemporary(io: RecordFileSystem, path: string,
 }
 export interface PreparedRecordWrite {
 	readonly record: string;
-	readonly mode: "create" | "append";
+	readonly mode: RecordMode;
 	readonly temporaryPath: string;
 	readonly candidateHash: string;
-	/** Raw publication evidence only. The caller owns post-publication verification and settlement. */
-	publish(): Promise<{ publicationReturned: true; candidateHash: string }>;
+	/** Await settlement even when the signal aborts. Pre-publication errors carry outcome evidence. */
+	publish(): Promise<RecordWriteOutcome>;
+	/** A pending publication settles first. Cleanup before publication closes this prepared write. */
 	cleanup(): Promise<RecordCleanup>;
+}
+
+async function syncDirectory(io: RecordFileSystem, path: string, basis: Stats): Promise<void> {
+	await directory(io, path, basis);
+	const handle = await io.open(path, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+	try {
+		if (!same(await handle.stat(), basis)) refuse("A sync folder changed identity. Inspect the folder before retrying.");
+		await handle.sync();
+		await directory(io, path, basis);
+	} finally { await handle.close(); }
+}
+
+/** Observation permits the create's own second link, but never follows a symbolic link. */
+async function observeRecord(io: RecordFileSystem, path: string): Promise<{ bytes: Buffer; identity: Stats } | undefined> {
+	const entry = await optionalStat(io, path);
+	if (!entry) return undefined;
+	if (!entry.isFile() || entry.isSymbolicLink()) throw new Error("Unsafe observation");
+	const handle = await io.open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+	try {
+		const identity = await handle.stat();
+		if (!identity.isFile() || !same(entry, identity)) throw new Error("Changed observation");
+		const bytes = await handle.readFile();
+		const after = await io.lstat(path);
+		if (!same(identity, after) || !after.isFile()) throw new Error("Changed observation");
+		return { bytes, identity: after };
+	} finally { await handle.close(); }
 }
 
 /** Prepare private bytes without registering a tool or granting worker authority. */
 export async function prepareRecordWrite(context: RecordWriteContext, args: RecordWriteArguments, options: RecordWriteOptions = {}): Promise<PreparedRecordWrite> {
+	try { return await prepare(context, args, options); } catch (error) {
+		const failure = error instanceof RecordPrepublicationError ? error : new RecordPrepublicationError("failed before publication", "Record preparation failed. Inspect the record before retrying.", "preparation");
+		failure.outcome ??= {
+			record: typeof args.record === "string" && context.assignment.names.includes(args.record) ? args.record : "unassigned",
+			mode: args.mode === "append" || args.mode === "replace" ? args.mode : "create",
+			state: failure.state, reason: failure.message, abortObserved: options.signal?.aborted ?? false,
+			publication: "not attempted", sync: { candidate: false, version: false, record: false, folders: false, cleanup: !failure.cleanup.leftover },
+			artifacts: failure.cleanup.leftover ? [{ path: failure.cleanup.leftover, kind: "temporary", complete: false, reason: failure.cleanup.reason! }] : [],
+		};
+		throw failure;
+	}
+}
+async function prepare(context: RecordWriteContext, args: RecordWriteArguments, options: RecordWriteOptions): Promise<PreparedRecordWrite> {
 	// This gate precedes every filesystem call, including the facts provider.
 	supported(options.platform ?? process.platform);
+	if (options.signal?.aborted) refuse("The call was aborted before work. Inspect the record before retrying.");
 	const io = options.fs ?? fs;
 	const assignment = context.assignment;
 	const folder = assignment.currentFolder.split("/");
@@ -170,22 +231,26 @@ export async function prepareRecordWrite(context: RecordWriteContext, args: Reco
 	if (context.sourceFolder !== undefined && (!isChangeFolder(context.sourceFolder) || context.sourceFolder === current)) refuse("The read-only source conflicts with the current folder. Correct the trusted change facts before retrying.");
 	const rule = recordNameRule(args.record);
 	if (!rule || !assignment.names.includes(args.record as string) || rule.writerRole !== assignment.writerRole) refuse("The record is not assigned to this writer. Request the correct record assignment.");
-	if ((args.mode !== "create" && args.mode !== "append") || !rule.modes.includes(args.mode)) refuse("This record mode is not available in the core. Select an allowed create or append mode.");
+	if ((args.mode !== "create" && args.mode !== "append" && args.mode !== "replace") || !rule.modes.includes(args.mode)) refuse(`This record mode is not allowed. Use ${rule.modes.join(" or ")} for this record.`);
 	const record = args.record as string;
 	const mode = args.mode;
 	if (typeof args.payload !== "string" || Buffer.from(args.payload, "utf8").toString("utf8") !== args.payload) refuse("The payload is not valid Unicode text. Supply text without unpaired surrogate characters.");
 	const payload = Buffer.from(args.payload, "utf8");
-	if (payload.length > RECORD_PAYLOAD_MAX) refuse("The payload exceeds 1,048,576 bytes. Split it into smaller calls.");
-	if (mode === "create" ? args.expectedHash !== undefined : typeof args.expectedHash !== "string" || (args.expectedHash.length !== 71 || !/^sha256:[0-9a-f]{64}$/.test(args.expectedHash))) refuse("The expected hash does not match the mode. Omit it for create or supply the current sha256 hash for append.");
+	if (payload.length > RECORD_PAYLOAD_MAX) refuse(`The payload exceeds 1,048,576 bytes. ${rule.modes.includes("append") ? "Split it into smaller append calls." : "Supply a smaller complete record."}`);
+	if (mode === "create" ? args.expectedHash !== undefined : typeof args.expectedHash !== "string" || (args.expectedHash.length !== 71 || !/^sha256:[0-9a-f]{64}$/.test(args.expectedHash))) refuse(`The expected hash does not match the mode. ${mode === "create" ? "Omit it for create." : `Supply the current sha256 hash for ${mode}.`}`);
 	let stage = "folder checks";
 	let temporaryPath: string | undefined;
 	let identity: Stats | undefined;
 	let held: FileHandle | undefined;
+	let cleanupFolder: { path: string; identity: Stats } | undefined;
+	const evidence: RecordWriteOutcome = { record, mode, state: "failed before publication", reason: "Record preparation is incomplete.", abortObserved: false,
+		publication: "not attempted", sync: { candidate: false, version: false, record: false, folders: false, cleanup: false }, artifacts: [] };
 	try {
 		const root = await io.realpath(context.projectRoot);
 		const parent = join(root, "slate-changes");
 		const destination = join(parent, current);
 		const chain = await Promise.all([root, parent, destination].map(async (path) => ({ path, identity: await directory(io, path) })));
+		cleanupFolder = chain[2];
 		const resolved = await io.realpath(destination);
 		if (resolved !== destination) refuse("The record folder resolves to another path. Restore the real folder before retrying.");
 		const facts = await (options.platformFacts ?? ((path) => recordPlatformFacts(path, options.platformProbe)))(resolved);
@@ -218,10 +283,16 @@ export async function prepareRecordWrite(context: RecordWriteContext, args: Reco
 		await readOnly();
 		const finalPath = join(destination, record);
 		stage = "record read";
-		const earlier = mode === "append" ? await readRecord(io, finalPath) : undefined;
-		if (mode === "create" && await optionalStat(io, finalPath)) refuse("The record name already exists. Inspect it or select append with its current hash.");
-		if (earlier && recordHash(earlier.bytes) !== args.expectedHash) refuse("The expected hash is stale. Read the safe current record and use its fresh hash.");
-		const candidate = earlier ? Buffer.concat([earlier.bytes, payload]) : payload;
+		const earlier = mode !== "create" ? await readRecord(io, finalPath) : undefined;
+		if (mode === "create") {
+			const existing = await optionalStat(io, finalPath);
+			if (existing?.isFile() && existing.nlink !== 1) refuse("The record already exists with extra hard links. Stop writers and inspect both names before retrying.");
+			if (existing) refuse(`The record name already exists. Inspect it and use ${rule.modes.filter((allowed) => allowed !== "create").join(" or ")} with its current hash.`);
+		}
+		if (earlier) evidence.observedBeforeHash = recordHash(earlier.bytes);
+		if (earlier && evidence.observedBeforeHash !== args.expectedHash) refuse("The expected hash is stale. Read the safe current record and use its fresh hash.");
+		const candidate = mode === "append" ? Buffer.concat([earlier!.bytes, payload]) : payload;
+		evidence.intendedHash = recordHash(candidate);
 		stage = "private staging";
 		const name = options.temporaryName?.() ?? `.slate-record-${randomBytes(16).toString("hex")}.tmp`;
 		if (!/^\.slate-record-[0-9a-f]{32}\.tmp$/.test(name)) refuse("The temporary name is invalid. Correct the writer before retrying.");
@@ -233,51 +304,241 @@ export async function prepareRecordWrite(context: RecordWriteContext, args: Reco
 			refuse("The filesystem did not create a private regular candidate. Use a filesystem that supports owner-only files.");
 		}
 		await held.writeFile(candidate);
+		await held.sync();
+		evidence.sync.candidate = true;
 		await held.close();
 		held = undefined;
-		const cleanup = () => cleanupRecordTemporary(io, temporaryPath!, identity!);
 		let used = false;
-		return {
-			record, mode, temporaryPath, candidateHash: recordHash(candidate), cleanup,
-			async publish() {
-				if (used) refuse("This prepared write was already used. Inspect the current record before preparing another call.");
-				used = true;
-				try {
-					await options.beforeFinalCheck?.();
-					await recheck();
-					await readOnly();
-					const temp = await readRecord(io, temporaryPath!);
-					if (!same(temp.identity, identity!) || (temp.identity.mode & 0o777) !== 0o600 || !temp.bytes.equals(candidate)) refuse("The private candidate changed identity, permissions, or bytes. Inspect the temporary file before retrying.");
-					if (earlier) {
-						const now = await readRecord(io, finalPath);
-						if (!same(now.identity, earlier.identity) || !now.bytes.equals(earlier.bytes)) refuse("The record changed before publication. Read the safe current record and use its fresh hash.");
-					} else if (await optionalStat(io, finalPath)) refuse("The record name appeared before publication. Inspect it before retrying.");
-					await recheck();
-				} catch (error) {
-					const failure = error instanceof RecordPrepublicationError ? error : new RecordPrepublicationError("failed before publication", "The final safety check failed. Inspect the record and temporary file before retrying.", "final checks");
-					failure.cleanup = await cleanup();
-					throw failure;
+		let pending: Promise<RecordWriteOutcome> | undefined;
+		let cleanupResult: RecordCleanup = {};
+		const clean = async () => {
+			try { await recheck(); cleanupResult = await cleanupRecordTemporary(io, temporaryPath!, identity!); }
+			catch { cleanupResult = { leftover: temporaryPath!, reason: "The folder changed during cleanup. Leave the temporary name untouched and inspect it." }; }
+			evidence.sync.cleanup = !cleanupResult.leftover;
+			if (cleanupResult.leftover) evidence.artifacts.push({ path: cleanupResult.leftover, kind: "temporary", complete: true, reason: cleanupResult.reason! });
+			return cleanupResult;
+		};
+		const fail = async (error: unknown, at: string): Promise<never> => {
+			const unavailable = ["ENOSYS", "ENOTSUP", "EOPNOTSUPP"].includes(code(error) ?? "");
+			const failure = error instanceof RecordPrepublicationError ? error : new RecordPrepublicationError(unavailable ? "refused before publication" : "failed before publication", unavailable ? "The filesystem lacks a required write operation. Use a filesystem that supports hard links and sync." : `Record write failed during ${at}. Inspect the record and artifacts before retrying.`, at);
+			failure.cleanup = await clean();
+			try {
+				for (const entry of chain.slice(2).reverse()) await syncDirectory(io, entry.path, entry.identity);
+				evidence.sync.folders = true;
+			} catch { failure.secondaryFailures.push("Cleanup folder sync failed. Inspect the record and artifacts before retrying."); }
+			evidence.state = failure.state;
+			evidence.reason = failure.message;
+			evidence.abortObserved = options.signal?.aborted ?? false;
+			failure.outcome = structuredClone(evidence);
+			throw failure;
+		};
+		const retain = async () => {
+			const versions = join(destination, "versions");
+			await recheck();
+			let basis = await optionalStat(io, versions);
+			if (!basis) {
+				await io.mkdir(versions, { mode: 0o700 });
+				basis = await directory(io, versions);
+				if ((basis.mode & 0o777) !== 0o700) refuse("The version folder is not private. Use a filesystem that supports owner-only folders.");
+			}
+			basis = await directory(io, versions, basis);
+			chain.push({ path: versions, identity: basis });
+			let greatest = 0;
+			const stagingPrefix = `.slate-record-version-${record}.v`;
+			for (const entry of await io.readdir(versions)) {
+				if (entry.startsWith(stagingPrefix)) {
+					const match = /^([1-9][0-9]*)\.[0-9a-f]{32}\.tmp$/.exec(entry.slice(stagingPrefix.length));
+					if (!match || !Number.isSafeInteger(Number(match[1]))) refuse("A version staging entry has an invalid sequence. Inspect the version folder before retrying.");
+					const staged = await readRecord(io, join(versions, entry));
+					if ((staged.identity.mode & 0o777) !== 0o600) refuse("A version staging entry is not private. Inspect the version folder before retrying.");
+					greatest = Math.max(greatest, Number(match[1]));
+					evidence.artifacts.push({ path: join(versions, entry), kind: "temporary", complete: false, reason: "Earlier incomplete version evidence. Leave this private staging name untouched for inspection." });
+					continue;
 				}
-				// Errors from publication require settlement by the caller, not a pre-publication claim.
-				try {
-					if (mode === "create") await io.link(temporaryPath!, finalPath);
-					else await io.rename(temporaryPath!, finalPath);
-				} catch (error) {
-					if (mode === "create" && code(error) === "EEXIST") {
-						const failure = new RecordPrepublicationError("refused before publication", "The record name already exists. Inspect it before retrying.", "exclusive publication");
-						failure.cleanup = await cleanup();
-						throw failure;
+				if (!entry.startsWith(record + ".v")) continue;
+				const match = /^([1-9][0-9]*)\.([0-9a-f]{64})$/.exec(entry.slice(record.length + 2));
+				if (!match || !Number.isSafeInteger(Number(match[1]))) refuse("A version entry has an invalid sequence or hash. Inspect the version folder before retrying.");
+				const retained = await readRecord(io, join(versions, entry));
+				if (recordHash(retained.bytes).slice(7) !== match[2] || (retained.identity.mode & 0o777) !== 0o600) refuse("A version entry has unsafe permissions or different bytes. Inspect the version folder before retrying.");
+				greatest = Math.max(greatest, Number(match[1]));
+			}
+			const next = greatest + 1;
+			const versionName = `${record}.v${next}.${evidence.observedBeforeHash!.slice(7)}`;
+			if (!Number.isSafeInteger(next) || Buffer.byteLength(versionName) > 255) refuse("The next version name exceeds supported bounds. Inspect the version folder before retrying.");
+			const versionPath = join(versions, versionName);
+			const privatePath = join(versions, `${stagingPrefix}${next}.${randomBytes(16).toString("hex")}.tmp`);
+			let privateIdentity: Stats | undefined;
+			let privateHandle: FileHandle | undefined;
+			let complete = false;
+			let linked = false;
+			let versionVerified = false;
+			let retentionFailure: unknown;
+			let cleanupFailure = false;
+			try {
+				await recheck();
+				privateHandle = await io.open(privatePath, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+				privateIdentity = await privateHandle.stat();
+				if (!privateIdentity.isFile() || privateIdentity.nlink !== 1 || (privateIdentity.mode & 0o777) !== 0o600 || !same(privateIdentity, await io.lstat(privatePath))) refuse("The version staging file is not private or changed identity. Inspect it before retrying.");
+				await privateHandle.writeFile(earlier!.bytes);
+				await privateHandle.sync();
+				await privateHandle.close();
+				privateHandle = undefined;
+				const verified = await readRecord(io, privatePath);
+				if (!same(verified.identity, privateIdentity) || !verified.bytes.equals(earlier!.bytes) || (verified.identity.mode & 0o777) !== 0o600) refuse("The staged version changed. Inspect its identity and bytes before retrying.");
+				complete = true;
+				await recheck();
+				try { await io.link(privatePath, versionPath); linked = true; }
+				catch (error) {
+					const entry = await optionalStat(io, versionPath);
+					linked = !!entry && same(entry, privateIdentity);
+					if (code(error) === "EEXIST") {
+						if (entry && !linked) evidence.artifacts.push({ path: versionPath, kind: "version", complete: false, reason: "A different file occupies the version name. Leave it untouched and inspect the collision." });
+						refuse("The version name already exists. Inspect the collision before retrying.");
 					}
 					throw error;
 				}
-				return { publicationReturned: true, candidateHash: recordHash(candidate) };
+				const copy = await observeRecord(io, versionPath);
+				if (!copy || !same(copy.identity, privateIdentity) || !copy.bytes.equals(earlier!.bytes) || (copy.identity.mode & 0o777) !== 0o600) refuse("The retained version changed identity or bytes. Inspect it before retrying.");
+				versionVerified = true;
+				const versionHandle = await io.open(versionPath, constants.O_RDONLY | constants.O_NOFOLLOW);
+				try {
+					if (!same(await versionHandle.stat(), privateIdentity)) refuse("The version sync identity changed. Inspect it before retrying.");
+					await versionHandle.sync();
+				} finally { await versionHandle.close(); }
+			} catch (error) { retentionFailure = error; } finally {
+				try { await privateHandle?.close(); } catch { evidence.artifacts.push({ path: privatePath, kind: "temporary", complete: false, reason: "The version handle did not close. Inspect open handles." }); }
+				if (linked) evidence.artifacts.push({ path: versionPath, kind: "version", complete: versionVerified, reason: versionVerified ? "Retained earlier bytes. Keep this version unchanged." : "Version verification is incomplete. Inspect this name before relying on it." });
+				if (!privateIdentity && privateHandle) evidence.artifacts.push({ path: privatePath, kind: "temporary", complete: false, reason: "The version temporary identity is unknown. Leave this name untouched and inspect it." });
+				if (privateIdentity) {
+					const result = await cleanupRecordTemporary(io, privatePath, privateIdentity);
+					if (result.leftover) {
+						evidence.artifacts.push({ path: privatePath, kind: "temporary", complete, reason: complete ? result.reason! : "Incomplete version evidence. Inspect this private partial copy." });
+						cleanupFailure = true;
+					}
+				}
+			}
+			if (retentionFailure) {
+				if (cleanupFailure && retentionFailure instanceof RecordPrepublicationError) retentionFailure.secondaryFailures.push("Version temporary cleanup failed. Inspect the remaining artifact.");
+				throw retentionFailure;
+			}
+			if (cleanupFailure) refuse("Version temporary cleanup failed. Inspect the retained copy and temporary name before retrying.");
+			const retained = await readRecord(io, versionPath);
+			if (!retained.bytes.equals(earlier!.bytes)) refuse("The retained version bytes changed. Inspect the version before retrying.");
+			await syncDirectory(io, versions, basis);
+			await syncDirectory(io, destination, chain[2]!.identity);
+			evidence.sync.version = true;
+			evidence.replacement = { version: versionPath, oldHash: evidence.observedBeforeHash!, newHash: evidence.intendedHash! };
+		};
+		const publish = async (): Promise<RecordWriteOutcome> => {
+			let publicationStage = "version retention";
+			try {
+				if (options.signal?.aborted) refuse("The call was aborted before publication. Inspect the record before retrying.");
+				if (mode === "replace") await retain();
+				publicationStage = "final safety check";
+				await options.beforeFinalCheck?.();
+				await recheck();
+				await readOnly();
+				const temp = await readRecord(io, temporaryPath!);
+				if (!same(temp.identity, identity!) || (temp.identity.mode & 0o777) !== 0o600 || !temp.bytes.equals(candidate)) refuse("The private candidate changed identity, permissions, or bytes. Inspect the temporary file before retrying.");
+				if (earlier) {
+					const now = await readRecord(io, finalPath);
+					if (!same(now.identity, earlier.identity) || !now.bytes.equals(earlier.bytes)) {
+						evidence.observedAfterHash = recordHash(now.bytes);
+						refuse("The record changed before publication. Read the safe current record and use its fresh hash.");
+					}
+				} else if (await optionalStat(io, finalPath)) refuse("The record name appeared before publication. Inspect it before retrying.");
+				await recheck();
+				if (options.signal?.aborted) refuse("The call was aborted before publication. Inspect the record before retrying.");
+			} catch (error) { return fail(error, publicationStage); }
+			let publicationError: unknown;
+			try {
+				if (mode === "create") await io.link(temporaryPath!, finalPath);
+				else await io.rename(temporaryPath!, finalPath);
+				evidence.publication = "returned";
+			} catch (error) { publicationError = error; evidence.publication = "unknown"; }
+			let observed: Awaited<ReturnType<typeof observeRecord>>;
+			let observationFailed = false;
+			try { await recheck(); observed = await observeRecord(io, finalPath); }
+			catch { observationFailed = true; }
+			if (observed) evidence.observedAfterHash = recordHash(observed.bytes);
+			const landed = observed && same(observed.identity, identity!) && observed.bytes.equals(candidate);
+			if (publicationError && !landed) {
+				if (mode === "create" && code(publicationError) === "EEXIST" && observed && !same(observed.identity, identity!)) {
+					evidence.publication = "not published";
+					return fail(new RecordPrepublicationError("refused before publication", "The record name already exists. Inspect it before retrying.", "exclusive publication"), "publication");
+				}
+				if (!observationFailed && (!observed || earlier && same(observed.identity, earlier.identity) && observed.bytes.equals(earlier.bytes))) {
+					evidence.publication = "not published";
+					return fail(publicationError, "publication");
+				}
+			}
+			const known = evidence.publication === "returned" || !!landed;
+			if (landed && publicationError) evidence.publication = "observed";
+			let settlementFailure = false;
+			try {
+				if (!landed) throw new Error("Candidate observation is missing");
+				await recheck();
+				const finalHandle = await io.open(finalPath, constants.O_RDONLY | constants.O_NOFOLLOW);
+				try {
+					const finalIdentity = await finalHandle.stat();
+					if (!same(finalIdentity, identity!) || !finalIdentity.isFile() || (finalIdentity.mode & 0o777) !== 0o600) throw new Error("Published identity changed");
+					await finalHandle.sync();
+					evidence.sync.record = true;
+				} finally { await finalHandle.close(); }
+			} catch { settlementFailure = true; }
+			await clean();
+			try {
+				await recheck();
+				await syncDirectory(io, destination, chain[2]!.identity);
+				evidence.sync.folders = true;
+				const final = await readRecord(io, finalPath);
+				evidence.observedAfterHash = recordHash(final.bytes);
+				if (!same(final.identity, identity!) || !final.bytes.equals(candidate) || (final.identity.mode & 0o777) !== 0o600) throw new Error("Final candidate changed");
+			} catch { settlementFailure = true; }
+			evidence.abortObserved = options.signal?.aborted ?? false;
+			evidence.state = !known ? "unknown outcome" : settlementFailure || publicationError || !evidence.sync.cleanup ? "published with uncertain durability" : "published and synced";
+			evidence.reason = evidence.state === "published and synced" ? "The record is published and synced. Do not repeat this write." :
+				evidence.state === "unknown outcome" ? "Publication could not be established. Pause dependent work and inspect the record and artifacts before retrying." :
+				"Publication occurred but settlement is uncertain. Pause dependent work and inspect the record and artifacts before retrying.";
+			return structuredClone(evidence);
+		};
+		return {
+			record, mode, temporaryPath, candidateHash: evidence.intendedHash,
+			publish() {
+				if (used) {
+					const failure = new RecordPrepublicationError("refused before publication", "This prepared write was already used. Inspect the current record before preparing another call.", "admission");
+					failure.outcome = { ...structuredClone(evidence), state: failure.state, reason: failure.message, publication: "not attempted", abortObserved: options.signal?.aborted ?? false };
+					return Promise.reject(failure);
+				}
+				used = true;
+				pending = publish();
+				return pending;
+			},
+			async cleanup() {
+				if (pending) { await pending.catch(() => undefined); return cleanupResult; }
+				used = true;
+				const result = await clean();
+				try { await syncDirectory(io, destination, chain[2]!.identity); evidence.sync.folders = true; }
+				catch { return { ...result, reason: result.reason ?? "Cleanup folder sync failed. Inspect the temporary name before retrying." }; }
+				return result;
 			},
 		};
 	} catch (error) {
-		const failure = error instanceof RecordPrepublicationError ? error : new RecordPrepublicationError("failed before publication", `Record preparation failed during ${stage}. Inspect the record and artifacts before retrying.`, stage);
+		const unavailable = ["ENOSYS", "ENOTSUP", "EOPNOTSUPP"].includes(code(error) ?? "");
+		const failure = error instanceof RecordPrepublicationError ? error : new RecordPrepublicationError(unavailable ? "refused before publication" : "failed before publication", unavailable ? "The filesystem lacks a required write operation. Use a filesystem that supports private files and sync." : `Record preparation failed during ${stage}. Inspect the record and artifacts before retrying.`, stage);
 		try { await held?.close(); } catch { failure.secondaryFailures.push("The staging handle did not close. Inspect open handles before retrying."); }
 		if (temporaryPath && identity) failure.cleanup = await cleanupRecordTemporary(io, temporaryPath, identity);
 		else if (temporaryPath && held) failure.cleanup = { leftover: temporaryPath, reason: "The temporary identity is unknown. Leave the name untouched and inspect it." };
+		if (temporaryPath && cleanupFolder) {
+			try { await syncDirectory(io, cleanupFolder.path, cleanupFolder.identity); evidence.sync.folders = true; }
+			catch { failure.secondaryFailures.push("Cleanup folder sync failed. Inspect the record and artifacts before retrying."); }
+		}
+		evidence.state = failure.state;
+		evidence.reason = failure.message;
+		evidence.abortObserved = options.signal?.aborted ?? false;
+		evidence.sync.cleanup = !failure.cleanup.leftover;
+		if (failure.cleanup.leftover) evidence.artifacts.push({ path: failure.cleanup.leftover, kind: "temporary", complete: evidence.sync.candidate, reason: failure.cleanup.reason! });
+		failure.outcome = structuredClone(evidence);
 		throw failure;
 	}
 }
