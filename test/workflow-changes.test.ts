@@ -87,7 +87,7 @@ test("start, close, resume, reload and handoff preserve one visible change witho
   const log = join(f.project, "slate-changes", name, "research-log.md");
   assert.equal(readFileSync(log, "utf8"), "# Research log\n");
   assert.match(await f.doctrine(), new RegExp(`Current research log: slate-changes/${name}/research-log.md`));
-  assert.match(await f.doctrine(), new RegExp(`slate-changes/${name}/track-<identifier>-implementer-report.md`));
+  assert.match(await f.doctrine(), new RegExp(`slate-changes/${name}/track-<number>-implementer-report.md`));
   await assert.rejects(f.action("start"), /close the current change/);
   for (const reason of ["resume", "reload", "startup"]) {
     await f.start(reason);
@@ -374,7 +374,9 @@ test("dispatch validates original and changed identifiers through real Pi prepar
   const recursive = readFileSync(join(process.cwd(), "docs/recursive-workflow.md"), "utf8");
   assert.match(recursive, /The identifier has at most 128 characters\./);
   assert.match(recursive, /Each component is at most 9,007,199,254,740,991\./);
-  assert.match(recursive, /len\(number\) <= 128 and all\(int\(p\) <= 9007199254740991/);
+  assert.match(recursive, /The record must equal one assigned name, not a path\./);
+  assert.match(recursive, /Every append and replacement requires the current hash as/);
+  assert.doesNotMatch(recursive, /safe-record\.py|safe-record-recipe/);
 });
 
 test("legacy root research log is only named as read-only earlier input", { timeout: 10000 }, async (t) => {

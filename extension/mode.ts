@@ -289,7 +289,7 @@ function buildDoctrine(
    load them alongside the review rules when composing reviewers.`
 			: "";
 	const changePaths = currentChange
-		? `\n\nCurrent research log: slate-changes/${currentChange}/research-log.md\nImplementer report: slate-changes/${currentChange}/track-<identifier>-implementer-report.md.`
+		? `\n\nCurrent research log: slate-changes/${currentChange}/research-log.md\nImplementer report: slate-changes/${currentChange}/track-<number>-implementer-report.md.`
 		: "\n\nNo change open. Use slate_change start.";
 	const earlierLogs = sourceChange ? `\nRead-only source log: slate-changes/${sourceChange}/research-log.md. Follow each log's first entry to read the full source chain and accounting.` : "";
 	const legacyPath = legacyLog ? "\nRead-only legacy root log: research-log.md." : "";

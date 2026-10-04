@@ -17,6 +17,12 @@ CQ (code quality), DF (data fidelity), N (numeric), RG (regression),
 RI (research integrity), SE (security), WB (worker boundary) and WS (worker
 safety). The logical-model source files carry the approved project attribution and retrieval date. The retained research log holds the full private evidence record. This document is the in-repo source for the architecture rationale.
 
+Change-record writes support Linux, macOS, and Windows Subsystem for Linux (WSL) on its own Linux filesystem.
+Native Windows refuses with a reason before any record-tool file operation.
+Detected Windows drive destinations inside WSL also refuse.
+Windows drives inside WSL are unsupported even when detection misses them.
+[Issue #498](https://github.com/JetBrains/ytdb-slate/issues/498) tracks native Windows support.
+
 ## 1. The problems Slate is built to solve
 
 Three compounding problems in LLM agents — each tractable in isolation; the

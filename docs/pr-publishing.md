@@ -73,9 +73,13 @@ Every creation path keeps these safeguards:
   § Level publishing and retained history.
 - If the working branch has no diff against the base yet, land a
   bootstrap empty commit so the PR can be created.
-- At creation, if the change or design track has a high-level design, the owning
-  research log's Planned changes content folds into the PR description. Create the pull
-  request only after final design approval, as stated above.
+- At creation, if a high-level design exists, read the current authoritative design file for the change root or design track.
+  Use its approved plan in the pull request description.
+  The files are `root-design.md` and `track-<number>-design.md` in the current change folder.
+  Here `<number>` is the canonical path number defined in [recursive-workflow.md](recursive-workflow.md).
+  Read the owning log for approval hashes, decisions, and review evidence.
+  A copied design in a log is not the authoritative plan.
+  Create the pull request only after final design approval, as stated above.
 
   Key decisions, Risks, and Open questions feed the corresponding
   Planned-changes subsections. The applicable design review verdict lines land
