@@ -26,6 +26,33 @@ concatenated, filtered, or credited. The existing
 source-authoritative denominator, 85 percent line and branch floors, and
 small-branch-denominator warning policy remain unchanged.
 
+## Record-tool continuous integration jobs
+
+The full suite runs on Linux under the stable `Node 22` and `Node 24` check names.
+The `record-macos` job runs record-tool tests on `macos-latest` with Node 22.23.1
+and 24.18.0. The `record-windows` job runs only Windows tests on `windows-latest`
+with the same pins. Both jobs use pinned actions, no secrets, a read-only token,
+and a 15-minute timeout. WSL is tested through Linux CI and simulated drive checks.
+Record tests create disposable folders outside the checkout.
+
+`node verification/record-test-roster.mjs` audits both selections. The patterns
+are `test/**/record-*.test.ts` and `test/**/record-windows-*.test.ts`, with zero or
+more nested folders. Record imports and the `record-tool-test:` marker identify
+record-tool tests. The canonical Windows marker is `// record-tool-test: windows`.
+Indented and block-comment markers with that value also identify Windows-only tests.
+Both patterns allow an empty suffix after their final hyphen.
+The audit fails on an applicable file outside its pattern or a pattern with no
+files. Each selected file must produce one successful Node test summary and run
+at least one non-skipped test. Missing evidence, unexpected skips, pending tests
+and cancelled tests fail the runner. Only `record-native-windows-refusal uses the
+real platform on Windows` in `test/record-windows-refusal.test.ts` may skip off
+Windows. That test must run on Windows. `test/record-test-roster.test.ts` tests
+roster and execution failures and the shared rules file membership.
+Both record-tool jobs run the audit. `--run all` runs the record-tool selection,
+including `test/record-shared-rules.test.ts`.
+`--run windows` runs only the Windows subset. Exit 1 reports a roster or test
+failure. Exit 2 reports a bad invocation.
+
 ## Why this exists
 
 The mechanism restores the user's **global** pi defaults — `defaultProvider`,
