@@ -4,7 +4,7 @@ import * as fs from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { join } from "node:path";
-const { auditRecordTestRoster, discoverRecordTests, auditRecordTestExecution, runRecordTests, NATIVE_WINDOWS_TEST } = await import(pathToFileURL(join(process.cwd(), "verification/record-test-roster.mjs")).href);
+const { auditRecordTestRoster, discoverRecordTests, auditRecordTestExecution, recordTestArguments, runRecordTests, NATIVE_WINDOWS_TEST } = await import(pathToFileURL(join(process.cwd(), "verification/record-test-roster.mjs")).href);
 const fixtures = [
   { path: "test/record-shared-rules.test.ts", source: 'import "../extension/record-names.ts"' },
   { path: "test/record-windows-refusal.test.ts", source: "// record-tool-test: windows" },
@@ -48,6 +48,47 @@ test("record-test-execution requires actual outcomes and complete per-file summa
   assert.match(auditRecordTestExecution(repo, [path], [outcome]).join("\n"), /complete successful test execution/);
   assert.match(auditRecordTestExecution(repo, [path], [summary, summary, outcome]).join("\n"), /complete successful test execution/);
   assert.match(auditRecordTestExecution(repo, [path], [summary, { ...outcome, data: { ...outcome.data, name: file } }]).join("\n"), /non-skipped test/);
+});
+
+test("record-test-reporter arguments preserve file URLs for Windows drives and encoded names", () => {
+  const files = ["test/record-required.test.ts"];
+  for (const href of ["file:///D:/runner/record-test-reporter.mjs", "file:///tmp/space%20and%23/record-test-reporter.mjs"]) {
+    const args = recordTestArguments(files, new URL(href));
+    assert.deepEqual(args, ["--disable-warning=MODULE_TYPELESS_PACKAGE_JSON", "--test", `--test-reporter=${href}`, ...files]);
+  }
+  const reporter = recordTestArguments(files).find((arg: string) => arg.startsWith("--test-reporter="));
+  assert.match(reporter, /^--test-reporter=file:\/\//);
+  assert.match(reporter, /\/record-test-reporter\.mjs$/);
+});
+
+test("record-test-execution resolves a linked repository and isolates the child test context", { timeout: 30000 }, async (t) => {
+  const root = await fs.mkdtemp(join(tmpdir(), "slate-record-linked-runner-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const physical = join(await fs.realpath(root), "physical");
+  const linked = join(root, "linked");
+  await fs.mkdir(join(physical, "test"), { recursive: true });
+  await fs.symlink(physical, linked, "junction");
+  const file = "test/record-required.test.ts";
+  const pass = 'import {test} from "node:test"; import assert from "node:assert/strict"; test("required", () => { assert.notEqual(process.env.NODE_TEST_CONTEXT, "outer-canary"); });\n';
+  await fs.writeFile(join(physical, file), pass);
+  const earlier = process.env.NODE_TEST_CONTEXT;
+  try {
+    process.env.NODE_TEST_CONTEXT = "outer-canary";
+    const run = runRecordTests(linked, [file]);
+    assert.equal(run.status, 0, JSON.stringify(run));
+    assert.deepEqual(run.errors, []);
+    const summaries = run.events.filter((event: { type: string; data: { file?: string } }) => event.type === "test:summary" && event.data.file);
+    assert.deepEqual(summaries.map((event: { data: { file: string } }) => event.data.file), [join(physical, file)]);
+    assert.deepEqual(auditRecordTestExecution(linked, [file], run.events), []);
+    await fs.writeFile(join(physical, file), pass + 'test("required skip", {skip: true}, () => {});\n');
+    const skipped = runRecordTests(linked, [file]);
+    assert.equal(skipped.status, 1);
+    assert.match(skipped.errors.join("\n"), /skipped required skip.*Run this required test/);
+    assert.doesNotMatch(skipped.errors.join("\n"), /incomplete test evidence|no complete successful test execution/);
+  } finally {
+    if (earlier === undefined) delete process.env.NODE_TEST_CONTEXT;
+    else process.env.NODE_TEST_CONTEXT = earlier;
+  }
 });
 
 test("record-test-execution rejects empty files and required skips and limits the native Windows exception", { timeout: 30000 }, async (t) => {

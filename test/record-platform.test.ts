@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import * as fs from "node:fs/promises";
-import { tmpdir } from "node:os";
+import fsPromises from "node:fs/promises";
+import os, { tmpdir } from "node:os";
+import { syncBuiltinESMExports } from "node:module";
 import { join, parse } from "node:path";
 import { test, type TestContext } from "node:test";
 import { createChangeFolder } from "../extension/artifact-names.ts";
@@ -73,6 +75,61 @@ test("record-preparation uses the default probe without a platformFacts override
   assert.deepEqual(calls, ["mounts", "filesystem"]);
   assert.equal(changes, 0);
   assert.deepEqual(await fs.readdir(f.dir), []);
+});
+
+test("record-production-default probe reads host release and WSL environment before any change", async (t) => {
+  const f = await fixture(t);
+  const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
+  const environment = { WSL_INTEROP: process.env.WSL_INTEROP, WSL_DISTRO_NAME: process.env.WSL_DISTRO_NAME };
+  const calls: string[] = [];
+  const changes: string[] = [];
+  let releaseText = "linux";
+  const io = { ...fs,
+    async open() { changes.push("open"); assert.fail("staging must not start"); },
+    async unlink() { changes.push("unlink"); assert.fail("cleanup must not start"); },
+    async link() { changes.push("link"); assert.fail("publication must not start"); },
+    async rename() { changes.push("rename"); assert.fail("publication must not start"); },
+  };
+  try {
+    Object.defineProperty(process, "platform", { ...platform, value: "linux" });
+    t.mock.method(os, "release", () => releaseText);
+    t.mock.method(fsPromises, "readFile", async (path: unknown) => {
+      assert.equal(path, "/proc/self/mountinfo");
+      calls.push("mounts");
+      return "1 0 0:1 / / rw - 9p C: rw,aname=drvfs;path=C:\\;uid=1000";
+    });
+    t.mock.method(fsPromises, "statfs", async (path: unknown) => {
+      assert.equal(path, f.dir);
+      calls.push("filesystem");
+      return { type: 0xef53 };
+    });
+    syncBuiltinESMExports();
+    for (const signal of ["release", "WSL_INTEROP", "WSL_DISTRO_NAME"] as const) {
+      delete process.env.WSL_INTEROP;
+      delete process.env.WSL_DISTRO_NAME;
+      releaseText = signal === "release" ? "6.6-Microsoft-standard-WSL2" : "linux";
+      if (signal !== "release") process.env[signal] = "host-signal";
+      calls.length = 0;
+      // No platformFacts or platformProbe override enters this call.
+      await assert.rejects(prepareRecordWrite(f.context, create, { fs: io }), (error: unknown) => {
+        assert.ok(error instanceof RecordPrepublicationError);
+        assert.equal(error.state, "refused before publication");
+        assert.match(error.message, /Windows drive.*Windows Subsystem for Linux \(WSL\).*own Linux filesystem/);
+        return true;
+      });
+      assert.deepEqual(calls, ["mounts", "filesystem"], signal);
+      assert.deepEqual(changes, [], signal);
+      assert.deepEqual(await fs.readdir(f.dir), []);
+    }
+  } finally {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+    Object.defineProperty(process, "platform", platform);
+    for (const key of ["WSL_INTEROP", "WSL_DISTRO_NAME"] as const) {
+      if (environment[key] === undefined) delete process.env[key];
+      else process.env[key] = environment[key];
+    }
+  }
 });
 
 test("record-windows-drive-refusal checks root mounts, boundaries and filesystem facts before any change", async (t) => {

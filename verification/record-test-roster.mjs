@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, realpathSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
@@ -41,6 +41,8 @@ export function discoverRecordTests(repo) {
   return auditRecordTestRoster(files);
 }
 export function auditRecordTestExecution(repo, files, events, platform = process.platform) {
+  // Node reports files beneath the physical child working directory.
+  repo = realpathSync(repo);
   const errors = [];
   for (const file of files) {
     const absolute = resolve(repo, file);
@@ -58,10 +60,12 @@ export function auditRecordTestExecution(repo, files, events, platform = process
   }
   return errors;
 }
+export function recordTestArguments(files, reporter = new URL("./record-test-reporter.mjs", import.meta.url)) {
+  return ["--disable-warning=MODULE_TYPELESS_PACKAGE_JSON", "--test", `--test-reporter=${reporter.href}`, ...files];
+}
 export function runRecordTests(repo, files, platform = process.platform) {
-  const reporter = fileURLToPath(new URL("./record-test-reporter.mjs", import.meta.url));
   // Each child owns an independent Node test context.
-  const run = spawnSync(process.execPath, ["--disable-warning=MODULE_TYPELESS_PACKAGE_JSON", "--test", `--test-reporter=${reporter}`, ...files], { cwd: repo, env: { ...process.env, NODE_TEST_CONTEXT: undefined }, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
+  const run = spawnSync(process.execPath, recordTestArguments(files), { cwd: repo, env: { ...process.env, NODE_TEST_CONTEXT: undefined }, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
   const events = [];
   const errors = [];
   try {
