@@ -152,7 +152,6 @@ test("worker loader reports component loading errors with an empty allowlist", {
 	DefaultResourceLoader.prototype.getExtensions = function getExtensions() {
 		return {
 			...originalGetExtensions.call(this),
-			extensions: [],
 			errors: [{ path: "bad\ncomponent", error: "failed\rto load" }],
 		};
 	};

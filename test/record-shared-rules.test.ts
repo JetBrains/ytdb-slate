@@ -400,7 +400,7 @@ test("implementer assignment and dispatch use one report name while existing cal
     const name = implementerReportName(trackNumber);
     assert.equal(name, `track-${trackNumber}-implementer-report.md`);
     assert.deepEqual(action.recordAssignment, { currentFolder: `slate-changes/${f.store.currentChange}`, writerRole: "implementer", names: [name] });
-    assert.equal(action.task, `work\n\nImplementer report: slate-changes/${f.store.currentChange}/${name}. Create without following a symbolic link. If the source folder has this track's report, continue it in this new report and name slate-changes/${f.store.sourceChange}/${name} as read-only in the new report's first entry. Do not edit the source report.`);
+    assert.equal(action.task, `work\n\nImplementer report: slate-changes/${f.store.currentChange}/${name}. Use slate_record to create this report and append later entries. If the source folder has this track's report, continue it in this new report and name slate-changes/${f.store.sourceChange}/${name} as read-only in the new report's first entry. Do not edit the source report.`);
   }
   for (const type of ["general", "reviewer", "researcher", "adversarial"]) {
     assert.equal((await f.invoke({ ...call, type })).isError, false);

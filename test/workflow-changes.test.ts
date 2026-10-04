@@ -292,7 +292,7 @@ test("implementer receives its exact report name in the dispatch text", async ()
   assert.equal(task!.includes("<number>"), false);
   store.sourceChange = createChangeFolder();
   await thread.execute("id", { ...call, trackNumber: 3 }, undefined, undefined, {});
-  assert.equal(task!, `Make the fix\n\nImplementer report: slate-changes/${store.currentChange}/track-3-implementer-report.md. Create without following a symbolic link. If the source folder has this track's report, continue it in this new report and name slate-changes/${store.sourceChange}/track-3-implementer-report.md as read-only in the new report's first entry. Do not edit the source report.`);
+  assert.equal(task!, `Make the fix\n\nImplementer report: slate-changes/${store.currentChange}/track-3-implementer-report.md. Use slate_record to create this report and append later entries. If the source folder has this track's report, continue it in this new report and name slate-changes/${store.sourceChange}/track-3-implementer-report.md as read-only in the new report's first entry. Do not edit the source report.`);
 });
 
 test("dispatch validates original and changed identifiers through real Pi preparation", { timeout: 10000 }, async () => {
@@ -328,7 +328,7 @@ test("dispatch validates original and changed identifiers through real Pi prepar
   for (const trackNumber of accepted) {
     const result = await invoke({ ...call, trackNumber });
     assert.equal(result.isError, false, JSON.stringify(trackNumber));
-    assert.equal(tasks.at(-1), `work\n\nImplementer report: slate-changes/${store.currentChange}/track-${trackNumber}-implementer-report.md. Create without following a symbolic link. If the source folder has this track's report, continue it in this new report and name slate-changes/${store.sourceChange}/track-${trackNumber}-implementer-report.md as read-only in the new report's first entry. Do not edit the source report.`);
+    assert.equal(tasks.at(-1), `work\n\nImplementer report: slate-changes/${store.currentChange}/track-${trackNumber}-implementer-report.md. Use slate_record to create this report and append later entries. If the source folder has this track's report, continue it in this new report and name slate-changes/${store.sourceChange}/track-${trackNumber}-implementer-report.md as read-only in the new report's first entry. Do not edit the source report.`);
   }
   const rejected = [true, false, null, undefined, 0, -1, 1.2, Number.MAX_SAFE_INTEGER + 1, NaN, Infinity,
     "", "0", "01", "01.2", "1.02", "1..2", "1.", ".1", " 1", "1 ", "1\n", "1\u0000", "１", "١", "1/2", "../1", "1\\2", "1e2", "+1", "1-2", "9007199254740992", "1.9007199254740992", at129];

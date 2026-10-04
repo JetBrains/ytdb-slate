@@ -13,6 +13,7 @@ import { isChangeFolder } from "./artifact-names.ts";
 import { matchesReadOnlyEarlierLogLine, recordNameRule, type RecordAssignment, type RecordMode } from "./record-names.ts";
 
 export const RECORD_PAYLOAD_MAX = 1_048_576;
+export const RECORD_REUSE_STAGE = "admission";
 export function recordHash(bytes: Uint8Array): string {
 	return `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
 }
@@ -548,7 +549,7 @@ async function prepare(context: RecordWriteContext, args: RecordWriteArguments, 
 			record, mode, temporaryPath, candidateHash: evidence.intendedHash,
 			publish() {
 				if (used) {
-					const failure = new RecordPrepublicationError("refused before publication", "This prepared write was already used. Inspect the current record before preparing another call.", "admission");
+					const failure = new RecordPrepublicationError("refused before publication", "This prepared write was already used. Inspect the current record before preparing another call.", RECORD_REUSE_STAGE);
 					failure.outcome = { ...structuredClone(evidence), state: failure.state, reason: failure.message, publication: "not attempted", abortObserved: options.signal?.aborted ?? false };
 					return Promise.reject(failure);
 				}
