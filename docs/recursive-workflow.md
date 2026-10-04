@@ -139,8 +139,12 @@ The change root uses final acceptance, not another track marker.
 
 Use [track-workflow.md](track-workflow.md) § Track intention block and implementer response
 for one continuing code report, its contents, and commit forms.
-A design track retains its high-level design and aggregate evidence in its own log.
-It has no implementer report or extra cumulative implementation commit.
+The current `root-design.md` or `track-<number>-design.md` is authoritative for its node.
+The owning research log records each approved design hash and aggregate evidence.
+A copied design in a log does not replace that authority.
+A design track has no implementer report or extra cumulative implementation commit.
+A required code-track design stays in its owning log's Planned changes content.
+Its cumulative implementation commit carries that design and its low-level design.
 
 ## Manual records and safe writes
 
@@ -161,7 +165,8 @@ If a cell and the log disagree, work stops and the orchestrator asks the user.
 No automatic correction lowers a count.
 A change without a design track or review-fix child has no `status.md`.
 A user-chosen split in such a change creates review-fix children, loads this document, and creates `status.md`.
-Create `track-<path-number>-research-log.md` when entering a design track.
+Create `track-<number>-research-log.md` when entering a design track.
+Here `<number>` is the canonical path number defined above.
 Each log owns its subtree's decisions and accepted history bindings.
 Parents keep context and links, not copies of child history.
 Root-wide decisions belong in `research-log.md`.
@@ -178,181 +183,169 @@ for retention, privacy, and reviewer-input exclusions, including leftover tempor
 
 Research logs and implementer reports are append-only.
 A correction is a new entry.
-Only `status.md` may be rewritten in full.
+Use `slate_record` for all tool-governed record writes.
+Only status and design files permit full replacement.
 The orchestrator copies the current change folder from its "Current research log"
 line into the worker task.
 Workers never take that folder from record text.
 Checks protect against accidents, not worker authority.
 
-Create a private scratch folder outside the checkout with `scratch=$(mktemp -d)`.
-Save the Python 3 recipe below as "$scratch/safe-record.py".
-Prepare a payload file in that scratch folder.
-Run `python3 "$scratch/safe-record.py" REPO CURRENT DESTINATION EXPECTED NAME MODE "$scratch/payload"`.
-After success, remove the two scratch files and the empty scratch folder.
-On failure, retain them for inspection.
-`REPO` is the absolute physical repository path, with no linked ancestor.
-`CURRENT` and `DESTINATION` are relative change-folder paths.
-`NAME` must equal the assigned `EXPECTED` name.
-`MODE` is `create` or `update`.
-`PAYLOAD` is the path to the prepared file, not its text.
-For `create`, that file holds the full record content.
-For `update` of a log or report, it holds only the bytes to append.
-For `status.md`, it always holds the full display.
-Refuse a destination named as a read-only earlier log by any other change folder's research log.
-Recognize the first line `Read-only earlier log: slate-changes/<source>/research-log.md`.
-Skip a sibling folder with no root log.
-Compare each sibling log's first line as bytes.
-Refuse every other sibling read error and name its folder.
-The destination's own entries do not make it read-only.
-Folder descriptors prevent link traversal and path re-resolution.
-Updates compare identity and bytes immediately before replacement.
-This is accident protection, not locking.
-A small window remains between comparison and replacement.
-Serialize writers even when using the recipe.
-A failure after publication can leave the new destination with uncertain durability.
-Report that limit and inspect it, rather than retrying or rolling it back blindly.
-On any refusal or failure, pause work that needs the record.
-If safe operations are unavailable, stop and report the limitation.
+### Tool assignments and writes
 
-<!-- safe-record-recipe:begin -->
-```python
-import os, re, stat, sys, uuid
+A record assignment binds one action to the trusted current folder and exact record names.
+Dispatch a record-only worker as `type: general` with a nonempty `records` list and no `trackNumber`.
+The list contains no duplicate names or paths and requires an open change.
+An implementer receives only `track-<number>-implementer-report.md` from its validated `trackNumber`.
+Other actions receive no record tool.
+Saved sessions do not restore assignments.
 
-folder = parent = temp = made = None
-published = False
+| Exact record name | Permitted modes | Writer |
+| --- | --- | --- |
+| `research-log.md` | append | record-only |
+| `track-<number>-research-log.md` | create, append | record-only |
+| `track-<number>-implementer-report.md` | create, append | implementer for that number |
+| `status.md` | create, replace | record-only |
+| `root-design.md` | create, replace | record-only |
+| `track-<number>-design.md` | create, replace | record-only |
 
-def require(ok, message):
-    if not ok:
-        raise ValueError(message)
+Design-track design names are not for code-track designs.
+Slate creates the root research log.
+The tool accepts `record`, `mode`, `payload`, and optional `expectedHash`.
+The record must equal one assigned name, not a path.
+A **payload** is the supplied text for that call.
+Create supplies complete initial text and no expected hash.
+Append supplies only added text.
+Replace supplies complete status or design text.
+Every append and replacement requires the current hash as `sha256:<64 lowercase hexadecimal digits>`.
+SHA-256 means Secure Hash Algorithm, 256-bit.
+Read the current safe record and hash its bytes before each update.
+The tool encodes text as UTF-8, or Unicode Transformation Format, 8-bit.
+It does not trim text, normalize line endings, or add a newline.
+It refuses characters that require encoding substitution.
+Each payload may contain at most 1,048,576 encoded bytes, or one mebibyte (MiB).
+That limit applies per call, not to the total log size.
+For an oversized first create of a log or report, create an initial part within the limit, then append remaining parts with fresh hashes.
+For status or design files, reduce the complete payload to fit the limit or stop and ask the user.
+Those files do not permit append, so splitting a create into appends is not valid.
 
-def identity(s):
-    return s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns, s.st_ctime_ns
+The tool creates files exclusively with owner-only read and write permissions.
+It rejects unsafe folder components, symbolic links, non-regular files, and current records with extra hard links.
+A symbolic link points to another path.
+A hard link gives another name to the same file.
+The tool compares identity and bytes again before replacement.
+It checks sibling root logs for the exact first line `Read-only earlier log: slate-changes/<change>/research-log.md`.
+Here `<change>` is the trusted current change-folder name.
+A matching sibling line makes the current folder read-only.
+A missing sibling root log is skipped.
+Every other sibling read error refuses with its folder name before file changes.
 
-def read(name, base=None):
-    fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
-                 dir_fd=folder if base is None else base)
-    with os.fdopen(fd, 'rb') as stream:
-        before = os.fstat(stream.fileno())
-        require(stat.S_ISREG(before.st_mode) and before.st_nlink == 1, 'unsafe file')
-        data = stream.read()
-        require(identity(before) == identity(os.fstat(stream.fileno())), 'changed during read')
-        return identity(before), data
+The built-in write guard blocks `write` and `edit` inside `slate-changes/` in every worker session.
+An assigned worker uses `slate_record` instead.
+An unassigned worker requests a suitable dispatch.
+A path that cannot be established as outside that directory also blocks.
+Inspect that path and choose a verifiable outside destination for unrelated work.
+The guard does not block `bash`, other extensions, or unrelated programs.
+These limits grant no permission to write tool-governed records outside `slate_record`.
+Node checks protect against accidents, not a hostile process running as the same user.
+A folder swapped and restored between checks can redirect a write.
+Comparison and replacement have a race window.
+Cleanup identity checks and removal have another race window.
+Keep exclusive writer ownership across both windows.
+Change start and close refuse while a record writer owns an assignment.
+Ownership transfers stop new calls and wait for admitted calls to settle.
 
-try:
-    repo, current, destination, expected, name, mode, payload = sys.argv[1:]
-    shape = r'slate-changes/change-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{32}'
-    require(re.fullmatch(shape, current) is not None, 'wrong current folder')
-    require(destination == current, 'wrong or read-only source folder')
-    require(name == expected, 'wrong expected name')
-    match = re.fullmatch(r'track-([1-9][0-9]*(?:\.[1-9][0-9]*)*)-(research-log|implementer-report)\.md', name)
-    valid = name in ('status.md', 'research-log.md')
-    if match:
-        number = match[1]
-        valid = len(number) <= 128 and all(int(p) <= 9007199254740991 for p in number.split('.'))
-    require(valid, 'wrong record name')
-    require(mode in ('create', 'update'), 'wrong mode')
-    require(os.path.isabs(repo), 'repository path must be absolute')
-    path = repo + '/' + current
-    require(all(p not in ('.', '..', '') for p in path.split('/')[1:]), 'unsafe folder chain')
-    folder = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-    parts = path.split('/')[1:]
-    for index, part in enumerate(parts):
-        if index == len(parts) - 1:
-            parent = os.dup(folder)
-        next_fd = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=folder)
-        os.close(folder)
-        folder = next_fd
-    try:
-        root = read('research-log.md')[1].decode('utf-8')
-    except FileNotFoundError:
-        require(name == 'research-log.md' and mode == 'create', 'missing root log')
-        root = ''
-    for sibling in os.listdir(parent):
-        if sibling == current.split('/')[-1] or not re.fullmatch(shape, 'slate-changes/' + sibling):
-            continue
-        try:
-            source_fd = os.open(sibling, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
-            try:
-                try:
-                    source_log = read('research-log.md', source_fd)[1]
-                except FileNotFoundError:
-                    continue
-                first_line = source_log.split(b'\n', 1)[0]
-                require(first_line != ('Read-only earlier log: ' + destination + '/research-log.md').encode('ascii'),
-                        'read-only source folder')
-            finally:
-                os.close(source_fd)
-        except Exception as error:
-            raise ValueError('cannot inspect sibling folder slate-changes/' + sibling + ': ' + str(error)) from error
-    if mode == 'update':
-        original, earlier = read(name)
-    else:
-        try:
-            os.stat(name, dir_fd=folder, follow_symlinks=False)
-        except FileNotFoundError:
-            pass
-        else:
-            raise ValueError('destination exists')
-        original, earlier = None, b''
-    with open(payload, 'rb') as stream:
-        addition = stream.read()
-    data = addition if name == 'status.md' else earlier + addition
-    require(name == 'status.md' or data.startswith(earlier), 'earlier bytes lost')
-    temp = '.slate-record-' + uuid.uuid4().hex + '.tmp'
-    fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=folder)
-    made = os.fstat(fd)
-    with os.fdopen(fd, 'wb') as stream:
-        stream.write(data)
-        stream.flush()
-        os.fsync(stream.fileno())
-    if mode == 'update':
-        require(read(name) == (original, earlier), 'stale copy, retry from fresh read')
-        os.replace(temp, name, src_dir_fd=folder, dst_dir_fd=folder)
-    else:
-        os.link(temp, name, src_dir_fd=folder, dst_dir_fd=folder, follow_symlinks=False)
-    published = True
-    os.fsync(folder)
-except Exception as error:
-    print('record write refused or failed: ' + str(error), file=sys.stderr)
-    if published:
-        print('destination published, durability uncertain, pause and inspect', file=sys.stderr)
-    sys.exit(1)
-finally:
-    if folder is not None:
-        if temp is not None and made is not None:
-            try:
-                try:
-                    now = os.stat(temp, dir_fd=folder, follow_symlinks=False)
-                except FileNotFoundError:
-                    require(published and mode == 'update', 'temporary name missing, inspect linked record')
-                    now = None
-                if now is not None:
-                    require((now.st_dev, now.st_ino) == (made.st_dev, made.st_ino),
-                            'temporary identity changed, inspect linked record')
-                    os.unlink(temp, dir_fd=folder)
-                    os.fsync(folder)
-            except Exception as error:
-                print('temporary cleanup failed: ' + str(error) + ', pause', file=sys.stderr)
-                sys.exit(1)
-        os.close(folder)
-    if parent is not None:
-        os.close(parent)
-print('record write synced')
-```
-<!-- safe-record-recipe:end -->
+### Earlier versions and design authority
 
-A leftover `.slate-record-*.tmp` file is never a workflow record.
-Apply the manual-record exclusions.
-Remove a temporary file only when its identity still matches the created file.
-An interrupted create can leave the record and a temporary name linked to one inode.
-The recipe refuses later reads of that record while its link count is two.
-Pause and inspect both names through the verified folder descriptor.
-Confirm both are regular files with the same device and inode and exactly two links.
-Confirm the record name and bytes against the assigned destination and payload.
-Remove only that matching temporary name through the same descriptor, then sync the folder.
-Verify the record has one link before retrying from a fresh read.
-If the temporary name is missing, renamed, or different, stop and report for operator inspection.
-Do not delete a different file or replace the linked record.
+A replacement retains the earlier status or design bytes in `versions/<record>.v<N>.<sha256 hex>`.
+Here `<record>` is the exact record name and `<sha256 hex>` is its earlier bytes' digest without `sha256:`.
+`<N>` is a positive decimal integer without leading zeros.
+The first number is 1 and each next number exceeds every recognized number for that record.
+Interrupted attempts consume numbers and gaps are valid.
+Retained bytes stay unchanged even when the replacement fails.
+A complete copy and its file and folder entries must sync before record replacement.
+An incomplete staging copy is not a verified earlier version.
+The replacement result names the retained version and both hashes.
+A write approves no design and grants no completion or gate authority.
+The owning log records approved design hashes.
+Every interim `<name>.vN.md` copy stays byte-unchanged in place and outside the tool's version numbering.
+The tool does not rename those copies or move them into `versions/`.
+Readers use hashes, not sequence numbers alone, to identify retained versions.
+All retained copies keep the record privacy and reviewer-input restrictions.
+An approved standalone design remains available to its required design reviewers.
+
+### Outcomes and inspection before re-dispatch
+
+Publication makes candidate bytes visible at the final record name.
+Settlement verifies publication, requests durable file and folder sync, and cleans matching temporary names.
+Durable sync asks the filesystem to persist bytes or folder entries.
+The filesystem's sync guarantees limit durability claims.
+Each result gives a reason, observed hashes when known, sync evidence, and remaining artifacts.
+An artifact is a temporary file or retained copy left by a call.
+An intended candidate hash is not an observed current hash.
+The thread result keeps every call's outcome, including aborted, failed, and uncertain actions.
+
+| Outcome state | Caller duty |
+| --- | --- |
+| refused before publication | Correct the refusal. Read again after a stale hash or identity mismatch. Inspect reported artifacts. |
+| failed before publication | Inspect the unchanged record and artifacts. Resolve the failure and obtain a fresh update hash. |
+| published and synced | Continue dependent work. Do not repeat an append because an abort was also reported. |
+| published with uncertain durability | Pause dependent work. Publication is known, but settlement is incomplete. Inspect the record and artifacts. |
+| unknown outcome | Pause dependent work and inspect current bytes and possible artifacts. Missing evidence is not success. |
+
+An abort after publication is reported only after settlement.
+A process exit or abort without a delivered report requires unknown-outcome treatment.
+After an aborted, failed, or uncertain action with record calls, the orchestrator reads each current record before any re-dispatch.
+To decide whether an append landed, compare current bytes with the exact earlier bytes followed by the exact payload bytes.
+The earlier bytes must hash to the supplied expected hash.
+An exact match establishes the append's bytes in the current record, not its earlier durable sync.
+If that comparison cannot be established, pause rather than repeat the append.
+Never retry an append or replacement after uncertainty without inspection.
+Do not roll back a published record to force a retry.
+
+### Manual interrupted-create recovery
+
+An interrupted hard-link publication can leave a record or retained version with two links.
+Later tool calls refuse that state and do not repair it automatically.
+The private candidate pattern is `.slate-record-<32hex>.tmp` in the current folder.
+The private version staging pattern is `.slate-record-version-<record>.v<N>.<32hex>.tmp` in `versions/`.
+Here `<32hex>` means exactly 32 lowercase hexadecimal digits.
+A candidate can share identity with its final record.
+A version staging name can share identity with `versions/<record>.v<N>.<sha256 hex>`.
+Use this one procedure for either pair, including an authorized manual create's leftover candidate:
+
+1. Stop every writer. Establish exclusive ownership and verify the current folder chain without following symbolic links. Recovery grants no write permission to a read-only source folder.
+2. Inspect the final record or hash-bound version and the suspected temporary name without following symbolic links. Both must be regular files with the same device and file identifier and exactly two links.
+3. Verify the final name against the assignment or reported version. Verify both names' bytes against a trusted hash or the exact authorized payload. For a version, its complete bytes must also match its hash-bound name.
+4. Remove only the matching temporary name under exclusive writer ownership. Never remove the record name or the hash-bound version name. Never delete a different file or replace a linked record to force progress.
+5. Sync the containing folder and verify that the final file now has one link. Read the current record again and use its fresh hash for the next update.
+
+If any condition fails, stop and ask the user.
+A missing, renamed, or different temporary name does not authorize removing another name.
+Single-link leftovers also require manual inspection under exclusive writer ownership.
+They are not current records or accounting sources.
+The tool does not adopt them.
+
+### Supported systems and existing permissions
+
+Change-record writes support Linux, macOS, and Windows Subsystem for Linux (WSL) on its own Linux filesystem.
+Native Windows refuses with a reason before any record-tool file operation and directs users to that WSL route.
+[Issue #498](https://github.com/JetBrains/ytdb-slate/issues/498) tracks native Windows support.
+Detected Windows drive destinations inside WSL refuse before file changes.
+Windows drives are unsupported even when detection misses them, including drives exposed through virtiofs.
+WSL tested through Linux CI and simulated drive checks.
+CI means continuous integration, or automated repository checks.
+The filesystem must provide the required hard links, replacement, permissions, and sync operations.
+If a required capability is unavailable, stop and report the limitation instead of choosing a weaker write method.
+
+A safe existing regular record remains usable without silently changing its permissions.
+Every replacement and new retained copy still receives owner-only permissions.
+Private record permissions do not protect payload copies in worker session files.
+Pi saves those files with default permissions, which can expose payload text to other local users.
+An authorized manual procedure has the same exposure through saved command text.
+[Issue #499](https://github.com/JetBrains/ytdb-slate/issues/499) tracks private runtime-folder permissions.
+An open change keeps its recorded workflow until the user authorizes migration.
+It may use its authorized manual procedure through `bash` until then.
+The built-in guard remains active, and this route does not permit tool-governed actions to bypass the tool.
 
 ## Resume and folder forks
 
@@ -370,6 +363,7 @@ A **folder fork** gives a different session owner new active records.
 Use [track-workflow.md](track-workflow.md) § Session handoff and the research log
 for same-owner resume, trusted handoff, and folder allocation.
 At the first record write after a fork, name each direct source record as read-only.
+A successor design names its read-only source design.
 Name the last source entry seen in each record, including the root log.
 Readers ignore later source entries.
 Follow source links for earlier history without copying or rewriting source files.

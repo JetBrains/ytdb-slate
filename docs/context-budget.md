@@ -148,10 +148,11 @@ reminder fires. Later requests resend it with the rest of the conversation.
 ## What always-loaded tool definitions cost the budget
 
 The registered `thread` tool description is 973 UTF-8 bytes. Its serialized
-parameter schema is 2,137 bytes from `JSON.stringify(parameters)`. The schema
+parameter schema is 2,458 bytes from `JSON.stringify(parameters)`. The schema
 requires logical `model` and `reason`. It includes the bounded `context` list,
 the optional implementer `trackNumber` with canonical dotted identifiers,
-the built-in `reviewPerspectives` list, and the 200-character reason limit. The two values total 3,110 bytes before provider
+the optional exact-name `records` assignment list, the built-in `reviewPerspectives` list, and the 200-character reason limit.
+The two values total 3,431 bytes before provider
 framing. The figure excludes the tool name, prompt text, and outer serialization.
 
 ## Compaction policy
@@ -280,6 +281,20 @@ needs one separating newline. The current text uses UTF-8 punctuation, so byte
 and character counts can differ.
 This separate figure states the worker-session cost without presenting
 it as orchestrator doctrine.
+
+### Assigned record-tool context
+
+The worker-only `slate_record` tool writes assigned change records.
+Its description is 531 UTF-8 bytes.
+Its serialized parameters are 507 bytes from `JSON.stringify(parameters)`.
+These definitions do not enter the orchestrator doctrine.
+The internal worker component adds no external worker-extension row to that doctrine.
+
+Assignment guidance lists exact record names and permitted modes.
+For implementer track 2.5, that guidance is 223 UTF-8 bytes.
+The production preamble joined to it with two newlines is 769 bytes without writing guidance and 1,322 bytes with writing guidance.
+A general assignment's size depends on its exact names and modes.
+These worker measurements are separate from the doctrine table and raise no budget.
 
 ## Worker actions
 

@@ -3228,9 +3228,9 @@ Use its § Session handoff and the research log for ownership.`);
 
 			const recordDigest = (text) => createHash("sha256").update(normalizeText(text)).digest("hex");
 			const recursiveRecordUnits = [
-				{ id: "identifiers-ranges", source: recursive, extract: regionUnit(/^## Identifiers, code ranges, and design markers\n([\s\S]*?)(?=^## Manual records and safe writes\n)/gm), expected: "cfe3c89907795c13cb1a7a08893bdb666ba1f9f92988b911e2c24a85095e4fd4" },
-				{ id: "manual-records", source: recursive, extract: regionUnit(/^## Manual records and safe writes\n([\s\S]*?)(?=^## Resume and folder forks\n)/gm), expected: "401dc5437b292584d9125379dbfecf802edb551f6ca70615d5548c0aad3d2e7e" },
-				{ id: "resume-forks", source: recursive, extract: regionUnit(/^## Resume and folder forks\n([\s\S]*?)(?=^## Handoff boundaries\n)/gm), expected: "cb377b1eaf800101fb37f1aeffcff33c2beeba6fb9bea0870c71c838e0e937b6" },
+				{ id: "identifiers-ranges", source: recursive, extract: regionUnit(/^## Identifiers, code ranges, and design markers\n([\s\S]*?)(?=^## Manual records and safe writes\n)/gm), expected: "06a2a0822448a5112173b65c04826364d3a3094f7930ba98ecd7f17300e19ed8" },
+				{ id: "tool-records-and-recovery", source: recursive, extract: regionUnit(/^## Manual records and safe writes\n([\s\S]*?)(?=^## Resume and folder forks\n)/gm), expected: "c58e3eab90e80833d83cd5613f302c7f7c3f863dd53ee2c0e609d900869d3f57" },
+				{ id: "resume-forks", source: recursive, extract: regionUnit(/^## Resume and folder forks\n([\s\S]*?)(?=^## Handoff boundaries\n)/gm), expected: "ee8952191bf8a044b0c4c124644079ad41a918a51510d10a1d8b1ea6d72e6860" },
 				{ id: "handoff-pointer", source: recursive, extract: regionUnit(/^## Handoff boundaries\n([\s\S]*?)(?=^## Review-fix subtrees and repair limits\n)/gm), expected: "fc5ca34c11f5f1defb5989c10af42cbac9af901c102dc18c6c8d1b55a98cd52f" },
 				{ id: "marker-identity", source: workflow, extract: markedUnit("marker-identity-policy"), expected: "846764c07a6b2c925091bd80f944c888d49994a71f2799b5cd2b8368b415a3c9" },
 				{ id: "resume-order", source: workflow, extract: regionUnit(/^## Resume order and reconciliation\n([\s\S]*?)(?=^## Review coverage\n)/gm), expected: "9edb063aea53ffc494d650f1a2306b975bbf31f1700a874ea0fd004bb1d0e244" },
@@ -3251,9 +3251,34 @@ Use its § Session handoff and the research log for ownership.`);
 					{ id: unit.id, kind: "duplicate", changed: true, rejected: !acceptsRecordUnit(unit, `${unit.source}\n${unit.source}`) },
 				];
 			});
-			const recordRecipe = regionUnit(/^<!-- safe-record-recipe:begin -->\n```python\n([\s\S]*?)\n```\n<!-- safe-record-recipe:end -->/gm);
-			const recipeResolution = recordRecipe(recursive);
-			const recipeRaw = recursive.match(/^<!-- safe-record-recipe:begin -->\n```python\n([\s\S]*?)\n```\n<!-- safe-record-recipe:end -->/m)?.[1] ?? "";
+			const toolsSource = readFileSync(join(REPO, "extension", "tools.ts"), "utf8");
+			const noRecipeReferences = (...sources) => sources.every((source) => !/safe-record-recipe|safe-record\.py|runnable recipe/i.test(source));
+			const recordPolicy = recursiveRecordUnits.find((unit) => unit.id === "tool-records-and-recovery");
+			const recordContractAttacks = [
+				["recovery-removed", recursive.replace(/### Manual interrupted-create recovery[\s\S]*?(?=### Supported systems)/, "")],
+				["remove-record-name", recursive.replace("Never remove the record name", "Remove the record name")],
+				["omit-version-link", recursive.replace("A version staging name can share identity with", "A version staging name cannot share identity with")],
+				["append-comparison", recursive.replace("the exact earlier bytes followed by the exact payload bytes", "the payload bytes alone")],
+				["inspection-duty", recursive.replace("before any re-dispatch", "after re-dispatch")],
+				["omit-transcript-limit", recursive.replace("Private record permissions do not protect payload copies in worker session files.", "Private record permissions protect every payload copy.")],
+				["omit-virtiofs", recursive.replace("including drives exposed through virtiofs", "without a detection limit")],
+				["oversized-design-append", recursive.replace("reduce the complete payload to fit the limit or stop and ask the user", "split the payload into appends")],
+			].map(([id, source]) => ({ id, changed: source !== recursive, rejected: !acceptsRecordUnit(recordPolicy, source) }));
+			const authoritativeReaders = (recursiveSource, publishingSource, deliverySource) => {
+				const r = normalizeText(recursiveSource), p = normalizeText(publishingSource), d = normalizeText(deliverySource);
+				return r.includes("The current `root-design.md` or `track-<number>-design.md` is authoritative for its node.")
+					&& r.includes("The owning research log records each approved design hash and aggregate evidence.")
+					&& r.includes("A successor design names its read-only source design.")
+					&& p.includes("At creation, if a high-level design exists, read the current authoritative design file for the change root or design track.")
+					&& p.includes("A copied design in a log is not the authoritative plan.")
+					&& d.includes("current authoritative `root-design.md`") && d.includes("authoritative `track-<number>-design.md`")
+					&& d.includes("Temporary files and incomplete retained copies are not accounting sources.");
+			};
+			const readerAttacks = [
+				[recursive.replace("is authoritative for its node", "is not authoritative for its node"), publishing, deliveryPackages],
+				[recursive, publishing.replace("read the current authoritative design file", "read a copied design in the log"), deliveryPackages],
+				[recursive, publishing, deliveryPackages.replace("and authoritative `track-<number>-design.md`", "")],
+			].map(([r, p, d]) => ({ changed: r !== recursive || p !== publishing || d !== deliveryPackages, rejected: !authoritativeReaders(r, p, d) }));
 			const canonicalMarkerCommand = 'git commit --allow-empty -m "Track <path-number> complete: <short name>"';
 			const acceptsMarkerCommand = (source) => {
 				const visible = source.replace(/<!--[\s\S]*?-->/g, "");
@@ -3271,11 +3296,15 @@ Use its § Session handoff and the research log for ownership.`);
 				`${workflow}\n${canonicalMarkerCommand}`,
 			].map((source) => ({ changed: source !== workflow, rejected: !acceptsMarkerCommand(source) }));
 			console.log(`NOTE recursive document: ${[...recursive].length} characters. Target: 16000. Report and explain any overrun in delivery evidence.`);
-			checkAll("contract-recursive-records", "canonical markers, actual code boundaries, design evidence, manual ownership, durable safe writes, resume, and forks remain complete", [
+			checkAll("contract-recursive-records", "canonical markers, code boundaries, authoritative designs, assigned tool writes, manual recovery, inspection, resume, and forks remain complete", [
 				["each bounded record policy equals its reviewed digest exactly once", recursiveRecordUnits.every((unit) => acceptsRecordUnit(unit, unit.source)), recursiveRecordUnits.map((unit) => ({ id: unit.id, resolved: unit.extract(unit.source), expected: unit.expected }))],
 				["contradictions, missing units, and duplicate units fail closed", recordUnitAttacks.every(({ changed, rejected }) => changed && rejected), recordUnitAttacks],
 				["outside-unit controls preserve each policy", recursiveRecordUnits.every((unit) => acceptsRecordUnit(unit, `${unit.source}\n<!-- Unrelated control. -->`)), "outside controls"],
-				["the runnable recipe has one exact raw source, including indentation", recipeResolution.count === 1 && createHash("sha256").update(recipeRaw).digest("hex") === "2e78b7f0ab687c7fdd68adccdd4d0c539fcbadada76d437c014d06fa8221a9d9", recipeRaw],
+				["shipping instructions contain no runnable recipe or directing reference", noRecipeReferences(recursive, workflow, toolsSource), "recursive workflow, lifecycle, and dispatch"],
+				["restoring a recipe reference in any consumer fails, while outside comments pass", [recursive, workflow, toolsSource].every((source) => !noRecipeReferences(source + "\nUse the runnable recipe.") && noRecipeReferences(source + "\n<!-- Unrelated control. -->")), "three independent consumers"],
+				["recovery, removal limits, version links, append comparison, inspection, privacy, platform limits, and permitted-mode advice reject violations", recordContractAttacks.every(({ changed, rejected }) => changed && rejected), recordContractAttacks],
+				["all three readers retain authoritative design files and source restrictions", authoritativeReaders(recursive, publishing, deliveryPackages), "root and entered design-track files"],
+				["authority omissions fail and harmless outside-reader edits pass", readerAttacks.every(({ changed, rejected }) => changed && rejected) && authoritativeReaders(`${recursive}\n<!-- Outside reader control. -->`, `${publishing}\n<!-- Outside reader control. -->`, `${deliveryPackages}\n<!-- Outside reader control. -->`), readerAttacks],
 				["the displayed marker command is canonical and unique, excluding exception prose", acceptsMarkerCommand(workflow), "visible fenced command"],
 				["numeric padding, multiline padding, hidden canonical text, and duplicate commands fail", markerCommandAttacks.every(({ changed, rejected }) => changed && rejected), markerCommandAttacks],
 				["exception prose and outside-unit comments preserve the displayed command", acceptsMarkerCommand(`${workflow}\n<!-- benign control -->`), "flat-workflow exception retained"],
@@ -3315,9 +3344,13 @@ Every creation path keeps these safeguards:
   § Level publishing and retained history.
 - If the working branch has no diff against the base yet, land a
   bootstrap empty commit so the PR can be created.
-- At creation, if the change or design track has a high-level design, the owning
-  research log's Planned changes content folds into the PR description. Create the pull
-  request only after final design approval, as stated above.
+- At creation, if a high-level design exists, read the current authoritative design file for the change root or design track.
+  Use its approved plan in the pull request description.
+  The files are \`root-design.md\` and \`track-<number>-design.md\` in the current change folder.
+  Here \`<number>\` is the canonical path number defined in [recursive-workflow.md](recursive-workflow.md).
+  Read the owning log for approval hashes, decisions, and review evidence.
+  A copied design in a log is not the authoritative plan.
+  Create the pull request only after final design approval, as stated above.
 
   Key decisions, Risks, and Open questions feed the corresponding
   Planned-changes subsections. The applicable design review verdict lines land
@@ -3363,7 +3396,8 @@ The publishing setting and its disabled default remain unchanged.`),
 				publishing.replace("size or late-area design route", "late-area design route"),
 				publishing.replace("For a change without a design gate", "For a SMALL change without a design gate"),
 				publishing.replace("a high-level design and a level pull request", "a high-level design"),
-				publishing.replace("if the change or design track has a high-level design", "for every level with a high-level design"),
+				publishing.replace("read the current authoritative design file", "read a copied design in the log"),
+				publishing.replace("if a high-level design exists, ", ""),
 			];
 			const migrationMutations = [
 				workflow.replace("finishes under its recorded workflow unless the user\nexplicitly authorizes migration", "always moves to the current workflow"),
@@ -3454,7 +3488,7 @@ The split bypasses no stuck-fix consultation or required fix gate.`) },
 				{ id: "repairs", source: recursive, start: "## Review-fix subtrees and repair limits", end: "## Whole-subtree acceptance", expected: protectedRepairSummary },
 				{ id: "aggregate", source: recursive, start: "## Whole-subtree acceptance", end: "## Packages, attribution, and issues", expected: "6e37e0e95c35ed0c3ede6e02f3322f43038d8653d9885ce4b2ac1ed423472b63" },
 				{ id: "issues", source: recursive, start: "## Packages, attribution, and issues", end: null, expected: "895b87ee7afdda0d4d85e071c978727e0cf962f9af42e68c534c022ac010a5a3" },
-				{ id: "sources", source: deliveryPackages, start: "## Durable accounting", end: "<!-- publishing-disabled-accounting:begin -->", expected: "cfba6ae378f8d7e3db347d9894911bd7497205f1fd76772ae97847af7f7f7a52" },
+				{ id: "sources", source: deliveryPackages, start: "## Durable accounting", end: "<!-- publishing-disabled-accounting:begin -->", expected: "4abbfbd05d5ce45d13a8be7aa8701ef350e609db791bf166a1b3a93ea7623692" },
 				{ id: "workflow-accounting", source: workflow, start: "With draft publishing,", end: "\n\nAim for a delivery body", expected: "9410e62de528ba3d18269213779348a187c5f894bd2d99fa5f529dfa3fc5a4a1" },
 				{ id: "notes-accounting", source: userNotes, start: "Before final acceptance, reconcile", end: "\n\n- every finding", expected: "7efa6f8740078ef4a9f5511b485a4e95e8b0e5f7341d2e278eddfbf27011b500" },
 				{ id: "publishing-sync", source: publishing, start: "## Keeping the PR in sync", end: "## Ready-for-review flip", expected: "fb386e6f14c2f051a842cd050cc4e2834dea5e2674853cc22794792cd4c1a7cc" },
@@ -3559,7 +3593,7 @@ Verify every level record and all root-wide accounting before root closure.`);
 			]);
 			const repairEscalation = regionUnit(/^## Mandatory escalation set\n([\s\S]*?)(?=^## User note accounting\n)/gm);
 			const repairEscalationDigest = "b9ebf47c2dceb335adfd3fb1cd694e2e23e6d210f5d962ef5c5c6d709cdc3de4";
-			const repairState = regionUnit(/^(Its plain-text \*\*repair state\*\* column[\s\S]*?)(?=^Create `track-<path-number>-research-log\.md`)/gm);
+			const repairState = regionUnit(/^(Its plain-text \*\*repair state\*\* column[\s\S]*?)(?=^Create `track-<number>-research-log\.md`)/gm);
 			const repairStateExpected = normalizeText(`Its plain-text **repair state** column shows each code track and review-fix child's repair use.
 Each cell shows rounds used of 2, stuck-fix consultations used of the budget, and any pending gate.
 No fixed machine-readable format is required.
@@ -4352,7 +4386,7 @@ Record each grant in the override log.`),
 			const reportRule = regionUnit(/^For each code track, the implementer creates\n([\s\S]*?)(?=^Tracks are contiguous)/gm);
 			const forkRule = regionUnit(/^Use a safe write method\. ([\s\S]*?)(?=^Before a session handoff)/gm);
 			const expectedReportRule = normalizeText(`\`track-<number>-implementer-report.md\` in the current change folder when the track starts. The dispatch gives the exact path. The report is untracked working material. After a session with a different identifier takes ownership, create a report in the new change folder. If the source folder has this track's report, name it as read-only in the new report's first entry. Continue the work in the new report. The report has four required sections: changes to the high-level design with the reason for each, the low-level design, diagrams where they help, and checks run with their results. The report states the approximate track size in counted lines. Later fix rounds append to that report in the current change folder.`);
-			const expectedForkRule = normalizeText(`Create each file without following a symbolic link. Append through a temporary file and atomic rename when replacement is needed. Use [recursive-workflow.md](recursive-workflow.md) § Manual records and safe writes for the runnable recipe, including implementer reports. Research logs and implementer reports are append-only. A correction is a new entry. Slate checks the folder chain when it creates the change. Manual writers must also check the destination. Keep all manual records and leftover temporary files untracked and visible in repository status. Do not add them to an ignore file or a pull request. Exclude their references and contents from reviewer inputs. Never overwrite a record from a stale in-memory copy. When a session adopts a change owned by a different Pi session identifier, Slate starts a new folder. Its log first names the direct source folder as a read-only earlier log. Each source log's first entry links to its own source. Follow those links to read the full history. The source remains in place without copying. A resume or reload with the same identifier continues the current folder. A /tree move to parent history with a different owner creates a new folder on reload. A handoff makes the successor the owner of the current folder. If folder allocation fails, Slate saves no open change and reports the failure. If that save fails, Slate reports it too. A legacy root \`research-log.md\` remains read-only. Only the user deletes a delivered or abandoned change folder.`);
+			const expectedForkRule = normalizeText(`Use \`slate_record\` for assigned change records, including implementer reports. Use [recursive-workflow.md](recursive-workflow.md) § Manual records and safe writes for tool guidance, inspection duties, and manual interrupted-create recovery. Research logs and implementer reports are append-only. A correction is a new entry. Slate checks the folder chain when it creates the change. The record tool checks the destination again before publication. Keep all manual records and leftover temporary files untracked and visible in repository status. Do not add them to an ignore file or a pull request. Exclude their references and contents from reviewer inputs. Never overwrite a record from a stale in-memory copy. When a session adopts a change owned by a different Pi session identifier, Slate starts a new folder. Its log first names the direct source folder as a read-only earlier log. Each source log's first entry links to its own source. Follow those links to read the full history. The source remains in place without copying. A resume or reload with the same identifier continues the current folder. A /tree move to parent history with a different owner creates a new folder on reload. A handoff makes the successor the owner of the current folder. If folder allocation fails, Slate saves no open change and reports the failure. If that save fails, Slate reports it too. A legacy root \`research-log.md\` remains read-only. Only the user deletes a delivered or abandoned change folder.`);
 			const acceptsLateRules = (source) => {
 				const report = reportRule(source);
 				const fork = forkRule(source);
@@ -4394,7 +4428,7 @@ Record each grant in the override log.`),
 
 			const packageContract = block(deliveryPackages, "delivery-package-contract");
 			const digest = (text) => createHash("sha256").update(normalizeText(text)).digest("hex");
-			const EXPECTED_DELIVERY_PACKAGES_SHA256 = "70d590c536f6987711c0f2d64bbfecc76c6614e904669ea85a4b05cf01810ff3";
+			const EXPECTED_DELIVERY_PACKAGES_SHA256 = "56b8b1ec79181b04cb0a098aeefd947d7574468b82959cf83374e9d6c809a8c7";
 			const acceptsPackageContract = (source) => {
 				const owned = block(source, "delivery-package-contract");
 				return owned.count === 1 && owned.endCount === 1 && digest(source) === EXPECTED_DELIVERY_PACKAGES_SHA256;

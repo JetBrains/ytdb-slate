@@ -143,13 +143,16 @@ recommendations** immediately before **Decision** when that field is enabled.
 ## Durable accounting
 
 The **accounting sources** are the owning records behind each package.
-Read the root `research-log.md`, every entered design track's
-`track-<path-number>-research-log.md`, every code track's implementer report,
-and review-fix evidence in the affected track's records.
+Read the root `research-log.md` and current authoritative `root-design.md` when a root design exists.
+Read every entered design track's `track-<number>-research-log.md` and authoritative `track-<number>-design.md`.
+Here `<number>` is the canonical path number defined in [recursive-workflow.md](recursive-workflow.md).
+Read every code track's implementer report and review-fix evidence in the affected track's records.
 Follow each record's read-only source chain within its recorded read boundary.
 Include required conclusions held in any of those records, not only the active log.
 Use `status.md` to find records, never as gate or completion evidence.
-A leftover temporary file is not an accounting source.
+Temporary files and incomplete retained copies are not accounting sources.
+A retained design copy is evidence only when its complete bytes match its hash-bound name.
+The current design file remains authoritative.
 Keep all manual records and their source chains through and after root closure.
 Only the user deletes the change folder.
 The final delivery records hold the conclusions that must remain after local cleanup.
