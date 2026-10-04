@@ -1,14 +1,14 @@
 /** One internal record component per worker session. Authority lasts one action. */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Type } from "typebox";
+import { Type, type Static } from "typebox";
 import { recordNameRule } from "./record-names.ts";
-import { RECORD_GUARD_REASON, recordGuardBlocks } from "./record-guard.ts";
+import { recordGuardReason } from "./record-guard.ts";
 import type { RecordLease } from "./record-ownership.ts";
-import { prepareRecordWrite, RecordPrepublicationError, type RecordWriteArguments, type RecordWriteOutcome, type RecordWriteOptions } from "./record-write.ts";
+import { prepareRecordWrite, RECORD_REUSE_STAGE, RecordPrepublicationError, type RecordWriteArguments, type RecordWriteOutcome, type RecordWriteOptions } from "./record-write.ts";
 
 export const RECORD_TOOL_NAME = "slate_record";
 export const RECORD_FACTORY_NAME = "slate-worker-record";
-export const RECORD_TOOL_DESCRIPTION = "Write one assigned change record. Use create for initial bytes, append for added log or report bytes, and replace for complete status or design bytes. Every append or replace needs the current sha256 hash. Payload text is unchanged. The limit is 1,048,576 UTF-8 bytes. Inspect the current record after an aborted, failed, uncertain, or unknown call before retrying. A write grants no workflow approval.";
+export const RECORD_TOOL_DESCRIPTION = "Write one assigned change record. Use create for initial bytes, append for added log or report bytes, and replace for complete status or design bytes. Every append or replace needs the current SHA-256 (Secure Hash Algorithm, 256-bit) hash, written as sha256:<64 lowercase hexadecimal digits>. Payload text is unchanged. The limit is 1,048,576 bytes in UTF-8 (Unicode Transformation Format, 8-bit). Inspect the current record after an aborted, failed, uncertain, or unknown call before retrying. A write grants no workflow approval.";
 export const RECORD_TOOL_PARAMETERS = Type.Object({
 	record: Type.String({ description: "One exact assigned record name, not a path." }),
 	mode: Type.Union([Type.Literal("create"), Type.Literal("append"), Type.Literal("replace")]),
@@ -53,7 +53,7 @@ export function createRecordWorkerRuntime(projectRoot: string, lease?: RecordLea
 			if (error instanceof RecordPrepublicationError) {
 				outcome = error.outcome;
 				// NL-4: reused preparation and invalid modes grant no current-write evidence.
-				if (!validMode || error.stage === "admission") outcome = undefined;
+				if (!validMode || error.stage === RECORD_REUSE_STAGE) outcome = undefined;
 				state = error.state;
 				reason = error.message;
 			} else {
@@ -74,10 +74,28 @@ export function createRecordWorkerRuntime(projectRoot: string, lease?: RecordLea
 	return {
 		extension(pi: ExtensionAPI) {
 			pi.on("tool_call", async (event, ctx) => {
-				if ((event.toolName === "write" || event.toolName === "edit") && await recordGuardBlocks(event.input.path, ctx.cwd, projectRoot)) return { block: true, reason: RECORD_GUARD_REASON };
+				if (event.toolName === "write" || event.toolName === "edit") {
+					const reason = await recordGuardReason(event.input.path, ctx.cwd, projectRoot);
+					if (reason) return { block: true, reason };
+				}
 				return undefined;
 			});
 			if (lease) pi.registerTool({ name: RECORD_TOOL_NAME, label: "Slate record", description: RECORD_TOOL_DESCRIPTION, parameters: RECORD_TOOL_PARAMETERS,
+				prepareArguments(args) {
+					// Pi calls preparation before optional-null normalization and conversion.
+					const raw = args as unknown as Record<string, unknown> | null;
+					const validMode = raw?.mode === "create" || raw?.mode === "append" || raw?.mode === "replace";
+					if (!raw || typeof raw !== "object" || Array.isArray(raw) || typeof raw.record !== "string" ||
+						!validMode || typeof raw.payload !== "string" ||
+						(Object.hasOwn(raw, "expectedHash") && (typeof raw.expectedHash !== "string" ||
+							!/^sha256:[0-9a-f]{64}$/.test(raw.expectedHash) || raw.mode === "create"))) {
+						const reason = "Record arguments are invalid. Use an assigned record name, create, append or replace, text payload, and a current sha256 hash only for updates.";
+						facts.push({ record: typeof raw?.record === "string" && lease.assignment.names.includes(raw.record) ? raw.record : "unassigned",
+							mode: validMode ? raw!.mode as RecordCallFact["mode"] : "invalid", state: "refused before publication", reason });
+						throw new Error(reason);
+					}
+					return args as Static<typeof RECORD_TOOL_PARAMETERS>;
+				},
 				async execute(_id, args, signal) {
 					const pending = tail.then(() => execute(args, signal));
 					tail = pending.then(() => undefined, () => undefined);

@@ -4,6 +4,12 @@ import { mkdtempSync, mkdirSync, realpathSync, readFileSync, rmSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { createHash } from "node:crypto";
+import { pathToFileURL } from "node:url";
+import type { AgentTool, runToolCall as RunToolCall } from "../node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-agent-core/dist/index.js";
+const { runToolCall } = await import(pathToFileURL(join(process.cwd(), "node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-agent-core/dist/index.js")).href) as { runToolCall: typeof RunToolCall };
+const hash = (text: string) => `sha256:${createHash("sha256").update(text).digest("hex")}`;
+function parseFacts(text: string) { return text.slice(text.lastIndexOf("## Record call outcomes") + "## Record call outcomes\n".length).trim().split("\n").map((line) => JSON.parse(line)); }
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import extension from "../extension/index.ts";
 import { buildRecordAssignment } from "../extension/record-names.ts";
@@ -56,12 +62,14 @@ test("record-write-interleavings thread plus slate_change close in one turn refu
   assert.equal(readFileSync(join(cwd, "slate-changes", original, "research-log.md"), "utf8"), "# Research log\n");
 });
 
-test("record-abort-settlement real handoff stops admission and joins calls before Pi idle", { timeout: 10000 }, async (t) => {
+test("record-abort-settlement real handoff waits for Pi idle before stopping admission and joining calls", { timeout: 10000 }, async (t) => {
   const cwd = realpathSync(mkdtempSync(join(tmpdir(), "slate-record-handoff-"))); t.after(() => rmSync(cwd, { recursive: true, force: true }));
   const api = { on() {}, registerCommand() {}, appendEntry() {} } as unknown as ExtensionAPI;
   const store = new SlateStore(api); store.currentChange = createChangeFolder();
   const owner = recordOwnership(store), lease = owner.reserve(buildRecordAssignment({ type: "general", records: ["status.md"] }, store.currentChange, undefined)!);
-  const entered = barrier(), release = barrier();
+  const entered = barrier(), release = barrier(), stopping = barrier();
+  const originalStop = owner.stop.bind(owner);
+  owner.stop = () => { originalStop(); stopping.resolve(); };
   const call = lease.call(async () => { entered.resolve(); await release.promise; }); await entered.promise;
   const hooks = registerSlateHandoff(api, store, () => ({}), () => createBaseModelTracker({ warn() {} }));
   let idle = false;
@@ -70,7 +78,8 @@ test("record-abort-settlement real handoff stops admission and joins calls befor
     store.currentChange = createChangeFolder();
     return { cancelled: true };
   } } as any);
-  assert.equal(idle, false);
+  await stopping.promise;
+  assert.equal(idle, true);
   const later = lease.call(async () => { throw new Error("Call reached publication during transfer"); });
   release.resolve(); await call;
   await assert.rejects(later, /admission ended/); await transfer;
@@ -91,8 +100,10 @@ for (const action of ["failed", "aborted", "uncertain", "storage-failed", "no-re
       const recordRuntime = createRecordWorkerRuntime(cwd, recordLease, action === "uncertain" ? { fs: {
         ...(await import("node:fs/promises")), unlink: async () => { throw new Error("cleanup fault"); }
       } } : {});
-      let execute!: Function;
-      recordRuntime.extension({ on() {}, registerTool(tool: any) { execute = tool.execute; } } as unknown as ExtensionAPI);
+      let tool!: AgentTool;
+      recordRuntime.extension({ on() {}, registerTool(definition: any) { tool = definition; } } as unknown as ExtensionAPI);
+      const execute = (id: string, args: Record<string, unknown>) => runToolCall({ type: "toolCall", id, name: "slate_record", arguments: args as never },
+        { tools: [tool], context: { messages: [], tools: [tool] }, assistantMessage: {} as never }).then((outcome) => ({ ...outcome.result, isError: outcome.isError }));
       const messages: any[] = [];
       const model = { provider: "test", id: "worker" };
       const session = { messages, model, thinkingLevel: "off", setThinkingLevel() {}, resetIncludedOperationFailure() {}, recordCallFacts: recordRuntime.facts,
@@ -104,6 +115,10 @@ for (const action of ["failed", "aborted", "uncertain", "storage-failed", "no-re
             const result = await execute(name, { record: name, mode: "create", payload: "private bytes" });
             callback({ type: "tool_execution_end", toolName: "slate_record", result, isError: result.isError });
           }
+          const invalid = await execute("invalid", { record, mode: "bogus", payload: "SECRET_REFUSAL_PAYLOAD" });
+          assert.equal(invalid.isError, true);
+          assert.doesNotMatch(JSON.stringify(invalid), /SECRET_REFUSAL_PAYLOAD|Received arguments/);
+          callback({ type: "tool_execution_end", toolName: "slate_record", result: invalid, isError: true });
           if (action === "no-response") throw new Error("failed before a final assistant response");
           const message = { role: "assistant", content: [{ type: "text", text: "Finished record calls." }], stopReason: "stop", usage: { input: 1, output: 1, cost: { total: 0 } } };
           messages.push(message); callback({ type: "message_end", message });
@@ -119,15 +134,24 @@ for (const action of ["failed", "aborted", "uncertain", "storage-failed", "no-re
     if (action === "storage-failed") {
       await assert.rejects(dispatch(), (error: any) => {
         assert.match(error.message, /could not store episode/);
-        assert.equal(error.message.slice(error.message.lastIndexOf("## Record call outcomes")).split('"state":').length - 1, 2);
-        assert.match(error.message, /"observedAfterHash":"sha256:/);
+        assert.equal(parseFacts(error.message).length, 3);
+        assert.equal(parseFacts(error.message)[0].observedAfterHash, hash("private bytes"));
+        assert.deepEqual(parseFacts(error.message)[2], { record, mode: "invalid", state: "refused before publication", reason: "Record arguments are invalid. Use an assigned record name, create, append or replace, text payload, and a current sha256 hash only for updates." });
         return true;
       });
       await manager.disposeAll(); return;
     }
     const result = await dispatch();
     const facts = result.episodeText.slice(result.episodeText.lastIndexOf("## Record call outcomes"));
-    assert.equal(facts.split('"state":').length - 1, 2);
+    assert.equal(facts.split('"state":').length - 1, 3);
+    const parsed = parseFacts(result.episodeText);
+    assert.deepEqual(parsed.map(({ record, mode, state, observedBeforeHash, observedAfterHash }) => ({ record, mode, state, observedBeforeHash, observedAfterHash })), [
+      { record, mode: "create", state: action === "uncertain" ? "published with uncertain durability" : "published and synced", observedBeforeHash: undefined, observedAfterHash: hash("private bytes") },
+      { record: "unassigned", mode: "create", state: "refused before publication", observedBeforeHash: undefined, observedAfterHash: undefined },
+      { record, mode: "invalid", state: "refused before publication", observedBeforeHash: undefined, observedAfterHash: undefined },
+    ]);
+    assert.deepEqual(parseFacts(readFileSync(result.episode.file, "utf8")), parsed);
+    assert.doesNotMatch(facts, /SECRET_REFUSAL_PAYLOAD/);
     assert.match(facts, /"record":"track-2.4-implementer-report.md"/);
     assert.match(facts, /"record":"unassigned"/);
     assert.match(facts, /"observedAfterHash":"sha256:/);

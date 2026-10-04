@@ -660,8 +660,6 @@ export function registerSlateHandoff(
 	});
 
 	const performHandoff = async (ctx: ExtensionCommandContext, focus?: string, summaryVisible?: boolean): Promise<void> => {
-		await ctx.waitForIdle();
-
 		const brief = lastAssistantText(ctx);
 		const parentSession = ctx.sessionManager.getSessionFile();
 		// ctx.model can be undefined (no-model session): capture neither field
@@ -722,6 +720,7 @@ export function registerSlateHandoff(
 	};
 
 	const startHandoff = async (ctx: ExtensionCommandContext, focus?: string, summaryVisible?: boolean): Promise<void> => {
+		await ctx.waitForIdle();
 		const recordOwner = recordOwnership(store);
 		recordOwner.stop();
 		try {

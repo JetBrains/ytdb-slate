@@ -1,4 +1,4 @@
-import { writeFileSync } from "node:fs";
+import { writeFileSync, symlinkSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { createAssistantMessageEventStream, getCurrentTools, type AssistantMessage, type TranscriptContext, type Model, type ToolCall } from "@earendil-works/pi-ai";
 import { DefaultResourceLoader, ModelRuntime, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -41,7 +41,9 @@ function stream(model: Model<any>, context: TranscriptContext) {
     const system = texts.join("\n");
     const current = /slate-changes\/(change-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{32})\//.exec(system)?.[1];
     const payload = kind === "A" ? "REPORT_A" : "STATUS_B";
-    if (ordinal === 0) content = [call(`guard-${kind}`, "write", { path: `${folder}${current ?? "missing"}/${record}`, content: "FORBIDDEN" }),
+    if (ordinal === 0 && kind === "A") symlinkSync(`${folder}${current}/missing-record.md`, process.env.SLATE_RECORD_PROJECT! + "/dangling-record");
+    if (ordinal === 0) content = [...(kind === "A" ? [call("guard-unresolved", "write", { path: "dangling-record", content: "FORBIDDEN" }),
+      call("invalid-A", "slate_record", { record, mode: "bogus", payload: "PRIVATE_INVALID_PAYLOAD" })] : []), call(`guard-${kind}`, "write", { path: `${folder}${current ?? "missing"}/${record}`, content: "FORBIDDEN" }),
       call(`create-${kind}`, "slate_record", { record, mode: "create", payload }),
       call(`wrong-${kind}`, "slate_record", { record: other, mode: "create", payload: "FORBIDDEN" })];
     else if (kind === "A" && ordinal === 1) {

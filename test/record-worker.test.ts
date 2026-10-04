@@ -4,13 +4,18 @@ import { mkdtemp, realpath, readFile, stat, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { createHash } from "node:crypto";
+import { pathToFileURL } from "node:url";
+import type { AgentTool, runToolCall as RunToolCall } from "../node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-agent-core/dist/index.js";
+const { runToolCall } = await import(pathToFileURL(join(process.cwd(), "node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-agent-core/dist/index.js")).href) as { runToolCall: typeof RunToolCall };
+const digest = (text: string) => `sha256:${createHash("sha256").update(text).digest("hex")}`;
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createChangeFolder } from "../extension/artifact-names.ts";
 import { createChangeDirectory } from "../extension/slate-files.ts";
 import { buildRecordAssignment } from "../extension/record-names.ts";
 import { RecordOwnership } from "../extension/record-ownership.ts";
 import { createRecordWorkerRuntime, renderRecordFacts, recordWorkerGuidance, RECORD_TOOL_DESCRIPTION, RECORD_TOOL_PARAMETERS } from "../extension/record-worker.ts";
-import { recordHash, prepareRecordWrite, RecordPrepublicationError, type RecordWriteArguments, type RecordWriteOptions } from "../extension/record-write.ts";
+import { recordHash, prepareRecordWrite, RECORD_REUSE_STAGE, RecordPrepublicationError, type RecordWriteArguments, type RecordWriteOptions } from "../extension/record-write.ts";
 
 function barrier() { let resolve!: () => void; const promise = new Promise<void>((r) => { resolve = r; }); return { promise, resolve }; }
 async function fixture(t: import("node:test").TestContext, options: RecordWriteOptions = {}) {
@@ -24,8 +29,9 @@ async function fixture(t: import("node:test").TestContext, options: RecordWriteO
   const runtime = createRecordWorkerRuntime(cwd, lease, options);
   let execute!: (id: string, args: RecordWriteArguments, signal?: AbortSignal) => Promise<any>;
   const hooks = new Map<string, Function>();
-  runtime.extension({ on(name: string, fn: Function) { hooks.set(name, fn); }, registerTool(tool: any) { execute = tool.execute; } } as unknown as ExtensionAPI);
-  return { cwd, store, owner, assignment, lease, runtime, execute, hooks, path: join(cwd, assignment.currentFolder, assignment.names[0]!) };
+  let definition!: AgentTool;
+  runtime.extension({ on(name: string, fn: Function) { hooks.set(name, fn); }, registerTool(tool: any) { execute = tool.execute; definition = tool; } } as unknown as ExtensionAPI);
+  return { cwd, store, owner, assignment, lease, runtime, execute, hooks, definition, path: join(cwd, assignment.currentFolder, assignment.names[0]!) };
 }
 
 test("record-write-interleavings serializes parallel same-hash appends through settlement", { timeout: 10000 }, async (t) => {
@@ -76,26 +82,39 @@ test("record-name-ownership reserves one destination at admission and releases a
   assert.throws(() => f.owner.reserve(f.assignment), /no longer matches/);
 });
 
-for (const transition of ["handoff", "folder fork", "session teardown", "worker teardown"]) {
-  test(`record-abort-settlement ${transition} stops admission before ownership changes`, { timeout: 10000 }, async (t) => {
-    const entered = barrier(), release = barrier();
-    const f = await fixture(t, { beforeFinalCheck: async () => { entered.resolve(); await release.promise; } });
-    const running = f.execute("first", { record: f.assignment.names[0], mode: "create", payload: "bound bytes" });
-    await entered.promise;
-    f.owner.stop();
-    let moved = false;
-    const transfer = f.owner.settle().then(() => { moved = true; f.store.currentChange = createChangeFolder(); });
-    assert.equal(moved, false);
-    const later = f.execute("later", { record: f.assignment.names[0], mode: "append", payload: "late", expectedHash: recordHash(Buffer.from("bound bytes")) });
-    release.resolve();
-    assert.equal((await running).details.state, "published and synced");
-    await transfer;
-    assert.equal((await later).details.state, "refused before publication");
-    assert.match((await later).details.reason, /admission ended/);
-    assert.equal((await readFile(f.path)).toString(), "bound bytes");
-    assert.equal((await stat(f.path)).nlink, 1);
-  });
-}
+test("record-original-arguments refuses invalid calls through the pinned Pi pipeline without payload disclosure", { timeout: 10000 }, async (t) => {
+  for (const invalid of [{ payload: 42 }, { payload: false }, { payload: null }, { payload: {} }, { payload: [] }, { expectedHash: null }]) {
+    const fresh = await fixture(t);
+    const args = { record: fresh.assignment.names[0]!, mode: "create", payload: "PRIVATE_PAYLOAD", ...invalid };
+    const result = await runToolCall({ type: "toolCall", id: "fresh-invalid", name: "slate_record", arguments: args as never },
+      { tools: [fresh.definition], context: { messages: [], tools: [fresh.definition] }, assistantMessage: {} as never });
+    assert.equal(result.isError, true, JSON.stringify(invalid));
+    assert.doesNotMatch(JSON.stringify(result.result), /PRIVATE_PAYLOAD|Received arguments/);
+    await assert.rejects(readFile(fresh.path), { code: "ENOENT" });
+    assert.equal(fresh.runtime.facts()[0]!.state, "refused before publication");
+    assert.equal(fresh.runtime.facts()[0]!.observedAfterHash, undefined);
+  }
+  const f = await fixture(t);
+  const invoke = (args: Record<string, unknown>) => runToolCall({ type: "toolCall", id: "raw", name: "slate_record", arguments: args as never },
+    { tools: [f.definition], context: { messages: [], tools: [f.definition] }, assistantMessage: {} as never });
+  const valid = { record: f.assignment.names[0]!, mode: "create", payload: "PRIVATE_PAYLOAD" };
+  assert.equal((await invoke(valid)).isError, false);
+  assert.deepEqual(f.runtime.facts()[0], { record: valid.record, mode: "create", state: "published and synced", reason: "The record is published and synced. Do not repeat this write.", observedAfterHash: digest(valid.payload) });
+  const invalid = [42, false, null, {}, []].map((payload) => ({ ...valid, payload }));
+  invalid.push({ ...valid, expectedHash: null } as any, { ...valid, mode: "bogus" }, { ...valid, record: 42 } as any,
+    { ...valid, mode: "append", expectedHash: 42 } as any, { ...valid, mode: "append", expectedHash: "bad" } as any);
+  for (const args of invalid) {
+    const before = f.runtime.facts().length;
+    const result = await invoke(args);
+    assert.equal(result.isError, true);
+    assert.doesNotMatch(JSON.stringify(result.result), /PRIVATE_PAYLOAD|Received arguments/);
+    assert.equal(f.runtime.facts().length, before + 1);
+    assert.deepEqual(f.runtime.facts().at(-1), { record: args.record === valid.record ? valid.record : "unassigned",
+      mode: ["create", "append", "replace"].includes(String(args.mode)) ? args.mode : "invalid",
+      state: "refused before publication", reason: result.result.content[0]?.type === "text" ? result.result.content[0].text : "" });
+    assert.equal(await readFile(f.path, "utf8"), valid.payload);
+  }
+});
 
 test("record-session-isolation keeps assignment and outcome state separate", { timeout: 10000 }, async (t) => {
   const f = await fixture(t);
@@ -129,16 +148,18 @@ test("record-outcome-reporting preserves core refusal, uncertain and unknown evi
     runtime.extension({ on() {}, registerTool(tool: any) { execute = tool.execute; } } as unknown as ExtensionAPI);
     const result = await execute("uncertain", state === "unknown outcome" ? { ...args, mode: "append", expectedHash: recordHash(Buffer.from("private")), payload: "+x" } : args);
     assert.equal(result.details.state, state); assert.equal(result.isError, true);
-    assert.ok(runtime.facts()[0]!.observedAfterHash);
+    assert.equal(result.details.observedAfterHash, digest(state === "unknown outcome" ? "private+x" : "private"));
+    assert.deepEqual(runtime.facts()[0], { record: args.record, mode: state === "unknown outcome" ? "append" : "create", state,
+      reason: result.details.reason, ...(state === "unknown outcome" ? { observedBeforeHash: digest("private") } : {}),
+      observedAfterHash: digest(state === "unknown outcome" ? "private+x" : "private") });
     assert.match(renderRecordFacts(runtime.facts()), new RegExp(state));
   }
   const before = recordHash(await readFile(f.path));
   let execute!: Function;
-  const refusal = new RecordPrepublicationError("refused before publication", "This prepared write was already used.", "admission");
   const prepared = await prepareRecordWrite({ projectRoot: f.cwd, assignment: f.assignment }, { ...args, mode: "append", payload: "", expectedHash: before });
-  const outcome = await prepared.publish();
-  refusal.outcome = outcome;
-  const runtime = createRecordWorkerRuntime(f.cwd, f.lease, {}, async () => { throw refusal; });
+  await prepared.publish();
+  await assert.rejects(prepared.publish(), (error: unknown) => error instanceof RecordPrepublicationError && error.stage === RECORD_REUSE_STAGE);
+  const runtime = createRecordWorkerRuntime(f.cwd, f.lease, {}, async () => prepared);
   runtime.extension({ on() {}, registerTool(tool: any) { execute = tool.execute; } } as unknown as ExtensionAPI);
   const reused = await execute("reuse", args);
   assert.equal(reused.details.state, "refused before publication");
@@ -153,7 +174,7 @@ test("record-outcome-reporting preserves core refusal, uncertain and unknown evi
 });
 
 test("record-tool-sizes measures production definitions and separate assignment guidance", () => {
-  assert.equal(Buffer.byteLength(RECORD_TOOL_DESCRIPTION), 402);
+  assert.equal(Buffer.byteLength(RECORD_TOOL_DESCRIPTION), 531);
   assert.equal(Buffer.byteLength(JSON.stringify(RECORD_TOOL_PARAMETERS)), 507);
   const owner = new RecordOwnership({ currentChange: "change-20261004T000000Z-" + "a".repeat(32) });
   const lease = owner.reserve(buildRecordAssignment({ type: "implementer", trackNumber: "2.4" }, "change-20261004T000000Z-" + "a".repeat(32), undefined)!);

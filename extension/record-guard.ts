@@ -11,8 +11,9 @@ export interface RecordGuardFacts {
 	stat(file: string): Promise<Pick<Stats, "dev" | "ino" | "isDirectory">>;
 	readdir(file: string): Promise<string[]>;
 	realpath(file: string): Promise<string>;
+	lstat?(file: string): Promise<Pick<Stats, "isSymbolicLink">>;
 }
-const defaults: RecordGuardFacts = { platform: process.platform, home: homedir(), stat: fs.stat, readdir: fs.readdir, realpath: fs.realpath };
+const defaults: RecordGuardFacts = { platform: process.platform, home: homedir(), stat: fs.stat, readdir: fs.readdir, realpath: fs.realpath, lstat: fs.lstat };
 
 /** Matches pi 1.0.0 resolveToCwd. Injected facts exercise native Windows forms. */
 export function resolveRecordGuardPath(input: string, cwd: string, facts: Pick<RecordGuardFacts, "platform" | "home"> = defaults): string {
@@ -34,10 +35,14 @@ export function resolveRecordGuardPath(input: string, cwd: string, facts: Pick<R
 }
 
 export const RECORD_GUARD_REASON = "Built-in write and edit cannot change Slate records. Assigned writers must use slate_record. Other workers must request a record assignment.";
-/** Compare nearest ancestor, real parents and protected descendants by device and inode. */
+export const RECORD_GUARD_UNRESOLVED_REASON = "Slate cannot establish that this path is outside slate-changes. Inspect the path and its symbolic links, then use a verifiable destination outside slate-changes.";
 export async function recordGuardBlocks(input: unknown, cwd: string, projectRoot: string, facts: RecordGuardFacts = defaults): Promise<boolean> {
+	return (await recordGuardReason(input, cwd, projectRoot, facts)) !== undefined;
+}
+/** Compare nearest ancestor, real parents and protected descendants by device and inode. */
+export async function recordGuardReason(input: unknown, cwd: string, projectRoot: string, facts: RecordGuardFacts = defaults): Promise<string | undefined> {
 	try {
-		if (typeof input !== "string" || input.length === 0) return true;
+		if (typeof input !== "string" || input.length === 0) return RECORD_GUARD_UNRESOLVED_REASON;
 		const api = facts.platform === "win32" ? path.win32 : path.posix;
 		const protectedPath = api.join(await facts.realpath(projectRoot), "slate-changes");
 		let protectedIdentity: Pick<Stats, "dev" | "ino" | "isDirectory">;
@@ -48,15 +53,24 @@ export async function recordGuardBlocks(input: unknown, cwd: string, projectRoot
 			const target = resolveRecordGuardPath(input, cwd, facts);
 			const fold = (value: string) => facts.platform === "win32" || facts.platform === "darwin" ? value.toLowerCase() : value;
 			const relative = api.relative(fold(protectedPath), fold(target));
-			if (relative === "" || !relative.startsWith(".." + api.sep) && relative !== ".." && !api.isAbsolute(relative)) return true;
+			if (relative === "" || !relative.startsWith(".." + api.sep) && relative !== ".." && !api.isAbsolute(relative)) return RECORD_GUARD_REASON;
+			try { await facts.realpath(target); }
+			catch (error) {
+				if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+				try { if ((await (facts.lstat ?? fs.lstat)(target)).isSymbolicLink()) return RECORD_GUARD_UNRESOLVED_REASON; }
+				catch (entryError) { if ((entryError as NodeJS.ErrnoException).code !== "ENOENT") throw entryError; }
+			}
 			await facts.realpath(api.dirname(target));
-			return false;
+			return undefined;
 		}
 		let ancestor = resolveRecordGuardPath(input, cwd, facts);
 		while (true) {
 			try { ancestor = await facts.realpath(ancestor); break; }
 			catch (error) {
 				if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+				// A dangling link is not a missing name. Its destination is unproven.
+				try { if ((await (facts.lstat ?? fs.lstat)(ancestor)).isSymbolicLink()) return RECORD_GUARD_UNRESOLVED_REASON; }
+				catch (entryError) { if ((entryError as NodeJS.ErrnoException).code !== "ENOENT") throw entryError; }
 				const parent = api.dirname(ancestor);
 				if (parent === ancestor) throw error;
 				ancestor = parent;
@@ -65,7 +79,7 @@ export async function recordGuardBlocks(input: unknown, cwd: string, projectRoot
 		const nearestIdentity = await facts.stat(ancestor);
 		while (true) {
 			const identity = await facts.stat(ancestor);
-			if (identity.dev === protectedIdentity.dev && identity.ino === protectedIdentity.ino) return true;
+			if (identity.dev === protectedIdentity.dev && identity.ino === protectedIdentity.ino) return RECORD_GUARD_REASON;
 			const parent = api.dirname(ancestor);
 			if (parent === ancestor) break;
 			ancestor = parent;
@@ -81,6 +95,6 @@ export async function recordGuardBlocks(input: unknown, cwd: string, projectRoot
 			for (const name of await facts.readdir(folder)) if (await containsIdentity(api.join(folder, name))) return true;
 			return false;
 		};
-		return await containsIdentity(protectedPath);
-	} catch { return true; }
+		return await containsIdentity(protectedPath) ? RECORD_GUARD_REASON : undefined;
+	} catch { return RECORD_GUARD_UNRESOLVED_REASON; }
 }

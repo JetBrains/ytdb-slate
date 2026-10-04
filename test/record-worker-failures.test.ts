@@ -10,7 +10,7 @@ import { createChangeFolder } from "../extension/artifact-names.ts";
 import { createChangeDirectory } from "../extension/slate-files.ts";
 import { buildRecordAssignment } from "../extension/record-names.ts";
 import { RecordOwnership } from "../extension/record-ownership.ts";
-import { createRecordWorkerRuntime } from "../extension/record-worker.ts";
+import { createRecordWorkerRuntime, recordWorkerGuidance } from "../extension/record-worker.ts";
 import { recordHash } from "../extension/record-write.ts";
 import { registerSlateTools } from "../extension/tools.ts";
 import { SlateStore } from "../extension/state.ts";
@@ -46,5 +46,7 @@ test("record-tool-sizes measures unchanged production thread definition and comp
   registerSlateTools({ registerTool(tool: any) { if (tool.name === "thread") thread = tool; } } as unknown as ExtensionAPI, new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI), () => { throw new Error("not dispatched"); });
   assert.equal(Buffer.byteLength(thread.description), 973);
   assert.equal(Buffer.byteLength(JSON.stringify(thread.parameters)), 2458);
-  assert.deepEqual([false, true].map((trusted) => Buffer.byteLength(workerPreamble(trusted, false)) + 223), [767, 1320]);
+  const currentChange = "change-20261004T000000Z-" + "a".repeat(32);
+  const lease = new RecordOwnership({ currentChange }).reserve(buildRecordAssignment({ type: "implementer", trackNumber: "2.4" }, currentChange, undefined)!);
+  assert.deepEqual([false, true].map((trusted) => Buffer.byteLength([workerPreamble(trusted, false), recordWorkerGuidance(lease)].join("\n\n"))), [769, 1322]);
 });
