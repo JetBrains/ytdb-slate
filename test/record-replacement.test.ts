@@ -101,7 +101,7 @@ test("record-version-retention numbers each record independently and allows gaps
   for (const n of [7, 8, 9]) assert.equal(await fs.readFile(join(f.versions, `status.md.v${n}.${abc.slice(7)}`), "utf8"), "abc");
 });
 
-for (const suffix of ["01." + abc.slice(7), "0." + abc.slice(7), "2.bad", "9007199254740992." + abc.slice(7), "1." + "0".repeat(64)]) {
+for (const suffix of ["01." + abc.slice(7), "0." + abc.slice(7), "2.bad", "9007199254740992." + abc.slice(7), "1." + "0".repeat(64), "1." + abc.slice(7) + "\n"]) {
   test(`record-version-retention rejects malformed or false evidence ${suffix}`, async (t) => {
     const f = await fixture(t);
     await fs.writeFile(f.path, "abc");
@@ -204,6 +204,12 @@ test("record-version-retention preserves interrupted private attempts outside ha
   await fs.writeFile(malformed, "a", { mode: 0o600 });
   await failure((await f.call("third", digest(Buffer.from("next")))).publish(), /staging entry.*invalid sequence/);
   assert.equal(await fs.readFile(f.path, "utf8"), "next");
+  await fs.unlink(malformed);
+  const newline = join(f.versions, `.slate-record-version-status.md.v6.${"a".repeat(32)}.tmp\n`);
+  await fs.writeFile(newline, "a", { mode: 0o600 });
+  await failure((await f.call("third", digest(Buffer.from("next")))).publish(), /staging entry.*invalid sequence/);
+  assert.equal(await fs.readFile(newline, "utf8"), "a");
+  await failure(f.call("next", digest(Buffer.from("next")), { temporaryName: () => `.slate-record-${"a".repeat(32)}.tmp\n` }), /temporary name is invalid/);
 });
 
 test("record-version-retention sync order precedes atomic replacement", async (t) => {

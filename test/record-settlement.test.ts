@@ -276,6 +276,66 @@ test("record-abort-settlement preserves uncertain state after an aborted folder 
   assert.equal((await fs.lstat(f.path)).nlink, 1);
 });
 
+for (const phase of ["version-directory-mode", "version-stat", "version-cleanup", "retained-permissions", "version-link"] as const) {
+  test(`record-private-creation reports ${phase} faults without changing current bytes`, async (t) => {
+    const f = await fixture(t);
+    await fs.writeFile(f.path, "abc");
+    const io: RecordFileSystem = { ...fs,
+      async mkdir(path, options) { await fs.mkdir(path, options); if (phase === "version-directory-mode") await fs.chmod(path, 0o755); },
+      async open(path, flags, mode) {
+        const handle = await fs.open(path, flags, mode);
+        if (phase === "version-stat" && path.startsWith(f.versions + "/") && flags & constants.O_CREAT) handle.stat = async () => { throw fault(); };
+        if (phase === "retained-permissions" && path.startsWith(f.versions + "/status.md.v")) {
+          const sync = handle.sync.bind(handle);
+          handle.sync = async () => { await sync(); await handle.chmod(0o644); };
+        }
+        return handle;
+      },
+      async link(from, to) { if (phase === "version-link") throw fault(); await fs.link(from, to); },
+      async unlink(path) { if (phase === "version-cleanup" && path.startsWith(f.versions + "/")) throw fault(); await fs.unlink(path); },
+    };
+    const error = await failure((await f.call("replace", { fs: io })).publish(), /private|retention|cleanup failed|permissions/,
+      ["version-directory-mode", "version-cleanup", "retained-permissions"].includes(phase) ? "refused before publication" : "failed before publication");
+    assert.equal(await fs.readFile(f.path, "utf8"), "abc");
+    assert.equal(error.outcome!.publication, "not attempted");
+    if (phase === "version-stat") {
+      const artifact = error.outcome!.artifacts.find((entry) => entry.kind === "temporary");
+      assert.ok(artifact);
+      assert.equal(artifact.complete, false);
+      assert.match(artifact.reason, /identity is unknown/);
+      assert.equal((await fs.lstat(artifact.path)).mode & 0o777, 0o600);
+    }
+    if (phase === "version-cleanup") {
+      const artifacts = error.outcome!.artifacts;
+      assert.ok(artifacts.some((entry) => entry.kind === "temporary"));
+      assert.equal((await fs.lstat(artifacts.find((entry) => entry.kind === "version")!.path)).nlink, 2);
+    }
+  });
+}
+
+test("record-outcome-reporting classifies unsupported sync and preserves preparation evidence", async (t) => {
+  const f = await fixture(t);
+  const error = await failure(f.call("create", { fs: { ...fs, async open(path, flags, mode) {
+    const handle = await fs.open(path, flags, mode);
+    if (flags & constants.O_CREAT) handle.sync = async () => { throw fault("ENOTSUP"); };
+    return handle;
+  } } }), /filesystem lacks.*Use a filesystem/, "refused before publication");
+  assert.equal(error.outcome!.sync.candidate, false);
+  assert.equal(error.outcome!.publication, "not attempted");
+  assert.deepEqual(await fs.readdir(f.dir), []);
+});
+
+test("record-abort-settlement cleans an abort observed after preparation without entering publication", async (t) => {
+  const f = await fixture(t);
+  const controller = new AbortController();
+  const write = await f.call("create", { signal: controller.signal });
+  controller.abort();
+  const error = await failure(write.publish(), /aborted before publication/, "refused before publication");
+  assert.equal(error.outcome!.abortObserved, true);
+  assert.equal(error.outcome!.sync.folders, true);
+  assert.deepEqual(await fs.readdir(f.dir), []);
+});
+
 test("record-write-interleavings cleanup before publication closes the prepared write", async (t) => {
   const f = await fixture(t);
   const write = await f.call();

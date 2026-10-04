@@ -66,6 +66,7 @@ export interface RecordWriteOutcome {
 	publication: "not attempted" | "not published" | "returned" | "observed" | "unknown";
 	sync: { candidate: boolean; version: boolean; record: boolean; folders: boolean; cleanup: boolean };
 	artifacts: RecordArtifact[];
+	secondaryFailures: string[];
 	replacement?: { version: string; oldHash: string; newHash: string };
 }
 export class RecordPrepublicationError extends Error {
@@ -213,7 +214,7 @@ export async function prepareRecordWrite(context: RecordWriteContext, args: Reco
 			record: typeof args.record === "string" && context.assignment.names.includes(args.record) ? args.record : "unassigned",
 			mode: args.mode === "append" || args.mode === "replace" ? args.mode : "create",
 			state: failure.state, reason: failure.message, abortObserved: options.signal?.aborted ?? false,
-			publication: "not attempted", sync: { candidate: false, version: false, record: false, folders: false, cleanup: !failure.cleanup.leftover },
+			publication: "not attempted", sync: { candidate: false, version: false, record: false, folders: false, cleanup: !failure.cleanup.leftover }, secondaryFailures: [...failure.secondaryFailures],
 			artifacts: failure.cleanup.leftover ? [{ path: failure.cleanup.leftover, kind: "temporary", complete: false, reason: failure.cleanup.reason! }] : [],
 		};
 		throw failure;
@@ -244,7 +245,7 @@ async function prepare(context: RecordWriteContext, args: RecordWriteArguments, 
 	let held: FileHandle | undefined;
 	let cleanupFolder: { path: string; identity: Stats } | undefined;
 	const evidence: RecordWriteOutcome = { record, mode, state: "failed before publication", reason: "Record preparation is incomplete.", abortObserved: false,
-		publication: "not attempted", sync: { candidate: false, version: false, record: false, folders: false, cleanup: false }, artifacts: [] };
+		publication: "not attempted", sync: { candidate: false, version: false, record: false, folders: false, cleanup: false }, artifacts: [], secondaryFailures: [] };
 	try {
 		const root = await io.realpath(context.projectRoot);
 		const parent = join(root, "slate-changes");
@@ -329,6 +330,7 @@ async function prepare(context: RecordWriteContext, args: RecordWriteArguments, 
 			evidence.state = failure.state;
 			evidence.reason = failure.message;
 			evidence.abortObserved = options.signal?.aborted ?? false;
+			evidence.secondaryFailures.push(...failure.secondaryFailures);
 			failure.outcome = structuredClone(evidence);
 			throw failure;
 		};
@@ -347,7 +349,8 @@ async function prepare(context: RecordWriteContext, args: RecordWriteArguments, 
 			const stagingPrefix = `.slate-record-version-${record}.v`;
 			for (const entry of await io.readdir(versions)) {
 				if (entry.startsWith(stagingPrefix)) {
-					const match = /^([1-9][0-9]*)\.[0-9a-f]{32}\.tmp$/.exec(entry.slice(stagingPrefix.length));
+					const suffix = entry.slice(stagingPrefix.length);
+					const match = /^([1-9][0-9]*)\.[0-9a-f]{32}\.tmp$/.exec(suffix);
 					if (!match || !Number.isSafeInteger(Number(match[1]))) refuse("A version staging entry has an invalid sequence. Inspect the version folder before retrying.");
 					const staged = await readRecord(io, join(versions, entry));
 					if ((staged.identity.mode & 0o777) !== 0o600) refuse("A version staging entry is not private. Inspect the version folder before retrying.");
@@ -356,7 +359,8 @@ async function prepare(context: RecordWriteContext, args: RecordWriteArguments, 
 					continue;
 				}
 				if (!entry.startsWith(record + ".v")) continue;
-				const match = /^([1-9][0-9]*)\.([0-9a-f]{64})$/.exec(entry.slice(record.length + 2));
+				const suffix = entry.slice(record.length + 2);
+				const match = /^([1-9][0-9]*)\.([0-9a-f]{64})$/.exec(suffix);
 				if (!match || !Number.isSafeInteger(Number(match[1]))) refuse("A version entry has an invalid sequence or hash. Inspect the version folder before retrying.");
 				const retained = await readRecord(io, join(versions, entry));
 				if (recordHash(retained.bytes).slice(7) !== match[2] || (retained.identity.mode & 0o777) !== 0o600) refuse("A version entry has unsafe permissions or different bytes. Inspect the version folder before retrying.");
@@ -406,7 +410,7 @@ async function prepare(context: RecordWriteContext, args: RecordWriteArguments, 
 					await versionHandle.sync();
 				} finally { await versionHandle.close(); }
 			} catch (error) { retentionFailure = error; } finally {
-				try { await privateHandle?.close(); } catch { evidence.artifacts.push({ path: privatePath, kind: "temporary", complete: false, reason: "The version handle did not close. Inspect open handles." }); }
+				try { await privateHandle?.close(); } catch { evidence.secondaryFailures.push("The version handle did not close. Inspect open handles before retrying."); }
 				if (linked) evidence.artifacts.push({ path: versionPath, kind: "version", complete: versionVerified, reason: versionVerified ? "Retained earlier bytes. Keep this version unchanged." : "Version verification is incomplete. Inspect this name before relying on it." });
 				if (!privateIdentity && privateHandle) evidence.artifacts.push({ path: privatePath, kind: "temporary", complete: false, reason: "The version temporary identity is unknown. Leave this name untouched and inspect it." });
 				if (privateIdentity) {
@@ -423,7 +427,7 @@ async function prepare(context: RecordWriteContext, args: RecordWriteArguments, 
 			}
 			if (cleanupFailure) refuse("Version temporary cleanup failed. Inspect the retained copy and temporary name before retrying.");
 			const retained = await readRecord(io, versionPath);
-			if (!retained.bytes.equals(earlier!.bytes)) refuse("The retained version bytes changed. Inspect the version before retrying.");
+			if (!same(retained.identity, privateIdentity!) || !retained.bytes.equals(earlier!.bytes) || (retained.identity.mode & 0o777) !== 0o600) refuse("The retained version identity, permissions, or bytes changed. Inspect the version before retrying.");
 			await syncDirectory(io, versions, basis);
 			await syncDirectory(io, destination, chain[2]!.identity);
 			evidence.sync.version = true;
@@ -485,7 +489,7 @@ async function prepare(context: RecordWriteContext, args: RecordWriteArguments, 
 					await finalHandle.sync();
 					evidence.sync.record = true;
 				} finally { await finalHandle.close(); }
-			} catch { settlementFailure = true; }
+			} catch { settlementFailure = true; evidence.secondaryFailures.push("Published record verification or file sync failed. Inspect the current record before retrying."); }
 			await clean();
 			try {
 				await recheck();
@@ -494,7 +498,7 @@ async function prepare(context: RecordWriteContext, args: RecordWriteArguments, 
 				const final = await readRecord(io, finalPath);
 				evidence.observedAfterHash = recordHash(final.bytes);
 				if (!same(final.identity, identity!) || !final.bytes.equals(candidate) || (final.identity.mode & 0o777) !== 0o600) throw new Error("Final candidate changed");
-			} catch { settlementFailure = true; }
+			} catch { settlementFailure = true; evidence.secondaryFailures.push("Folder sync or final record verification failed. Inspect the current record and artifacts before retrying."); }
 			evidence.abortObserved = options.signal?.aborted ?? false;
 			evidence.state = !known ? "unknown outcome" : settlementFailure || publicationError || !evidence.sync.cleanup ? "published with uncertain durability" : "published and synced";
 			evidence.reason = evidence.state === "published and synced" ? "The record is published and synced. Do not repeat this write." :
@@ -538,6 +542,7 @@ async function prepare(context: RecordWriteContext, args: RecordWriteArguments, 
 		evidence.abortObserved = options.signal?.aborted ?? false;
 		evidence.sync.cleanup = !failure.cleanup.leftover;
 		if (failure.cleanup.leftover) evidence.artifacts.push({ path: failure.cleanup.leftover, kind: "temporary", complete: evidence.sync.candidate, reason: failure.cleanup.reason! });
+		evidence.secondaryFailures.push(...failure.secondaryFailures);
 		failure.outcome = structuredClone(evidence);
 		throw failure;
 	}
