@@ -3,7 +3,7 @@
  * worker thread is allowed to load.
  *
  * A worker loads no project or discovered extension by default (worker.ts,
- * depth-1 recursion guard). Slate supplies one internal reminder component.
+ * depth-1 recursion guard). Slate supplies internal reminder and record components.
  * Home or trusted project settings can opt SPECIFIC host extensions back in, by
  * regex, via the `workerExtensions` config. It NEVER loads anything itself —
  * it only resolves a SET of extension load units (file paths or package
@@ -121,12 +121,14 @@ export const EMPTY_WORKER_EXTENSION_SET: WorkerExtensionSet = Object.freeze({
 
 /** Slate's own model-facing tools — a unit registering any of these is withheld (AD44/RG2). */
 export const SLATE_TOOL_NAMES = ["thread", "threads", "episode", "slate_change"];
+/** Worker-owned tool names are reserved, not denied to workers. */
+export const SLATE_WORKER_TOOL_NAMES = ["slate_record"];
 
 /** pi's built-in tools — a unit registering any of these would overwrite a worker's own (AD44/RG2). */
 export const PI_BUILTIN_TOOL_NAMES = ["read", "bash", "edit", "write", "grep", "find", "ls"];
 
-/** Union of the two lists above, as a set, for the collision barrier. */
-const COLLISION_NAMES = new Set([...SLATE_TOOL_NAMES, ...PI_BUILTIN_TOOL_NAMES]);
+/** Orchestrator, worker-owned and built-in tool names for the collision barrier. */
+const COLLISION_NAMES = new Set([...SLATE_TOOL_NAMES, ...SLATE_WORKER_TOOL_NAMES, ...PI_BUILTIN_TOOL_NAMES]);
 
 /** Slate's package identity. A unit test pins this constant to package.json. */
 export const SLATE_PACKAGE_NAME = "ytdb-slate";

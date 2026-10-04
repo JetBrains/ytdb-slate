@@ -902,7 +902,8 @@ if run_wanted L1 L2 L3 L4 L5 L6 L7 L8; then
 		for t in thread threads episode; do
 			case " $TOOLS " in *" $t "*) ;; *) MISSING="$MISSING $t" ;; esac
 		done
-		if [ -z "$MISSING" ]; then check L4 0 "the canary observed all three dispatch tools registered: thread, threads, episode"
+		case " $TOOLS " in *" slate_record "*) MISSING="$MISSING unexpected-worker-only-slate_record" ;; esac
+		if [ -z "$MISSING" ]; then check L4 0 "the canary observed all three dispatch tools registered and no worker-only slate_record: thread, threads, episode"
 		else check L4 1 "dispatch tool(s) NOT registered:$MISSING — the canary observed [$TOOLS]. Nothing else detects this: pi exits 0 with an empty stderr and a working /slate command."; fi
 	}
 

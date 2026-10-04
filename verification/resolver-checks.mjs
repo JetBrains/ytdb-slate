@@ -1399,7 +1399,7 @@ try {
 			followUp: { portable: 9882, lines: 92, paths: 5 }, routing: { portable: 9905, lines: 92, paths: 5 },
 			draftFollowUp: { portable: 9950, lines: 93, paths: 6 }, draftRouting: { portable: 9969, lines: 93, paths: 6 },
 			followUpRouting: { portable: 9979, lines: 93, paths: 5 }, maximal: { portable: 10043, lines: 94, paths: 6 },
-			maximalOpen: { portable: 10245, lines: 95, paths: 6 }, maximalLinked: { portable: 10475, lines: 97, paths: 6 },
+			maximalOpen: { portable: 10241, lines: 95, paths: 6 }, maximalLinked: { portable: 10471, lines: 97, paths: 6 },
 			dogfood: { portable: 9168, lines: 93, paths: 6 },
 		};
 		const doctrineBaselines = Object.values(rendered);
@@ -1434,17 +1434,17 @@ try {
 		const overExtensions = { units: [{ path: "/fixture/over", source: "z".repeat(128), isDirectory: true, tools: Array.from({ length: 88 }, (_, i) => ({ name: (`t${i}`).padEnd(64, "x"), description: "q".repeat(140) })) }], paths: [], toolNames: [] };
 		const over = await doctrine(overExtensions, () => activeRuntime, true, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, change);
 		const portable = (text) => text.split(docsDirectory).join("").length;
-		const wholeAt = await doctrine({ ...capped, units: [...capped.units, { path: "/fixture/c", source: "c".repeat(15), isDirectory: true, tools: [] }] }, () => atChars, true, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, change);
-		const wholeAbove = await doctrine({ ...capped, units: [...capped.units, { path: "/fixture/c", source: "c".repeat(16), isDirectory: true, tools: [] }] }, () => atChars, true, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, change);
+		const wholeAt = await doctrine({ ...capped, units: [...capped.units, { path: "/fixture/c", source: "c".repeat(19), isDirectory: true, tools: [] }] }, () => atChars, true, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, change);
+		const wholeAbove = await doctrine({ ...capped, units: [...capped.units, { path: "/fixture/c", source: "c".repeat(20), isDirectory: true, tools: [] }] }, () => atChars, true, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, change);
 		checkAll("doctrine-budget-boundaries", "runtime equality, first-over-limit rejection, maximum composition, and valid-router doctrine growth remain discriminatory", [
 			["19,400 accepted", atChars.promptText().length === 19400 && atChars.criticalErrors.length === 0, { length: atChars.promptText()?.length, errors: atChars.criticalErrors }],
 			["19,401 rejected", aboveChars.promptText() === undefined && aboveChars.criticalErrors.some((x) => /19401 portable characters/.test(x)), aboveChars.criticalErrors],
 			["105 lines accepted", atLines.promptText()?.split("\n").length === 105, atLines.criticalErrors],
 			["106 lines rejected", aboveLines.promptText() === undefined && aboveLines.criticalErrors.some((x) => /106 lines/.test(x)), aboveLines.criticalErrors],
 			["whole-doctrine equality is accepted and first-over-limit is rejected", portable(wholeAt) === DOCTRINE_LIMITS.maximalChars && portable(wholeAbove) === DOCTRINE_LIMITS.maximalChars + 1, { at: portable(wholeAt), above: portable(wholeAbove), ceiling: DOCTRINE_LIMITS.maximalChars }],
-			["boundary compositions stay exact and below whole-doctrine cap", portable(featureOffDraft) === 26112 && portable(featureOffTight) === 26186 && portable(routingWithoutDrafts) === 26141 && portable(routingWithFollowUp) === 26215 && portable(routing) === 26205 && portable(deferred) === 26279 && [featureOffDraft, featureOffTight, routingWithoutDrafts, routingWithFollowUp, routing, deferred].every((text) => portable(text) <= DOCTRINE_LIMITS.maximalChars), { featureOffDraft: portable(featureOffDraft), featureOffTight: portable(featureOffTight), routingWithoutDrafts: portable(routingWithoutDrafts), routingWithFollowUp: portable(routingWithFollowUp), routing: portable(routing), deferred: portable(deferred) }],
+			["boundary compositions stay exact and below whole-doctrine cap", portable(featureOffDraft) === 26108 && portable(featureOffTight) === 26182 && portable(routingWithoutDrafts) === 26137 && portable(routingWithFollowUp) === 26211 && portable(routing) === 26201 && portable(deferred) === 26275 && [featureOffDraft, featureOffTight, routingWithoutDrafts, routingWithFollowUp, routing, deferred].every((text) => portable(text) <= DOCTRINE_LIMITS.maximalChars), { featureOffDraft: portable(featureOffDraft), featureOffTight: portable(featureOffTight), routingWithoutDrafts: portable(routingWithoutDrafts), routingWithFollowUp: portable(routingWithFollowUp), routing: portable(routing), deferred: portable(deferred) }],
 			["boundary composition line counts match the published tables", featureOffDraft.split("\n").length === 95 && featureOffTight.split("\n").length === 96 && routingWithoutDrafts.split("\n").length === 95 && routingWithFollowUp.split("\n").length === 96 && routing.split("\n").length === 96 && deferred.split("\n").length === 97, { featureOffDraft: featureOffDraft.split("\n").length, featureOffTight: featureOffTight.split("\n").length, routingWithoutDrafts: routingWithoutDrafts.split("\n").length, routingWithFollowUp: routingWithFollowUp.split("\n").length, routing: routing.split("\n").length, deferred: deferred.split("\n").length }],
-			["fresh valid-router over-cap control reaches whole-doctrine guard", portable(over) === 28149 && portable(over) > DOCTRINE_LIMITS.maximalChars, portable(over)],
+			["fresh valid-router over-cap control reaches whole-doctrine guard", portable(over) === 28145 && portable(over) > DOCTRINE_LIMITS.maximalChars, portable(over)],
 		]);
 	});
 
@@ -3228,9 +3228,9 @@ Use its § Session handoff and the research log for ownership.`);
 
 			const recordDigest = (text) => createHash("sha256").update(normalizeText(text)).digest("hex");
 			const recursiveRecordUnits = [
-				{ id: "identifiers-ranges", source: recursive, extract: regionUnit(/^## Identifiers, code ranges, and design markers\n([\s\S]*?)(?=^## Manual records and safe writes\n)/gm), expected: "cfe3c89907795c13cb1a7a08893bdb666ba1f9f92988b911e2c24a85095e4fd4" },
-				{ id: "manual-records", source: recursive, extract: regionUnit(/^## Manual records and safe writes\n([\s\S]*?)(?=^## Resume and folder forks\n)/gm), expected: "401dc5437b292584d9125379dbfecf802edb551f6ca70615d5548c0aad3d2e7e" },
-				{ id: "resume-forks", source: recursive, extract: regionUnit(/^## Resume and folder forks\n([\s\S]*?)(?=^## Handoff boundaries\n)/gm), expected: "cb377b1eaf800101fb37f1aeffcff33c2beeba6fb9bea0870c71c838e0e937b6" },
+				{ id: "identifiers-ranges", source: recursive, extract: regionUnit(/^## Identifiers, code ranges, and design markers\n([\s\S]*?)(?=^## Manual records and safe writes\n)/gm), expected: "06a2a0822448a5112173b65c04826364d3a3094f7930ba98ecd7f17300e19ed8" },
+				{ id: "tool-records-and-recovery", source: recursive, extract: regionUnit(/^## Manual records and safe writes\n([\s\S]*?)(?=^## Resume and folder forks\n)/gm), expected: "2c552150e9fba4320c0fe1f9956ea2cf86a14dce7d7d88f6dd5cb7d9899eb986" },
+				{ id: "resume-forks", source: recursive, extract: regionUnit(/^## Resume and folder forks\n([\s\S]*?)(?=^## Handoff boundaries\n)/gm), expected: "ee8952191bf8a044b0c4c124644079ad41a918a51510d10a1d8b1ea6d72e6860" },
 				{ id: "handoff-pointer", source: recursive, extract: regionUnit(/^## Handoff boundaries\n([\s\S]*?)(?=^## Review-fix subtrees and repair limits\n)/gm), expected: "fc5ca34c11f5f1defb5989c10af42cbac9af901c102dc18c6c8d1b55a98cd52f" },
 				{ id: "marker-identity", source: workflow, extract: markedUnit("marker-identity-policy"), expected: "846764c07a6b2c925091bd80f944c888d49994a71f2799b5cd2b8368b415a3c9" },
 				{ id: "resume-order", source: workflow, extract: regionUnit(/^## Resume order and reconciliation\n([\s\S]*?)(?=^## Review coverage\n)/gm), expected: "9edb063aea53ffc494d650f1a2306b975bbf31f1700a874ea0fd004bb1d0e244" },
@@ -3251,9 +3251,52 @@ Use its § Session handoff and the research log for ownership.`);
 					{ id: unit.id, kind: "duplicate", changed: true, rejected: !acceptsRecordUnit(unit, `${unit.source}\n${unit.source}`) },
 				];
 			});
-			const recordRecipe = regionUnit(/^<!-- safe-record-recipe:begin -->\n```python\n([\s\S]*?)\n```\n<!-- safe-record-recipe:end -->/gm);
-			const recipeResolution = recordRecipe(recursive);
-			const recipeRaw = recursive.match(/^<!-- safe-record-recipe:begin -->\n```python\n([\s\S]*?)\n```\n<!-- safe-record-recipe:end -->/m)?.[1] ?? "";
+			const toolsSource = readFileSync(join(REPO, "extension", "tools.ts"), "utf8");
+			const noRecipeReferences = (...sources) => sources.every((source) => !/safe-record-recipe|safe-record\.py|runnable recipe/i.test(source));
+			const recordPolicy = recursiveRecordUnits.find((unit) => unit.id === "tool-records-and-recovery");
+			const recordContractAttacks = [
+				["recovery-removed", recursive.replace(/### Manual interrupted-create recovery[\s\S]*?(?=### Supported systems)/, "")],
+				["remove-record-name", recursive.replace("Never remove the record name", "Remove the record name")],
+				["omit-version-link", recursive.replace("A version staging name can share identity with", "A version staging name cannot share identity with")],
+				["append-comparison", recursive.replace("the exact earlier bytes followed by the exact payload bytes", "the payload bytes alone")],
+				["inspection-duty", recursive.replace("before any re-dispatch", "after re-dispatch")],
+				["omit-transcript-limit", recursive.replace("Private record permissions do not protect payload copies in worker session files.", "Private record permissions protect every payload copy.")],
+				["omit-virtiofs", recursive.replace("including drives exposed through virtiofs, a virtual-machine file-sharing filesystem", "without a detection limit")],
+				["oversized-design-append", recursive.replace("reduce the complete payload to fit the limit or stop and ask the user", "split the payload into appends")],
+			].map(([id, source]) => ({ id, changed: source !== recursive, rejected: !acceptsRecordUnit(recordPolicy, source) }));
+			const appendRetryExpected = normalizeText(`A mismatch does not prove that the append is missing.
+Repeat an append only when no writer is active and the current bytes equal exactly the earlier bytes.
+Their hash must equal the supplied expected hash.
+For every other result, including a comparison that cannot be established, pause and ask the user rather than repeat the append.`);
+			const appendRetryUnit = regionUnit(/^(A mismatch does not prove[\s\S]*?)(?=^Never retry an append)/gm);
+			const acceptsAppendRetry = (source) => {
+				const unit = appendRetryUnit(source);
+				return unit.count === 1 && unit.text === appendRetryExpected;
+			};
+			const appendRetryAttacks = [
+				recursive.replace("Repeat an append only when no writer is active and the current bytes equal exactly the earlier bytes.", "Repeat an append after any mismatch."),
+				recursive.replace("no writer is active and ", ""),
+				recursive.replace("Their hash must equal the supplied expected hash.", "Use any available hash."),
+			].map((source) => ({ changed: source !== recursive, rejected: !acceptsAppendRetry(source) }));
+			const authoritativeReaders = (recursiveSource, publishingSource, deliverySource) => {
+				const r = normalizeText(recursiveSource), p = normalizeText(publishingSource), d = normalizeText(deliverySource);
+				return r.includes("The current `root-design.md` or `track-<number>-design.md` is authoritative for its node.")
+					&& r.includes("The owning research log records each approved design hash and aggregate evidence.")
+					&& r.includes("A successor design names its read-only source design.")
+					&& p.includes("At creation, if a high-level design exists, read the current authoritative design file for the change root or design track.")
+					&& p.includes("A copied design in a log is not the authoritative plan.")
+					&& d.includes("current authoritative `root-design.md`") && d.includes("authoritative `track-<number>-design.md`")
+					&& d.includes("Temporary files and incomplete retained copies are not accounting sources.")
+					&& d.includes("A tool-retained design copy under `versions/` is evidence only when its complete bytes match its hash-bound name.")
+					&& d.includes("An interim `<name>.vN.md` design copy is evidence when its complete bytes match the hash recorded in the owning log.")
+					&& d.includes("The current design file remains authoritative.");
+			};
+			const readerAttacks = [
+				[recursive.replace("is authoritative for its node", "is not authoritative for its node"), publishing, deliveryPackages],
+				[recursive, publishing.replace("read the current authoritative design file", "read a copied design in the log"), deliveryPackages],
+				[recursive, publishing, deliveryPackages.replace("and authoritative `track-<number>-design.md`", "")],
+				[recursive, publishing, deliveryPackages.replace("is evidence when its complete bytes match the hash recorded in the owning log", "is never evidence")],
+			].map(([r, p, d]) => ({ changed: r !== recursive || p !== publishing || d !== deliveryPackages, rejected: !authoritativeReaders(r, p, d) }));
 			const canonicalMarkerCommand = 'git commit --allow-empty -m "Track <path-number> complete: <short name>"';
 			const acceptsMarkerCommand = (source) => {
 				const visible = source.replace(/<!--[\s\S]*?-->/g, "");
@@ -3271,11 +3314,17 @@ Use its § Session handoff and the research log for ownership.`);
 				`${workflow}\n${canonicalMarkerCommand}`,
 			].map((source) => ({ changed: source !== workflow, rejected: !acceptsMarkerCommand(source) }));
 			console.log(`NOTE recursive document: ${[...recursive].length} characters. Target: 16000. Report and explain any overrun in delivery evidence.`);
-			checkAll("contract-recursive-records", "canonical markers, actual code boundaries, design evidence, manual ownership, durable safe writes, resume, and forks remain complete", [
+			checkAll("contract-recursive-records", "canonical markers, code boundaries, authoritative designs, assigned tool writes, manual recovery, inspection, resume, and forks remain complete", [
 				["each bounded record policy equals its reviewed digest exactly once", recursiveRecordUnits.every((unit) => acceptsRecordUnit(unit, unit.source)), recursiveRecordUnits.map((unit) => ({ id: unit.id, resolved: unit.extract(unit.source), expected: unit.expected }))],
 				["contradictions, missing units, and duplicate units fail closed", recordUnitAttacks.every(({ changed, rejected }) => changed && rejected), recordUnitAttacks],
 				["outside-unit controls preserve each policy", recursiveRecordUnits.every((unit) => acceptsRecordUnit(unit, `${unit.source}\n<!-- Unrelated control. -->`)), "outside controls"],
-				["the runnable recipe has one exact raw source, including indentation", recipeResolution.count === 1 && createHash("sha256").update(recipeRaw).digest("hex") === "2e78b7f0ab687c7fdd68adccdd4d0c539fcbadada76d437c014d06fa8221a9d9", recipeRaw],
+				["shipping instructions contain no runnable recipe or directing reference", noRecipeReferences(recursive, workflow, toolsSource), "recursive workflow, lifecycle, and dispatch"],
+				["restoring a recipe reference in any consumer fails, while outside comments pass", [recursive, workflow, toolsSource].every((source) => !noRecipeReferences(source + "\nUse the runnable recipe.") && noRecipeReferences(source + "\n<!-- Unrelated control. -->")), "three independent consumers"],
+				["recovery, removal limits, version links, append comparison, inspection, privacy, platform limits, and permitted-mode advice reject violations", recordContractAttacks.every(({ changed, rejected }) => changed && rejected), recordContractAttacks],
+				["append retry requires exact earlier bytes, the expected hash, and no active writer", acceptsAppendRetry(recursive), appendRetryUnit(recursive)],
+				["any-mismatch retries, active writers, and unbound hashes fail while outside edits pass", appendRetryAttacks.every(({ changed, rejected }) => changed && rejected) && acceptsAppendRetry(`${recursive}\n<!-- Outside append-retry control. -->`), appendRetryAttacks],
+				["all three readers retain authoritative design files and source restrictions", authoritativeReaders(recursive, publishing, deliveryPackages), "root and entered design-track files"],
+				["authority omissions fail and harmless outside-reader edits pass", readerAttacks.every(({ changed, rejected }) => changed && rejected) && authoritativeReaders(`${recursive}\n<!-- Outside reader control. -->`, `${publishing}\n<!-- Outside reader control. -->`, `${deliveryPackages}\n<!-- Outside reader control. -->`), readerAttacks],
 				["the displayed marker command is canonical and unique, excluding exception prose", acceptsMarkerCommand(workflow), "visible fenced command"],
 				["numeric padding, multiline padding, hidden canonical text, and duplicate commands fail", markerCommandAttacks.every(({ changed, rejected }) => changed && rejected), markerCommandAttacks],
 				["exception prose and outside-unit comments preserve the displayed command", acceptsMarkerCommand(`${workflow}\n<!-- benign control -->`), "flat-workflow exception retained"],
@@ -3315,9 +3364,13 @@ Every creation path keeps these safeguards:
   § Level publishing and retained history.
 - If the working branch has no diff against the base yet, land a
   bootstrap empty commit so the PR can be created.
-- At creation, if the change or design track has a high-level design, the owning
-  research log's Planned changes content folds into the PR description. Create the pull
-  request only after final design approval, as stated above.
+- At creation, if a high-level design exists, read the current authoritative design file for the change root or design track.
+  Use its approved plan in the pull request description.
+  The files are \`root-design.md\` and \`track-<number>-design.md\` in the current change folder.
+  Here \`<number>\` is the canonical path number defined in [recursive-workflow.md](recursive-workflow.md).
+  Read the owning log for approval hashes, decisions, and review evidence.
+  A copied design in a log is not the authoritative plan.
+  Create the pull request only after final design approval, as stated above.
 
   Key decisions, Risks, and Open questions feed the corresponding
   Planned-changes subsections. The applicable design review verdict lines land
@@ -3363,7 +3416,8 @@ The publishing setting and its disabled default remain unchanged.`),
 				publishing.replace("size or late-area design route", "late-area design route"),
 				publishing.replace("For a change without a design gate", "For a SMALL change without a design gate"),
 				publishing.replace("a high-level design and a level pull request", "a high-level design"),
-				publishing.replace("if the change or design track has a high-level design", "for every level with a high-level design"),
+				publishing.replace("read the current authoritative design file", "read a copied design in the log"),
+				publishing.replace("if a high-level design exists, ", ""),
 			];
 			const migrationMutations = [
 				workflow.replace("finishes under its recorded workflow unless the user\nexplicitly authorizes migration", "always moves to the current workflow"),
@@ -3454,7 +3508,7 @@ The split bypasses no stuck-fix consultation or required fix gate.`) },
 				{ id: "repairs", source: recursive, start: "## Review-fix subtrees and repair limits", end: "## Whole-subtree acceptance", expected: protectedRepairSummary },
 				{ id: "aggregate", source: recursive, start: "## Whole-subtree acceptance", end: "## Packages, attribution, and issues", expected: "6e37e0e95c35ed0c3ede6e02f3322f43038d8653d9885ce4b2ac1ed423472b63" },
 				{ id: "issues", source: recursive, start: "## Packages, attribution, and issues", end: null, expected: "895b87ee7afdda0d4d85e071c978727e0cf962f9af42e68c534c022ac010a5a3" },
-				{ id: "sources", source: deliveryPackages, start: "## Durable accounting", end: "<!-- publishing-disabled-accounting:begin -->", expected: "cfba6ae378f8d7e3db347d9894911bd7497205f1fd76772ae97847af7f7f7a52" },
+				{ id: "sources", source: deliveryPackages, start: "## Durable accounting", end: "<!-- publishing-disabled-accounting:begin -->", expected: "d57838692a9d9e0e20dabd3459be67eb1f953ad17bd1e7743f709e514816e672" },
 				{ id: "workflow-accounting", source: workflow, start: "With draft publishing,", end: "\n\nAim for a delivery body", expected: "9410e62de528ba3d18269213779348a187c5f894bd2d99fa5f529dfa3fc5a4a1" },
 				{ id: "notes-accounting", source: userNotes, start: "Before final acceptance, reconcile", end: "\n\n- every finding", expected: "7efa6f8740078ef4a9f5511b485a4e95e8b0e5f7341d2e278eddfbf27011b500" },
 				{ id: "publishing-sync", source: publishing, start: "## Keeping the PR in sync", end: "## Ready-for-review flip", expected: "fb386e6f14c2f051a842cd050cc4e2834dea5e2674853cc22794792cd4c1a7cc" },
@@ -3559,7 +3613,7 @@ Verify every level record and all root-wide accounting before root closure.`);
 			]);
 			const repairEscalation = regionUnit(/^## Mandatory escalation set\n([\s\S]*?)(?=^## User note accounting\n)/gm);
 			const repairEscalationDigest = "b9ebf47c2dceb335adfd3fb1cd694e2e23e6d210f5d962ef5c5c6d709cdc3de4";
-			const repairState = regionUnit(/^(Its plain-text \*\*repair state\*\* column[\s\S]*?)(?=^Create `track-<path-number>-research-log\.md`)/gm);
+			const repairState = regionUnit(/^(Its plain-text \*\*repair state\*\* column[\s\S]*?)(?=^Create `track-<number>-research-log\.md`)/gm);
 			const repairStateExpected = normalizeText(`Its plain-text **repair state** column shows each code track and review-fix child's repair use.
 Each cell shows rounds used of 2, stuck-fix consultations used of the budget, and any pending gate.
 No fixed machine-readable format is required.
@@ -4352,7 +4406,7 @@ Record each grant in the override log.`),
 			const reportRule = regionUnit(/^For each code track, the implementer creates\n([\s\S]*?)(?=^Tracks are contiguous)/gm);
 			const forkRule = regionUnit(/^Use a safe write method\. ([\s\S]*?)(?=^Before a session handoff)/gm);
 			const expectedReportRule = normalizeText(`\`track-<number>-implementer-report.md\` in the current change folder when the track starts. The dispatch gives the exact path. The report is untracked working material. After a session with a different identifier takes ownership, create a report in the new change folder. If the source folder has this track's report, name it as read-only in the new report's first entry. Continue the work in the new report. The report has four required sections: changes to the high-level design with the reason for each, the low-level design, diagrams where they help, and checks run with their results. The report states the approximate track size in counted lines. Later fix rounds append to that report in the current change folder.`);
-			const expectedForkRule = normalizeText(`Create each file without following a symbolic link. Append through a temporary file and atomic rename when replacement is needed. Use [recursive-workflow.md](recursive-workflow.md) § Manual records and safe writes for the runnable recipe, including implementer reports. Research logs and implementer reports are append-only. A correction is a new entry. Slate checks the folder chain when it creates the change. Manual writers must also check the destination. Keep all manual records and leftover temporary files untracked and visible in repository status. Do not add them to an ignore file or a pull request. Exclude their references and contents from reviewer inputs. Never overwrite a record from a stale in-memory copy. When a session adopts a change owned by a different Pi session identifier, Slate starts a new folder. Its log first names the direct source folder as a read-only earlier log. Each source log's first entry links to its own source. Follow those links to read the full history. The source remains in place without copying. A resume or reload with the same identifier continues the current folder. A /tree move to parent history with a different owner creates a new folder on reload. A handoff makes the successor the owner of the current folder. If folder allocation fails, Slate saves no open change and reports the failure. If that save fails, Slate reports it too. A legacy root \`research-log.md\` remains read-only. Only the user deletes a delivered or abandoned change folder.`);
+			const expectedForkRule = normalizeText(`Use \`slate_record\` for assigned change records, including implementer reports. Use [recursive-workflow.md](recursive-workflow.md) § Manual records and safe writes for tool guidance, inspection duties, and manual interrupted-create recovery. Research logs and implementer reports are append-only. A correction is a new entry. Slate checks the folder chain when it creates the change. The record tool checks the destination again before publication. Keep all manual records and leftover temporary files untracked and visible in repository status. Do not add them to an ignore file or a pull request. Exclude their references and contents from reviewer inputs. Never overwrite a record from a stale in-memory copy. When a session adopts a change owned by a different Pi session identifier, Slate starts a new folder. Its log first names the direct source folder as a read-only earlier log. Each source log's first entry links to its own source. Follow those links to read the full history. The source remains in place without copying. A resume or reload with the same identifier continues the current folder. A /tree move to parent history with a different owner creates a new folder on reload. A handoff makes the successor the owner of the current folder. If folder allocation fails, Slate saves no open change and reports the failure. If that save fails, Slate reports it too. A legacy root \`research-log.md\` remains read-only. Only the user deletes a delivered or abandoned change folder.`);
 			const acceptsLateRules = (source) => {
 				const report = reportRule(source);
 				const fork = forkRule(source);
@@ -4394,7 +4448,7 @@ Record each grant in the override log.`),
 
 			const packageContract = block(deliveryPackages, "delivery-package-contract");
 			const digest = (text) => createHash("sha256").update(normalizeText(text)).digest("hex");
-			const EXPECTED_DELIVERY_PACKAGES_SHA256 = "70d590c536f6987711c0f2d64bbfecc76c6614e904669ea85a4b05cf01810ff3";
+			const EXPECTED_DELIVERY_PACKAGES_SHA256 = "85d6a57688f420eef1da4458436b5f3daf0d4c0024d7087bd6cae95e9d30b718";
 			const acceptsPackageContract = (source) => {
 				const owned = block(source, "delivery-package-contract");
 				return owned.count === 1 && owned.endCount === 1 && digest(source) === EXPECTED_DELIVERY_PACKAGES_SHA256;
@@ -4823,7 +4877,7 @@ The accounting covers:`),
 				.replace(/(^|[^:])\/\/[^\n]*/g, "$1 ");
 			checkAll("worker-reminder-wiring", "worker reminder loader, handler, tool exclusion, and dispatch warning wiring stays intact", [
 				["worker creates the internal session-local runtime directly", /import\s*\{\s*createWorkerReminderRuntime\s*\}\s*from\s*["']\.\/worker-reminder\.ts["']/.test(workerSource) && /const\s+workerReminder\s*=\s*createWorkerReminderRuntime\(\)/.test(workerSource), workerSource.match(/import[^\n]*worker-reminder[^\n]*/)?.[0] ?? "not found"],
-				["every loader receives the exact named hidden factory", (workerSource.match(/new\s+DefaultResourceLoader\s*\(/g) ?? []).length === 1 && /extensionFactories\s*:\s*\[\s*\{\s*name\s*:\s*["']slate-worker-reminder["']\s*,\s*factory\s*:\s*workerReminder\.extension\s*,\s*hidden\s*:\s*true\s*,?\s*\}\s*,?\s*\]/.test(loaderBlock), loaderBlock.match(/extensionFactories\s*:[\s\S]{0,240}/)?.[0] ?? "not found"],
+				["every loader receives the exact named hidden factory", (workerSource.match(/new\s+DefaultResourceLoader\s*\(/g) ?? []).length === 1 && /extensionFactories\s*:\s*\[\s*\{\s*name\s*:\s*["']slate-worker-reminder["']\s*,\s*factory\s*:\s*workerReminder\.extension\s*,\s*hidden\s*:\s*true\s*,?\s*\}\s*,\s*\{\s*name\s*:\s*RECORD_FACTORY_NAME\s*,\s*factory\s*:\s*workerRecord\.extension\s*,\s*hidden\s*:\s*true\s*\}\s*,?\s*\]/.test(loaderBlock), loaderBlock.match(/extensionFactories\s*:[\s\S]{0,240}/)?.[0] ?? "not found"],
 				["factory wiring is independent of the allowlist and prompt cache key", loaderStart >= 0 && reloadStart > loaderStart && allowlistStart > reloadStart && !/promptCacheKey/.test(loaderBlock) && (loaderBlock.match(/workerReminder\.extension/g) ?? []).length === 1, { loaderStart, reloadStart, allowlistStart, promptCacheKey: loaderBlock.match(/promptCacheKey/)?.[0] ?? "absent", factoryCount: (loaderBlock.match(/workerReminder\.extension/g) ?? []).length }],
 				["handlers register directly in the internal factory rather than session_start", /pi\.on\(\s*["']message_end["']/.test(workerReminderSource) && /pi\.on\(\s*["']tool_result["']/.test(workerReminderSource) && !/["']session_start["']/.test(workerReminderSource), workerReminderSource.match(/pi\.on\([^\n]*/g) ?? []],
 				["loaded extensions are read exactly once after reload and before the allowlist gate", (workerSource.match(/loader\.getExtensions\(\)/g) ?? []).length === 1 && /const\s+loaded\s*=\s*loader\.getExtensions\(\)/.test(loadedBlock), { count: (workerSource.match(/loader\.getExtensions\(\)/g) ?? []).length, loadedBlock }],
@@ -4841,7 +4895,7 @@ The accounting covers:`),
 				["false trust omits writing guidance with or without the reviewer charter", worker.workerPreamble(false, false) === commonPreamble && !worker.workerPreamble(false, true).includes(currentGuidance), { plain: worker.workerPreamble(false, false), reviewer: worker.workerPreamble(false, true) }],
 				["true trust enables the current 1097-byte preamble with writing guidance", worker.WORKER_WRITING_GUIDANCE === currentGuidance && worker.workerPreamble(true, false) === `${commonPreamble} ${currentGuidance}` && Buffer.byteLength(worker.workerPreamble(true, false)) === 1097, worker.workerPreamble(true, false)],
 				["reviewer variants match the current measured byte boundaries", Buffer.byteLength(worker.workerPreamble(false, true)) === 2699 && Buffer.byteLength(worker.workerPreamble(true, true)) === 3252, { reviewer: Buffer.byteLength(worker.workerPreamble(false, true)), both: Buffer.byteLength(worker.workerPreamble(true, true)) }],
-				["worker prompt uses permitted Slate configuration and passes charter and selected guidance to the system blocks", /const configPermitted = permitsSlateConfig\(opts\.config, trusted\)/.test(workerSource) && /appendSystemPrompt\s*:\s*workerSystemPromptBlocks\(configPermitted\s*,\s*opts\.reviewerCharter\s*===\s*true\s*,\s*opts\.reviewGuidance\s*,\s*promptDocs\)/.test(workerSource), workerSource.match(/appendSystemPrompt\s*:\s*\[[^\]]{0,180}/)?.[0] ?? "not found"],
+				["worker prompt uses permitted Slate configuration and passes charter and selected guidance to the system blocks", /const configPermitted = permitsSlateConfig\(opts\.config, trusted\)/.test(workerSource) && /appendSystemPrompt\s*:\s*workerSystemPromptBlocks\(configPermitted\s*,\s*opts\.reviewerCharter\s*===\s*true\s*,\s*opts\.reviewGuidance\s*,\s*promptDocs\)\.concat\(recordWorkerGuidance\(opts\.recordLease\) \|\| \[\]\)/.test(workerSource), workerSource.match(/appendSystemPrompt\s*:\s*\[[^\]]{0,180}/)?.[0] ?? "not found"],
 				["the removed writingCheck parameter and dispatch field are absent", !/writingCheck/.test(workerSource) && !/writingCheck/.test(threadsSource), { worker: workerSource.match(/writingCheck/)?.[0] ?? "absent", threads: threadsSource.match(/writingCheck/)?.[0] ?? "absent" }],
 				["ThreadManager derives the charter switch from effective thread type through the shared judgement-type predicate", /effectiveThreadType\(args\.thread\s*,\s*args\.report\)/.test(threadsSource) && /reviewerCharter\s*:\s*isJudgementThreadType\(type\)/.test(threadsSource) && worker.JUDGEMENT_THREAD_TYPES?.join(",") === "reviewer,adversarial", { typeRead: threadsSource.match(/effectiveThreadType\([^)]*\)/)?.[0] ?? "not found", charter: threadsSource.match(/reviewerCharter\s*:[^,\n]*/)?.[0] ?? "not found", judgementTypes: worker.JUDGEMENT_THREAD_TYPES }],
 				["the dispatch routes an unrecognised-type report through its user-visible warning channel", /report\s*:\s*routeWarn/.test(threadsSource), threadsSource.match(/report\s*:[^,\n]*/)?.[0] ?? "not found"],

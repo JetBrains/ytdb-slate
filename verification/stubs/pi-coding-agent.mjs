@@ -62,11 +62,24 @@ export const estimateTokens = (message) => {
 };
 export const convertToLlm = (...args) => codingAgentStub.convertToLlm(...args);
 export const serializeConversation = (...args) => codingAgentStub.serializeConversation(...args);
-export const createAgentSession = (...args) => codingAgentStub.createAgentSession(...args);
+export const createAgentSession = async (options) => {
+  const result = await codingAgentStub.createAgentSession(options);
+  result.session.getActiveToolNames ??= () => (options.tools ?? []).filter((name) => !(options.excludeTools ?? []).includes(name));
+  return result;
+};
 export class DefaultResourceLoader {
   constructor(options) { this.options = options; }
-  async reload() {}
-  getExtensions() { return { extensions: [], errors: [] }; }
+  async reload() {
+    this.extensions = [];
+    for (const [index, input] of (this.options.extensionFactories ?? []).entries()) {
+      const tools = new Map();
+      const handlers = new Map();
+      const factory = typeof input === "function" ? input : input.factory;
+      await factory({ registerTool(tool) { tools.set(tool.name, tool); }, on(name, handler) { handlers.set(name, handler); } });
+      this.extensions.push({ path: `<inline:${typeof input === "function" ? index + 1 : input.name}>`, tools, handlers });
+    }
+  }
+  getExtensions() { return { extensions: this.extensions ?? [], errors: [] }; }
 }
 export class SessionManager {
   static open(...args) { return codingAgentStub.openSession(...args); }

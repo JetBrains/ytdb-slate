@@ -26,6 +26,33 @@ concatenated, filtered, or credited. The existing
 source-authoritative denominator, 85 percent line and branch floors, and
 small-branch-denominator warning policy remain unchanged.
 
+## Record-tool continuous integration jobs
+
+The full suite runs on Linux under the stable `Node 22` and `Node 24` check names.
+The `record-macos` job runs record-tool tests on `macos-latest` with Node 22.23.1
+and 24.18.0. The `record-windows` job runs only Windows tests on `windows-latest`
+with the same pins. Both jobs use pinned actions, no secrets, a read-only token,
+and a 15-minute timeout. WSL is tested through Linux CI and simulated drive checks.
+Record tests create disposable folders outside the checkout.
+
+`node verification/record-test-roster.mjs` audits both selections. The patterns
+are `test/**/record-*.test.ts` and `test/**/record-windows-*.test.ts`, with zero or
+more nested folders. Record imports and the `record-tool-test:` marker identify
+record-tool tests. The canonical Windows marker is `// record-tool-test: windows`.
+Indented and block-comment markers with that value also identify Windows-only tests.
+Both patterns allow an empty suffix after their final hyphen.
+The audit fails on an applicable file outside its pattern or a pattern with no
+files. Each selected file must produce one successful Node test summary and run
+at least one non-skipped test. Missing evidence, unexpected skips, pending tests
+and cancelled tests fail the runner. Only `record-native-windows-refusal uses the
+real platform on Windows` in `test/record-windows-refusal.test.ts` may skip off
+Windows. That test must run on Windows. `test/record-test-roster.test.ts` tests
+roster and execution failures and the shared rules file membership.
+Both record-tool jobs run the audit. `--run all` runs the record-tool selection,
+including `test/record-shared-rules.test.ts`.
+`--run windows` runs only the Windows subset. Exit 1 reports a roster or test
+failure. Exit 2 reports a bad invocation.
+
 ## Why this exists
 
 The mechanism restores the user's **global** pi defaults — `defaultProvider`,
@@ -644,16 +671,16 @@ exact current production renders are:
 | draft plus routing recommendations and capped workers | 6 | 9,969 | 93 |
 | deferred issues plus routing recommendations and capped workers | 5 | 9,979 | 93 |
 | canonical maximal baseline with all workflow options | 6 | 10,043 | 94 |
-| maximal baseline with an open change | 6 | 10,245 | 95 |
-| maximal baseline with source and legacy root log | 6 | 10,475 | 97 |
+| maximal baseline with an open change | 6 | 10,241 | 95 |
+| maximal baseline with source and legacy root log | 6 | 10,471 | 97 |
 | dogfood config and extension roster | 6 | 9,168 | 93 |
-| 19,400-character policy plus draft, source and legacy log | 6 | 26,112 | 95 |
-| same policy plus draft and deferred issues, source and legacy log | 6 | 26,186 | 96 |
-| same policy plus routing recommendations, source and legacy log | 5 | 26,141 | 95 |
-| same policy plus deferred issues and routing recommendations, source and legacy log | 5 | 26,215 | 96 |
-| same policy plus draft and routing recommendations, source and legacy log | 6 | 26,205 | 96 |
-| same boundary composition plus deferred issues | 6 | 26,279 | 97 |
-| valid shipped policy plus 88 capped tools, source and legacy log | 6 | 28,149 | 180 |
+| 19,400-character policy plus draft, source and legacy log | 6 | 26,108 | 95 |
+| same policy plus draft and deferred issues, source and legacy log | 6 | 26,182 | 96 |
+| same policy plus routing recommendations, source and legacy log | 5 | 26,137 | 95 |
+| same policy plus deferred issues and routing recommendations, source and legacy log | 5 | 26,211 | 96 |
+| same policy plus draft and routing recommendations, source and legacy log | 6 | 26,201 | 96 |
+| same boundary composition plus deferred issues | 6 | 26,275 | 97 |
+| valid shipped policy plus 88 capped tools, source and legacy log | 6 | 28,145 | 180 |
 
 The capped worker baseline has two units and four tools. Each unit label has 128
 characters. Each tool name has 64 characters. Each description has 140
@@ -662,25 +689,25 @@ configured extension units.
 
 The canonical 10,043-character baseline uses all six shipped logical models,
 all three workflow options, and the capped worker roster. With an open change,
-a direct source folder, and a legacy root log, it measures 10,475 characters.
-Its required five-percent value is 10,999. The 26,300 whole-doctrine ceiling
+a direct source folder, and a legacy root log, it measures 10,471 characters.
+Its required five-percent value is 10,995. The 26,300 whole-doctrine ceiling
 keeps that reserve. The exact fixtures cover all eight workflow-option
 combinations.
 
 Runtime rejection controls are separate. A logical section at exactly 19,400
 portable characters or 105 lines is valid. A section at 19,401 characters or
 106 lines is rejected before work. The four routing-enabled boundary
-compositions and the 26,112-character and 26,186-character feature-off
+compositions and the 26,108-character and 26,182-character feature-off
 compatibility controls include the current change, direct source, and legacy
 root log. They prove that an exact-boundary policy fits the 26,300-character
-whole-doctrine ceiling. The 26,279-character control has the smallest margin.
-A valid third worker unit with a 15-character label and all three workflow
-options measures 26,300. A 16-character label measures 26,301 and fails. These controls are
+whole-doctrine ceiling. The 26,275-character control has the smallest margin.
+A valid third worker unit with a 19-character label and all three workflow
+options measures 26,300. A 20-character label measures 26,301 and fails. These controls are
 not reserve-bearing canonical baselines.
 
 The over-cap counterfactual keeps the shipped logical policy valid and adds 88
 supported capped worker tools. With an open change, source, and legacy log, its
-28,149 portable characters exceed the ceiling by 1,849 characters.
+28,145 portable characters exceed the ceiling by 1,845 characters.
 This transformed fixture replaces the retired six-copy physical model-row shape.
 It does not assume an old per-row or per-tool increment. Removing the whole-
 doctrine comparison makes the counterfactual pass and therefore breaks the
