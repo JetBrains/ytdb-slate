@@ -1399,7 +1399,7 @@ try {
 			followUp: { portable: 9882, lines: 92, paths: 5 }, routing: { portable: 9905, lines: 92, paths: 5 },
 			draftFollowUp: { portable: 9950, lines: 93, paths: 6 }, draftRouting: { portable: 9969, lines: 93, paths: 6 },
 			followUpRouting: { portable: 9979, lines: 93, paths: 5 }, maximal: { portable: 10043, lines: 94, paths: 6 },
-			maximalOpen: { portable: 10245, lines: 95, paths: 6 }, maximalLinked: { portable: 10475, lines: 97, paths: 6 },
+			maximalOpen: { portable: 10241, lines: 95, paths: 6 }, maximalLinked: { portable: 10471, lines: 97, paths: 6 },
 			dogfood: { portable: 9168, lines: 93, paths: 6 },
 		};
 		const doctrineBaselines = Object.values(rendered);
@@ -1434,17 +1434,17 @@ try {
 		const overExtensions = { units: [{ path: "/fixture/over", source: "z".repeat(128), isDirectory: true, tools: Array.from({ length: 88 }, (_, i) => ({ name: (`t${i}`).padEnd(64, "x"), description: "q".repeat(140) })) }], paths: [], toolNames: [] };
 		const over = await doctrine(overExtensions, () => activeRuntime, true, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, change);
 		const portable = (text) => text.split(docsDirectory).join("").length;
-		const wholeAt = await doctrine({ ...capped, units: [...capped.units, { path: "/fixture/c", source: "c".repeat(15), isDirectory: true, tools: [] }] }, () => atChars, true, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, change);
-		const wholeAbove = await doctrine({ ...capped, units: [...capped.units, { path: "/fixture/c", source: "c".repeat(16), isDirectory: true, tools: [] }] }, () => atChars, true, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, change);
+		const wholeAt = await doctrine({ ...capped, units: [...capped.units, { path: "/fixture/c", source: "c".repeat(19), isDirectory: true, tools: [] }] }, () => atChars, true, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, change);
+		const wholeAbove = await doctrine({ ...capped, units: [...capped.units, { path: "/fixture/c", source: "c".repeat(20), isDirectory: true, tools: [] }] }, () => atChars, true, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, change);
 		checkAll("doctrine-budget-boundaries", "runtime equality, first-over-limit rejection, maximum composition, and valid-router doctrine growth remain discriminatory", [
 			["19,400 accepted", atChars.promptText().length === 19400 && atChars.criticalErrors.length === 0, { length: atChars.promptText()?.length, errors: atChars.criticalErrors }],
 			["19,401 rejected", aboveChars.promptText() === undefined && aboveChars.criticalErrors.some((x) => /19401 portable characters/.test(x)), aboveChars.criticalErrors],
 			["105 lines accepted", atLines.promptText()?.split("\n").length === 105, atLines.criticalErrors],
 			["106 lines rejected", aboveLines.promptText() === undefined && aboveLines.criticalErrors.some((x) => /106 lines/.test(x)), aboveLines.criticalErrors],
 			["whole-doctrine equality is accepted and first-over-limit is rejected", portable(wholeAt) === DOCTRINE_LIMITS.maximalChars && portable(wholeAbove) === DOCTRINE_LIMITS.maximalChars + 1, { at: portable(wholeAt), above: portable(wholeAbove), ceiling: DOCTRINE_LIMITS.maximalChars }],
-			["boundary compositions stay exact and below whole-doctrine cap", portable(featureOffDraft) === 26112 && portable(featureOffTight) === 26186 && portable(routingWithoutDrafts) === 26141 && portable(routingWithFollowUp) === 26215 && portable(routing) === 26205 && portable(deferred) === 26279 && [featureOffDraft, featureOffTight, routingWithoutDrafts, routingWithFollowUp, routing, deferred].every((text) => portable(text) <= DOCTRINE_LIMITS.maximalChars), { featureOffDraft: portable(featureOffDraft), featureOffTight: portable(featureOffTight), routingWithoutDrafts: portable(routingWithoutDrafts), routingWithFollowUp: portable(routingWithFollowUp), routing: portable(routing), deferred: portable(deferred) }],
+			["boundary compositions stay exact and below whole-doctrine cap", portable(featureOffDraft) === 26108 && portable(featureOffTight) === 26182 && portable(routingWithoutDrafts) === 26137 && portable(routingWithFollowUp) === 26211 && portable(routing) === 26201 && portable(deferred) === 26275 && [featureOffDraft, featureOffTight, routingWithoutDrafts, routingWithFollowUp, routing, deferred].every((text) => portable(text) <= DOCTRINE_LIMITS.maximalChars), { featureOffDraft: portable(featureOffDraft), featureOffTight: portable(featureOffTight), routingWithoutDrafts: portable(routingWithoutDrafts), routingWithFollowUp: portable(routingWithFollowUp), routing: portable(routing), deferred: portable(deferred) }],
 			["boundary composition line counts match the published tables", featureOffDraft.split("\n").length === 95 && featureOffTight.split("\n").length === 96 && routingWithoutDrafts.split("\n").length === 95 && routingWithFollowUp.split("\n").length === 96 && routing.split("\n").length === 96 && deferred.split("\n").length === 97, { featureOffDraft: featureOffDraft.split("\n").length, featureOffTight: featureOffTight.split("\n").length, routingWithoutDrafts: routingWithoutDrafts.split("\n").length, routingWithFollowUp: routingWithFollowUp.split("\n").length, routing: routing.split("\n").length, deferred: deferred.split("\n").length }],
-			["fresh valid-router over-cap control reaches whole-doctrine guard", portable(over) === 28149 && portable(over) > DOCTRINE_LIMITS.maximalChars, portable(over)],
+			["fresh valid-router over-cap control reaches whole-doctrine guard", portable(over) === 28145 && portable(over) > DOCTRINE_LIMITS.maximalChars, portable(over)],
 		]);
 	});
 
@@ -3229,7 +3229,7 @@ Use its § Session handoff and the research log for ownership.`);
 			const recordDigest = (text) => createHash("sha256").update(normalizeText(text)).digest("hex");
 			const recursiveRecordUnits = [
 				{ id: "identifiers-ranges", source: recursive, extract: regionUnit(/^## Identifiers, code ranges, and design markers\n([\s\S]*?)(?=^## Manual records and safe writes\n)/gm), expected: "06a2a0822448a5112173b65c04826364d3a3094f7930ba98ecd7f17300e19ed8" },
-				{ id: "tool-records-and-recovery", source: recursive, extract: regionUnit(/^## Manual records and safe writes\n([\s\S]*?)(?=^## Resume and folder forks\n)/gm), expected: "c58e3eab90e80833d83cd5613f302c7f7c3f863dd53ee2c0e609d900869d3f57" },
+				{ id: "tool-records-and-recovery", source: recursive, extract: regionUnit(/^## Manual records and safe writes\n([\s\S]*?)(?=^## Resume and folder forks\n)/gm), expected: "2c552150e9fba4320c0fe1f9956ea2cf86a14dce7d7d88f6dd5cb7d9899eb986" },
 				{ id: "resume-forks", source: recursive, extract: regionUnit(/^## Resume and folder forks\n([\s\S]*?)(?=^## Handoff boundaries\n)/gm), expected: "ee8952191bf8a044b0c4c124644079ad41a918a51510d10a1d8b1ea6d72e6860" },
 				{ id: "handoff-pointer", source: recursive, extract: regionUnit(/^## Handoff boundaries\n([\s\S]*?)(?=^## Review-fix subtrees and repair limits\n)/gm), expected: "fc5ca34c11f5f1defb5989c10af42cbac9af901c102dc18c6c8d1b55a98cd52f" },
 				{ id: "marker-identity", source: workflow, extract: markedUnit("marker-identity-policy"), expected: "846764c07a6b2c925091bd80f944c888d49994a71f2799b5cd2b8368b415a3c9" },
@@ -3261,9 +3261,23 @@ Use its § Session handoff and the research log for ownership.`);
 				["append-comparison", recursive.replace("the exact earlier bytes followed by the exact payload bytes", "the payload bytes alone")],
 				["inspection-duty", recursive.replace("before any re-dispatch", "after re-dispatch")],
 				["omit-transcript-limit", recursive.replace("Private record permissions do not protect payload copies in worker session files.", "Private record permissions protect every payload copy.")],
-				["omit-virtiofs", recursive.replace("including drives exposed through virtiofs", "without a detection limit")],
+				["omit-virtiofs", recursive.replace("including drives exposed through virtiofs, a virtual-machine file-sharing filesystem", "without a detection limit")],
 				["oversized-design-append", recursive.replace("reduce the complete payload to fit the limit or stop and ask the user", "split the payload into appends")],
 			].map(([id, source]) => ({ id, changed: source !== recursive, rejected: !acceptsRecordUnit(recordPolicy, source) }));
+			const appendRetryExpected = normalizeText(`A mismatch does not prove that the append is missing.
+Repeat an append only when no writer is active and the current bytes equal exactly the earlier bytes.
+Their hash must equal the supplied expected hash.
+For every other result, including a comparison that cannot be established, pause and ask the user rather than repeat the append.`);
+			const appendRetryUnit = regionUnit(/^(A mismatch does not prove[\s\S]*?)(?=^Never retry an append)/gm);
+			const acceptsAppendRetry = (source) => {
+				const unit = appendRetryUnit(source);
+				return unit.count === 1 && unit.text === appendRetryExpected;
+			};
+			const appendRetryAttacks = [
+				recursive.replace("Repeat an append only when no writer is active and the current bytes equal exactly the earlier bytes.", "Repeat an append after any mismatch."),
+				recursive.replace("no writer is active and ", ""),
+				recursive.replace("Their hash must equal the supplied expected hash.", "Use any available hash."),
+			].map((source) => ({ changed: source !== recursive, rejected: !acceptsAppendRetry(source) }));
 			const authoritativeReaders = (recursiveSource, publishingSource, deliverySource) => {
 				const r = normalizeText(recursiveSource), p = normalizeText(publishingSource), d = normalizeText(deliverySource);
 				return r.includes("The current `root-design.md` or `track-<number>-design.md` is authoritative for its node.")
@@ -3272,12 +3286,16 @@ Use its § Session handoff and the research log for ownership.`);
 					&& p.includes("At creation, if a high-level design exists, read the current authoritative design file for the change root or design track.")
 					&& p.includes("A copied design in a log is not the authoritative plan.")
 					&& d.includes("current authoritative `root-design.md`") && d.includes("authoritative `track-<number>-design.md`")
-					&& d.includes("Temporary files and incomplete retained copies are not accounting sources.");
+					&& d.includes("Temporary files and incomplete retained copies are not accounting sources.")
+					&& d.includes("A tool-retained design copy under `versions/` is evidence only when its complete bytes match its hash-bound name.")
+					&& d.includes("An interim `<name>.vN.md` design copy is evidence when its complete bytes match the hash recorded in the owning log.")
+					&& d.includes("The current design file remains authoritative.");
 			};
 			const readerAttacks = [
 				[recursive.replace("is authoritative for its node", "is not authoritative for its node"), publishing, deliveryPackages],
 				[recursive, publishing.replace("read the current authoritative design file", "read a copied design in the log"), deliveryPackages],
 				[recursive, publishing, deliveryPackages.replace("and authoritative `track-<number>-design.md`", "")],
+				[recursive, publishing, deliveryPackages.replace("is evidence when its complete bytes match the hash recorded in the owning log", "is never evidence")],
 			].map(([r, p, d]) => ({ changed: r !== recursive || p !== publishing || d !== deliveryPackages, rejected: !authoritativeReaders(r, p, d) }));
 			const canonicalMarkerCommand = 'git commit --allow-empty -m "Track <path-number> complete: <short name>"';
 			const acceptsMarkerCommand = (source) => {
@@ -3303,6 +3321,8 @@ Use its § Session handoff and the research log for ownership.`);
 				["shipping instructions contain no runnable recipe or directing reference", noRecipeReferences(recursive, workflow, toolsSource), "recursive workflow, lifecycle, and dispatch"],
 				["restoring a recipe reference in any consumer fails, while outside comments pass", [recursive, workflow, toolsSource].every((source) => !noRecipeReferences(source + "\nUse the runnable recipe.") && noRecipeReferences(source + "\n<!-- Unrelated control. -->")), "three independent consumers"],
 				["recovery, removal limits, version links, append comparison, inspection, privacy, platform limits, and permitted-mode advice reject violations", recordContractAttacks.every(({ changed, rejected }) => changed && rejected), recordContractAttacks],
+				["append retry requires exact earlier bytes, the expected hash, and no active writer", acceptsAppendRetry(recursive), appendRetryUnit(recursive)],
+				["any-mismatch retries, active writers, and unbound hashes fail while outside edits pass", appendRetryAttacks.every(({ changed, rejected }) => changed && rejected) && acceptsAppendRetry(`${recursive}\n<!-- Outside append-retry control. -->`), appendRetryAttacks],
 				["all three readers retain authoritative design files and source restrictions", authoritativeReaders(recursive, publishing, deliveryPackages), "root and entered design-track files"],
 				["authority omissions fail and harmless outside-reader edits pass", readerAttacks.every(({ changed, rejected }) => changed && rejected) && authoritativeReaders(`${recursive}\n<!-- Outside reader control. -->`, `${publishing}\n<!-- Outside reader control. -->`, `${deliveryPackages}\n<!-- Outside reader control. -->`), readerAttacks],
 				["the displayed marker command is canonical and unique, excluding exception prose", acceptsMarkerCommand(workflow), "visible fenced command"],
@@ -3488,7 +3508,7 @@ The split bypasses no stuck-fix consultation or required fix gate.`) },
 				{ id: "repairs", source: recursive, start: "## Review-fix subtrees and repair limits", end: "## Whole-subtree acceptance", expected: protectedRepairSummary },
 				{ id: "aggregate", source: recursive, start: "## Whole-subtree acceptance", end: "## Packages, attribution, and issues", expected: "6e37e0e95c35ed0c3ede6e02f3322f43038d8653d9885ce4b2ac1ed423472b63" },
 				{ id: "issues", source: recursive, start: "## Packages, attribution, and issues", end: null, expected: "895b87ee7afdda0d4d85e071c978727e0cf962f9af42e68c534c022ac010a5a3" },
-				{ id: "sources", source: deliveryPackages, start: "## Durable accounting", end: "<!-- publishing-disabled-accounting:begin -->", expected: "4abbfbd05d5ce45d13a8be7aa8701ef350e609db791bf166a1b3a93ea7623692" },
+				{ id: "sources", source: deliveryPackages, start: "## Durable accounting", end: "<!-- publishing-disabled-accounting:begin -->", expected: "d57838692a9d9e0e20dabd3459be67eb1f953ad17bd1e7743f709e514816e672" },
 				{ id: "workflow-accounting", source: workflow, start: "With draft publishing,", end: "\n\nAim for a delivery body", expected: "9410e62de528ba3d18269213779348a187c5f894bd2d99fa5f529dfa3fc5a4a1" },
 				{ id: "notes-accounting", source: userNotes, start: "Before final acceptance, reconcile", end: "\n\n- every finding", expected: "7efa6f8740078ef4a9f5511b485a4e95e8b0e5f7341d2e278eddfbf27011b500" },
 				{ id: "publishing-sync", source: publishing, start: "## Keeping the PR in sync", end: "## Ready-for-review flip", expected: "fb386e6f14c2f051a842cd050cc4e2834dea5e2674853cc22794792cd4c1a7cc" },
@@ -4428,7 +4448,7 @@ Record each grant in the override log.`),
 
 			const packageContract = block(deliveryPackages, "delivery-package-contract");
 			const digest = (text) => createHash("sha256").update(normalizeText(text)).digest("hex");
-			const EXPECTED_DELIVERY_PACKAGES_SHA256 = "56b8b1ec79181b04cb0a098aeefd947d7574468b82959cf83374e9d6c809a8c7";
+			const EXPECTED_DELIVERY_PACKAGES_SHA256 = "85d6a57688f420eef1da4458436b5f3daf0d4c0024d7087bd6cae95e9d30b718";
 			const acceptsPackageContract = (source) => {
 				const owned = block(source, "delivery-package-contract");
 				return owned.count === 1 && owned.endCount === 1 && digest(source) === EXPECTED_DELIVERY_PACKAGES_SHA256;

@@ -1,14 +1,15 @@
 // record-tool-test: all
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
+import * as ts from "typescript";
 import { mkdtemp, realpath, rm, writeFile, readFile } from "node:fs/promises";
 import * as fs from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { RECORD_NAME_RULES, buildRecordAssignment, readOnlyEarlierLogLine } from "../extension/record-names.ts";
-import { prepareRecordWrite } from "../extension/record-write.ts";
+import { prepareRecordWrite, RECORD_PAYLOAD_MAX } from "../extension/record-write.ts";
 import { createChangeDirectory } from "../extension/slate-files.ts";
 import { RECORD_TOOL_DESCRIPTION, RECORD_TOOL_PARAMETERS, recordWorkerGuidance } from "../extension/record-worker.ts";
 import { RecordOwnership } from "../extension/record-ownership.ts";
@@ -21,32 +22,123 @@ const doc = (name: string) => readFileSync(new URL(`../docs/${name}.md`, import.
 const recursive = doc("recursive-workflow");
 const hash = (bytes: string) => "sha256:" + createHash("sha256").update(bytes).digest("hex");
 
-test("record-name-agreement compares document names and modes with production rules", () => {
-  const rows = [...recursive.matchAll(/^\| `([^`]+)` \| ([^|]+) \| ([^|]+) \|$/gm)];
+function recordRows(source: string) {
+  const tables = [...source.matchAll(/^\| Exact record name \| Permitted modes \| Writer \|\n\| --- \| --- \| --- \|\n((?:\|[^\n]*\|\n)+)/gm)];
+  assert.equal(tables.length, 1, "one record-mode table");
+  return [...tables[0]![1]!.matchAll(/^\| `([^`]+)` \| ([^|]+) \| ([^|]+) \|$/gm)];
+}
+
+function assertRecordRows(source: string) {
+  const rows = recordRows(source);
   assert.equal(rows.length, RECORD_NAME_RULES.length);
   assert.deepEqual(rows.map((row) => [row[1], row[2]!.trim(), row[3]!.trim()]), RECORD_NAME_RULES.map((rule) => [
     rule.hasIdentifier ? `${rule.prefix}<number>${rule.suffix}` : rule.prefix,
     rule.modes.join(", "), rule.writerRole === "implementer" ? "implementer for that number" : rule.writerRole,
   ]));
+}
+
+function assertSharedPlaceholders(source: string) {
+  assert.doesNotMatch(source, /track-<(?:path|path-number|identifier)>-(?:design|research-log|implementer-report)\.md/);
+}
+
+test("record-name-agreement compares document names and modes with production rules", () => {
+  assertRecordRows(recursive);
+  assert.throws(() => assertRecordRows(recursive.replace("| create, replace | record-only |", "| create, append | record-only |")));
+  assertRecordRows(recursive + "\n## Unrelated table\n\n| `README.md` | read | reader |\n");
   for (const reader of [doc("pr-publishing"), doc("delivery-packages"), recursive]) {
     assert.ok(reader.includes("`root-design.md`"));
     assert.ok(reader.includes("`track-<number>-design.md`"));
-    assert.doesNotMatch(reader, /track-<(?:path|path-number|identifier)>-(?:design|research-log)\.md/);
+    assertSharedPlaceholders(reader);
   }
   const change = "change-20261004T000000Z-" + "a".repeat(32);
   assert.ok(recursive.includes("`" + readOnlyEarlierLogLine(change).replace(change, "<change>") + "`"));
 });
 
+test("record-shared-placeholder-agreement checks doctrine source and every document", () => {
+  const sources = [readFileSync(new URL("../extension/mode.ts", import.meta.url), "utf8"),
+    ...readdirSync(new URL("../docs/", import.meta.url), { recursive: true, encoding: "utf8" }).filter((name) => name.endsWith(".md"))
+      .map((name) => readFileSync(new URL(`../docs/${name}`, import.meta.url), "utf8"))];
+  for (const source of sources) {
+    assertSharedPlaceholders(source);
+    for (const suffix of ["design", "research-log", "implementer-report"]) {
+      assert.throws(() => assertSharedPlaceholders(source + `\ntrack-<identifier>-${suffix}.md`));
+    }
+    assertSharedPlaceholders(source + "\n<!-- Unrelated placeholder control. -->");
+  }
+});
+
+function assertPlatform(source: string) {
+  assert.ok(source.includes("Change-record writes support Linux, macOS, and Windows Subsystem for Linux (WSL) on its own Linux filesystem."));
+  assert.match(source, /Native Windows refuses with a reason before any record-tool file operation/);
+  assert.match(source, /Detected Windows drive destinations inside WSL (?:also refuse\.|refuse before file changes\.)/);
+  assert.match(source, /Windows drives (?:inside WSL )?are unsupported even when detection misses them/);
+  assert.ok(source.includes("https://github.com/JetBrains/ytdb-slate/issues/498"));
+}
+
 test("record-platform-document-agreement keeps supported systems, refusal, and evidence limits", () => {
-  const principles = doc("design-principles");
-  for (const source of [principles, recursive]) {
-    assert.ok(source.includes("Change-record writes support Linux, macOS, and Windows Subsystem for Linux (WSL) on its own Linux filesystem."));
-    assert.match(source, /Native Windows refuses with a reason before any record-tool file operation/);
-    assert.ok(source.includes("https://github.com/JetBrains/ytdb-slate/issues/498"));
+  for (const source of [doc("design-principles"), recursive]) {
+    assertPlatform(source);
+    assert.throws(() => assertPlatform(source.replace("Detected Windows drive destinations inside WSL", "Allowed Windows drive destinations inside WSL")));
+    assert.throws(() => assertPlatform(source.replace("are unsupported even when detection misses them", "are supported when detection misses them")));
+    assertPlatform(source + "\n<!-- Outside platform control. -->");
   }
   assert.ok(recursive.includes("WSL tested through Linux CI and simulated drive checks."));
-  assert.ok(recursive.includes("including drives exposed through virtiofs"));
+  assert.ok(recursive.includes("including drives exposed through virtiofs, a virtual-machine file-sharing filesystem"));
   assert.ok(recursive.includes("https://github.com/JetBrains/ytdb-slate/issues/499"));
+});
+
+function assertPayloadLimit(source: string) {
+  const limits = [...source.matchAll(/Each payload may contain at most ([\d,]+) encoded bytes/g)];
+  assert.equal(limits.length, 1);
+  assert.equal(Number(limits[0]![1]!.replaceAll(",", "")), RECORD_PAYLOAD_MAX);
+}
+
+function assertParameters(source: string) {
+  const lists = [...source.matchAll(/^The tool accepts (.+)\.$/gm)];
+  assert.equal(lists.length, 1);
+  assert.deepEqual([...lists[0]![1]!.matchAll(/`([^`]+)`/g)].map((match) => match[1]), Object.keys(RECORD_TOOL_PARAMETERS.properties));
+}
+
+function assertOutcomeStates(source: string) {
+  const production = readFileSync(new URL("../extension/record-write.ts", import.meta.url), "utf8");
+  const ast = ts.createSourceFile("record-write.ts", production, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const aliases = ast.statements.filter(ts.isTypeAliasDeclaration).filter((alias) => alias.name.text === "RecordOutcomeState");
+  assert.equal(aliases.length, 1);
+  const union = aliases[0]!.type;
+  assert.ok(ts.isUnionTypeNode(union));
+  const states = union.types.map((type) => {
+    assert.ok(ts.isLiteralTypeNode(type) && ts.isStringLiteral(type.literal));
+    return type.literal.text;
+  });
+  const tables = [...source.matchAll(/^\| Outcome state \| Caller duty \|\n\| --- \| --- \|\n((?:\|[^\n]*\|\n)+)/gm)];
+  assert.equal(tables.length, 1);
+  assert.deepEqual([...tables[0]![1]!.matchAll(/^\| ([^|]+) \|/gm)].map((row) => row[1]!.trim()), states);
+}
+
+test("record-tool-value-agreement derives payload limit, parameters, and outcome states from production", () => {
+  for (const [check, before, after] of [
+    [assertPayloadLimit, "1,048,576 encoded bytes", "2,097,152 encoded bytes"],
+    [assertParameters, "`payload`, and optional", "`text`, and optional"],
+    [assertOutcomeStates, "| unknown outcome |", "| lost outcome |"],
+  ] as const) {
+    check(recursive);
+    assert.ok(recursive.includes(before));
+    assert.throws(() => check(recursive.replace(before, after)));
+    check(recursive + "\n<!-- Outside tool-value control. -->");
+  }
+});
+
+function assertDesignEvidence(source: string) {
+  assert.ok(source.includes("A tool-retained design copy under `versions/` is evidence only when its complete bytes match its hash-bound name."));
+  assert.ok(source.includes("An interim `<name>.vN.md` design copy is evidence when its complete bytes match the hash recorded in the owning log."));
+  assert.ok(source.includes("The current design file remains authoritative."));
+}
+
+test("record-design-evidence-agreement admits hash-verified interim copies and tool-retained versions", () => {
+  const source = doc("delivery-packages");
+  assertDesignEvidence(source);
+  assert.throws(() => assertDesignEvidence(source.replace("is evidence when its complete bytes match the hash recorded in the owning log", "is never evidence")));
+  assertDesignEvidence(source + "\n<!-- Outside accounting control. -->");
 });
 
 test("record-temporary-name-agreement compares published patterns with real staged names and retained bytes", { timeout: 10000 }, async (t) => {

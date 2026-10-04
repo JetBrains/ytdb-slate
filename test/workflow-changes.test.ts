@@ -87,7 +87,7 @@ test("start, close, resume, reload and handoff preserve one visible change witho
   const log = join(f.project, "slate-changes", name, "research-log.md");
   assert.equal(readFileSync(log, "utf8"), "# Research log\n");
   assert.match(await f.doctrine(), new RegExp(`Current research log: slate-changes/${name}/research-log.md`));
-  assert.match(await f.doctrine(), new RegExp(`slate-changes/${name}/track-<identifier>-implementer-report.md`));
+  assert.match(await f.doctrine(), new RegExp(`slate-changes/${name}/track-<number>-implementer-report.md`));
   await assert.rejects(f.action("start"), /close the current change/);
   for (const reason of ["resume", "reload", "startup"]) {
     await f.start(reason);

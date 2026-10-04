@@ -237,7 +237,8 @@ It checks sibling root logs for the exact first line `Read-only earlier log: sla
 Here `<change>` is the trusted current change-folder name.
 A matching sibling line makes the current folder read-only.
 A missing sibling root log is skipped.
-Every other sibling read error refuses with its folder name before file changes.
+Every other sibling read error refuses with its folder name before the record changes.
+A retained version or staging file may already exist and is reported for inspection.
 
 The built-in write guard blocks `write` and `edit` inside `slate-changes/` in every worker session.
 An assigned worker uses `slate_record` instead.
@@ -287,9 +288,9 @@ The thread result keeps every call's outcome, including aborted, failed, and unc
 | Outcome state | Caller duty |
 | --- | --- |
 | refused before publication | Correct the refusal. Read again after a stale hash or identity mismatch. Inspect reported artifacts. |
-| failed before publication | Inspect the unchanged record and artifacts. Resolve the failure and obtain a fresh update hash. |
+| failed before publication | Inspect the unchanged record and artifacts. For a two-link artifact, use Manual interrupted-create recovery below. Resolve the failure and obtain a fresh update hash. |
 | published and synced | Continue dependent work. Do not repeat an append because an abort was also reported. |
-| published with uncertain durability | Pause dependent work. Publication is known, but settlement is incomplete. Inspect the record and artifacts. |
+| published with uncertain durability | Pause dependent work. Publication is known, but settlement is incomplete. Inspect the record and artifacts. For a two-link record, use Manual interrupted-create recovery below. |
 | unknown outcome | Pause dependent work and inspect current bytes and possible artifacts. Missing evidence is not success. |
 
 An abort after publication is reported only after settlement.
@@ -298,13 +299,17 @@ After an aborted, failed, or uncertain action with record calls, the orchestrato
 To decide whether an append landed, compare current bytes with the exact earlier bytes followed by the exact payload bytes.
 The earlier bytes must hash to the supplied expected hash.
 An exact match establishes the append's bytes in the current record, not its earlier durable sync.
-If that comparison cannot be established, pause rather than repeat the append.
+A mismatch does not prove that the append is missing.
+Repeat an append only when no writer is active and the current bytes equal exactly the earlier bytes.
+Their hash must equal the supplied expected hash.
+For every other result, including a comparison that cannot be established, pause and ask the user rather than repeat the append.
 Never retry an append or replacement after uncertainty without inspection.
 Do not roll back a published record to force a retry.
 
 ### Manual interrupted-create recovery
 
-An interrupted hard-link publication can leave a record or retained version with two links.
+An interruption or a reported failure during hard-link publication can leave a record or retained version with two links.
+This procedure covers both causes, including failed-before-publication version retention and uncertain create cleanup.
 Later tool calls refuse that state and do not repair it automatically.
 The private candidate pattern is `.slate-record-<32hex>.tmp` in the current folder.
 The private version staging pattern is `.slate-record-version-<record>.v<N>.<32hex>.tmp` in `versions/`.
@@ -331,7 +336,7 @@ Change-record writes support Linux, macOS, and Windows Subsystem for Linux (WSL)
 Native Windows refuses with a reason before any record-tool file operation and directs users to that WSL route.
 [Issue #498](https://github.com/JetBrains/ytdb-slate/issues/498) tracks native Windows support.
 Detected Windows drive destinations inside WSL refuse before file changes.
-Windows drives are unsupported even when detection misses them, including drives exposed through virtiofs.
+Windows drives are unsupported even when detection misses them, including drives exposed through virtiofs, a virtual-machine file-sharing filesystem.
 WSL tested through Linux CI and simulated drive checks.
 CI means continuous integration, or automated repository checks.
 The filesystem must provide the required hard links, replacement, permissions, and sync operations.
