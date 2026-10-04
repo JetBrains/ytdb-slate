@@ -1,6 +1,6 @@
 // record-tool-test: all
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, symlink } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, rm, symlink } from "node:fs/promises";
 import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -9,7 +9,7 @@ import { recordGuardBlocks, recordGuardReason, RECORD_GUARD_UNRESOLVED_REASON, R
 const piResolver = await import(pathToFileURL(join(process.cwd(), "node_modules/@earendil-works/pi-coding-agent/dist/core/tools/path-utils.js")).href);
 
 test("record-path-protection uses pi path forms and nearest ancestor identity without prefix confusion", { timeout: 10000 }, async (t) => {
-  const cwd = await mkdtemp(join(tmpdir(), "slate-record-guard-"));
+  const cwd = await realpath(await mkdtemp(join(tmpdir(), "slate-record-guard-")));
   t.after(() => rm(cwd, { recursive: true, force: true }));
   await mkdir(join(cwd, "slate-changes", "change", "versions"), { recursive: true });
   await mkdir(join(cwd, "slate-changes-other"));
@@ -25,7 +25,7 @@ test("record-path-protection uses pi path forms and nearest ancestor identity wi
 });
 
 test("record-path-protection with no change folder allows established outside writes and blocks future record writes", { timeout: 10000 }, async (t) => {
-  const cwd = await mkdtemp(join(tmpdir(), "slate-record-no-folder-"));
+  const cwd = await realpath(await mkdtemp(join(tmpdir(), "slate-record-no-folder-")));
   t.after(() => rm(cwd, { recursive: true, force: true }));
   assert.equal(await recordGuardBlocks("source.ts", cwd, cwd), false);
   assert.equal(await recordGuardBlocks("slate-changes/change/report.md", cwd, cwd), true);
@@ -38,7 +38,7 @@ test("record-path-protection with no change folder allows established outside wr
 });
 
 test("record-path-protection blocks final dangling links and chained links into protected names", { timeout: 10000 }, async (t) => {
-  const cwd = await mkdtemp(join(tmpdir(), "slate-record-dangling-"));
+  const cwd = await realpath(await mkdtemp(join(tmpdir(), "slate-record-dangling-")));
   t.after(() => rm(cwd, { recursive: true, force: true }));
   await mkdir(join(cwd, "slate-changes", "change"), { recursive: true });
   await symlink("slate-changes/change/missing.md", join(cwd, "alias"));
