@@ -180,14 +180,23 @@ export interface PreparedRecordWrite {
 	cleanup(): Promise<RecordCleanup>;
 }
 
-async function syncDirectory(io: RecordFileSystem, path: string, basis: Stats): Promise<void> {
+async function closeAfter(handle: FileHandle, failures: string[], reason: string, operation: () => Promise<void>): Promise<void> {
+	let failed = false;
+	try { await operation(); }
+	catch (error) { failed = true; throw error; }
+	finally {
+		try { await handle.close(); }
+		catch (error) { if (failed) failures.push(reason); else throw error; }
+	}
+}
+async function syncDirectory(io: RecordFileSystem, path: string, basis: Stats, failures: string[] = []): Promise<void> {
 	await directory(io, path, basis);
 	const handle = await io.open(path, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
-	try {
+	await closeAfter(handle, failures, "The sync folder handle did not close. Inspect open handles before retrying.", async () => {
 		if (!same(await handle.stat(), basis)) refuse("A sync folder changed identity. Inspect the folder before retrying.");
 		await handle.sync();
 		await directory(io, path, basis);
-	} finally { await handle.close(); }
+	});
 }
 
 /** Observation permits the create's own second link, but never follows a symbolic link. */
@@ -324,7 +333,7 @@ async function prepare(context: RecordWriteContext, args: RecordWriteArguments, 
 			const failure = error instanceof RecordPrepublicationError ? error : new RecordPrepublicationError(unavailable ? "refused before publication" : "failed before publication", unavailable ? "The filesystem lacks a required write operation. Use a filesystem that supports hard links and sync." : `Record write failed during ${at}. Inspect the record and artifacts before retrying.`, at);
 			failure.cleanup = await clean();
 			try {
-				for (const entry of chain.slice(2).reverse()) await syncDirectory(io, entry.path, entry.identity);
+				for (const entry of chain.slice(2).reverse()) await syncDirectory(io, entry.path, entry.identity, evidence.secondaryFailures);
 				evidence.sync.folders = true;
 			} catch { failure.secondaryFailures.push("Cleanup folder sync failed. Inspect the record and artifacts before retrying."); }
 			evidence.state = failure.state;
@@ -341,19 +350,30 @@ async function prepare(context: RecordWriteContext, args: RecordWriteArguments, 
 			if (!basis) {
 				await io.mkdir(versions, { mode: 0o700 });
 				basis = await directory(io, versions);
-				if ((basis.mode & 0o777) !== 0o700) refuse("The version folder is not private. Use a filesystem that supports owner-only folders.");
 			}
 			basis = await directory(io, versions, basis);
+			if ((basis.mode & 0o777) !== 0o700) refuse("The version folder is not private. Use a filesystem that supports owner-only folders.");
 			chain.push({ path: versions, identity: basis });
 			let greatest = 0;
 			const stagingPrefix = `.slate-record-version-${record}.v`;
+			const inspectEntry = async (entry: string, kind: RecordArtifact["kind"], hash?: string) => {
+				const path = join(versions, entry);
+				try {
+					const copy = await readRecord(io, path);
+					if ((copy.identity.mode & 0o777) !== 0o600 || hash !== undefined && recordHash(copy.bytes).slice(7) !== hash) throw new Error("Unsafe version evidence");
+					return copy;
+				} catch (error) {
+					evidence.artifacts.push({ path, kind, complete: false, reason: "Unsafe version evidence. Leave this entry untouched for inspection." });
+					if (error instanceof RecordPrepublicationError) evidence.secondaryFailures.push(...error.secondaryFailures);
+					refuse(`The version entry ${entry} has unsafe identity, bytes, permissions, or hard links. Inspect this entry before retrying.`);
+				}
+			};
 			for (const entry of await io.readdir(versions)) {
 				if (entry.startsWith(stagingPrefix)) {
 					const suffix = entry.slice(stagingPrefix.length);
 					const match = /^([1-9][0-9]*)\.[0-9a-f]{32}\.tmp$/.exec(suffix);
 					if (!match || !Number.isSafeInteger(Number(match[1]))) refuse("A version staging entry has an invalid sequence. Inspect the version folder before retrying.");
-					const staged = await readRecord(io, join(versions, entry));
-					if ((staged.identity.mode & 0o777) !== 0o600) refuse("A version staging entry is not private. Inspect the version folder before retrying.");
+					await inspectEntry(entry, "temporary");
 					greatest = Math.max(greatest, Number(match[1]));
 					evidence.artifacts.push({ path: join(versions, entry), kind: "temporary", complete: false, reason: "Earlier incomplete version evidence. Leave this private staging name untouched for inspection." });
 					continue;
@@ -362,8 +382,7 @@ async function prepare(context: RecordWriteContext, args: RecordWriteArguments, 
 				const suffix = entry.slice(record.length + 2);
 				const match = /^([1-9][0-9]*)\.([0-9a-f]{64})$/.exec(suffix);
 				if (!match || !Number.isSafeInteger(Number(match[1]))) refuse("A version entry has an invalid sequence or hash. Inspect the version folder before retrying.");
-				const retained = await readRecord(io, join(versions, entry));
-				if (recordHash(retained.bytes).slice(7) !== match[2] || (retained.identity.mode & 0o777) !== 0o600) refuse("A version entry has unsafe permissions or different bytes. Inspect the version folder before retrying.");
+				await inspectEntry(entry, "version", match[2]);
 				greatest = Math.max(greatest, Number(match[1]));
 			}
 			const next = greatest + 1;
@@ -373,9 +392,8 @@ async function prepare(context: RecordWriteContext, args: RecordWriteArguments, 
 			const privatePath = join(versions, `${stagingPrefix}${next}.${randomBytes(16).toString("hex")}.tmp`);
 			let privateIdentity: Stats | undefined;
 			let privateHandle: FileHandle | undefined;
-			let complete = false;
 			let linked = false;
-			let versionVerified = false;
+			let linkUnobserved = false;
 			let retentionFailure: unknown;
 			let cleanupFailure = false;
 			try {
@@ -389,11 +407,12 @@ async function prepare(context: RecordWriteContext, args: RecordWriteArguments, 
 				privateHandle = undefined;
 				const verified = await readRecord(io, privatePath);
 				if (!same(verified.identity, privateIdentity) || !verified.bytes.equals(earlier!.bytes) || (verified.identity.mode & 0o777) !== 0o600) refuse("The staged version changed. Inspect its identity and bytes before retrying.");
-				complete = true;
 				await recheck();
 				try { await io.link(privatePath, versionPath); linked = true; }
 				catch (error) {
-					const entry = await optionalStat(io, versionPath);
+					let entry: Stats | undefined;
+					try { entry = await optionalStat(io, versionPath); }
+					catch { linkUnobserved = true; throw error; }
 					linked = !!entry && same(entry, privateIdentity);
 					if (code(error) === "EEXIST") {
 						if (entry && !linked) evidence.artifacts.push({ path: versionPath, kind: "version", complete: false, reason: "A different file occupies the version name. Leave it untouched and inspect the collision." });
@@ -403,21 +422,28 @@ async function prepare(context: RecordWriteContext, args: RecordWriteArguments, 
 				}
 				const copy = await observeRecord(io, versionPath);
 				if (!copy || !same(copy.identity, privateIdentity) || !copy.bytes.equals(earlier!.bytes) || (copy.identity.mode & 0o777) !== 0o600) refuse("The retained version changed identity or bytes. Inspect it before retrying.");
-				versionVerified = true;
-				const versionHandle = await io.open(versionPath, constants.O_RDONLY | constants.O_NOFOLLOW);
-				try {
-					if (!same(await versionHandle.stat(), privateIdentity)) refuse("The version sync identity changed. Inspect it before retrying.");
+				const versionHandle = await io.open(versionPath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+				await closeAfter(versionHandle, evidence.secondaryFailures, "The version sync handle did not close. Inspect open handles before retrying.", async () => {
+					if (!same(await versionHandle.stat(), privateIdentity!)) refuse("The version sync identity changed. Inspect it before retrying.");
 					await versionHandle.sync();
-				} finally { await versionHandle.close(); }
+				});
+				const synced = await observeRecord(io, versionPath);
+				if (!synced || !same(synced.identity, privateIdentity) || !synced.bytes.equals(earlier!.bytes) || (synced.identity.mode & 0o777) !== 0o600) refuse("The retained version identity, permissions, or bytes changed. Inspect the version before retrying.");
+				await syncDirectory(io, versions, basis, evidence.secondaryFailures);
+				await syncDirectory(io, destination, chain[2]!.identity, evidence.secondaryFailures);
 			} catch (error) { retentionFailure = error; } finally {
 				try { await privateHandle?.close(); } catch { evidence.secondaryFailures.push("The version handle did not close. Inspect open handles before retrying."); }
-				if (linked) evidence.artifacts.push({ path: versionPath, kind: "version", complete: versionVerified, reason: versionVerified ? "Retained earlier bytes. Keep this version unchanged." : "Version verification is incomplete. Inspect this name before relying on it." });
+				if (linked || linkUnobserved) evidence.artifacts.push({ path: versionPath, kind: "version", complete: false, reason: linkUnobserved ? "Possible version artifact. Publication of this name could not be observed. Inspect it before relying on it." : "Version verification is incomplete. Inspect this name before relying on it." });
 				if (!privateIdentity && privateHandle) evidence.artifacts.push({ path: privatePath, kind: "temporary", complete: false, reason: "The version temporary identity is unknown. Leave this name untouched and inspect it." });
 				if (privateIdentity) {
-					const result = await cleanupRecordTemporary(io, privatePath, privateIdentity);
-					if (result.leftover) {
-						evidence.artifacts.push({ path: privatePath, kind: "temporary", complete, reason: complete ? result.reason! : "Incomplete version evidence. Inspect this private partial copy." });
-						cleanupFailure = true;
+					if (retentionFailure) {
+						evidence.artifacts.push({ path: privatePath, kind: "temporary", complete: false, reason: "Incomplete version evidence. Leave this sequence-bearing staging name untouched for inspection." });
+					} else {
+						const result = await cleanupRecordTemporary(io, privatePath, privateIdentity);
+						if (result.leftover) {
+							evidence.artifacts.push({ path: privatePath, kind: "temporary", complete: false, reason: result.reason! });
+							cleanupFailure = true;
+						}
 					}
 				}
 			}
@@ -428,8 +454,11 @@ async function prepare(context: RecordWriteContext, args: RecordWriteArguments, 
 			if (cleanupFailure) refuse("Version temporary cleanup failed. Inspect the retained copy and temporary name before retrying.");
 			const retained = await readRecord(io, versionPath);
 			if (!same(retained.identity, privateIdentity!) || !retained.bytes.equals(earlier!.bytes) || (retained.identity.mode & 0o777) !== 0o600) refuse("The retained version identity, permissions, or bytes changed. Inspect the version before retrying.");
-			await syncDirectory(io, versions, basis);
-			await syncDirectory(io, destination, chain[2]!.identity);
+			const versionArtifact = evidence.artifacts.find((artifact) => artifact.path === versionPath)!;
+			versionArtifact.complete = true;
+			versionArtifact.reason = "Retained earlier bytes. Keep this version unchanged.";
+			await syncDirectory(io, versions, basis, evidence.secondaryFailures);
+			await syncDirectory(io, destination, chain[2]!.identity, evidence.secondaryFailures);
 			evidence.sync.version = true;
 			evidence.replacement = { version: versionPath, oldHash: evidence.observedBeforeHash!, newHash: evidence.intendedHash! };
 		};
@@ -437,7 +466,16 @@ async function prepare(context: RecordWriteContext, args: RecordWriteArguments, 
 			let publicationStage = "version retention";
 			try {
 				if (options.signal?.aborted) refuse("The call was aborted before publication. Inspect the record before retrying.");
-				if (mode === "replace") await retain();
+				if (mode === "replace") {
+					await recheck();
+					await readOnly();
+					const current = await readRecord(io, finalPath);
+					if (!same(current.identity, earlier!.identity) || !current.bytes.equals(earlier!.bytes)) {
+						evidence.observedAfterHash = recordHash(current.bytes);
+						refuse("The record changed before publication. Read the safe current record and use its fresh hash.");
+					}
+					await retain();
+				}
 				publicationStage = "final safety check";
 				await options.beforeFinalCheck?.();
 				await recheck();
@@ -482,7 +520,7 @@ async function prepare(context: RecordWriteContext, args: RecordWriteArguments, 
 			try {
 				if (!landed) throw new Error("Candidate observation is missing");
 				await recheck();
-				const finalHandle = await io.open(finalPath, constants.O_RDONLY | constants.O_NOFOLLOW);
+				const finalHandle = await io.open(finalPath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
 				try {
 					const finalIdentity = await finalHandle.stat();
 					if (!same(finalIdentity, identity!) || !finalIdentity.isFile() || (finalIdentity.mode & 0o777) !== 0o600) throw new Error("Published identity changed");
@@ -493,7 +531,7 @@ async function prepare(context: RecordWriteContext, args: RecordWriteArguments, 
 			await clean();
 			try {
 				await recheck();
-				await syncDirectory(io, destination, chain[2]!.identity);
+				await syncDirectory(io, destination, chain[2]!.identity, evidence.secondaryFailures);
 				evidence.sync.folders = true;
 				const final = await readRecord(io, finalPath);
 				evidence.observedAfterHash = recordHash(final.bytes);
@@ -522,7 +560,7 @@ async function prepare(context: RecordWriteContext, args: RecordWriteArguments, 
 				if (pending) { await pending.catch(() => undefined); return cleanupResult; }
 				used = true;
 				const result = await clean();
-				try { await syncDirectory(io, destination, chain[2]!.identity); evidence.sync.folders = true; }
+				try { await syncDirectory(io, destination, chain[2]!.identity, evidence.secondaryFailures); evidence.sync.folders = true; }
 				catch { return { ...result, reason: result.reason ?? "Cleanup folder sync failed. Inspect the temporary name before retrying." }; }
 				return result;
 			},
@@ -534,7 +572,7 @@ async function prepare(context: RecordWriteContext, args: RecordWriteArguments, 
 		if (temporaryPath && identity) failure.cleanup = await cleanupRecordTemporary(io, temporaryPath, identity);
 		else if (temporaryPath && held) failure.cleanup = { leftover: temporaryPath, reason: "The temporary identity is unknown. Leave the name untouched and inspect it." };
 		if (temporaryPath && cleanupFolder) {
-			try { await syncDirectory(io, cleanupFolder.path, cleanupFolder.identity); evidence.sync.folders = true; }
+			try { await syncDirectory(io, cleanupFolder.path, cleanupFolder.identity, failure.secondaryFailures); evidence.sync.folders = true; }
 			catch { failure.secondaryFailures.push("Cleanup folder sync failed. Inspect the record and artifacts before retrying."); }
 		}
 		evidence.state = failure.state;

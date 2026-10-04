@@ -176,8 +176,14 @@ for (const phase of ["partial-copy", "private-sync", "version-sync", "versions-s
       assert.equal(await fs.readFile(join(f.versions, entries[0]!), "utf8"), "a");
       assert.equal((await fs.lstat(join(f.versions, entries[0]!))).mode & 0o777, 0o600);
       assert.ok(result.outcome!.artifacts.some((artifact) => !artifact.complete && /Incomplete version/.test(artifact.reason)));
-    } else if (phase === "private-sync") assert.deepEqual(entries, []);
-    else assert.equal(await fs.readFile(join(f.versions, entries[0]!), "utf8"), phase === "collision" ? "planted" : "abc");
+    } else if (phase === "private-sync") {
+      assert.equal(entries.length, 1);
+      assert.match(entries[0]!, /^\.slate-record-version-status\.md\.v1\..*\.tmp$/);
+      assert.equal(await fs.readFile(join(f.versions, entries[0]!), "utf8"), "abc");
+    } else {
+      const version = entries.find((entry) => entry.startsWith("status.md.v"))!;
+      assert.equal(await fs.readFile(join(f.versions, version), "utf8"), phase === "collision" ? "planted" : "abc");
+    }
   });
 }
 
@@ -196,7 +202,10 @@ test("record-private-creation refuses broad version staging before copying bytes
   await failure((await f.call("replace", { fs: io })).publish(), /version staging file is not private/, "refused before publication");
   assert.equal(copied, false);
   assert.equal(await fs.readFile(f.path, "utf8"), "abc");
-  assert.deepEqual(await fs.readdir(f.versions), []);
+  const entries = await fs.readdir(f.versions);
+  assert.equal(entries.length, 1);
+  assert.match(entries[0]!, /^\.slate-record-version-status\.md\.v1\..*\.tmp$/);
+  assert.equal(await fs.readFile(join(f.versions, entries[0]!), "utf8"), "");
 });
 
 test("record-abort-settlement checks abort before work and immediately before publication", async (t) => {
