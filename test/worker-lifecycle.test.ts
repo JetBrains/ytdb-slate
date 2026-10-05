@@ -3,7 +3,11 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { ModelRegistry, ModelRuntime, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { createAssistantMessageEventStream, type AssistantMessage, type TranscriptContext } from "@earendil-works/pi-ai";
+import { createChangeFolder } from "../extension/artifact-names.ts";
+import { createChangeDirectory } from "../extension/slate-files.ts";
+import { WORKER_REMINDER_CUSTOM_TYPE, WORKER_REMINDER_TEXT } from "../extension/worker-reminder.ts";
 import { loadConfig, permitsSlateConfig } from "../extension/config.ts";
 import { createLogicalRuntime } from "../extension/logical-model-runtime.ts";
 import { SlateStore } from "../extension/state.ts";
@@ -57,6 +61,196 @@ async function isolatedWorkerTest(
     rmSync(root, { recursive: true, force: true });
   }
 }
+
+async function offlineWorkerTest(
+  t: test.TestContext,
+  turn: (root: string, ordinal: number) => AssistantMessage["content"],
+  run: (session: WorkerSession, root: string, change: string, requests: TranscriptContext[]) => Promise<void>,
+): Promise<void> {
+  await isolatedWorkerTest(t, async (root, reports) => {
+    const change = createChangeFolder();
+    createChangeDirectory(root, change);
+    const requests: TranscriptContext[] = [];
+    const host = await ModelRuntime.create({ authPath: join(root, "host-auth.json"), modelsPath: null,
+      modelsStorePath: join(root, "host-models.json"), allowModelNetwork: false, refreshOnCreate: false });
+    host.registerProvider("lifecycle-offline", {
+      api: "lifecycle-offline-api", apiKey: "fixture", baseUrl: "http://127.0.0.1:9",
+      models: [{ id: "worker", name: "worker", reasoning: false, input: ["text"], contextWindow: 100_000,
+        maxTokens: 1000, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }],
+      streamSimple(model, request) {
+        requests.push(structuredClone(request));
+        const content = turn(root, requests.length);
+        const stopReason = content.some((part) => part.type === "toolCall") ? "toolUse" : "stop";
+        const message: AssistantMessage = { role: "assistant", api: model.api, provider: model.provider, model: model.id,
+          content, stopReason, timestamp: 1, usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } };
+        const stream = createAssistantMessageEventStream();
+        stream.push({ type: "done", reason: stopReason, message });
+        stream.end();
+        return stream;
+      },
+    });
+    const session = await openWorkerSession({
+      ctx: { ...context(root), modelRegistry: new ModelRegistry(host), model: host.getModel("lifecycle-offline", "worker") },
+      config: { workerExtensions: [], cacheKeyEnabled: false }, extensionPaths: [], extensionToolNames: [],
+      report: (message) => reports.push(message),
+    });
+    try { await run(session, root, change, requests); assert.deepEqual(reports, []); }
+    finally { await session.shutdownWorker(); }
+  });
+}
+
+test("internal reminder reaches the next offline worker turn with no external extensions or cache keys", { timeout: 10000 }, async (t) => {
+  await offlineWorkerTest(t, (root, ordinal) => ordinal === 1
+    ? ["alpha", "beta"].map((name) => ({ type: "toolCall", id: name, name: "read", arguments: { path: join(root, `${name}.txt`) } }))
+    : [{ type: "text", text: "continuation complete" }], async (session, root, change, requests) => {
+      writeFileSync(join(root, "alpha.txt"), "alpha bytes");
+      writeFileSync(join(root, "beta.txt"), "beta bytes");
+      assert.equal(existsSync(join(root, "slate-changes", change, "research-log.md")), true);
+      await session.prompt("Read both independent files.");
+      assert.equal(requests.length, 2);
+      const reminders = requests[1]!.messages.filter((message) => message.role === "user" &&
+        (typeof message.content === "string" ? message.content : message.content.filter((part) => part.type === "text").map((part) => part.text).join("\n")) === WORKER_REMINDER_TEXT);
+      assert.equal(reminders.length, 1);
+      const saved = session.messages.filter((message) => message.role === "custom" && message.customType === WORKER_REMINDER_CUSTOM_TYPE);
+      assert.equal(saved.length, 1);
+      assert.ok(saved[0]?.role === "custom");
+      assert.equal(saved[0].content, WORKER_REMINDER_TEXT);
+      assert.equal(saved[0].display, false);
+      assert.equal(requests[1]!.messages.filter((message) => message.role === "toolResult").length, 2);
+      assert.match(readFileSync(session.sessionFile!, "utf8"), /"display":false/);
+    });
+});
+
+const builtinCall = (name: string, args: Extract<AssistantMessage["content"][number], { type: "toolCall" }>["arguments"]): AssistantMessage["content"] =>
+  [{ type: "toolCall", id: name, name, arguments: args }];
+const completedWrite = (): AssistantMessage["content"] => [{ type: "text", text: "record check complete" }];
+function assertBuiltinResults(session: WorkerSession, names: string[]) {
+  const results = session.messages.filter((message) => message.role === "toolResult");
+  assert.deepEqual(results.map((message) => message.toolName), names);
+  assert.equal(results.every((message) => !message.isError), true, JSON.stringify(results));
+}
+
+test("built-in bash creates a report with an append", { timeout: 10000 }, async (t) => {
+  let report = "";
+  await offlineWorkerTest(t, (_root, ordinal) => ordinal === 1
+    ? builtinCall("bash", { command: `cat report-text.txt >> '${report}'` }) : completedWrite(),
+    async (session, root, change, requests) => {
+      report = join(root, "slate-changes", change, "track-4.4-implementer-report.md");
+      writeFileSync(join(root, "report-text.txt"), "first report entry\n");
+      assert.equal(existsSync(report), false);
+      await session.prompt("Create the report by appending its prepared text.");
+      assert.equal(requests.length, 2);
+      assertBuiltinResults(session, ["bash"]);
+      assert.equal(readFileSync(report, "utf8"), "first report entry\n");
+    });
+});
+
+test("built-in bash appends logs and reports without changing earlier log bytes", { timeout: 10000 }, async (t) => {
+  let log = "", report = "";
+  await offlineWorkerTest(t, (_root, ordinal) => ordinal === 1
+    ? builtinCall("bash", { command: `cat append-text.txt >> '${log}'; cat append-text.txt >> '${report}'` }) : completedWrite(),
+    async (session, root, change) => {
+      log = join(root, "slate-changes", change, "research-log.md");
+      report = join(root, "slate-changes", change, "track-4.4-implementer-report.md");
+      const source = createChangeFolder();
+      createChangeDirectory(root, source);
+      const earlier = join(root, "slate-changes", source, "research-log.md");
+      const earlierBytes = readFileSync(earlier);
+      writeFileSync(log, "retained log entry\n");
+      const logBytes = readFileSync(log);
+      writeFileSync(report, "retained report entry\n");
+      const reportBytes = readFileSync(report);
+      const appended = Buffer.from("appended entry\n");
+      writeFileSync(join(root, "append-text.txt"), appended);
+      await session.prompt("Append the prepared text to both current records. Leave the earlier log unchanged.");
+      assertBuiltinResults(session, ["bash"]);
+      assert.deepEqual(readFileSync(log), Buffer.concat([logBytes, appended]));
+      assert.deepEqual(readFileSync(report), Buffer.concat([reportBytes, appended]));
+      assert.deepEqual(readFileSync(earlier), earlierBytes);
+    });
+});
+
+test("built-in write replaces the complete status file", { timeout: 10000 }, async (t) => {
+  let status = "";
+  const replacement = "# Status\n\nCurrent action complete.\n";
+  await offlineWorkerTest(t, (_root, ordinal) => ordinal === 1
+    ? builtinCall("write", { path: status, content: replacement }) : completedWrite(),
+    async (session, root, change) => {
+      status = join(root, "slate-changes", change, "status.md");
+      writeFileSync(status, "long stale status text that must not survive the rewrite\n");
+      await session.prompt("Rewrite the whole status file from its prepared text.");
+      assertBuiltinResults(session, ["write"]);
+      assert.equal(readFileSync(status, "utf8"), replacement);
+    });
+});
+
+const designCopyCommand = (design: string, copy: string): string =>
+  `cp -n '${design}' '${copy}'; cmp '${design}' '${copy}' && printf '\\ncopy verified\\n'`;
+function copyWasVerified(request: TranscriptContext): boolean {
+  const result = request.messages.find((message) => message.role === "toolResult" && message.toolName === "bash");
+  return result?.role === "toolResult" && !result.isError &&
+    result.content.some((part) => part.type === "text" && /^copy verified$/m.test(part.text));
+}
+
+test("built-in design copy and comparison finish before edit and preserve versioned bytes", { timeout: 10000 }, async (t) => {
+  let design = "", copy = "";
+  let capturedRequests: TranscriptContext[] = [];
+  const original = "# Design\n\nApproved design bytes.\n";
+  await offlineWorkerTest(t, (_root, ordinal) => {
+    if (ordinal === 1) return builtinCall("bash", { command: designCopyCommand(design, copy) });
+    if (ordinal === 2) {
+      assert.equal(copyWasVerified(capturedRequests[1]!), true, "cmp reports success before edit");
+      assert.equal(readFileSync(design, "utf8"), original, "the comparison precedes the edit");
+      assert.equal(readFileSync(copy, "utf8"), original, "the verified copy exists before edit");
+      return builtinCall("edit", { path: design, oldText: "Approved design bytes.", newText: "Updated design bytes." });
+    }
+    return completedWrite();
+  }, async (session, root, change, requests) => {
+    capturedRequests = requests;
+    design = join(root, "slate-changes", change, "root-design.md");
+    copy = join(root, "slate-changes", change, "root-design.v2.md");
+    const retained = join(root, "slate-changes", change, "root-design.v1.md");
+    writeFileSync(design, original);
+    writeFileSync(retained, "earlier versioned bytes\n");
+    const retainedBytes = readFileSync(retained);
+    await session.prompt("Copy with cp -n and compare with cmp. Only then edit the design.");
+    assert.equal(requests.length, 3);
+    assertBuiltinResults(session, ["bash", "edit"]);
+    assert.equal(readFileSync(design, "utf8"), original.replace("Approved", "Updated"));
+    assert.equal(readFileSync(copy, "utf8"), original);
+    assert.deepEqual(readFileSync(retained), retainedBytes);
+  });
+});
+
+test("built-in design copy preserves a conflicting versioned target and comparison prevents edit", { timeout: 10000 }, async (t) => {
+  let design = "", copy = "";
+  let capturedRequests: TranscriptContext[] = [];
+  const original = "# Design\n\nApproved design bytes.\n";
+  const retained = "# Design\n\nDifferent versioned bytes.\n";
+  await offlineWorkerTest(t, (_root, ordinal) => {
+    if (ordinal === 1) return builtinCall("bash", { command: designCopyCommand(design, copy) });
+    if (ordinal === 2 && copyWasVerified(capturedRequests[1]!))
+      return builtinCall("edit", { path: design, oldText: "Approved design bytes.", newText: "Updated design bytes." });
+    return completedWrite();
+  }, async (session, root, change, requests) => {
+    capturedRequests = requests;
+    design = join(root, "slate-changes", change, "root-design.md");
+    copy = join(root, "slate-changes", change, "root-design.v2.md");
+    writeFileSync(design, original);
+    writeFileSync(copy, retained);
+    const originalBytes = readFileSync(design);
+    const retainedBytes = readFileSync(copy);
+    await session.prompt("Copy with cp -n and compare with cmp. Edit only if the comparison succeeds.");
+    assert.deepEqual(readFileSync(copy), retainedBytes, "cp -n preserves the existing versioned target");
+    assert.deepEqual(readFileSync(design), originalBytes, "a failed comparison leaves the design unchanged");
+    assert.equal(requests.length, 2);
+    const results = session.messages.filter((message) => message.role === "toolResult");
+    assert.deepEqual(results.map((message) => message.toolName), ["bash"], "no edit runs after a failed comparison");
+    assert.equal(results[0]!.isError, true, "cmp rejects different bytes");
+    assert.equal(copyWasVerified(requests[1]!), false, "the comparison does not report success");
+  });
+});
 
 test("Pi worker session creation refuses a symbolic-link runtime parent", { timeout: 10000 }, async (t) => {
   await isolatedWorkerTest(t, async (root) => {

@@ -18,8 +18,9 @@
 #     node_modules and nothing else moves — `git status` is clean after a full
 #     local run — and the three harnesses that need scratch space (the load
 #     check, the resolver checks and the unit-test wrapper) mktemp it under
-#     TMPDIR and remove it again. Record-tool tests create disposable folders
-#     through Node's mkdtemp under os.tmpdir() and remove them during teardown.
+#     TMPDIR and remove it again. Unit tests create temporary folders outside
+#     the checkout with Node's mkdtemp under os.tmpdir(). Test teardown removes
+#     those folders.
 #
 # It is not hermetic with respect to the rest of the filesystem, and does not
 # claim to be: `npm ci` populates the npm cache under HOME like any install, and
@@ -40,7 +41,7 @@
 # human-read net, run per `AGENTS.md` § Verification ladder whenever its stated
 # triggers apply.
 #
-# The five Linux checks and both record-tool selections use local commands.
+# The five Linux checks use local commands.
 # A CI failure reproduces on the matching local system.
 # The coverage command receives an explicit base SHA in CI.
 # Local `npm test` derives the merge-base with main:
@@ -52,9 +53,6 @@
 #   bash verification/run-load-check.sh --repo .
 #   bash verification/run-resolver-checks.sh --repo . --strict
 #   npm test -- --base <event base SHA>
-#   node verification/record-test-roster.mjs
-#   node verification/record-test-roster.mjs --run all       # record-macos
-#   node verification/record-test-roster.mjs --run windows   # record-windows
 #
 # Third-party actions are pinned by commit SHA, not by tag: a tag is mutable and
 # would let an upstream compromise reach this workflow silently. The trailing
@@ -256,47 +254,3 @@ jobs:
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
           fi
-
-  record-macos:
-    name: Record tool macOS Node ${{ matrix.node }}
-    runs-on: macos-latest
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        node: ['22.23.1', '24.18.0']
-    steps:
-      - name: Check out the repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Set up Node ${{ matrix.node }}
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: ${{ matrix.node }}
-      - name: Install dependencies
-        run: npm ci --ignore-scripts
-      - name: Record test-file roster
-        run: node verification/record-test-roster.mjs
-      - name: Record-tool tests
-        run: node verification/record-test-roster.mjs --run all
-
-  record-windows:
-    name: Record Windows refusal Node ${{ matrix.node }}
-    runs-on: windows-latest
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        node: ['22.23.1', '24.18.0']
-    steps:
-      - name: Check out the repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Set up Node ${{ matrix.node }}
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: ${{ matrix.node }}
-      - name: Install dependencies
-        run: npm ci --ignore-scripts
-      - name: Record test-file roster
-        run: node verification/record-test-roster.mjs
-      - name: Windows tests only
-        run: node verification/record-test-roster.mjs --run windows

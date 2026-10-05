@@ -173,184 +173,126 @@ Root-wide decisions belong in `research-log.md`.
 Cross-subtree effects belong in their owning parent.
 For a review-fix subtree, use the affected code track's existing records.
 Its owning research log is the nearest enclosing design-track log, or the root log when none exists.
-A record-only worker writes records, not implementation.
-Only record-only workers write status files and research logs.
-Implementers write only their own implementer report.
-Record-only workers omit `trackNumber`.
-Serialize all record writers and finish writes before transferring ownership.
-Use [track-workflow.md](track-workflow.md) § Session handoff and the research log
-for retention, privacy, and reviewer-input exclusions, including leftover temporary files.
+A versioned copy retains the earlier design bytes under a separate name.
 
+Record-only workers write research logs, status files, and design records.
+The orchestrator names the records in the worker's task.
+Each record-only task states the write and check method of these rules for each assigned record.
+When a source folder exists, the task states the read-only source rule.
+
+Record-only workers are dispatched without a track number.
+Implementers write only their own implementer reports.
+A worker writes no other file under `slate-changes/`.
+Workers use the built-in tools to write change records.
+
+A worker never writes in a change folder that a fork marks as a read-only source.
+That read-only source folder is `slate-changes/<source>/`.
+Another folder's first log line names that source: `Read-only earlier log: ...`.
+
+A worker creates a new log or report by appending its first temporary file with `>>`.
 Research logs and implementer reports are append-only.
+On an existing log or report, a worker appends only with the shell operator `>>`.
+The operator `>>` appends output without replacing earlier text.
+For example, use `cat temporary-file >> file`.
+
+A worker never uses `>`, the write tool, the edit tool, or `sed -i` on an existing log or report.
+It appends at the end.
+It never changes or deletes earlier text.
 A correction is a new entry.
-Use `slate_record` for all tool-governed record writes.
-Only status and design files permit full replacement.
+
+A worker may rewrite `status.md` completely.
+Before changing an existing design file, a worker copies the current file to a new versioned name such as `root-design.v2.md`.
+A versioned name must not exist yet.
+The worker uses `cp -n` to make the copy.
+The command `cp -n` leaves an existing destination unchanged.
+
+The worker then uses `cmp` to check that the copy equals the current file.
+The command `cmp` compares file bytes.
+The exit status of `cp -n` differs between coreutils versions.
+GNU coreutils marks `-n` as deprecated.
+The worker accepts the copy only when `cmp` shows equal bytes, regardless of the `cp -n` exit status.
+Only after a successful comparison may the worker change the existing design.
+
+No worker changes or deletes a versioned copy.
+Only one worker writes a given record at a time.
+The orchestrator ensures this.
+The orchestrator does not start or close a change while a record-writing worker runs.
+
+A write mode is the kind of file change, such as an append or replacement.
+Slate does not check record destinations, write modes, or hashes.
+These rules are workflow duties.
+
+Before its first write to a record in an action, the worker copies the record to a temporary file outside `slate-changes/`.
+For a record that does not exist yet, that copy is an empty file.
+The worker writes each new text to its own temporary file outside `slate-changes/` before it writes the record.
+
+An append adds one temporary file to the record with `>>`.
+A `status.md` rewrite or a new design file copies its temporary file to the record.
+After its last write to a record, the worker checks the whole record once.
+
+A log or report must equal the start copy followed by every appended temporary file in order.
+The worker checks this with `cat` and `cmp`.
+A `status.md` file or a new design file must equal its last temporary file.
+The worker checks this with `cmp`.
+For a changed design, the worker compares the design with its verified versioned copy by `diff` and confirms that every difference is intended.
+
+The worker reports one check for each record in its final response.
+Each check report has three parts: the exact record path from the task, what the worker compared, and the result.
+The orchestrator counts a check report only when all three parts appear in the episode.
+
+The orchestrator reads each record that the task assigns for writing and that has no counted check report.
+The orchestrator reads it before any other write to that record.
+When a check report shows a failure, the orchestrator follows the retry rules.
+These reads add to the reads that the retry rules require.
+They never replace a required read.
+
+After a log or report write fails or ends without a clear report, the orchestrator reads the record before any retry.
+For a log or report, only the end of the file needs inspection.
+After a failed final check, the orchestrator inspects the whole record.
+
+If the text is missing, it sends the write again.
+If the text is present, it sends nothing again.
+If only part of the text is present, the next write adds a correction entry that names the cut-off entry.
+
+After a failed or unclear `status.md` write, the worker rewrites the whole file again.
+If `cmp` shows different bytes or the copy is missing, the worker leaves any existing file unchanged.
+The worker copies again with `cp -n` to the next unused versioned name.
+The worker checks the new copy with `cmp` before changing the design.
+
+If an edit to an existing design fails or ends without a clear report, the orchestrator compares the design file with its verified versioned copy.
+The orchestrator uses `cmp` before any retry.
+If the design is unchanged, a worker retries only the edit.
+
+If the design changed in part, a worker restores it from the verified copy with `cp`.
+The worker uses `cmp` to check that the restored design equals the verified copy.
+The worker retries the edit only after a successful comparison.
+
 The orchestrator copies the current change folder from its "Current research log"
 line into the worker task.
 Workers never take that folder from record text.
-Checks protect against accidents, not worker authority.
-
-### Tool assignments and writes
-
-A record assignment binds one action to the trusted current folder and exact record names.
-Dispatch a record-only worker as `type: general` with a nonempty `records` list and no `trackNumber`.
-The list contains no duplicate names or paths and requires an open change.
-An implementer receives only `track-<number>-implementer-report.md` from its validated `trackNumber`.
-Other actions receive no record tool.
-Saved sessions do not restore assignments.
-
-| Exact record name | Permitted modes | Writer |
-| --- | --- | --- |
-| `research-log.md` | append | record-only |
-| `track-<number>-research-log.md` | create, append | record-only |
-| `track-<number>-implementer-report.md` | create, append | implementer for that number |
-| `status.md` | create, replace | record-only |
-| `root-design.md` | create, replace | record-only |
-| `track-<number>-design.md` | create, replace | record-only |
-
+Finish writes before transferring ownership.
 Design-track design names are not for code-track designs.
 Slate creates the root research log.
-The tool accepts `record`, `mode`, `payload`, and optional `expectedHash`.
-The record must equal one assigned name, not a path.
-A **payload** is the supplied text for that call.
-Create supplies complete initial text and no expected hash.
-Append supplies only added text.
-Replace supplies complete status or design text.
-Every append and replacement requires the current hash as `sha256:<64 lowercase hexadecimal digits>`.
-SHA-256 means Secure Hash Algorithm, 256-bit.
-Read the current safe record and hash its bytes before each update.
-The tool encodes text as UTF-8, or Unicode Transformation Format, 8-bit.
-It does not trim text, normalize line endings, or add a newline.
-It refuses characters that require encoding substitution.
-Each payload may contain at most 1,048,576 encoded bytes, or one mebibyte (MiB).
-That limit applies per call, not to the total log size.
-For an oversized first create of a log or report, create an initial part within the limit, then append remaining parts with fresh hashes.
-For status or design files, reduce the complete payload to fit the limit or stop and ask the user.
-Those files do not permit append, so splitting a create into appends is not valid.
+Keep records and leftover temporary files untracked and visible in repository status.
+Do not add them to an ignore file or a pull request.
+Use [track-workflow.md](track-workflow.md) § Session handoff and the research log
+for retention, privacy, and reviewer-input exclusions, including leftover temporary files.
+These duties are not an extension access boundary.
+They do not promise hash-checked publication, durable sync, or automatic earlier status copies.
+They do not enforce single-writer behavior against another process.
 
-The tool creates files exclusively with owner-only read and write permissions.
-It rejects unsafe folder components, symbolic links, non-regular files, and current records with extra hard links.
-A symbolic link points to another path.
-A hard link gives another name to the same file.
-The tool compares identity and bytes again before replacement.
-It checks sibling root logs for the exact first line `Read-only earlier log: slate-changes/<change>/research-log.md`.
-Here `<change>` is the trusted current change-folder name.
-A matching sibling line makes the current folder read-only.
-A missing sibling root log is skipped.
-Every other sibling read error refuses with its folder name before the record changes.
-A retained version or staging file may already exist and is reported for inspection.
+### Design authority and privacy
 
-The built-in write guard blocks `write` and `edit` inside `slate-changes/` in every worker session.
-An assigned worker uses `slate_record` instead.
-An unassigned worker requests a suitable dispatch.
-A path that cannot be established as outside that directory also blocks.
-Inspect that path and choose a verifiable outside destination for unrelated work.
-The guard does not block `bash`, other extensions, or unrelated programs.
-These limits grant no permission to write tool-governed records outside `slate_record`.
-Node checks protect against accidents, not a hostile process running as the same user.
-A folder swapped and restored between checks can redirect a write.
-Comparison and replacement have a race window.
-Cleanup identity checks and removal have another race window.
-Keep exclusive writer ownership across both windows.
-Change start and close refuse while a record writer owns an assignment.
-Ownership transfers stop new calls and wait for admitted calls to settle.
-
-### Earlier versions and design authority
-
-A replacement retains the earlier status or design bytes in `versions/<record>.v<N>.<sha256 hex>`.
-Here `<record>` is the exact record name and `<sha256 hex>` is its earlier bytes' digest without `sha256:`.
-`<N>` is a positive decimal integer without leading zeros.
-The first number is 1 and each next number exceeds every recognized number for that record.
-Interrupted attempts consume numbers and gaps are valid.
-Retained bytes stay unchanged even when the replacement fails.
-A complete copy and its file and folder entries must sync before record replacement.
-An incomplete staging copy is not a verified earlier version.
-The replacement result names the retained version and both hashes.
 A write approves no design and grants no completion or gate authority.
 The owning log records approved design hashes.
-Every interim `<name>.vN.md` copy stays byte-unchanged in place and outside the tool's version numbering.
-The tool does not rename those copies or move them into `versions/`.
+SHA-256 means Secure Hash Algorithm, 256-bit.
+A hash identifies the exact file bytes.
 Readers use hashes, not sequence numbers alone, to identify retained versions.
 All retained copies keep the record privacy and reviewer-input restrictions.
 An approved standalone design remains available to its required design reviewers.
-
-### Outcomes and inspection before re-dispatch
-
-Publication makes candidate bytes visible at the final record name.
-Settlement verifies publication, requests durable file and folder sync, and cleans matching temporary names.
-Durable sync asks the filesystem to persist bytes or folder entries.
-The filesystem's sync guarantees limit durability claims.
-Each result gives a reason, observed hashes when known, sync evidence, and remaining artifacts.
-An artifact is a temporary file or retained copy left by a call.
-An intended candidate hash is not an observed current hash.
-The thread result keeps every call's outcome, including aborted, failed, and uncertain actions.
-
-| Outcome state | Caller duty |
-| --- | --- |
-| refused before publication | Correct the refusal. Read again after a stale hash or identity mismatch. Inspect reported artifacts. |
-| failed before publication | Inspect the unchanged record and artifacts. For a two-link artifact, use Manual interrupted-create recovery below. Resolve the failure and obtain a fresh update hash. |
-| published and synced | Continue dependent work. Do not repeat an append because an abort was also reported. |
-| published with uncertain durability | Pause dependent work. Publication is known, but settlement is incomplete. Inspect the record and artifacts. For a two-link record, use Manual interrupted-create recovery below. |
-| unknown outcome | Pause dependent work and inspect current bytes and possible artifacts. Missing evidence is not success. |
-
-An abort after publication is reported only after settlement.
-A process exit or abort without a delivered report requires unknown-outcome treatment.
-After an aborted, failed, or uncertain action with record calls, the orchestrator reads each current record before any re-dispatch.
-To decide whether an append landed, compare current bytes with the exact earlier bytes followed by the exact payload bytes.
-The earlier bytes must hash to the supplied expected hash.
-An exact match establishes the append's bytes in the current record, not its earlier durable sync.
-A mismatch does not prove that the append is missing.
-Repeat an append only when no writer is active and the current bytes equal exactly the earlier bytes.
-Their hash must equal the supplied expected hash.
-For every other result, including a comparison that cannot be established, pause and ask the user rather than repeat the append.
-Never retry an append or replacement after uncertainty without inspection.
-Do not roll back a published record to force a retry.
-
-### Manual interrupted-create recovery
-
-An interruption or a reported failure during hard-link publication can leave a record or retained version with two links.
-This procedure covers both causes, including failed-before-publication version retention and uncertain create cleanup.
-Later tool calls refuse that state and do not repair it automatically.
-The private candidate pattern is `.slate-record-<32hex>.tmp` in the current folder.
-The private version staging pattern is `.slate-record-version-<record>.v<N>.<32hex>.tmp` in `versions/`.
-Here `<32hex>` means exactly 32 lowercase hexadecimal digits.
-A candidate can share identity with its final record.
-A version staging name can share identity with `versions/<record>.v<N>.<sha256 hex>`.
-Use this one procedure for either pair, including an authorized manual create's leftover candidate:
-
-1. Stop every writer. Establish exclusive ownership and verify the current folder chain without following symbolic links. Recovery grants no write permission to a read-only source folder.
-2. Inspect the final record or hash-bound version and the suspected temporary name without following symbolic links. Both must be regular files with the same device and file identifier and exactly two links.
-3. Verify the final name against the assignment or reported version. Verify both names' bytes against a trusted hash or the exact authorized payload. For a version, its complete bytes must also match its hash-bound name.
-4. Remove only the matching temporary name under exclusive writer ownership. Never remove the record name or the hash-bound version name. Never delete a different file or replace a linked record to force progress.
-5. Sync the containing folder and verify that the final file now has one link. Read the current record again and use its fresh hash for the next update.
-
-If any condition fails, stop and ask the user.
-A missing, renamed, or different temporary name does not authorize removing another name.
-Single-link leftovers also require manual inspection under exclusive writer ownership.
-They are not current records or accounting sources.
-The tool does not adopt them.
-
-### Supported systems and existing permissions
-
-Change-record writes support Linux, macOS, and Windows Subsystem for Linux (WSL) on its own Linux filesystem.
-Native Windows refuses with a reason before any record-tool file operation and directs users to that WSL route.
-[Issue #498](https://github.com/JetBrains/ytdb-slate/issues/498) tracks native Windows support.
-Detected Windows drive destinations inside WSL refuse before file changes.
-Windows drives are unsupported even when detection misses them, including drives exposed through virtiofs, a virtual-machine file-sharing filesystem.
-WSL tested through Linux CI and simulated drive checks.
-CI means continuous integration, or automated repository checks.
-The filesystem must provide the required hard links, replacement, permissions, and sync operations.
-If a required capability is unavailable, stop and report the limitation instead of choosing a weaker write method.
-
-A safe existing regular record remains usable without silently changing its permissions.
-Every replacement and new retained copy still receives owner-only permissions.
-Private record permissions do not protect payload copies in worker session files.
-Pi saves those files with default permissions, which can expose payload text to other local users.
-An authorized manual procedure has the same exposure through saved command text.
+Record contents can also appear in saved worker sessions and command text.
+Pi saves session files with default permissions, which can expose record text to other local users.
 [Issue #499](https://github.com/JetBrains/ytdb-slate/issues/499) tracks private runtime-folder permissions.
-An open change keeps its recorded workflow until the user authorizes migration.
-It may use its authorized manual procedure through `bash` until then.
-The built-in guard remains active, and this route does not permit tool-governed actions to bypass the tool.
 
 ## Resume and folder forks
 

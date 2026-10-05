@@ -18,6 +18,7 @@ import {
 	compressEpisode,
 	createCompletedFactRecorder,
 	EpisodePersistenceError,
+	headerField,
 	writeFailedEpisode,
 	type FrozenCompletedFacts,
 } from "./episodes.ts";
@@ -51,9 +52,6 @@ import {
 import { EMPTY_WORKER_EXTENSION_SET, type WorkerExtensionSet } from "./worker-extensions.ts";
 import { isWorkerReminderMessage, workerReminderDeliveryMissing } from "./worker-reminder.ts";
 import { loadImplementationReviewGuidance, validateReviewPerspectives, type ReviewFileReader } from "./review-perspectives.ts";
-import type { RecordAssignment } from "./record-names.ts";
-import { recordOwnership, type RecordLease } from "./record-ownership.ts";
-import { renderRecordFacts } from "./record-worker.ts";
 
 /**
  * One prompt-cache key for ONE main slate session.
@@ -117,8 +115,6 @@ export interface DispatchOptions {
 	tools?: string[];
 	/** Optional built-in implementation-review selection. Never persisted. */
 	reviewPerspectives?: unknown;
-	/** Action-local record authority. Never persisted in a thread or snapshot. */
-	recordAssignment?: RecordAssignment;
 }
 
 /**
@@ -151,7 +147,7 @@ export interface DispatchResult {
 	episode: EpisodeRecord;
 	thread: ThreadRecord;
 	usage: UsageStats;
-	/** Routing notices for this action. */
+	/** Notices for this action. */
 	warnings: readonly string[];
 }
 
@@ -344,15 +340,8 @@ export class ThreadManager {
 		const accepted: DispatchOptions = { ...opts, reason, type, contextEpisodeIds };
 		const prompt = this.buildPrompt(accepted, ctx.cwd);
 		const reviewGuidance = selected === undefined ? undefined : loadImplementationReviewGuidance(selected, this.readReviewFile);
-		const recordLease = accepted.recordAssignment === undefined ? undefined : recordOwnership(this.store).reserve(accepted.recordAssignment);
-		try {
-			const thread = this.createThread(accepted);
-			return await this.runDispatch(thread, accepted, prompt, ctx, signal, onProgress, admission, initialRoute, reviewGuidance, recordLease);
-		} finally {
-			recordLease?.close();
-			await recordLease?.settle();
-			recordLease?.release();
-		}
+		const thread = this.createThread(accepted);
+		return await this.runDispatch(thread, accepted, prompt, ctx, signal, onProgress, admission, initialRoute, reviewGuidance);
 	}
 
 	private createThread(opts: DispatchOptions): ThreadRecord {
@@ -417,7 +406,6 @@ export class ThreadManager {
 		report: (message: string) => void;
 		requestContract: WorkerRequestContract;
 		reviewGuidance?: string;
-		recordLease?: RecordLease;
 		/**
 		 * Report the created worker session to the action that owns it.
 		 *
@@ -461,7 +449,6 @@ export class ThreadManager {
 					extensionToolNames: extensions.toolNames,
 					reviewerCharter: isJudgementThreadType(type),
 					reviewGuidance: args.reviewGuidance,
-					recordLease: args.recordLease,
 					report: args.report,
 					onCreated: (created) => {
 						opening = created;
@@ -588,7 +575,6 @@ export class ThreadManager {
 		admission?: RecoveryAdmission,
 		initialRoute?: RecoveryCandidate,
 		reviewGuidance?: string,
-		recordLease?: RecordLease,
 	): Promise<DispatchResult> {
 		const episodeId = slateEpisodeId(thread.id)!;
 		// Enroll synchronously before the semaphore can suspend this action. Manager
@@ -607,7 +593,7 @@ export class ThreadManager {
 			const lease = this.logicalRuntime?.ownership.acquire(thread.id);
 			if (lease?.kind === "busy") throw new Error(`Thread ${thread.id} cannot start because its recovery owner is busy.`);
 			try {
-				return await this.runDispatchInner(thread, opts, prompt, episodeId, ctx, signal, onProgress, admission, initialRoute, reviewGuidance, recordLease);
+				return await this.runDispatchInner(thread, opts, prompt, episodeId, ctx, signal, onProgress, admission, initialRoute, reviewGuidance);
 			} finally {
 				if (lease?.kind === "acquired") lease.lease.release();
 			}
@@ -629,7 +615,6 @@ export class ThreadManager {
 		admission?: RecoveryAdmission,
 		initialRoute?: RecoveryCandidate,
 		reviewGuidance?: string,
-		recordLease?: RecordLease,
 	): Promise<DispatchResult> {
 		const usage: UsageStats = { turns: 0, input: 0, output: 0, cost: 0, contextTokens: 0 };
 		let workerCostUsd: number | undefined;
@@ -699,9 +684,7 @@ export class ThreadManager {
 			const reports: string[] = [];
 			if (lifecycleWarnings.length > 0) reports.push(`Lifecycle failures: ${lifecycleWarnings.join(" ")}`);
 			if (progressWarnings.length > 0) reports.push(`Progress callback failures: ${progressWarnings.join(" ")}`);
-			const recordFacts = renderRecordFacts(session?.recordCallFacts?.() ?? []);
-			const visible = reports.length === 0 ? message : `${message} ${reports.join(" ")}`;
-			return recordFacts ? `${visible}\n${recordFacts}` : visible;
+			return reports.length === 0 ? message : `${message} ${reports.join(" ")}`;
 		};
 		const cancellationReason = (): string =>
 			cancellationObservation?.kind === "caller"
@@ -724,6 +707,8 @@ export class ThreadManager {
 		let captureExecutionReports = false;
 		let executionReport: string | undefined;
 		const completedFacts = createCompletedFactRecorder();
+		// Count completed errors independently of bounded transcript facts.
+		const toolErrors = new Map<string, number>();
 		let frozenCompletedFacts: FrozenCompletedFacts | undefined;
 		let status: "ok" | "failed" = "ok";
 		let diagnostics: string | undefined;
@@ -808,6 +793,7 @@ export class ThreadManager {
 			} else if (event.type === "tool_execution_end") {
 				const tool = event as unknown as { toolName: string; result: unknown; isError: boolean };
 				completedFacts.addTool(tool.toolName, tool.result, tool.isError);
+				if (tool.isError) toolErrors.set(tool.toolName, (toolErrors.get(tool.toolName) ?? 0) + 1);
 			} else if (event.type === "auto_retry_start") {
 				// Keep the failed attempt until another assistant response actually replaces it.
 				// Pi can cancel during backoff without producing a replacement message.
@@ -885,7 +871,6 @@ export class ThreadManager {
 			if (!logicalRoute || !admission || !this.logicalRuntime) throw new DispatchAbort("Logical route admission was lost before worker startup.");
 			const queuedValidation = await this.logicalRuntime.validateRoute(ctx, logicalRoute);
 			if (!queuedValidation.ok) throw new DispatchAbort(`Logical worker startup stopped before billed work: ${queuedValidation.reason}`);
-			recordLease?.check();
 			const open = planSessionOpen(logicalRoute);
 			requestContract.expect(logicalRoute);
 			onAbort = () => {
@@ -906,7 +891,6 @@ export class ThreadManager {
 					report: routeWarn,
 					requestContract,
 					reviewGuidance,
-					recordLease,
 					observeStartupFailure: (detail) => {
 						if (this.teardownStarted) observeCancellation("session teardown");
 						observeStartupFailure();
@@ -1128,9 +1112,6 @@ export class ThreadManager {
 					? diagnostics ?? settlementRefusal
 					: `${diagnostics}; ${settlementRefusal}`;
 			}
-			await recordLease?.settle();
-			const recordText = renderRecordFacts(ownedSession?.recordCallFacts?.() ?? []);
-			if (recordText) completedFacts.addTool("slate_record outcomes", recordText, false);
 			frozenCompletedFacts = completedFacts.freeze();
 			// Only the settled, frozen action gets a stored outcome. The early
 			// outcome above decides retry and recovery, not durable success.
@@ -1207,6 +1188,14 @@ export class ThreadManager {
 			throw new Error(appendLifecycleWarnings(`Thread ${thread.id} was ${reason}. No episode was recorded.`));
 		}
 
+		const failedTools = [...toolErrors.keys()].sort();
+		// List at most five bounded names and report how many names are omitted.
+		const listedTools = failedTools.slice(0, 5).map((name) => `${headerField(name, 80) ?? "(unknown)"} (${toolErrors.get(name)})`);
+		const omittedTools = failedTools.length - listedTools.length;
+		const toolErrorWarning = failedTools.length > 0
+			? `slate: completed tool calls failed: ${listedTools.join(", ")}${omittedTools > 0 ? `, and ${omittedTools} more` : ""}.`
+			: undefined;
+		if (toolErrorWarning) routeWarn(toolErrorWarning);
 		if (status === "ok" && admission && logicalRoute) {
 			this.logicalRuntime!.publishProvider(admission, logicalRoute.logicalModel, logicalRoute.provider);
 		}
@@ -1378,7 +1367,7 @@ export class ThreadManager {
 				workerEffort: actualEffort,
 				completedText: completedWorkerText,
 				completedFacts: frozenCompletedFacts,
-				recordFactsText: renderRecordFacts(session?.recordCallFacts?.() ?? []),
+				toolErrorWarning,
 				logicalRuntime: this.logicalRuntime!,
 				admission: admission!,
 				retryPolicy: this.compressorRetryPolicy,
@@ -1488,10 +1477,9 @@ export class ThreadManager {
 
 	async disposeAll(): Promise<void> {
 		if (this.teardownPromise !== undefined) return this.teardownPromise;
-		// Close both admission boundaries before the first await. Running dispatches
+		// Close dispatch admission before the first await. Running dispatches
 		// retain persistence ownership and converge on their shared finalizer.
 		this.teardownStarted = true;
-		recordOwnership(this.store).stop();
 		const contracts = [...this.requestContracts.values()];
 		this.requestContracts.clear();
 		for (const contract of contracts) contract.invalidate();

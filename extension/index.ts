@@ -35,7 +35,6 @@
 
 import { join } from "node:path";
 import { createChangeFolder } from "./artifact-names.ts";
-import { recordOwnership } from "./record-ownership.ts";
 import { createChangeDirectory } from "./slate-files.ts";
 import { getAgentDir, SettingsManager, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { loadConfig, permitsSlateConfig } from "./config.ts";
@@ -202,7 +201,6 @@ export default function (pi: ExtensionAPI) {
 	// /tree can select a copied parent entry after a successful fork. On reload
 	// that entry still belongs to the parent and must never become writable here.
 	pi.on("session_start", (_event, ctx) => {
-		recordOwnership(store).resume();
 		if (!store.currentChange || store.changeOwnerSessionId === ctx.sessionManager.getSessionId()) return;
 		const source = store.currentChange; // validated during restore or handoff adoption
 		try {

@@ -9,7 +9,11 @@ import { createChangeFolder, isChangeFolder } from "../extension/artifact-names.
 import { createChangeDirectory } from "../extension/slate-files.ts";
 import { ADOPTED_SNAPSHOT_FIELDS, SlateStore, type SlateSnapshot } from "../extension/state.ts";
 import { registerSlateTools } from "../extension/tools.ts";
-import type { ThreadManager } from "../extension/threads.ts";
+import { ThreadManager } from "../extension/threads.ts";
+import { workerPreamble, type WorkerSession } from "../extension/worker.ts";
+import { implementerReportName, readOnlyEarlierLogLine, trackIdentifier } from "../extension/record-names.ts";
+import { registerSlateHandoff } from "../extension/handoff.ts";
+import { createBaseModelTracker } from "../extension/base-model.ts";
 import { pathToFileURL } from "node:url";
 import type { AgentTool, runToolCall as RunToolCall } from "../node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-agent-core/dist/index.js";
 
@@ -24,6 +28,7 @@ function harness(t: import("node:test").TestContext) {
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const events = new Map<string, Array<(event: any, ctx: ExtensionContext) => unknown>>();
   const tools = new Map<string, Tool>();
+  const commands = new Map<string, { handler: (args: string, ctx: ExtensionContext) => unknown }>();
   const warnings: string[] = [];
   let active = ["read", "thread", "slate_change"];
   let branch: Array<{ type: "custom"; customType: string; data: SlateSnapshot }> = [];
@@ -34,7 +39,8 @@ function harness(t: import("node:test").TestContext) {
   let hasUI = true;
   const pi = {
     on(name: string, handler: (event: any, ctx: ExtensionContext) => unknown) { events.set(name, [...(events.get(name) ?? []), handler]); },
-    registerCommand() {}, registerTool(tool: Tool & { name: string }) { tools.set(tool.name, tool); },
+    registerCommand(name: string, command: { handler: (args: string, ctx: ExtensionContext) => unknown }) { commands.set(name, command); },
+    registerTool(tool: Tool & { name: string }) { tools.set(tool.name, tool); },
     getActiveTools: () => active,
     setActiveTools(names: string[]) { active = names; },
     getAllTools: () => [...tools.keys()].map((name) => ({ name })),
@@ -48,15 +54,17 @@ function harness(t: import("node:test").TestContext) {
   const ctx = {
     cwd: project, mode: "rpc", get hasUI() { return hasUI; }, model: undefined, modelRegistry: {},
     isProjectTrusted: () => true,
-    sessionManager: { getBranch: () => branch, getEntries: () => entries, getSessionId: () => sessionId },
+    sessionManager: { getBranch: () => branch, getEntries: () => entries, getSessionId: () => sessionId, getSessionFile: () => undefined },
     ui: { notify: (message: string) => warnings.push(message), setWidget() {}, setStatus() {} },
   } as unknown as ExtensionContext;
   extension(pi as unknown as ExtensionAPI);
   return {
     project, root, tools, warnings, entries, ctx, active: () => active,
+    async event(name: string) { for (const handler of events.get(name) ?? []) await handler({}, ctx); },
     async start(reason: string) { for (const handler of events.get("session_start") ?? []) await handler({ reason }, ctx); },
     async doctrine() { const results = await Promise.all((events.get("before_agent_start") ?? []).map((handler) => handler({ systemPrompt: "BASE" }, ctx))); return (results[0] as { systemPrompt: string }).systemPrompt; },
     async action(action: "start" | "close") { return tools.get("slate_change")!.execute("id", { action }, undefined, undefined, ctx); },
+    async resume() { await commands.get("slate")!.handler("resume", ctx); },
     saved() { return entries.at(-1)!.data; },
     branchTo(snapshot: SlateSnapshot) { branch = [{ type: "custom", customType: "slate-state", data: snapshot }]; },
     session(id: string) { sessionId = id; },
@@ -102,6 +110,35 @@ test("start, close, resume, reload and handoff preserve one visible change witho
   assert.equal(existsSync(log), true, "close deletes nothing");
   await f.start("resume");
   assert.equal((await f.doctrine()).includes(`Current research log: slate-changes/${name}`), false);
+});
+
+test("change actions retain closed state after a failed start save and restore ownership after a failed close save", { timeout: 1000 }, async (t) => {
+  const f = harness(t);
+  f.branchTo({ format: "single-action-v1", threads: [], episodes: [], orchestratorMode: true,
+    paused: false, workerCostUsd: 0, carriedCostUsd: 0 });
+  await f.start("resume");
+  await assert.rejects(f.action("close"), /no change is open/);
+  f.failNextSave();
+  await assert.rejects(f.action("start"), /injected save failure/);
+  assert.match(await f.doctrine(), /No change open/);
+  await f.action("start");
+  const source = f.saved().currentChange!;
+  f.branchTo({ ...f.saved(), changeOwnerSessionId: "parent" });
+  await f.start("fork");
+  const folder = f.saved().currentChange!;
+  f.failNextSave();
+  await assert.rejects(f.action("close"), /injected save failure/);
+  assert.match(await f.doctrine(), new RegExp(`Current research log: slate-changes/${folder}/research-log.md`));
+  assert.match(await f.doctrine(), new RegExp(`Read-only source log: slate-changes/${source}/research-log.md`));
+  for (const stage of ["save", "reload"]) {
+    if (stage === "reload") await f.start("reload");
+    await f.resume();
+    const saved = f.saved();
+    assert.deepEqual([saved.currentChange, saved.sourceChange, saved.changeOwnerSessionId], [folder, source, "successor"], stage);
+  }
+  await f.action("close");
+  assert.equal(f.saved().currentChange, undefined);
+  assert.equal(existsSync(join(f.project, "slate-changes", folder, "research-log.md")), true);
 });
 
 test("session ownership isolates forks and copied parent history after tree movement", { timeout: 10000 }, async (t) => {
@@ -270,11 +307,36 @@ test("folder grammar rejects malformed, calendar-invalid, traversal and runtime 
   assert.deepEqual(Object.keys(ADOPTED_SNAPSHOT_FIELDS), ["format", "threads", "episodes", "threadSeq", "currentChange", "changeOwnerSessionId", "sourceChange", "orchestratorMode", "paused", "workerCostUsd", "carriedCostUsd"]);
 });
 
-test("implementer receives its exact report name in the dispatch text", async () => {
+const reportMethodGroups = [
+  ["destination", ["Write no other file under `slate-changes/`."]],
+  ["start copy", [
+    "Before its first report write in each action, the implementer copies the report to a temporary file outside `slate-changes/`.",
+    "For a new report, that copy is an empty file.",
+  ]],
+  ["append", [
+    "The implementer writes each new text to its own temporary file outside `slate-changes/`.",
+    "It creates a new report by appending its first temporary file with `>>`.",
+    "It appends each temporary file to the report with `>>`.",
+  ]],
+  ["final check", [
+    "After its last write, the implementer checks the whole report once with `cat` and `cmp`.",
+    "The report must equal the start copy followed by every appended temporary file in order.",
+  ]],
+  ["report", ["The implementer reports the check in its final response with the report path, what it compared, and the result."]],
+] as const;
+
+function assertReportMethod(task: string) {
+  for (const [group, sentences] of reportMethodGroups) {
+    assert.ok(task.includes(sentences.join(" ")), `generated ${group} guidance must match the approved method`);
+    for (const sentence of sentences) assert.equal(task.split(sentence).length, 2, `${group} sentence must appear once`);
+  }
+}
+
+test("implementer receives its report path and approved method with and without a source", { timeout: 10000 }, async () => {
   let thread: Tool | undefined;
   let task: string | undefined;
   const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
-  store.currentChange = createChangeFolder();
+  store.currentChange = "change-20261004T000000Z-" + "c".repeat(32);
   registerSlateTools({ registerTool(tool: Tool & { name: string }) { if (tool.name === "thread") thread = tool; } } as unknown as ExtensionAPI,
     store, () => ({ async dispatch(opts: { task: string }) {
       task = opts.task;
@@ -287,12 +349,30 @@ test("implementer receives its exact report name in the dispatch text", async ()
   assert.ok(thread);
   const call = { name: "implementation", type: "implementer", task: "Make the fix", model: "sol-6.1", reason: "routine" };
   await assert.rejects(thread.execute("id", call, undefined, undefined, {}), /requires trackNumber/);
-  await thread.execute("id", { ...call, trackNumber: 3 }, undefined, undefined, {});
-  assert.match(task!, new RegExp(`slate-changes/${store.currentChange}/track-3-implementer-report.md`));
-  assert.equal(task!.includes("<number>"), false);
-  store.sourceChange = createChangeFolder();
-  await thread.execute("id", { ...call, trackNumber: 3 }, undefined, undefined, {});
-  assert.equal(task!, `Make the fix\n\nImplementer report: slate-changes/${store.currentChange}/track-3-implementer-report.md. Use slate_record to create this report and append later entries. If the source folder has this track's report, continue it in this new report and name slate-changes/${store.sourceChange}/track-3-implementer-report.md as read-only in the new report's first entry. Do not edit the source report.`);
+  const guidanceBytes: number[] = [];
+  for (const source of [undefined, "change-20261004T000000Z-" + "d".repeat(32)]) {
+    store.sourceChange = source;
+    await thread.execute("id", { ...call, trackNumber: 3 }, undefined, undefined, {});
+    assert.match(task!, new RegExp(`slate-changes/${store.currentChange}/track-3-implementer-report.md`));
+    assert.equal(task!.includes("<number>"), false);
+    assertReportMethod(task!);
+    if (source) {
+      assert.ok(task!.includes(`If the source folder has this track's report, continue it in this new report and name slate-changes/${source}/track-3-implementer-report.md as read-only in the new report's first entry. Do not edit the source report.`));
+      assert.ok(task!.includes(`Never write in the read-only source folder \`slate-changes/${source}/\`.`));
+    } else {
+      assert.doesNotMatch(task!, /If the source folder|read-only source folder/);
+    }
+    guidanceBytes.push(Buffer.byteLength(task!.slice(call.task.length + 2)));
+  }
+  assert.deepEqual(guidanceBytes, [995, 1377], "production-rendered report guidance bytes, source absent and present");
+  const published = readFileSync(new URL("../docs/context-budget.md", import.meta.url), "utf8");
+  const format = (bytes: number) => bytes.toLocaleString("en-US");
+  assert.ok(published.includes(`Its generated guidance is ${format(guidanceBytes[0]!)} UTF-8 bytes without a source folder.`));
+  assert.ok(published.includes(`With a canonical source folder, the guidance is ${format(guidanceBytes[1]!)} bytes.`));
+  for (const trusted of [false, true]) {
+    const preambleBytes = Buffer.byteLength(workerPreamble(trusted, false));
+    assert.ok(published.includes(`| ${trusted ? "On" : "Off"} | ${format(preambleBytes)} | ${guidanceBytes.map(format).join(" / ")} | ${guidanceBytes.map((bytes) => format(bytes + preambleBytes)).join(" / ")} |`));
+  }
 });
 
 test("dispatch validates original and changed identifiers through real Pi preparation", { timeout: 10000 }, async () => {
@@ -328,7 +408,8 @@ test("dispatch validates original and changed identifiers through real Pi prepar
   for (const trackNumber of accepted) {
     const result = await invoke({ ...call, trackNumber });
     assert.equal(result.isError, false, JSON.stringify(trackNumber));
-    assert.equal(tasks.at(-1), `work\n\nImplementer report: slate-changes/${store.currentChange}/track-${trackNumber}-implementer-report.md. Use slate_record to create this report and append later entries. If the source folder has this track's report, continue it in this new report and name slate-changes/${store.sourceChange}/track-${trackNumber}-implementer-report.md as read-only in the new report's first entry. Do not edit the source report.`);
+    assert.ok(tasks.at(-1)!.includes(`Implementer report: slate-changes/${store.currentChange}/track-${trackNumber}-implementer-report.md.`));
+    assert.ok(tasks.at(-1)!.includes(`name slate-changes/${store.sourceChange}/track-${trackNumber}-implementer-report.md as read-only in the new report's first entry. Do not edit the source report.`));
   }
   const rejected = [true, false, null, undefined, 0, -1, 1.2, Number.MAX_SAFE_INTEGER + 1, NaN, Infinity,
     "", "0", "01", "01.2", "1.02", "1..2", "1.", ".1", " 1", "1 ", "1\n", "1\u0000", "１", "١", "1/2", "../1", "1\\2", "1e2", "+1", "1-2", "9007199254740992", "1.9007199254740992", at129];
@@ -374,9 +455,109 @@ test("dispatch validates original and changed identifiers through real Pi prepar
   const recursive = readFileSync(join(process.cwd(), "docs/recursive-workflow.md"), "utf8");
   assert.match(recursive, /The identifier has at most 128 characters\./);
   assert.match(recursive, /Each component is at most 9,007,199,254,740,991\./);
-  assert.match(recursive, /The record must equal one assigned name, not a path\./);
-  assert.match(recursive, /Every append and replacement requires the current hash as/);
   assert.doesNotMatch(recursive, /safe-record\.py|safe-record-recipe/);
+});
+
+test("shared identifiers and report names retain exact boundaries", () => {
+  const at128 = `${"1.".repeat(56)}1234567890123456`;
+  const at129 = `${"1.".repeat(57)}123456789012345`;
+  assert.equal(at128.length, 128);
+  assert.equal(at129.length, 129);
+  for (const value of [1, 105, Number.MAX_SAFE_INTEGER, "1", "1.2.3", "1.9007199254740991", at128]) {
+    assert.equal(trackIdentifier(value), String(value));
+    assert.equal(implementerReportName(value), `track-${value}-implementer-report.md`);
+  }
+  for (const value of [null, true, 0, -1, 1.2, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1,
+    "", "0", "01", "1.02", "1..2", "1.", ".1", " 1", "1 ", "1\n", "1\r", "1\0", "１", "١",
+    "1/2", "../1", "1\\2", "1e2", "+1", "1-2", "9007199254740992", "1.9007199254740992", at129]) {
+    assert.throws(() => trackIdentifier(value), /trackNumber/);
+    assert.throws(() => implementerReportName(value), /trackNumber/);
+  }
+});
+
+test("earlier-log helper matches the producer's exact first-line bytes", (t) => {
+  const f = harness(t), source = createChangeFolder(), current = createChangeFolder();
+  createChangeDirectory(f.project, source);
+  createChangeDirectory(f.project, current, source);
+  const bytes = readFileSync(join(f.project, "slate-changes", current, "research-log.md"));
+  assert.deepEqual(bytes.subarray(0, bytes.indexOf(10)), Buffer.from(readOnlyEarlierLogLine(source)));
+  assert.equal(readOnlyEarlierLogLine(source), `Read-only earlier log: slate-changes/${source}/research-log.md`);
+  assert.throws(() => readOnlyEarlierLogLine("../source"), /valid change folder/);
+});
+
+for (const event of ["session_start", "session_shutdown"]) {
+  test(`index ${event} joins an ordinary worker operation before a folder fork`, { timeout: 1000 }, async (t) => {
+    const f = harness(t), original = createChangeFolder();
+    createChangeDirectory(f.project, original);
+    f.branchTo({ format: "single-action-v1", threads: [], episodes: [], currentChange: original,
+      changeOwnerSessionId: "successor", orchestratorMode: true, paused: false, workerCostUsd: 0, carriedCostUsd: 0 });
+    await f.start("startup");
+    let release!: () => void, entered!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const started = new Promise<void>((resolve) => { entered = resolve; });
+    const dispatch = ThreadManager.prototype.dispatch;
+    ThreadManager.prototype.dispatch = async function () {
+      const operation = (async () => { entered(); await gate; })();
+      (this as unknown as { live: Map<string, WorkerSession> }).live.set("held", {
+        abort: async () => {}, shutdownWorker: async () => { await operation; },
+      } as unknown as WorkerSession);
+      await operation;
+      throw new Error("held operation finished");
+    };
+    const worker = f.tools.get("thread")!.execute("held", { type: "general", task: "held ordinary work", model: "sol-6.1", reason: "fixture" }, undefined, undefined, f.ctx).catch((error: Error) => error);
+    await started;
+    f.session("fork-owner");
+    let finished = false;
+    const transfer = f.event(event).then(() => { finished = true; });
+    try {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal(finished, false, "index must await manager.disposeAll");
+      assert.equal(existsSync(join(f.project, "slate-changes", original, "research-log.md")), true);
+      assert.equal(f.entries.length, 0, "the fork must not be saved while the worker operation runs");
+    } finally { release(); await worker; await transfer; ThreadManager.prototype.dispatch = dispatch; }
+    if (event === "session_shutdown") await f.start("fork");
+    assert.notEqual(f.saved().currentChange, original);
+    assert.equal(f.saved().sourceChange, original);
+    assert.equal(f.saved().changeOwnerSessionId, "fork-owner");
+  });
+}
+
+for (const reject of [false, true]) {
+  test(`handoff ${reject ? "rejects idle cancellation without replacement" : "awaits ordinary worker idle before replacement"}`, { timeout: 1000 }, async (t) => {
+    const f = harness(t), store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
+    const hooks = registerSlateHandoff({ on() {}, registerCommand() {} } as unknown as ExtensionAPI, store, () => ({}), () => createBaseModelTracker({ warn() {} }));
+    let release!: () => void;
+    const operation = new Promise<void>((resolve) => { release = resolve; });
+    let replacements = 0;
+    const transfer = hooks.startHandoff({ ...f.ctx,
+      waitForIdle: async () => { await operation; if (reject) throw new Error("idle cancelled"); },
+      newSession: async () => { replacements++; return { cancelled: true }; },
+    } as any);
+    const outcome = reject ? assert.rejects(transfer, /idle cancelled/) : transfer;
+    try {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal(replacements, 0, "replacement must wait for the worker operation");
+    } finally { release(); await outcome; }
+    assert.equal(replacements, reject ? 0 : 1);
+  });
+}
+
+test("startup preserves planted versions and temporary record bytes across resume, fork and handoff", { timeout: 1000 }, async (t) => {
+  const f = harness(t), folder = createChangeFolder();
+  createChangeDirectory(f.project, folder);
+  const directory = join(f.project, "slate-changes", folder);
+  mkdirSync(join(directory, "versions"));
+  const files = ["versions/status.v1.md", "versions/root-design.v2.md", ".slate-record-candidate", ".slate-record-version"];
+  const bytes = files.map((name, index) => { const value = Buffer.from([0, index, 255, 10]); writeFileSync(join(directory, name), value); return value; });
+  const state: SlateSnapshot = { format: "single-action-v1", threads: [], episodes: [], currentChange: folder,
+    changeOwnerSessionId: "successor", orchestratorMode: true, paused: false, workerCostUsd: 0, carriedCostUsd: 0 };
+  for (const reason of ["startup", "resume", "fork", "handoff"]) {
+    f.branchTo(state);
+    if (reason === "fork") f.session("fork-owner");
+    if (reason === "handoff") { f.session("successor"); f.handoff(state); }
+    await f.start(reason);
+    files.forEach((name, index) => assert.deepEqual(readFileSync(join(directory, name)), bytes[index], `${reason}: ${name}`));
+  }
 });
 
 test("legacy root research log is only named as read-only earlier input", { timeout: 10000 }, async (t) => {
