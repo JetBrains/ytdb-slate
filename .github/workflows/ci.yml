@@ -18,8 +18,9 @@
 #     node_modules and nothing else moves — `git status` is clean after a full
 #     local run — and the three harnesses that need scratch space (the load
 #     check, the resolver checks and the unit-test wrapper) mktemp it under
-#     TMPDIR and remove it again. Record-tool tests create disposable folders
-#     through Node's mkdtemp under os.tmpdir() and remove them during teardown.
+#     TMPDIR and remove it again. Unit tests create temporary folders outside
+#     the checkout with Node's mkdtemp under os.tmpdir(). Test teardown removes
+#     those folders.
 #
 # It is not hermetic with respect to the rest of the filesystem, and does not
 # claim to be: `npm ci` populates the npm cache under HOME like any install, and
