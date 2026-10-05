@@ -10,7 +10,7 @@ import { createChangeDirectory } from "../extension/slate-files.ts";
 import { ADOPTED_SNAPSHOT_FIELDS, SlateStore, type SlateSnapshot } from "../extension/state.ts";
 import { registerSlateTools } from "../extension/tools.ts";
 import { ThreadManager } from "../extension/threads.ts";
-import type { WorkerSession } from "../extension/worker.ts";
+import { workerPreamble, type WorkerSession } from "../extension/worker.ts";
 import { implementerReportName, readOnlyEarlierLogLine, trackIdentifier } from "../extension/record-names.ts";
 import { registerSlateHandoff } from "../extension/handoff.ts";
 import { createBaseModelTracker } from "../extension/base-model.ts";
@@ -365,6 +365,14 @@ test("implementer receives its report path and approved method with and without 
     guidanceBytes.push(Buffer.byteLength(task!.slice(call.task.length + 2)));
   }
   assert.deepEqual(guidanceBytes, [995, 1377], "production-rendered report guidance bytes, source absent and present");
+  const published = readFileSync(new URL("../docs/context-budget.md", import.meta.url), "utf8");
+  const format = (bytes: number) => bytes.toLocaleString("en-US");
+  assert.ok(published.includes(`Its generated guidance is ${format(guidanceBytes[0]!)} UTF-8 bytes without a source folder.`));
+  assert.ok(published.includes(`With a canonical source folder, the guidance is ${format(guidanceBytes[1]!)} bytes.`));
+  for (const trusted of [false, true]) {
+    const preambleBytes = Buffer.byteLength(workerPreamble(trusted, false));
+    assert.ok(published.includes(`| ${trusted ? "On" : "Off"} | ${format(preambleBytes)} | ${guidanceBytes.map(format).join(" / ")} | ${guidanceBytes.map((bytes) => format(bytes + preambleBytes)).join(" / ")} |`));
+  }
 });
 
 test("dispatch validates original and changed identifiers through real Pi preparation", { timeout: 10000 }, async () => {

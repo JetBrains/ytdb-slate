@@ -52,8 +52,6 @@ import {
 import { EMPTY_WORKER_EXTENSION_SET, type WorkerExtensionSet } from "./worker-extensions.ts";
 import { isWorkerReminderMessage, workerReminderDeliveryMissing } from "./worker-reminder.ts";
 import { loadImplementationReviewGuidance, validateReviewPerspectives, type ReviewFileReader } from "./review-perspectives.ts";
-import type { RecordAssignment } from "./record-names.ts";
-import { recordOwnership, type RecordLease } from "./record-ownership.ts";
 
 /**
  * One prompt-cache key for ONE main slate session.
@@ -117,8 +115,6 @@ export interface DispatchOptions {
 	tools?: string[];
 	/** Optional built-in implementation-review selection. Never persisted. */
 	reviewPerspectives?: unknown;
-	/** Action-local record authority. Never persisted in a thread or snapshot. */
-	recordAssignment?: RecordAssignment;
 }
 
 /**
@@ -344,15 +340,8 @@ export class ThreadManager {
 		const accepted: DispatchOptions = { ...opts, reason, type, contextEpisodeIds };
 		const prompt = this.buildPrompt(accepted, ctx.cwd);
 		const reviewGuidance = selected === undefined ? undefined : loadImplementationReviewGuidance(selected, this.readReviewFile);
-		const recordLease = accepted.recordAssignment === undefined ? undefined : recordOwnership(this.store).reserve(accepted.recordAssignment);
-		try {
-			const thread = this.createThread(accepted);
-			return await this.runDispatch(thread, accepted, prompt, ctx, signal, onProgress, admission, initialRoute, reviewGuidance, recordLease);
-		} finally {
-			recordLease?.close();
-			await recordLease?.settle();
-			recordLease?.release();
-		}
+		const thread = this.createThread(accepted);
+		return await this.runDispatch(thread, accepted, prompt, ctx, signal, onProgress, admission, initialRoute, reviewGuidance);
 	}
 
 	private createThread(opts: DispatchOptions): ThreadRecord {
@@ -417,7 +406,6 @@ export class ThreadManager {
 		report: (message: string) => void;
 		requestContract: WorkerRequestContract;
 		reviewGuidance?: string;
-		recordLease?: RecordLease;
 		/**
 		 * Report the created worker session to the action that owns it.
 		 *
@@ -461,7 +449,6 @@ export class ThreadManager {
 					extensionToolNames: extensions.toolNames,
 					reviewerCharter: isJudgementThreadType(type),
 					reviewGuidance: args.reviewGuidance,
-					recordLease: args.recordLease,
 					report: args.report,
 					onCreated: (created) => {
 						opening = created;
@@ -588,7 +575,6 @@ export class ThreadManager {
 		admission?: RecoveryAdmission,
 		initialRoute?: RecoveryCandidate,
 		reviewGuidance?: string,
-		recordLease?: RecordLease,
 	): Promise<DispatchResult> {
 		const episodeId = slateEpisodeId(thread.id)!;
 		// Enroll synchronously before the semaphore can suspend this action. Manager
@@ -607,7 +593,7 @@ export class ThreadManager {
 			const lease = this.logicalRuntime?.ownership.acquire(thread.id);
 			if (lease?.kind === "busy") throw new Error(`Thread ${thread.id} cannot start because its recovery owner is busy.`);
 			try {
-				return await this.runDispatchInner(thread, opts, prompt, episodeId, ctx, signal, onProgress, admission, initialRoute, reviewGuidance, recordLease);
+				return await this.runDispatchInner(thread, opts, prompt, episodeId, ctx, signal, onProgress, admission, initialRoute, reviewGuidance);
 			} finally {
 				if (lease?.kind === "acquired") lease.lease.release();
 			}
@@ -629,7 +615,6 @@ export class ThreadManager {
 		admission?: RecoveryAdmission,
 		initialRoute?: RecoveryCandidate,
 		reviewGuidance?: string,
-		recordLease?: RecordLease,
 	): Promise<DispatchResult> {
 		const usage: UsageStats = { turns: 0, input: 0, output: 0, cost: 0, contextTokens: 0 };
 		let workerCostUsd: number | undefined;
@@ -886,7 +871,6 @@ export class ThreadManager {
 			if (!logicalRoute || !admission || !this.logicalRuntime) throw new DispatchAbort("Logical route admission was lost before worker startup.");
 			const queuedValidation = await this.logicalRuntime.validateRoute(ctx, logicalRoute);
 			if (!queuedValidation.ok) throw new DispatchAbort(`Logical worker startup stopped before billed work: ${queuedValidation.reason}`);
-			recordLease?.check();
 			const open = planSessionOpen(logicalRoute);
 			requestContract.expect(logicalRoute);
 			onAbort = () => {
@@ -907,7 +891,6 @@ export class ThreadManager {
 					report: routeWarn,
 					requestContract,
 					reviewGuidance,
-					recordLease,
 					observeStartupFailure: (detail) => {
 						if (this.teardownStarted) observeCancellation("session teardown");
 						observeStartupFailure();
@@ -1129,7 +1112,6 @@ export class ThreadManager {
 					? diagnostics ?? settlementRefusal
 					: `${diagnostics}; ${settlementRefusal}`;
 			}
-			await recordLease?.settle();
 			frozenCompletedFacts = completedFacts.freeze();
 			// Only the settled, frozen action gets a stored outcome. The early
 			// outcome above decides retry and recovery, not durable success.

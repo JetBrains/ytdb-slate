@@ -1,6 +1,7 @@
 const TEST_ROUTE = { model: "fixture", reason: "test fixture" } as const;
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createLogicalRuntime } from "../extension/logical-model-runtime.ts";
@@ -121,6 +122,11 @@ test("thread tool enforces the creation type and publishes the closed vocabulary
     3_110,
     "thread combined byte budget changed. Update docs/context-budget.md in the same commit",
   );
+
+  const published = readFileSync(new URL("../docs/context-budget.md", import.meta.url), "utf8");
+  assert.ok(published.includes(`The registered \`thread\` tool description is ${descriptionBytes.toLocaleString("en-US")} UTF-8 bytes.`));
+  assert.ok(published.includes(`parameter schema is ${parameterSchemaBytes.toLocaleString("en-US")} bytes from \`JSON.stringify(parameters)\`.`));
+  assert.ok(published.includes(`The two values total ${(descriptionBytes + parameterSchemaBytes).toLocaleString("en-US")} bytes before provider`));
 
   await assert.rejects(
     tool.execute("missing", { ...TEST_ROUTE, task: "x" }, undefined, undefined, ctx),
