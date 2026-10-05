@@ -3,7 +3,7 @@
  *
  * A worker loads NO skills, prompt templates, or themes (DefaultResourceLoader
  * no* options), and by default no project or discovered extensions. Slate
- * supplies internal reminder and record components. The structural excludeTools guard
+ * supplies an internal reminder component. The structural excludeTools guard
  * keeps orchestrator tools out (depth-1 guard). It inherits the HOST session's
  * project-trust state via an explicit SettingsManager, so untrusted projects get
  * neither project-local settings nor the project SYSTEM.md override in workers.
@@ -51,9 +51,7 @@ import type { RecoveryCandidate } from "./logical-model-recovery.ts";
 import { RequestThrottleAbort, type RequestThrottle } from "./request-throttle.ts";
 import { createWorkerReminderRuntime } from "./worker-reminder.ts";
 import { describeSpecDefect, splitModelSpec, type SlateConfig, type ThreadType } from "./state.ts";
-import { PI_BUILTIN_TOOL_NAMES, SLATE_TOOL_NAMES, SLATE_WORKER_TOOL_NAMES } from "./worker-extensions.ts";
-import type { RecordLease } from "./record-ownership.ts";
-import { createRecordWorkerRuntime, recordWorkerGuidance, RECORD_FACTORY_NAME, RECORD_TOOL_NAME } from "./record-worker.ts";
+import { PI_BUILTIN_TOOL_NAMES, SLATE_TOOL_NAMES } from "./worker-extensions.ts";
 
 export type WorkerSession = Awaited<ReturnType<typeof createAgentSession>>["session"] & {
 	workerReminderHandledToolResult(): boolean;
@@ -436,7 +434,6 @@ export async function openWorkerSession(opts: {
 	extensionToolNames?: string[]; // host-selected names, including tools registered during host session_start
 	reviewerCharter?: boolean; // thread-role decision from ThreadManager; only literal true enables the charter
 	reviewGuidance?: string; // complete selected implementation instructions, loaded before thread creation
-	recordLease?: RecordLease; // live action authority, never restored from a transcript
 	promptCacheKey?: string; // the main session's shared OpenAI Responses cache-routing key
 	requestThrottle?: RequestThrottle; // the main session's shared per-model request throttle
 	requestContract?: WorkerRequestContract; // action-local expected pair and accepted attribution
@@ -501,7 +498,6 @@ export async function openWorkerSession(opts: {
 	// Pi still controls which extensions are present in the host registry.
 	const extensionPaths = configPermitted ? (opts.extensionPaths ?? []) : [];
 	const workerReminder = createWorkerReminderRuntime();
-	const workerRecord = createRecordWorkerRuntime(ctx.cwd, opts.recordLease);
 	const loader = new DefaultResourceLoader({
 		cwd: ctx.cwd,
 		agentDir,
@@ -519,14 +515,13 @@ export async function openWorkerSession(opts: {
 				factory: workerReminder.extension,
 				hidden: true,
 			},
-			{ name: RECORD_FACTORY_NAME, factory: workerRecord.extension, hidden: true },
 		],
 		noSkills: true,
 		noPromptTemplates: true,
 		noThemes: true,
 		// Writing guidance follows permitted Slate settings. The reviewer
 		// charter is not trust-gated because it is slate's own constant.
-		appendSystemPrompt: workerSystemPromptBlocks(configPermitted, opts.reviewerCharter === true, opts.reviewGuidance, promptDocs).concat(recordWorkerGuidance(opts.recordLease) || []),
+		appendSystemPrompt: workerSystemPromptBlocks(configPermitted, opts.reviewerCharter === true, opts.reviewGuidance, promptDocs),
 	});
 	await loader.reload();
 	const loaded = loader.getExtensions();
@@ -549,12 +544,6 @@ export async function openWorkerSession(opts: {
 		warn(`slate: worker extension failed to load — ${sanitizeForNotify(String(err.path))}: ${sanitizeForNotify(String(err.error))}`);
 	}
 
-	if (!workerRecord.installed() || (loaded.errors ?? []).some((error) => String(error.path).includes(RECORD_FACTORY_NAME))) {
-		throw new Error("Slate internal record factory failed. No worker may continue without its write guard and assigned record tool.");
-	}
-	const internalRecordExtension = (loaded.extensions ?? []).find((extension) => extension.path === `<inline:${RECORD_FACTORY_NAME}>`);
-	if (!internalRecordExtension) throw new Error("Slate internal record factory is missing. Dispatch stopped before worker execution.");
-
 	// Extension tool names actually registered by the whitelisted units — needed
 	// both for the collision re-check and for the tools allowlist below. Stays
 	// empty (and this whole block is skipped) unless a whitelist was resolved.
@@ -565,7 +554,6 @@ export async function openWorkerSession(opts: {
 		// pattern).
 		const collisions: string[] = [];
 		for (const ext of loaded.extensions ?? []) {
-			if (ext === internalRecordExtension) continue;
 			const e = ext as unknown as { path?: unknown; tools?: unknown };
 			if (!(e.tools instanceof Map)) continue;
 			for (const name of e.tools.keys()) {
@@ -583,7 +571,7 @@ export async function openWorkerSession(opts: {
 				// gap-closer (the worker needs the real built-in), so this scan catches a
 				// LOAD-TIME shadow and fails the dispatch closed; a deferred shadow cannot
 				// be prevented.
-				if (SLATE_TOOL_NAMES.includes(name) || SLATE_WORKER_TOOL_NAMES.includes(name) || PI_BUILTIN_TOOL_NAMES.includes(name)) {
+				if (SLATE_TOOL_NAMES.includes(name) || PI_BUILTIN_TOOL_NAMES.includes(name)) {
 					const path = typeof e.path === "string" ? e.path : "extension";
 					collisions.push(`${sanitizeForNotify(path)} → "${sanitizeForNotify(name)}"`);
 				}
@@ -631,7 +619,6 @@ export async function openWorkerSession(opts: {
 		tools: [
 			...new Set([
 				...(opts.tools && opts.tools.length > 0 ? opts.tools : DEFAULT_WORKER_TOOLS),
-				...(opts.recordLease ? [RECORD_TOOL_NAME] : []),
 				...extensionToolNames,
 				...(extensionPaths.length > 0 ? (opts.extensionToolNames ?? []) : []),
 			]),
@@ -675,7 +662,6 @@ export async function openWorkerSession(opts: {
 	const workerSession = Object.assign(session, {
 		workerReminderHandledToolResult: workerReminder.handledToolResult,
 		closeManagedOperations(): void {
-			workerRecord.close();
 			managedAdmissionOpen = false;
 		},
 		activeManagedOperationCount(): number {
@@ -690,15 +676,12 @@ export async function openWorkerSession(opts: {
 		settleManagedOperations(): Promise<void> {
 			if (settlementPromise !== undefined) return settlementPromise;
 			managedAdmissionOpen = false;
-			workerRecord.close();
 			settlementPromise = (async () => {
 				try { await session.abort(); } catch { /* classification uses captured messages */ }
 				try { await startupPromise; } catch { /* startup failure remains independently visible */ }
 				while (activeManagedOperations.size > 0) {
 					await Promise.allSettled([...activeManagedOperations]);
 				}
-				await workerRecord.settle();
-				await opts.recordLease?.settle();
 				try { await session.waitForIdle(); } catch { /* shutdown still runs */ }
 			})();
 			return settlementPromise;
@@ -800,11 +783,10 @@ export async function openWorkerSession(opts: {
 		// registration cannot replace a Slate or pi built-in before the first prompt.
 		const startupCollisions: string[] = [];
 		for (const ext of loaded.extensions ?? []) {
-			if (ext === internalRecordExtension) continue;
 			const candidate = ext as unknown as { path?: unknown; tools?: unknown };
 			if (!(candidate.tools instanceof Map)) continue;
 			for (const name of candidate.tools.keys()) {
-				if (typeof name !== "string" || (!SLATE_TOOL_NAMES.includes(name) && !SLATE_WORKER_TOOL_NAMES.includes(name) && !PI_BUILTIN_TOOL_NAMES.includes(name))) continue;
+				if (typeof name !== "string" || (!SLATE_TOOL_NAMES.includes(name) && !PI_BUILTIN_TOOL_NAMES.includes(name))) continue;
 				const path = typeof candidate.path === "string" ? candidate.path : "extension";
 				startupCollisions.push(`${sanitizeForNotify(path)} → "${sanitizeForNotify(name)}"`);
 			}
@@ -813,10 +795,6 @@ export async function openWorkerSession(opts: {
 			throw new Error(
 				`slate: refusing to start worker — selected extension(s) registered tool(s) during startup that overwrite a slate or pi built-in tool: ${startupCollisions.join(", ")}`,
 			);
-		}
-		const active = session.getActiveToolNames();
-		if (!workerRecord.installed() || active.includes(RECORD_TOOL_NAME) !== (opts.recordLease !== undefined)) {
-			throw new Error("Slate record activation failed. Dispatch stopped before worker execution.");
 		}
 		if (shutdownPromise === undefined) lifecyclePhase = "running";
 	});
