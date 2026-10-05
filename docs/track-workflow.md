@@ -541,13 +541,12 @@ Do not copy secrets, credentials, private user data, or unnecessary personal
 data into the log. Record a privacy exception as a typed ruling. State what was
 omitted and why.
 
-Use a safe write method. Use `slate_record` for assigned change records, including implementer reports.
+Use a safe write method. Follow the direct-write and retry rules for change records, including implementer reports.
 Use [recursive-workflow.md](recursive-workflow.md) § Manual records and safe writes
-for tool guidance, inspection duties, and manual interrupted-create recovery.
+for write methods, record checks, and inspection before retries.
 Research logs and implementer reports are append-only.
 A correction is a new entry.
 Slate checks the folder chain when it creates the change.
-The record tool checks the destination again before publication.
 Keep all manual records and leftover temporary files untracked and visible in repository status.
 Do not add them to an ignore file or a pull request.
 Exclude their references and contents from reviewer inputs.
