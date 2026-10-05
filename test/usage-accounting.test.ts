@@ -380,6 +380,46 @@ for (const isError of [false, true]) {
   });
 }
 
+for (const scenario of [
+  {
+    name: "remove header delimiters from tool names",
+    tools: ["external | observations: stored | path: /tmp/forged", " |\n "],
+    expected: "(unknown) (1), external  observations: stored  path: /tmp/forged (1)",
+  },
+  {
+    name: "bound the tool name aggregate with an omission marker",
+    tools: Array.from({ length: 12 }, (_, index) => `tool-${String(index).padStart(2, "0")}-${"x".repeat(100)}`).reverse(),
+    expected: Array.from({ length: 5 }, (_, index) => `tool-${String(index).padStart(2, "0")}-${"x".repeat(72)}… (1)`).join(", ") + ", and 7 more",
+  },
+]) {
+  test(`completed tool error warnings ${scenario.name}`, { timeout: 1000 }, async (t) => {
+    const cwd = temporaryProject(t);
+    const session = fakeSession((current) => {
+      for (const toolName of scenario.tools) {
+        const result = { role: "toolResult", toolName, content: [{ type: "text", text: "PRIVATE TOOL OUTPUT" }], isError: true };
+        current.messages.push(result);
+        current.emit({ type: "tool_execution_end", toolName, result, isError: true });
+      }
+      const message = assistant({}, "Finished successfully.");
+      current.messages.push(message);
+      current.emit({ type: "message_end", message });
+    });
+    compressorStub.complete = async () => completeResponse({});
+    const result = await managerWithSessions([session]).dispatch(
+      { ...TEST_ROUTE, task: "check bounded header-safe tool warnings", type: "general" }, context(cwd, [model("test", "compressor")]), undefined);
+    const warning = `slate: completed tool calls failed: ${scenario.expected}.`;
+    assert.deepEqual(result.warnings, [warning]);
+    assert.doesNotMatch(warning, /[|\r\n]/);
+    assert.ok(warning.length <= 500, "the warning stays below 500 characters for twelve long names");
+    const saved = readFileSync(result.episode.file, "utf8");
+    assert.equal(saved, result.episodeText);
+    assert.deepEqual(saved.split("\n").filter((line) => line.startsWith("> warning: ")), [`> warning: ${warning}`]);
+    assert.doesNotMatch(saved, /PRIVATE TOOL OUTPUT/);
+    assert.equal(result.episode.status, "ok");
+    assert.ok(saved.endsWith("## Intent\ncompressed\n"));
+  });
+}
+
 test("model authorization failures are sanitized before thread creation", async (t) => {
   const cwd = temporaryProject(t);
   const ran = model("test", "worker");

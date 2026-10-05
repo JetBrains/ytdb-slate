@@ -18,6 +18,7 @@ import {
 	compressEpisode,
 	createCompletedFactRecorder,
 	EpisodePersistenceError,
+	headerField,
 	writeFailedEpisode,
 	type FrozenCompletedFacts,
 } from "./episodes.ts";
@@ -1205,8 +1206,12 @@ export class ThreadManager {
 			throw new Error(appendLifecycleWarnings(`Thread ${thread.id} was ${reason}. No episode was recorded.`));
 		}
 
-		const toolErrorWarning = toolErrors.size > 0
-			? `slate: completed tool calls failed: ${[...toolErrors.keys()].sort().map((name) => `${sanitizeForNotify(name.replace(/\s+/g, " "), 80)} (${toolErrors.get(name)})`).join(", ")}.`
+		const failedTools = [...toolErrors.keys()].sort();
+		// List at most five bounded names and report how many names are omitted.
+		const listedTools = failedTools.slice(0, 5).map((name) => `${headerField(name, 80) ?? "(unknown)"} (${toolErrors.get(name)})`);
+		const omittedTools = failedTools.length - listedTools.length;
+		const toolErrorWarning = failedTools.length > 0
+			? `slate: completed tool calls failed: ${listedTools.join(", ")}${omittedTools > 0 ? `, and ${omittedTools} more` : ""}.`
 			: undefined;
 		if (toolErrorWarning) routeWarn(toolErrorWarning);
 		if (status === "ok" && admission && logicalRoute) {

@@ -257,7 +257,7 @@ const HEADER_FIELD_MAX = 200;
  * sanitising reads as absent, so a caller can omit the field instead of printing
  * a label with nothing after it.
  */
-function headerField(value: unknown, max = HEADER_FIELD_MAX): string | undefined {
+export function headerField(value: unknown, max = HEADER_FIELD_MAX): string | undefined {
 	if (typeof value !== "string") return undefined;
 	// Order matters: collapse whitespace FIRST (so a newline becomes a word gap
 	// rather than joining two words), then strip the delimiter, then hand the rest to
@@ -684,7 +684,8 @@ export async function compressEpisode(opts: CompressEpisodeOptions): Promise<Com
 	// call, the compressor and `ran:` specs from the registry. None of them can
 	// introduce a line, a field or an unbounded run of text. The date is generated
 	// here and the status label is one of two literals, so both are already safe.
-	// The tool-error warning carries sanitized tool names and generated counts.
+	// The tool-error warning lists at most five headerField-sanitized names.
+	// Its counts and omission marker contain only generated text.
 	const episodeId = headerField(opts.episodeId, 80) ?? "(unknown)";
 	const threadId = headerField(renderThreadId(opts.threadId), 80) ?? "(unknown)";
 	const threadName = headerField(opts.threadName, 80) ?? "(unknown)";
