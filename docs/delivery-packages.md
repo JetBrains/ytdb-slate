@@ -151,8 +151,8 @@ Follow each record's read-only source chain within its recorded read boundary.
 Include required conclusions held in any of those records, not only the active log.
 Use `status.md` to find records, never as gate or completion evidence.
 Temporary files and incomplete retained copies are not accounting sources.
-A tool-retained design copy under `versions/` is evidence only when its complete bytes match its hash-bound name.
-An interim `<name>.vN.md` design copy is evidence when its complete bytes match the hash recorded in the owning log.
+A design copy under `versions/` is evidence only when its complete bytes match the hash in its name.
+A `<name>.vN.md` design copy is evidence when its complete bytes match the hash recorded in the owning log.
 Here `<name>` is the design filename without `.md`, and `N` is its version number.
 The current design file remains authoritative.
 Keep all manual records and their source chains through and after root closure.

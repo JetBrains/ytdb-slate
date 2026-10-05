@@ -3229,7 +3229,7 @@ Use its § Session handoff and the research log for ownership.`);
 			const recordDigest = (text) => createHash("sha256").update(normalizeText(text)).digest("hex");
 			const recursiveRecordUnits = [
 				{ id: "identifiers-ranges", source: recursive, extract: regionUnit(/^## Identifiers, code ranges, and design markers\n([\s\S]*?)(?=^## Manual records and safe writes\n)/gm), expected: "06a2a0822448a5112173b65c04826364d3a3094f7930ba98ecd7f17300e19ed8" },
-				{ id: "tool-records-and-recovery", source: recursive, extract: regionUnit(/^## Manual records and safe writes\n([\s\S]*?)(?=^## Resume and folder forks\n)/gm), expected: "2c552150e9fba4320c0fe1f9956ea2cf86a14dce7d7d88f6dd5cb7d9899eb986" },
+				{ id: "tool-records-and-recovery", source: recursive, extract: regionUnit(/^## Manual records and safe writes\n([\s\S]*?)(?=^## Resume and folder forks\n)/gm), expected: "26f45e8838e2190e04e360cfa94b84500d56213de062d6e2688d1abaa8cc35ae" },
 				{ id: "resume-forks", source: recursive, extract: regionUnit(/^## Resume and folder forks\n([\s\S]*?)(?=^## Handoff boundaries\n)/gm), expected: "ee8952191bf8a044b0c4c124644079ad41a918a51510d10a1d8b1ea6d72e6860" },
 				{ id: "handoff-pointer", source: recursive, extract: regionUnit(/^## Handoff boundaries\n([\s\S]*?)(?=^## Review-fix subtrees and repair limits\n)/gm), expected: "fc5ca34c11f5f1defb5989c10af42cbac9af901c102dc18c6c8d1b55a98cd52f" },
 				{ id: "marker-identity", source: workflow, extract: markedUnit("marker-identity-policy"), expected: "846764c07a6b2c925091bd80f944c888d49994a71f2799b5cd2b8368b415a3c9" },
@@ -3254,30 +3254,22 @@ Use its § Session handoff and the research log for ownership.`);
 			const toolsSource = readFileSync(join(REPO, "extension", "tools.ts"), "utf8");
 			const noRecipeReferences = (...sources) => sources.every((source) => !/safe-record-recipe|safe-record\.py|runnable recipe/i.test(source));
 			const recordPolicy = recursiveRecordUnits.find((unit) => unit.id === "tool-records-and-recovery");
+			const directWriteBlock = recursive.match(/^Record-only workers write research logs[\s\S]*?^The worker retries the edit only after a successful comparison\.$/m)?.[0] ?? "";
+			const appendToolBan = "A worker never uses `>`, the write tool, the edit tool, or `sed -i` on an existing log or report.";
 			const recordContractAttacks = [
-				["recovery-removed", recursive.replace(/### Manual interrupted-create recovery[\s\S]*?(?=### Supported systems)/, "")],
-				["remove-record-name", recursive.replace("Never remove the record name", "Remove the record name")],
-				["omit-version-link", recursive.replace("A version staging name can share identity with", "A version staging name cannot share identity with")],
-				["append-comparison", recursive.replace("the exact earlier bytes followed by the exact payload bytes", "the payload bytes alone")],
-				["inspection-duty", recursive.replace("before any re-dispatch", "after re-dispatch")],
-				["omit-transcript-limit", recursive.replace("Private record permissions do not protect payload copies in worker session files.", "Private record permissions protect every payload copy.")],
-				["omit-virtiofs", recursive.replace("including drives exposed through virtiofs, a virtual-machine file-sharing filesystem", "without a detection limit")],
-				["oversized-design-append", recursive.replace("reduce the complete payload to fit the limit or stop and ask the user", "split the payload into appends")],
+				["append-only-operator-removed", recursive.replace("On an existing log or report, a worker appends only with the shell operator `>>`.", "")],
+				["permit-truncating-redirection", recursive.replace(appendToolBan, "A worker may use `>` on an existing log or report.")],
+				["permit-write-tool", recursive.replace(appendToolBan, "A worker may use the write tool on an existing log or report.")],
+				["permit-edit-tool", recursive.replace(appendToolBan, "A worker may use the edit tool on an existing log or report.")],
+				["permit-sed-in-place", recursive.replace(appendToolBan, "A worker may use `sed -i` on an existing log or report.")],
+				["design-copy-cp-n-removed", recursive.replace("The worker uses `cp -n` to make the copy.", "The worker changes the existing design without making the copy.")],
+				["design-copy-cmp-removed", recursive.replace("The worker then uses `cmp` to check that the copy equals the current file.", "")],
+				["design-copy-exit-status-authority", recursive.replace("The worker accepts the copy only when `cmp` shows equal bytes, regardless of the `cp -n` exit status.", "The worker accepts the copy when `cp -n` exits successfully, regardless of the `cmp` result.")],
+				["direct-write-block-missing", recursive.replace(directWriteBlock, "")],
+				["direct-write-block-contradictory", recursive.replace(directWriteBlock, `${directWriteBlock}\nA worker may rewrite earlier log entries.`)],
+				["direct-write-block-duplicate", recursive.replace(directWriteBlock, `${directWriteBlock}\n\n${directWriteBlock}`)],
+				["omit-transcript-limit", recursive.replace("Record contents can also appear in saved worker sessions and command text.", "Record contents never appear in saved worker sessions or command text.")],
 			].map(([id, source]) => ({ id, changed: source !== recursive, rejected: !acceptsRecordUnit(recordPolicy, source) }));
-			const appendRetryExpected = normalizeText(`A mismatch does not prove that the append is missing.
-Repeat an append only when no writer is active and the current bytes equal exactly the earlier bytes.
-Their hash must equal the supplied expected hash.
-For every other result, including a comparison that cannot be established, pause and ask the user rather than repeat the append.`);
-			const appendRetryUnit = regionUnit(/^(A mismatch does not prove[\s\S]*?)(?=^Never retry an append)/gm);
-			const acceptsAppendRetry = (source) => {
-				const unit = appendRetryUnit(source);
-				return unit.count === 1 && unit.text === appendRetryExpected;
-			};
-			const appendRetryAttacks = [
-				recursive.replace("Repeat an append only when no writer is active and the current bytes equal exactly the earlier bytes.", "Repeat an append after any mismatch."),
-				recursive.replace("no writer is active and ", ""),
-				recursive.replace("Their hash must equal the supplied expected hash.", "Use any available hash."),
-			].map((source) => ({ changed: source !== recursive, rejected: !acceptsAppendRetry(source) }));
 			const authoritativeReaders = (recursiveSource, publishingSource, deliverySource) => {
 				const r = normalizeText(recursiveSource), p = normalizeText(publishingSource), d = normalizeText(deliverySource);
 				return r.includes("The current `root-design.md` or `track-<number>-design.md` is authoritative for its node.")
@@ -3287,8 +3279,8 @@ For every other result, including a comparison that cannot be established, pause
 					&& p.includes("A copied design in a log is not the authoritative plan.")
 					&& d.includes("current authoritative `root-design.md`") && d.includes("authoritative `track-<number>-design.md`")
 					&& d.includes("Temporary files and incomplete retained copies are not accounting sources.")
-					&& d.includes("A tool-retained design copy under `versions/` is evidence only when its complete bytes match its hash-bound name.")
-					&& d.includes("An interim `<name>.vN.md` design copy is evidence when its complete bytes match the hash recorded in the owning log.")
+					&& d.includes("A design copy under `versions/` is evidence only when its complete bytes match the hash in its name.")
+					&& d.includes("A `<name>.vN.md` design copy is evidence when its complete bytes match the hash recorded in the owning log.")
 					&& d.includes("The current design file remains authoritative.");
 			};
 			const readerAttacks = [
@@ -3314,15 +3306,13 @@ For every other result, including a comparison that cannot be established, pause
 				`${workflow}\n${canonicalMarkerCommand}`,
 			].map((source) => ({ changed: source !== workflow, rejected: !acceptsMarkerCommand(source) }));
 			console.log(`NOTE recursive document: ${[...recursive].length} characters. Target: 16000. Report and explain any overrun in delivery evidence.`);
-			checkAll("contract-recursive-records", "canonical markers, code boundaries, authoritative designs, assigned tool writes, manual recovery, inspection, resume, and forks remain complete", [
+			checkAll("contract-recursive-records", "canonical markers, code boundaries, authoritative designs, direct writes, retry inspection, privacy, resume, and forks remain complete", [
 				["each bounded record policy equals its reviewed digest exactly once", recursiveRecordUnits.every((unit) => acceptsRecordUnit(unit, unit.source)), recursiveRecordUnits.map((unit) => ({ id: unit.id, resolved: unit.extract(unit.source), expected: unit.expected }))],
 				["contradictions, missing units, and duplicate units fail closed", recordUnitAttacks.every(({ changed, rejected }) => changed && rejected), recordUnitAttacks],
 				["outside-unit controls preserve each policy", recursiveRecordUnits.every((unit) => acceptsRecordUnit(unit, `${unit.source}\n<!-- Unrelated control. -->`)), "outside controls"],
 				["shipping instructions contain no runnable recipe or directing reference", noRecipeReferences(recursive, workflow, toolsSource), "recursive workflow, lifecycle, and dispatch"],
 				["restoring a recipe reference in any consumer fails, while outside comments pass", [recursive, workflow, toolsSource].every((source) => !noRecipeReferences(source + "\nUse the runnable recipe.") && noRecipeReferences(source + "\n<!-- Unrelated control. -->")), "three independent consumers"],
-				["recovery, removal limits, version links, append comparison, inspection, privacy, platform limits, and permitted-mode advice reject violations", recordContractAttacks.every(({ changed, rejected }) => changed && rejected), recordContractAttacks],
-				["append retry requires exact earlier bytes, the expected hash, and no active writer", acceptsAppendRetry(recursive), appendRetryUnit(recursive)],
-				["any-mismatch retries, active writers, and unbound hashes fail while outside edits pass", appendRetryAttacks.every(({ changed, rejected }) => changed && rejected) && acceptsAppendRetry(`${recursive}\n<!-- Outside append-retry control. -->`), appendRetryAttacks],
+				["append operators, forbidden tools, verified design copies, rule-block boundaries, and transcript privacy reject violations", directWriteBlock.length > 0 && recordContractAttacks.every(({ changed, rejected }) => changed && rejected), recordContractAttacks],
 				["all three readers retain authoritative design files and source restrictions", authoritativeReaders(recursive, publishing, deliveryPackages), "root and entered design-track files"],
 				["authority omissions fail and harmless outside-reader edits pass", readerAttacks.every(({ changed, rejected }) => changed && rejected) && authoritativeReaders(`${recursive}\n<!-- Outside reader control. -->`, `${publishing}\n<!-- Outside reader control. -->`, `${deliveryPackages}\n<!-- Outside reader control. -->`), readerAttacks],
 				["the displayed marker command is canonical and unique, excluding exception prose", acceptsMarkerCommand(workflow), "visible fenced command"],
@@ -3508,7 +3498,7 @@ The split bypasses no stuck-fix consultation or required fix gate.`) },
 				{ id: "repairs", source: recursive, start: "## Review-fix subtrees and repair limits", end: "## Whole-subtree acceptance", expected: protectedRepairSummary },
 				{ id: "aggregate", source: recursive, start: "## Whole-subtree acceptance", end: "## Packages, attribution, and issues", expected: "6e37e0e95c35ed0c3ede6e02f3322f43038d8653d9885ce4b2ac1ed423472b63" },
 				{ id: "issues", source: recursive, start: "## Packages, attribution, and issues", end: null, expected: "895b87ee7afdda0d4d85e071c978727e0cf962f9af42e68c534c022ac010a5a3" },
-				{ id: "sources", source: deliveryPackages, start: "## Durable accounting", end: "<!-- publishing-disabled-accounting:begin -->", expected: "d57838692a9d9e0e20dabd3459be67eb1f953ad17bd1e7743f709e514816e672" },
+				{ id: "sources", source: deliveryPackages, start: "## Durable accounting", end: "<!-- publishing-disabled-accounting:begin -->", expected: "418a2f29fea42d4de31c49930c9fe726785f36efd1772eccccc1458575102516" },
 				{ id: "workflow-accounting", source: workflow, start: "With draft publishing,", end: "\n\nAim for a delivery body", expected: "9410e62de528ba3d18269213779348a187c5f894bd2d99fa5f529dfa3fc5a4a1" },
 				{ id: "notes-accounting", source: userNotes, start: "Before final acceptance, reconcile", end: "\n\n- every finding", expected: "7efa6f8740078ef4a9f5511b485a4e95e8b0e5f7341d2e278eddfbf27011b500" },
 				{ id: "publishing-sync", source: publishing, start: "## Keeping the PR in sync", end: "## Ready-for-review flip", expected: "fb386e6f14c2f051a842cd050cc4e2834dea5e2674853cc22794792cd4c1a7cc" },
@@ -4406,7 +4396,7 @@ Record each grant in the override log.`),
 			const reportRule = regionUnit(/^For each code track, the implementer creates\n([\s\S]*?)(?=^Tracks are contiguous)/gm);
 			const forkRule = regionUnit(/^Use a safe write method\. ([\s\S]*?)(?=^Before a session handoff)/gm);
 			const expectedReportRule = normalizeText(`\`track-<number>-implementer-report.md\` in the current change folder when the track starts. The dispatch gives the exact path. The report is untracked working material. After a session with a different identifier takes ownership, create a report in the new change folder. If the source folder has this track's report, name it as read-only in the new report's first entry. Continue the work in the new report. The report has four required sections: changes to the high-level design with the reason for each, the low-level design, diagrams where they help, and checks run with their results. The report states the approximate track size in counted lines. Later fix rounds append to that report in the current change folder.`);
-			const expectedForkRule = normalizeText(`Use \`slate_record\` for assigned change records, including implementer reports. Use [recursive-workflow.md](recursive-workflow.md) § Manual records and safe writes for tool guidance, inspection duties, and manual interrupted-create recovery. Research logs and implementer reports are append-only. A correction is a new entry. Slate checks the folder chain when it creates the change. The record tool checks the destination again before publication. Keep all manual records and leftover temporary files untracked and visible in repository status. Do not add them to an ignore file or a pull request. Exclude their references and contents from reviewer inputs. Never overwrite a record from a stale in-memory copy. When a session adopts a change owned by a different Pi session identifier, Slate starts a new folder. Its log first names the direct source folder as a read-only earlier log. Each source log's first entry links to its own source. Follow those links to read the full history. The source remains in place without copying. A resume or reload with the same identifier continues the current folder. A /tree move to parent history with a different owner creates a new folder on reload. A handoff makes the successor the owner of the current folder. If folder allocation fails, Slate saves no open change and reports the failure. If that save fails, Slate reports it too. A legacy root \`research-log.md\` remains read-only. Only the user deletes a delivered or abandoned change folder.`);
+			const expectedForkRule = normalizeText(`Follow the direct-write and retry rules for change records, including implementer reports. Use [recursive-workflow.md](recursive-workflow.md) § Manual records and safe writes for write methods, record checks, and inspection before retries. Research logs and implementer reports are append-only. A correction is a new entry. Slate checks the folder chain when it creates the change. Keep all manual records and leftover temporary files untracked and visible in repository status. Do not add them to an ignore file or a pull request. Exclude their references and contents from reviewer inputs. Never overwrite a record from a stale in-memory copy. When a session adopts a change owned by a different Pi session identifier, Slate starts a new folder. Its log first names the direct source folder as a read-only earlier log. Each source log's first entry links to its own source. Follow those links to read the full history. The source remains in place without copying. A resume or reload with the same identifier continues the current folder. A /tree move to parent history with a different owner creates a new folder on reload. A handoff makes the successor the owner of the current folder. If folder allocation fails, Slate saves no open change and reports the failure. If that save fails, Slate reports it too. A legacy root \`research-log.md\` remains read-only. Only the user deletes a delivered or abandoned change folder.`);
 			const acceptsLateRules = (source) => {
 				const report = reportRule(source);
 				const fork = forkRule(source);
@@ -4448,7 +4438,7 @@ Record each grant in the override log.`),
 
 			const packageContract = block(deliveryPackages, "delivery-package-contract");
 			const digest = (text) => createHash("sha256").update(normalizeText(text)).digest("hex");
-			const EXPECTED_DELIVERY_PACKAGES_SHA256 = "85d6a57688f420eef1da4458436b5f3daf0d4c0024d7087bd6cae95e9d30b718";
+			const EXPECTED_DELIVERY_PACKAGES_SHA256 = "569dbba8904d5a7b698eff3c7a9024e11adb2251ce7fcf0939091f793b87dc17";
 			const acceptsPackageContract = (source) => {
 				const owned = block(source, "delivery-package-contract");
 				return owned.count === 1 && owned.endCount === 1 && digest(source) === EXPECTED_DELIVERY_PACKAGES_SHA256;
