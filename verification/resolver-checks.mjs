@@ -3256,6 +3256,80 @@ Use its § Session handoff and the research log for ownership.`);
 			const recordPolicy = recursiveRecordUnits.find((unit) => unit.id === "tool-records-and-recovery");
 			const directWriteBlock = recursive.match(/^Record-only workers write research logs[\s\S]*?^The worker retries the edit only after a successful comparison\.$/m)?.[0] ?? "";
 			const appendToolBan = "A worker never uses `>`, the write tool, the edit tool, or `sed -i` on an existing log or report.";
+			const recordContractRules = new Map([
+				["record-only-task-record-names-removed", "The orchestrator names the records in the worker's task."],
+				["record-only-task-assigned-method-removed", "Each record-only task states the write and check method of these rules for each assigned record."],
+				["record-only-task-source-rule-removed", "When a source folder exists, the task states the read-only source rule."],
+				["start-copy-removed", "the worker copies the record to a temporary file outside `slate-changes/`."],
+				["start-copy-location-inside-records", "copies the record to a temporary file outside `slate-changes/`"],
+				["start-copy-after-first-write", "Before its first write to a record in an action,"],
+				["new-record-empty-start-copy-removed", "For a record that does not exist yet, that copy is an empty file."],
+				["new-text-temporary-file-removed", "The worker writes each new text to its own temporary file outside `slate-changes/` before it writes the record."],
+				["new-text-temporary-file-shared", "each new text to its own temporary file"],
+				["new-text-temporary-file-inside-records", "writes each new text to its own temporary file outside `slate-changes/`"],
+				["new-text-temporary-file-after-write", "before it writes the record."],
+				["new-log-first-temporary-append-removed", "A worker creates a new log or report by appending its first temporary file with `>>`."],
+				["new-report-first-temporary-append-removed", "A worker creates a new log or report by appending its first temporary file with `>>`."],
+				["append-temporary-file-removed", "An append adds one temporary file to the record with `>>`."],
+				["append-temporary-file-operator-removed", "An append adds one temporary file to the record with `>>`."],
+				["status-rewrite-temporary-copy-removed", "A `status.md` rewrite or a new design file copies its temporary file to the record."],
+				["new-design-temporary-copy-removed", "A `status.md` rewrite or a new design file copies its temporary file to the record."],
+				["final-check-before-last-write", "After its last write to a record,"],
+				["final-check-whole-record-removed", "the worker checks the whole record once."],
+				["final-check-once-per-record-removed", "the worker checks the whole record once."],
+				["append-equality-start-copy-removed", "must equal the start copy followed by every appended temporary file in order."],
+				["append-equality-every-temporary-file-removed", "every appended temporary file in order."],
+				["append-equality-temporary-order-removed", "every appended temporary file in order."],
+				["append-equality-cat-removed", "The worker checks this with `cat` and `cmp`."],
+				["append-equality-cmp-removed", "The worker checks this with `cat` and `cmp`."],
+				["status-final-temporary-equality-removed", "A `status.md` file or a new design file must equal its last temporary file."],
+				["new-design-final-temporary-equality-removed", "A `status.md` file or a new design file must equal its last temporary file."],
+				["status-final-cmp-removed", "The worker checks this with `cmp`."],
+				["new-design-final-cmp-removed", "The worker checks this with `cmp`."],
+				["changed-design-diff-removed", "by `diff` and confirms"],
+				["changed-design-verified-copy-removed", "compares the design with its verified versioned copy by `diff`"],
+				["changed-design-intended-differences-removed", "and confirms that every difference is intended."],
+				["check-report-per-record-removed", "The worker reports one check for each record in its final response."],
+				["check-report-final-response-removed", "The worker reports one check for each record in its final response."],
+				["check-report-exact-task-path-removed", "the exact record path from the task,"],
+				["check-report-comparison-description-removed", "what the worker compared, and the result."],
+				["check-report-result-removed", "what the worker compared, and the result."],
+				["count-incomplete-check-report", "only when all three parts appear in the episode."],
+				["unreported-written-record-read-removed", "The orchestrator reads each record that the task assigns for writing and that has no counted check report."],
+				["unreported-read-extended-to-read-only-records", "that the task assigns for writing and that has no counted check report."],
+				["unreported-read-depends-on-tool-warning", "The orchestrator reads each record that the task assigns for writing and that has no counted check report."],
+				["unreported-read-after-another-write", "The orchestrator reads it before any other write to that record."],
+				["failed-check-retry-route-removed", "When a check report shows a failure, the orchestrator follows the retry rules."],
+				["failed-final-check-end-only-inspection", "After a failed final check, the orchestrator inspects the whole record."],
+				["required-retry-reads-addition-removed", "These reads add to the reads that the retry rules require."],
+				["required-retry-reads-replacement-permitted", "They never replace a required read."],
+				["status-retry-complete-rewrite-removed", "After a failed or unclear `status.md` write, the worker rewrites the whole file again."],
+				["unequal-versioned-copy-refusal-removed", "If `cmp` shows different bytes or the copy is missing,"],
+				["missing-versioned-copy-refusal-removed", "If `cmp` shows different bytes or the copy is missing,"],
+				["invalid-versioned-copy-existing-file-protection-removed", "the worker leaves any existing file unchanged."],
+				["versioned-copy-retry-next-unused-name-removed", "The worker copies again with `cp -n` to the next unused versioned name."],
+				["versioned-copy-retry-cmp-before-design-change-removed", "The worker checks the new copy with `cmp` before changing the design."],
+				["failed-design-edit-comparison-removed", "If an edit to an existing design fails or ends without a clear report,"],
+				["unclear-design-edit-comparison-removed", "If an edit to an existing design fails or ends without a clear report,"],
+				["design-retry-verified-copy-comparison-removed", "the orchestrator compares the design file with its verified versioned copy."],
+				["design-retry-before-orchestrator-cmp", "The orchestrator uses `cmp` before any retry."],
+				["unchanged-design-edit-only-retry-removed", "If the design is unchanged, a worker retries only the edit."],
+				["partial-design-restore-removed", "If the design changed in part, a worker restores it from the verified copy with `cp`."],
+				["partial-design-restore-cp-removed", "restores it from the verified copy with `cp`."],
+				["partial-design-restore-cmp-removed", "The worker uses `cmp` to check that the restored design equals the verified copy."],
+				["partial-design-retry-before-restoration-comparison", "The worker retries the edit only after a successful comparison."],
+				["change-start-while-record-writer-permitted", "The orchestrator does not start or close a change while a record-writing worker runs."],
+				["change-close-while-record-writer-permitted", "The orchestrator does not start or close a change while a record-writing worker runs."],
+				["log-report-retry-missing-text-not-resent", "If the text is missing, it sends the write again."],
+				["log-report-retry-present-text-resent", "If the text is present, it sends nothing again."],
+				["log-report-retry-partial-text-resent", "If only part of the text is present, the next write adds a correction entry that names the cut-off entry."],
+				["log-report-retry-before-inspection", "the orchestrator reads the record before any retry."],
+				["log-report-partial-correction-without-entry-name", "a correction entry that names the cut-off entry."],
+			]);
+			const recordRuleCount = (source, rule) => {
+				const resolved = recordPolicy.extract(source);
+				return resolved.count === 1 ? resolved.text.split(rule).length - 1 : NaN;
+			};
 			const recordContractAttacks = [
 				["append-only-operator-removed", recursive.replace("On an existing log or report, a worker appends only with the shell operator `>>`.", "")],
 				["permit-truncating-redirection", recursive.replace(appendToolBan, "A worker may use `>` on an existing log or report.")],
@@ -3337,7 +3411,14 @@ Use its § Session handoff and the research log for ownership.`);
 				["log-report-retry-partial-text-resent", recursive.replace("If only part of the text is present, the next write adds a correction entry that names the cut-off entry.", "If only part of the text is present, the next write repeats the original entry.")],
 				["log-report-retry-before-inspection", recursive.replace("the orchestrator reads the record before any retry.", "the orchestrator retries before reading the record.")],
 				["log-report-partial-correction-without-entry-name", recursive.replace("a correction entry that names the cut-off entry.", "a correction entry without naming the cut-off entry.")],
-			].map(([id, source]) => ({ id, changed: source !== recursive, rejected: !acceptsRecordUnit(recordPolicy, source) }));
+			].map(([id, source]) => {
+				const attack = { id, changed: source !== recursive, rejected: !acceptsRecordUnit(recordPolicy, source) };
+				const rule = recordContractRules.get(id);
+				return rule === undefined ? attack : { ...attack, originalRuleCount: recordRuleCount(recursive, rule), mutatedRuleCount: recordRuleCount(source, rule) };
+			});
+			const recordRuleAttacks = recordContractAttacks.filter(({ id }) => recordContractRules.has(id));
+			const rulePreservingRecord = recursive.replace(directWriteBlock, `${directWriteBlock}\nThe worker reads plain text.`);
+			const recordRuleControls = [...recordContractRules].map(([id, rule]) => ({ id, count: recordRuleCount(rulePreservingRecord, rule) }));
 			const authoritativeReaders = (recursiveSource, publishingSource, deliverySource) => {
 				const r = normalizeText(recursiveSource), p = normalizeText(publishingSource), d = normalizeText(deliverySource);
 				return r.includes("The current `root-design.md` or `track-<number>-design.md` is authoritative for its node.")
@@ -3381,6 +3462,9 @@ Use its § Session handoff and the research log for ownership.`);
 				["shipping instructions contain no runnable recipe or directing reference", noRecipeReferences(recursive, workflow, toolsSource), "recursive workflow, lifecycle, and dispatch"],
 				["restoring a recipe reference in any consumer fails, while outside comments pass", [recursive, workflow, toolsSource].every((source) => !noRecipeReferences(source + "\nUse the runnable recipe.") && noRecipeReferences(source + "\n<!-- Unrelated control. -->")), "three independent consumers"],
 				["direct-write methods, checks, reports, retry rules, rule-block boundaries, and transcript privacy reject violations", directWriteBlock.length > 0 && recordContractAttacks.every(({ changed, rejected }) => changed && rejected), recordContractAttacks],
+				["all 68 named rules occur exactly once in the original record policy", recordContractRules.size === 68 && recordRuleAttacks.length === recordContractRules.size && recordRuleAttacks.every(({ originalRuleCount }) => originalRuleCount === 1), recordRuleAttacks],
+				["each named rule is absent from its violating candidate", recordRuleAttacks.every(({ mutatedRuleCount }) => mutatedRuleCount === 0), recordRuleAttacks],
+				["in-region noise changes the digest but preserves every named rule exactly once", rulePreservingRecord !== recursive && !acceptsRecordUnit(recordPolicy, rulePreservingRecord) && recordRuleControls.every(({ count }) => count === 1), recordRuleControls],
 				["all three readers retain authoritative design files and source restrictions", authoritativeReaders(recursive, publishing, deliveryPackages), "root and entered design-track files"],
 				["authority omissions fail and harmless outside-reader edits pass", readerAttacks.every(({ changed, rejected }) => changed && rejected) && authoritativeReaders(`${recursive}\n<!-- Outside reader control. -->`, `${publishing}\n<!-- Outside reader control. -->`, `${deliveryPackages}\n<!-- Outside reader control. -->`), readerAttacks],
 				["the displayed marker command is canonical and unique, excluding exception prose", acceptsMarkerCommand(workflow), "visible fenced command"],
