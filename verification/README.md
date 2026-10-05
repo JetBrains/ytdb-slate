@@ -111,7 +111,7 @@ Options:
 
 `--only` filters which rung bodies execute; it does not reorder them, and rungs
 run in the order listed in the table below regardless of the order you pass.
-Three rungs read another rung's artifacts, so a subset that omits the
+The dependent rungs below read another rung's artifacts, so a subset that omits the
 prerequisite makes them report NOT RUN rather than guess:
 
 | rung | needs |
@@ -317,7 +317,7 @@ the list of things to fix before CI goes green again.
 
 ### Teeth
 
-Three rungs are paired with a deliberately broken copy of the module, generated
+The following rungs are paired with a deliberately broken copy of the module, generated
 into `<lab>/weak/` and never committed, so a rung that *cannot* fail is visible
 as such:
 
@@ -408,7 +408,7 @@ re-run on an idle machine before concluding anything.
 | `LAT` | pure wall-clock measurement; the knob's cost is within noise on a fast box |
 
 `P11` is not timing-sensitive but **is path-length sensitive**: it pins the
-settings path to a fixed length (`P11_PATH_LEN`, default 81) with a letters-only
+settings path to a fixed length (`P11_PATH_LEN`, default 170) with a letters-only
 pad, so the cap lands in the advisory prose on any machine and a no-boundary-search
 copy demonstrably cuts mid-word. A very long `TMPDIR` makes that impossible and the
 rung reports NOT RUN with the reason. If the report's fixed prose changes length,
@@ -811,7 +811,8 @@ This is an integration net, but it is not part of CI. It is also separate
 from the extension-load check and the ladder. The load check proves registration
 without executing a tool. The ladder covers model-default restoration and worker
 settings isolation. This harness covers three reminder sessions through real pi.
-No current workflow invokes it automatically.
+This harness stays outside CI. The Release workflow runs it through
+`verification/release-checks.sh`.
 
 The harness structurally proves `display: false`. It does not prove that the TUI
 visually hides the message. Confirm visual invisibility manually in an interactive
@@ -917,8 +918,7 @@ provider-evidence or JSON Lines shape.
 
 # Packaging guards — `run-packaging-checks.sh`
 
-This harness guards what the package ships, and it is the only harness in this
-directory that loads no slate code. It makes `AGENTS.md` § Packaging rules
+This harness guards what the package ships. It loads no slate code. It makes `AGENTS.md` § Packaging rules
 executable. It has two layers.
 
 The first layer reads the shape of `package.json`:
