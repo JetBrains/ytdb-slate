@@ -53,7 +53,6 @@ import { isWorkerReminderMessage, workerReminderDeliveryMissing } from "./worker
 import { loadImplementationReviewGuidance, validateReviewPerspectives, type ReviewFileReader } from "./review-perspectives.ts";
 import type { RecordAssignment } from "./record-names.ts";
 import { recordOwnership, type RecordLease } from "./record-ownership.ts";
-import { renderRecordFacts } from "./record-worker.ts";
 
 /**
  * One prompt-cache key for ONE main slate session.
@@ -699,9 +698,7 @@ export class ThreadManager {
 			const reports: string[] = [];
 			if (lifecycleWarnings.length > 0) reports.push(`Lifecycle failures: ${lifecycleWarnings.join(" ")}`);
 			if (progressWarnings.length > 0) reports.push(`Progress callback failures: ${progressWarnings.join(" ")}`);
-			const recordFacts = renderRecordFacts(session?.recordCallFacts?.() ?? []);
-			const visible = reports.length === 0 ? message : `${message} ${reports.join(" ")}`;
-			return recordFacts ? `${visible}\n${recordFacts}` : visible;
+			return reports.length === 0 ? message : `${message} ${reports.join(" ")}`;
 		};
 		const cancellationReason = (): string =>
 			cancellationObservation?.kind === "caller"
@@ -1129,8 +1126,6 @@ export class ThreadManager {
 					: `${diagnostics}; ${settlementRefusal}`;
 			}
 			await recordLease?.settle();
-			const recordText = renderRecordFacts(ownedSession?.recordCallFacts?.() ?? []);
-			if (recordText) completedFacts.addTool("slate_record outcomes", recordText, false);
 			frozenCompletedFacts = completedFacts.freeze();
 			// Only the settled, frozen action gets a stored outcome. The early
 			// outcome above decides retry and recovery, not durable success.
@@ -1378,7 +1373,6 @@ export class ThreadManager {
 				workerEffort: actualEffort,
 				completedText: completedWorkerText,
 				completedFacts: frozenCompletedFacts,
-				recordFactsText: renderRecordFacts(session?.recordCallFacts?.() ?? []),
 				logicalRuntime: this.logicalRuntime!,
 				admission: admission!,
 				retryPolicy: this.compressorRetryPolicy,
@@ -1488,10 +1482,9 @@ export class ThreadManager {
 
 	async disposeAll(): Promise<void> {
 		if (this.teardownPromise !== undefined) return this.teardownPromise;
-		// Close both admission boundaries before the first await. Running dispatches
+		// Close dispatch admission before the first await. Running dispatches
 		// retain persistence ownership and converge on their shared finalizer.
 		this.teardownStarted = true;
-		recordOwnership(this.store).stop();
 		const contracts = [...this.requestContracts.values()];
 		this.requestContracts.clear();
 		for (const contract of contracts) contract.invalidate();

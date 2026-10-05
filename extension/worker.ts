@@ -53,11 +53,10 @@ import { createWorkerReminderRuntime } from "./worker-reminder.ts";
 import { describeSpecDefect, splitModelSpec, type SlateConfig, type ThreadType } from "./state.ts";
 import { PI_BUILTIN_TOOL_NAMES, SLATE_TOOL_NAMES, SLATE_WORKER_TOOL_NAMES } from "./worker-extensions.ts";
 import type { RecordLease } from "./record-ownership.ts";
-import { createRecordWorkerRuntime, recordWorkerGuidance, RECORD_FACTORY_NAME, RECORD_TOOL_NAME, type RecordCallFact } from "./record-worker.ts";
+import { createRecordWorkerRuntime, recordWorkerGuidance, RECORD_FACTORY_NAME, RECORD_TOOL_NAME } from "./record-worker.ts";
 
 export type WorkerSession = Awaited<ReturnType<typeof createAgentSession>>["session"] & {
 	workerReminderHandledToolResult(): boolean;
-	recordCallFacts(): RecordCallFact[];
 	/** Close extension-managed Pi operation admission before terminal settlement. */
 	closeManagedOperations(): void;
 	/** Abort and join startup, admitted operations, and Pi idle state. */
@@ -675,7 +674,6 @@ export async function openWorkerSession(opts: {
 	};
 	const workerSession = Object.assign(session, {
 		workerReminderHandledToolResult: workerReminder.handledToolResult,
-		recordCallFacts: workerRecord.facts,
 		closeManagedOperations(): void {
 			workerRecord.close();
 			managedAdmissionOpen = false;

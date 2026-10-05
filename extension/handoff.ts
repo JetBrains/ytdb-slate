@@ -40,7 +40,6 @@ import {
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { currentModelSpec, readLiveEffort, type BaseModelTracker } from "./base-model.ts";
-import { recordOwnership } from "./record-ownership.ts";
 import { SAVED_DEFAULT_RESOURCE_KEY } from "./failover.ts";
 import type { LogicalRuntime } from "./logical-model-runtime.ts";
 import { withGlobalModelDefaultRestored } from "./model-default.ts";
@@ -721,12 +720,7 @@ export function registerSlateHandoff(
 
 	const startHandoff = async (ctx: ExtensionCommandContext, focus?: string, summaryVisible?: boolean): Promise<void> => {
 		await ctx.waitForIdle();
-		const recordOwner = recordOwnership(store);
-		recordOwner.stop();
-		try {
-			await recordOwner.settle();
-			await performHandoff(ctx, focus, summaryVisible);
-		} finally { recordOwner.resume(); }
+		await performHandoff(ctx, focus, summaryVisible);
 	};
 
 	return { startHandoff, takeSummaryVisibility, effectiveContextBudget };

@@ -3,7 +3,11 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { ModelRegistry, ModelRuntime, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { createAssistantMessageEventStream, type AssistantMessage, type TranscriptContext } from "@earendil-works/pi-ai";
+import { createChangeFolder } from "../extension/artifact-names.ts";
+import { createChangeDirectory } from "../extension/slate-files.ts";
+import { WORKER_REMINDER_CUSTOM_TYPE, WORKER_REMINDER_TEXT } from "../extension/worker-reminder.ts";
 import { loadConfig, permitsSlateConfig } from "../extension/config.ts";
 import { createLogicalRuntime } from "../extension/logical-model-runtime.ts";
 import { SlateStore } from "../extension/state.ts";
@@ -57,6 +61,66 @@ async function isolatedWorkerTest(
     rmSync(root, { recursive: true, force: true });
   }
 }
+
+async function offlineWorkerTest(
+  t: test.TestContext,
+  turn: (root: string, ordinal: number) => AssistantMessage["content"],
+  run: (session: WorkerSession, root: string, change: string, requests: TranscriptContext[]) => Promise<void>,
+): Promise<void> {
+  await isolatedWorkerTest(t, async (root, reports) => {
+    const change = createChangeFolder();
+    createChangeDirectory(root, change);
+    const requests: TranscriptContext[] = [];
+    const host = await ModelRuntime.create({ authPath: join(root, "host-auth.json"), modelsPath: null,
+      modelsStorePath: join(root, "host-models.json"), allowModelNetwork: false, refreshOnCreate: false });
+    host.registerProvider("lifecycle-offline", {
+      api: "lifecycle-offline-api", apiKey: "fixture", baseUrl: "http://127.0.0.1:9",
+      models: [{ id: "worker", name: "worker", reasoning: false, input: ["text"], contextWindow: 100_000,
+        maxTokens: 1000, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }],
+      streamSimple(model, request) {
+        requests.push(structuredClone(request));
+        const content = turn(root, requests.length);
+        const stopReason = content.some((part) => part.type === "toolCall") ? "toolUse" : "stop";
+        const message: AssistantMessage = { role: "assistant", api: model.api, provider: model.provider, model: model.id,
+          content, stopReason, timestamp: 1, usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } };
+        const stream = createAssistantMessageEventStream();
+        stream.push({ type: "done", reason: stopReason, message });
+        stream.end();
+        return stream;
+      },
+    });
+    const session = await openWorkerSession({
+      ctx: { ...context(root), modelRegistry: new ModelRegistry(host), model: host.getModel("lifecycle-offline", "worker") },
+      config: { workerExtensions: [], cacheKeyEnabled: false }, extensionPaths: [], extensionToolNames: [],
+      report: (message) => reports.push(message),
+    });
+    try { await run(session, root, change, requests); assert.deepEqual(reports, []); }
+    finally { await session.shutdownWorker(); }
+  });
+}
+
+test("internal reminder reaches the next offline worker turn with no external extensions or cache keys", { timeout: 10000 }, async (t) => {
+  await offlineWorkerTest(t, (root, ordinal) => ordinal === 1
+    ? ["alpha", "beta"].map((name) => ({ type: "toolCall", id: name, name: "read", arguments: { path: join(root, `${name}.txt`) } }))
+    : [{ type: "text", text: "continuation complete" }], async (session, root, change, requests) => {
+      writeFileSync(join(root, "alpha.txt"), "alpha bytes");
+      writeFileSync(join(root, "beta.txt"), "beta bytes");
+      assert.equal(existsSync(join(root, "slate-changes", change, "research-log.md")), true);
+      await session.prompt("Read both independent files.");
+      assert.equal(requests.length, 2);
+      const reminders = requests[1]!.messages.filter((message) => message.role === "user" &&
+        (typeof message.content === "string" ? message.content : message.content.filter((part) => part.type === "text").map((part) => part.text).join("\n")) === WORKER_REMINDER_TEXT);
+      assert.equal(reminders.length, 1);
+      const saved = session.messages.filter((message) => message.role === "custom" && message.customType === WORKER_REMINDER_CUSTOM_TYPE);
+      assert.equal(saved.length, 1);
+      assert.ok(saved[0]?.role === "custom");
+      assert.equal(saved[0].content, WORKER_REMINDER_TEXT);
+      assert.equal(saved[0].display, false);
+      assert.equal(requests[1]!.messages.filter((message) => message.role === "toolResult").length, 2);
+      assert.match(readFileSync(session.sessionFile!, "utf8"), /"display":false/);
+    });
+});
 
 test("Pi worker session creation refuses a symbolic-link runtime parent", { timeout: 10000 }, async (t) => {
   await isolatedWorkerTest(t, async (root) => {

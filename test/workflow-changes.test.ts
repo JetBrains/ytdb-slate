@@ -9,7 +9,11 @@ import { createChangeFolder, isChangeFolder } from "../extension/artifact-names.
 import { createChangeDirectory } from "../extension/slate-files.ts";
 import { ADOPTED_SNAPSHOT_FIELDS, SlateStore, type SlateSnapshot } from "../extension/state.ts";
 import { registerSlateTools } from "../extension/tools.ts";
-import type { ThreadManager } from "../extension/threads.ts";
+import { ThreadManager } from "../extension/threads.ts";
+import type { WorkerSession } from "../extension/worker.ts";
+import { implementerReportName, readOnlyEarlierLogLine, trackIdentifier } from "../extension/record-names.ts";
+import { registerSlateHandoff } from "../extension/handoff.ts";
+import { createBaseModelTracker } from "../extension/base-model.ts";
 import { pathToFileURL } from "node:url";
 import type { AgentTool, runToolCall as RunToolCall } from "../node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-agent-core/dist/index.js";
 
@@ -48,12 +52,13 @@ function harness(t: import("node:test").TestContext) {
   const ctx = {
     cwd: project, mode: "rpc", get hasUI() { return hasUI; }, model: undefined, modelRegistry: {},
     isProjectTrusted: () => true,
-    sessionManager: { getBranch: () => branch, getEntries: () => entries, getSessionId: () => sessionId },
+    sessionManager: { getBranch: () => branch, getEntries: () => entries, getSessionId: () => sessionId, getSessionFile: () => undefined },
     ui: { notify: (message: string) => warnings.push(message), setWidget() {}, setStatus() {} },
   } as unknown as ExtensionContext;
   extension(pi as unknown as ExtensionAPI);
   return {
     project, root, tools, warnings, entries, ctx, active: () => active,
+    async event(name: string) { for (const handler of events.get(name) ?? []) await handler({}, ctx); },
     async start(reason: string) { for (const handler of events.get("session_start") ?? []) await handler({ reason }, ctx); },
     async doctrine() { const results = await Promise.all((events.get("before_agent_start") ?? []).map((handler) => handler({ systemPrompt: "BASE" }, ctx))); return (results[0] as { systemPrompt: string }).systemPrompt; },
     async action(action: "start" | "close") { return tools.get("slate_change")!.execute("id", { action }, undefined, undefined, ctx); },
@@ -102,6 +107,25 @@ test("start, close, resume, reload and handoff preserve one visible change witho
   assert.equal(existsSync(log), true, "close deletes nothing");
   await f.start("resume");
   assert.equal((await f.doctrine()).includes(`Current research log: slate-changes/${name}`), false);
+});
+
+test("change actions retain closed state after a failed start save and restore ownership after a failed close save", { timeout: 1000 }, async (t) => {
+  const f = harness(t);
+  f.branchTo({ format: "single-action-v1", threads: [], episodes: [], orchestratorMode: true,
+    paused: false, workerCostUsd: 0, carriedCostUsd: 0 });
+  await f.start("resume");
+  await assert.rejects(f.action("close"), /no change is open/);
+  f.failNextSave();
+  await assert.rejects(f.action("start"), /injected save failure/);
+  assert.match(await f.doctrine(), /No change open/);
+  await f.action("start");
+  const folder = f.saved().currentChange!;
+  f.failNextSave();
+  await assert.rejects(f.action("close"), /injected save failure/);
+  assert.match(await f.doctrine(), new RegExp(`Current research log: slate-changes/${folder}/research-log.md`));
+  await f.action("close");
+  assert.equal(f.saved().currentChange, undefined);
+  assert.equal(existsSync(join(f.project, "slate-changes", folder, "research-log.md")), true);
 });
 
 test("session ownership isolates forks and copied parent history after tree movement", { timeout: 10000 }, async (t) => {
@@ -377,6 +401,108 @@ test("dispatch validates original and changed identifiers through real Pi prepar
   assert.match(recursive, /The record must equal one assigned name, not a path\./);
   assert.match(recursive, /Every append and replacement requires the current hash as/);
   assert.doesNotMatch(recursive, /safe-record\.py|safe-record-recipe/);
+});
+
+test("shared identifiers and report names retain exact boundaries", () => {
+  const at128 = `${"1.".repeat(56)}1234567890123456`;
+  const at129 = `${"1.".repeat(57)}123456789012345`;
+  assert.equal(at128.length, 128);
+  assert.equal(at129.length, 129);
+  for (const value of [1, 105, Number.MAX_SAFE_INTEGER, "1", "1.2.3", "1.9007199254740991", at128]) {
+    assert.equal(trackIdentifier(value), String(value));
+    assert.equal(implementerReportName(value), `track-${value}-implementer-report.md`);
+  }
+  for (const value of [null, true, 0, -1, 1.2, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1,
+    "", "0", "01", "1.02", "1..2", "1.", ".1", " 1", "1 ", "1\n", "1\r", "1\0", "１", "١",
+    "1/2", "../1", "1\\2", "1e2", "+1", "1-2", "9007199254740992", "1.9007199254740992", at129]) {
+    assert.throws(() => trackIdentifier(value), /trackNumber/);
+    assert.throws(() => implementerReportName(value), /trackNumber/);
+  }
+});
+
+test("earlier-log helper matches the producer's exact first-line bytes", (t) => {
+  const f = harness(t), source = createChangeFolder(), current = createChangeFolder();
+  createChangeDirectory(f.project, source);
+  createChangeDirectory(f.project, current, source);
+  const bytes = readFileSync(join(f.project, "slate-changes", current, "research-log.md"));
+  assert.deepEqual(bytes.subarray(0, bytes.indexOf(10)), Buffer.from(readOnlyEarlierLogLine(source)));
+  assert.equal(readOnlyEarlierLogLine(source), `Read-only earlier log: slate-changes/${source}/research-log.md`);
+  assert.throws(() => readOnlyEarlierLogLine("../source"), /valid change folder/);
+});
+
+for (const event of ["session_start", "session_shutdown"]) {
+  test(`index ${event} joins an ordinary worker operation before a folder fork`, { timeout: 1000 }, async (t) => {
+    const f = harness(t), original = createChangeFolder();
+    createChangeDirectory(f.project, original);
+    f.branchTo({ format: "single-action-v1", threads: [], episodes: [], currentChange: original,
+      changeOwnerSessionId: "successor", orchestratorMode: true, paused: false, workerCostUsd: 0, carriedCostUsd: 0 });
+    await f.start("startup");
+    let release!: () => void, entered!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const started = new Promise<void>((resolve) => { entered = resolve; });
+    const dispatch = ThreadManager.prototype.dispatch;
+    ThreadManager.prototype.dispatch = async function () {
+      const operation = (async () => { entered(); await gate; })();
+      (this as unknown as { live: Map<string, WorkerSession> }).live.set("held", {
+        abort: async () => {}, shutdownWorker: async () => { await operation; },
+      } as unknown as WorkerSession);
+      await operation;
+      throw new Error("held operation finished");
+    };
+    const worker = f.tools.get("thread")!.execute("held", { type: "general", task: "held ordinary work", model: "sol-6.1", reason: "fixture" }, undefined, undefined, f.ctx).catch((error: Error) => error);
+    await started;
+    f.session("fork-owner");
+    let finished = false;
+    const transfer = f.event(event).then(() => { finished = true; });
+    try {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal(finished, false, "index must await manager.disposeAll");
+      assert.equal(existsSync(join(f.project, "slate-changes", original, "research-log.md")), true);
+      assert.equal(f.entries.length, 0, "the fork must not be saved while the worker operation runs");
+    } finally { release(); await worker; await transfer; ThreadManager.prototype.dispatch = dispatch; }
+    if (event === "session_shutdown") await f.start("fork");
+    assert.notEqual(f.saved().currentChange, original);
+    assert.equal(f.saved().sourceChange, original);
+    assert.equal(f.saved().changeOwnerSessionId, "fork-owner");
+  });
+}
+
+for (const reject of [false, true]) {
+  test(`handoff ${reject ? "rejects idle cancellation without replacement" : "awaits ordinary worker idle before replacement"}`, { timeout: 1000 }, async (t) => {
+    const f = harness(t), store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
+    const hooks = registerSlateHandoff({ on() {}, registerCommand() {} } as unknown as ExtensionAPI, store, () => ({}), () => createBaseModelTracker({ warn() {} }));
+    let release!: () => void;
+    const operation = new Promise<void>((resolve) => { release = resolve; });
+    let replacements = 0;
+    const transfer = hooks.startHandoff({ ...f.ctx,
+      waitForIdle: async () => { await operation; if (reject) throw new Error("idle cancelled"); },
+      newSession: async () => { replacements++; return { cancelled: true }; },
+    } as any);
+    const outcome = reject ? assert.rejects(transfer, /idle cancelled/) : transfer;
+    try {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal(replacements, 0, "replacement must wait for the worker operation");
+    } finally { release(); await outcome; }
+    assert.equal(replacements, reject ? 0 : 1);
+  });
+}
+
+test("startup preserves planted versions and temporary record bytes across resume, fork and handoff", { timeout: 1000 }, async (t) => {
+  const f = harness(t), folder = createChangeFolder();
+  createChangeDirectory(f.project, folder);
+  const directory = join(f.project, "slate-changes", folder);
+  mkdirSync(join(directory, "versions"));
+  const files = ["versions/status.v1.md", "versions/root-design.v2.md", ".slate-record-candidate", ".slate-record-version"];
+  const bytes = files.map((name, index) => { const value = Buffer.from([0, index, 255, 10]); writeFileSync(join(directory, name), value); return value; });
+  const state: SlateSnapshot = { format: "single-action-v1", threads: [], episodes: [], currentChange: folder,
+    changeOwnerSessionId: "successor", orchestratorMode: true, paused: false, workerCostUsd: 0, carriedCostUsd: 0 };
+  for (const reason of ["startup", "resume", "fork", "handoff"]) {
+    f.branchTo(state);
+    if (reason === "fork") f.session("fork-owner");
+    if (reason === "handoff") { f.session("successor"); f.handoff(state); }
+    await f.start(reason);
+    files.forEach((name, index) => assert.deepEqual(readFileSync(join(directory, name)), bytes[index], `${reason}: ${name}`));
+  }
 });
 
 test("legacy root research log is only named as read-only earlier input", { timeout: 10000 }, async (t) => {
