@@ -486,13 +486,14 @@ redirected into an artifact file) is still visible.
    `SLATE_LADDER_REAL_AGENT_DIR`. If neither can be determined, the script aborts
    rather than watch nothing.
 
-On top of that, every pi invocation goes through one helper that sets
-`PI_CODING_AGENT_DIR=<lab>/agent` and unsets the inherited `PI_CODING_AGENT`,
+On top of that, `piexec` sets `PI_CODING_AGENT_DIR=<lab>/agent`.
+P11 uses `runprobe_at` with a separate padded, validated throwaway agent directory.
+Both helpers unset the inherited `PI_CODING_AGENT`,
 `PI_SESSION_FILE`, `PI_SESSION_ID`, `PI_PROVIDER`, `PI_MODEL` and
 `PI_REASONING_LEVEL`, so a run launched from inside a pi session cannot pick up
 the caller's session or model. `getAgentDir()` in pi honours that variable for
 settings, auth, model catalogue and sessions alike — confirm the redirect took
-effect by checking that `<lab>/agent/sessions/` filled up.
+effect by checking that the selected agent directory's `sessions/` filled up.
 
 An `EXIT`/`INT`/`TERM` trap restores permissions on any settings file the rungs
 made read-only, removes any lock directory left held, and kills background
