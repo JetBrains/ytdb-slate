@@ -148,11 +148,11 @@ reminder fires. Later requests resend it with the rest of the conversation.
 ## What always-loaded tool definitions cost the budget
 
 The registered `thread` tool description is 973 UTF-8 bytes. Its serialized
-parameter schema is 2,458 bytes from `JSON.stringify(parameters)`. The schema
+parameter schema is 2,137 bytes from `JSON.stringify(parameters)`. The schema
 requires logical `model` and `reason`. It includes the bounded `context` list,
 the optional implementer `trackNumber` with canonical dotted identifiers,
-the optional exact-name `records` assignment list, the built-in `reviewPerspectives` list, and the 200-character reason limit.
-The two values total 3,431 bytes before provider
+the built-in `reviewPerspectives` list, and the 200-character reason limit.
+The two values total 3,110 bytes before provider
 framing. The figure excludes the tool name, prompt text, and outer serialization.
 
 ## Compaction policy

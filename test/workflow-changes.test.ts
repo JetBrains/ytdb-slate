@@ -307,11 +307,36 @@ test("folder grammar rejects malformed, calendar-invalid, traversal and runtime 
   assert.deepEqual(Object.keys(ADOPTED_SNAPSHOT_FIELDS), ["format", "threads", "episodes", "threadSeq", "currentChange", "changeOwnerSessionId", "sourceChange", "orchestratorMode", "paused", "workerCostUsd", "carriedCostUsd"]);
 });
 
-test("implementer receives its exact report name in the dispatch text", async () => {
+const reportMethodGroups = [
+  ["destination", ["Write no other file under `slate-changes/`."]],
+  ["start copy", [
+    "Before its first report write in each action, the implementer copies the report to a temporary file outside `slate-changes/`.",
+    "For a new report, that copy is an empty file.",
+  ]],
+  ["append", [
+    "The implementer writes each new text to its own temporary file outside `slate-changes/`.",
+    "It creates a new report by appending its first temporary file with `>>`.",
+    "It appends each temporary file to the report with `>>`.",
+  ]],
+  ["final check", [
+    "After its last write, the implementer checks the whole report once with `cat` and `cmp`.",
+    "The report must equal the start copy followed by every appended temporary file in order.",
+  ]],
+  ["report", ["The implementer reports the check in its final response with the report path, what it compared, and the result."]],
+] as const;
+
+function assertReportMethod(task: string) {
+  for (const [group, sentences] of reportMethodGroups) {
+    assert.ok(task.includes(sentences.join(" ")), `generated ${group} guidance must match the approved method`);
+    for (const sentence of sentences) assert.equal(task.split(sentence).length, 2, `${group} sentence must appear once`);
+  }
+}
+
+test("implementer receives its report path and approved method with and without a source", { timeout: 10000 }, async () => {
   let thread: Tool | undefined;
   let task: string | undefined;
   const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
-  store.currentChange = createChangeFolder();
+  store.currentChange = "change-20261004T000000Z-" + "c".repeat(32);
   registerSlateTools({ registerTool(tool: Tool & { name: string }) { if (tool.name === "thread") thread = tool; } } as unknown as ExtensionAPI,
     store, () => ({ async dispatch(opts: { task: string }) {
       task = opts.task;
@@ -324,12 +349,22 @@ test("implementer receives its exact report name in the dispatch text", async ()
   assert.ok(thread);
   const call = { name: "implementation", type: "implementer", task: "Make the fix", model: "sol-6.1", reason: "routine" };
   await assert.rejects(thread.execute("id", call, undefined, undefined, {}), /requires trackNumber/);
-  await thread.execute("id", { ...call, trackNumber: 3 }, undefined, undefined, {});
-  assert.match(task!, new RegExp(`slate-changes/${store.currentChange}/track-3-implementer-report.md`));
-  assert.equal(task!.includes("<number>"), false);
-  store.sourceChange = createChangeFolder();
-  await thread.execute("id", { ...call, trackNumber: 3 }, undefined, undefined, {});
-  assert.equal(task!, `Make the fix\n\nImplementer report: slate-changes/${store.currentChange}/track-3-implementer-report.md. Use slate_record to create this report and append later entries. If the source folder has this track's report, continue it in this new report and name slate-changes/${store.sourceChange}/track-3-implementer-report.md as read-only in the new report's first entry. Do not edit the source report.`);
+  const guidanceBytes: number[] = [];
+  for (const source of [undefined, "change-20261004T000000Z-" + "d".repeat(32)]) {
+    store.sourceChange = source;
+    await thread.execute("id", { ...call, trackNumber: 3 }, undefined, undefined, {});
+    assert.match(task!, new RegExp(`slate-changes/${store.currentChange}/track-3-implementer-report.md`));
+    assert.equal(task!.includes("<number>"), false);
+    assertReportMethod(task!);
+    if (source) {
+      assert.ok(task!.includes(`If the source folder has this track's report, continue it in this new report and name slate-changes/${source}/track-3-implementer-report.md as read-only in the new report's first entry. Do not edit the source report.`));
+      assert.ok(task!.includes(`Never write in the read-only source folder \`slate-changes/${source}/\`.`));
+    } else {
+      assert.doesNotMatch(task!, /If the source folder|read-only source folder/);
+    }
+    guidanceBytes.push(Buffer.byteLength(task!.slice(call.task.length + 2)));
+  }
+  assert.deepEqual(guidanceBytes, [995, 1377], "production-rendered report guidance bytes, source absent and present");
 });
 
 test("dispatch validates original and changed identifiers through real Pi preparation", { timeout: 10000 }, async () => {
@@ -365,7 +400,8 @@ test("dispatch validates original and changed identifiers through real Pi prepar
   for (const trackNumber of accepted) {
     const result = await invoke({ ...call, trackNumber });
     assert.equal(result.isError, false, JSON.stringify(trackNumber));
-    assert.equal(tasks.at(-1), `work\n\nImplementer report: slate-changes/${store.currentChange}/track-${trackNumber}-implementer-report.md. Use slate_record to create this report and append later entries. If the source folder has this track's report, continue it in this new report and name slate-changes/${store.sourceChange}/track-${trackNumber}-implementer-report.md as read-only in the new report's first entry. Do not edit the source report.`);
+    assert.ok(tasks.at(-1)!.includes(`Implementer report: slate-changes/${store.currentChange}/track-${trackNumber}-implementer-report.md.`));
+    assert.ok(tasks.at(-1)!.includes(`name slate-changes/${store.sourceChange}/track-${trackNumber}-implementer-report.md as read-only in the new report's first entry. Do not edit the source report.`));
   }
   const rejected = [true, false, null, undefined, 0, -1, 1.2, Number.MAX_SAFE_INTEGER + 1, NaN, Infinity,
     "", "0", "01", "01.2", "1.02", "1..2", "1.", ".1", " 1", "1 ", "1\n", "1\u0000", "１", "١", "1/2", "../1", "1\\2", "1e2", "+1", "1-2", "9007199254740992", "1.9007199254740992", at129];
@@ -411,8 +447,6 @@ test("dispatch validates original and changed identifiers through real Pi prepar
   const recursive = readFileSync(join(process.cwd(), "docs/recursive-workflow.md"), "utf8");
   assert.match(recursive, /The identifier has at most 128 characters\./);
   assert.match(recursive, /Each component is at most 9,007,199,254,740,991\./);
-  assert.match(recursive, /The record must equal one assigned name, not a path\./);
-  assert.match(recursive, /Every append and replacement requires the current hash as/);
   assert.doesNotMatch(recursive, /safe-record\.py|safe-record-recipe/);
 });
 

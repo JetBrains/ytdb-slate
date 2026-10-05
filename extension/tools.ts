@@ -25,7 +25,7 @@ import {
 import { MAX_CONTEXT_EPISODES, type DispatchProgress, type ThreadManager } from "./threads.ts";
 import { JUDGEMENT_THREAD_TYPES } from "./worker.ts";
 import { REVIEW_PERSPECTIVES } from "./review-perspectives.ts";
-import { buildRecordAssignment, trackIdentifier, TRACK_IDENTIFIER_MAX, TRACK_IDENTIFIER_PATTERN, validateRecordsInput } from "./record-names.ts";
+import { implementerReportName, trackIdentifier, TRACK_IDENTIFIER_MAX, TRACK_IDENTIFIER_PATTERN } from "./record-names.ts";
 
 const threadTypeGlosses = THREAD_TYPES.map((type) => `${type} ${THREAD_TYPE_GLOSSES[type]}`).join(", ");
 const judgementThreadTypes = JUDGEMENT_THREAD_TYPES.join(" and ");
@@ -35,7 +35,6 @@ const THREAD_TYPE_PARAMETER_DESCRIPTION =
 	`Slate adds its reviewer evidence charter to ${judgementThreadTypes} threads.`;
 
 const USAGE_FIELDS = ["input", "output", "cacheRead", "cacheWrite"] as const;
-const RECORDS_INPUT_WITNESS = "__slateRecordsInputWitness";
 
 /** Render recorded costs and usage without turning an unreported quantity into zero. */
 function dispatchCostLine(episode: EpisodeRecord): string {
@@ -72,10 +71,6 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 			description: THREAD_TYPE_PARAMETER_DESCRIPTION,
 		}),
 		task: Type.String({ description: "The single bounded action to execute" }),
-		records: Type.Optional(Type.Array(Type.String(), {
-			description: "Exact record names for this action. Use a nonempty list without duplicates or paths. Requires type general without trackNumber and an open change. Accepts research log, status, and design names, not implementer reports.",
-			minItems: 1, uniqueItems: true,
-		})),
 		context: Type.Optional(
 			Type.Array(Type.String(), { description: "Earlier episode ids to load in caller order", maxItems: MAX_CONTEXT_EPISODES }),
 		),
@@ -116,12 +111,6 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 			if (args && typeof args === "object") {
 				const original = args as Record<string, unknown>;
 				if (Object.prototype.hasOwnProperty.call(original, "trackNumber")) trackIdentifier(original.trackNumber);
-				const names = validateRecordsInput(original, store.currentChange, store.sourceChange);
-				// A private string carries original presence and order through Pi's clone.
-				const prepared = { ...(args as Static<typeof parameters>), [RECORDS_INPUT_WITNESS]: JSON.stringify(names ?? null) };
-				// Schema diagnostics serialize the original input. Pi's clone omits this non-enumerable method.
-				Object.defineProperty(prepared, "toJSON", { enumerable: false, value: () => args });
-				return prepared;
 			}
 			return args as Static<typeof parameters>;
 		},
@@ -138,10 +127,6 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 				throw new Error('The "effort" field was removed. Select a logical model. Its policy fixes the effort.');
 			}
 			if (Object.prototype.hasOwnProperty.call(raw, "trackNumber")) trackIdentifier(raw.trackNumber);
-			const entryNames = validateRecordsInput(raw, store.currentChange, store.sourceChange);
-			// Direct callers get the same comparison from execute entry to assignment.
-			const recordsWitness = Object.prototype.hasOwnProperty.call(raw, RECORDS_INPUT_WITNESS)
-				? raw[RECORDS_INPUT_WITNESS] : JSON.stringify(entryNames ?? null);
 			const type = parseThreadType(params.type, true);
 			if (type === "implementer" && store.currentChange && params.trackNumber === undefined) {
 				throw new Error("An implementer on an open change requires trackNumber for its report.");
@@ -166,17 +151,24 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 				});
 			};
 
-			// Recheck assignment values after parsing the type and before dispatch.
-			const recordAssignment = buildRecordAssignment(raw, store.currentChange, store.sourceChange);
-			const assignmentNames = recordAssignment?.writerRole === "record-only" ? recordAssignment.names : undefined;
-			if (recordsWitness !== JSON.stringify(assignmentNames ?? null)) {
-				throw new Error("records changed after the original input check. Keep the original names and order.");
-			}
-			const reportName = recordAssignment?.writerRole === "implementer" ? recordAssignment.names[0] : undefined;
+			// Validate the final identifier at report-name construction.
+			const reportName = type === "implementer" && store.currentChange
+				? implementerReportName(params.trackNumber) : undefined;
 			const reportTask = reportName !== undefined
-				? `${params.task}\n\nImplementer report: slate-changes/${store.currentChange}/${reportName}. Use slate_record to create this report and append later entries.` +
+				? `${params.task}\n\nImplementer report: slate-changes/${store.currentChange}/${reportName}. ` +
+					"A new report starts with a `>>` append. Later appends use only `>>`. " +
+					"Never use `>`, the write tool, the edit tool, or `sed -i` on an existing report. " +
+					"Write no other file under `slate-changes/`. " +
+					"Before its first report write in each action, the implementer copies the report to a temporary file outside `slate-changes/`. " +
+					"For a new report, that copy is an empty file. " +
+					"The implementer writes each new text to its own temporary file outside `slate-changes/`. " +
+					"It creates a new report by appending its first temporary file with `>>`. " +
+					"It appends each temporary file to the report with `>>`. " +
+					"After its last write, the implementer checks the whole report once with `cat` and `cmp`. " +
+					"The report must equal the start copy followed by every appended temporary file in order. " +
+					"The implementer reports the check in its final response with the report path, what it compared, and the result." +
 					(store.sourceChange
-						? ` If the source folder has this track's report, continue it in this new report and name slate-changes/${store.sourceChange}/${reportName} as read-only in the new report's first entry. Do not edit the source report.`
+						? ` If the source folder has this track's report, continue it in this new report and name slate-changes/${store.sourceChange}/${reportName} as read-only in the new report's first entry. Do not edit the source report. Never write in the read-only source folder \`slate-changes/${store.sourceChange}/\`.`
 						: "")
 				: params.task;
 			const result = await getManager().dispatch(
@@ -189,7 +181,6 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 					reason: params.reason,
 					tools: params.tools,
 					reviewPerspectives: raw.reviewPerspectives,
-					...(recordAssignment === undefined ? {} : { recordAssignment }),
 				},
 				ctx,
 				signal,

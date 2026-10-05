@@ -45,7 +45,7 @@ test("record-tool-sizes measures unchanged production thread definition and comp
   let thread!: { description: string; parameters: unknown };
   registerSlateTools({ registerTool(tool: any) { if (tool.name === "thread") thread = tool; } } as unknown as ExtensionAPI, new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI), () => { throw new Error("not dispatched"); });
   assert.equal(Buffer.byteLength(thread.description), 973);
-  assert.equal(Buffer.byteLength(JSON.stringify(thread.parameters)), 2458);
+  assert.equal(Buffer.byteLength(JSON.stringify(thread.parameters)), 2137);
   const currentChange = "change-20261004T000000Z-" + "a".repeat(32);
   const lease = new RecordOwnership({ currentChange }).reserve(buildRecordAssignment({ type: "implementer", trackNumber: "2.4" }, currentChange, undefined)!);
   assert.deepEqual([false, true].map((trusted) => Buffer.byteLength([workerPreamble(trusted, false), recordWorkerGuidance(lease)].join("\n\n"))), [769, 1322]);
