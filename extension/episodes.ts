@@ -257,7 +257,7 @@ const HEADER_FIELD_MAX = 200;
  * sanitising reads as absent, so a caller can omit the field instead of printing
  * a label with nothing after it.
  */
-function headerField(value: unknown, max = HEADER_FIELD_MAX): string | undefined {
+export function headerField(value: unknown, max = HEADER_FIELD_MAX): string | undefined {
 	if (typeof value !== "string") return undefined;
 	// Order matters: collapse whitespace FIRST (so a newline becomes a word gap
 	// rather than joining two words), then strip the delimiter, then hand the rest to
@@ -402,11 +402,11 @@ export interface CompressEpisodeOptions {
 	task: string;
 	status: "ok" | "failed";
 	diagnostics?: string; // failure diagnostics (D6)
+	/** Tool names and error counts rendered outside the compressed body. */
+	toolErrorWarning?: string;
 	messages: unknown[]; // AgentMessages produced during this action, used for observation compatibility
 	/** Stable bounded facts captured before mutable Pi history can be rewritten. */
 	completedFacts?: FrozenCompletedFacts;
-	/** Trusted call evidence retained verbatim outside language-model compression. */
-	recordFactsText?: string;
 	/** Durable final-message facts. Transient capture fields are not rendered. */
 	observations: ObservationRecord;
 	/**
@@ -684,6 +684,8 @@ export async function compressEpisode(opts: CompressEpisodeOptions): Promise<Com
 	// call, the compressor and `ran:` specs from the registry. None of them can
 	// introduce a line, a field or an unbounded run of text. The date is generated
 	// here and the status label is one of two literals, so both are already safe.
+	// The tool-error warning lists at most five headerField-sanitized names.
+	// Its counts and omission marker contain only generated text.
 	const episodeId = headerField(opts.episodeId, 80) ?? "(unknown)";
 	const threadId = headerField(renderThreadId(opts.threadId), 80) ?? "(unknown)";
 	const threadName = headerField(opts.threadName, 80) ?? "(unknown)";
@@ -699,11 +701,12 @@ export async function compressEpisode(opts: CompressEpisodeOptions): Promise<Com
 		`> observations: ${observations}`,
 		`> date: ${new Date().toISOString()}${ranOn ? ` | ran: ${headerField(ranOn, 120)}` : ""} | compressor: ${headerField(compressor, 120) ?? "(unknown)"}`,
 		...(failure ? [`> failure: ${failure}`] : []),
+		...(opts.toolErrorWarning ? [`> warning: ${opts.toolErrorWarning}`] : []),
 		"",
 		"",
 	].join("\n");
 
-	const text = `${header}${body}\n${opts.recordFactsText ?? ""}`;
+	const text = `${header}${body}\n`;
 	// The directory is now created HERE rather than before the compression call.
 	// Nothing reads it in between, and the write itself keeps its historical
 	// failure policy: a refusal or an fs error throws out of this function.

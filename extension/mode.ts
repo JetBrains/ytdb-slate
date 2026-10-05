@@ -19,7 +19,6 @@ import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { Type } from "typebox";
 import { createChangeFolder } from "./artifact-names.ts";
-import { recordOwnership } from "./record-ownership.ts";
 import { createChangeDirectory } from "./slate-files.ts";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { SlateHandoffHooks } from "./handoff.ts";
@@ -494,36 +493,34 @@ export function registerSlateMode(
 		parameters: Type.Object({ action: Type.Union([Type.Literal("start"), Type.Literal("close")]) }),
 		async execute(_id, params, _signal, _update, ctx) {
 			if (!store.orchestratorMode) throw new Error("slate: change action requires orchestrator mode");
-			return recordOwnership(store).change(() => {
-				if (params.action === "close") {
-					if (!store.currentChange) throw new Error("slate: no change is open");
-					const old = store.currentChange;
-					const source = store.sourceChange;
-					const owner = store.changeOwnerSessionId;
-					store.currentChange = undefined;
-					store.sourceChange = undefined;
-					store.changeOwnerSessionId = undefined;
-					try { store.save(); } catch (error) {
-						store.currentChange = old;
-						store.sourceChange = source;
-						store.changeOwnerSessionId = owner;
-						throw error;
-					}
-					return { content: [{ type: "text" as const, text: `Closed ${old}. Files remain on disk.` }], details: { folder: old, action: "close" } };
-				}
-				if (store.currentChange) throw new Error("slate: close the current change before starting another");
-				const folder = createChangeFolder();
-				createChangeDirectory(ctx.cwd, folder);
-				store.currentChange = folder;
+			if (params.action === "close") {
+				if (!store.currentChange) throw new Error("slate: no change is open");
+				const old = store.currentChange;
+				const source = store.sourceChange;
+				const owner = store.changeOwnerSessionId;
+				store.currentChange = undefined;
 				store.sourceChange = undefined;
-				store.changeOwnerSessionId = ctx.sessionManager.getSessionId();
+				store.changeOwnerSessionId = undefined;
 				try { store.save(); } catch (error) {
-					store.currentChange = undefined;
-					store.changeOwnerSessionId = undefined;
+					store.currentChange = old;
+					store.sourceChange = source;
+					store.changeOwnerSessionId = owner;
 					throw error;
 				}
-				return { content: [{ type: "text" as const, text: `Started change. Research log: slate-changes/${folder}/research-log.md` }], details: { folder, action: "start" } };
-			});
+				return { content: [{ type: "text" as const, text: `Closed ${old}. Files remain on disk.` }], details: { folder: old, action: "close" } };
+			}
+			if (store.currentChange) throw new Error("slate: close the current change before starting another");
+			const folder = createChangeFolder();
+			createChangeDirectory(ctx.cwd, folder);
+			store.currentChange = folder;
+			store.sourceChange = undefined;
+			store.changeOwnerSessionId = ctx.sessionManager.getSessionId();
+			try { store.save(); } catch (error) {
+				store.currentChange = undefined;
+				store.changeOwnerSessionId = undefined;
+				throw error;
+			}
+			return { content: [{ type: "text" as const, text: `Started change. Research log: slate-changes/${folder}/research-log.md` }], details: { folder, action: "start" } };
 		},
 	});
 
