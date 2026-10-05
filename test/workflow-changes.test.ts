@@ -28,6 +28,7 @@ function harness(t: import("node:test").TestContext) {
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const events = new Map<string, Array<(event: any, ctx: ExtensionContext) => unknown>>();
   const tools = new Map<string, Tool>();
+  const commands = new Map<string, { handler: (args: string, ctx: ExtensionContext) => unknown }>();
   const warnings: string[] = [];
   let active = ["read", "thread", "slate_change"];
   let branch: Array<{ type: "custom"; customType: string; data: SlateSnapshot }> = [];
@@ -38,7 +39,8 @@ function harness(t: import("node:test").TestContext) {
   let hasUI = true;
   const pi = {
     on(name: string, handler: (event: any, ctx: ExtensionContext) => unknown) { events.set(name, [...(events.get(name) ?? []), handler]); },
-    registerCommand() {}, registerTool(tool: Tool & { name: string }) { tools.set(tool.name, tool); },
+    registerCommand(name: string, command: { handler: (args: string, ctx: ExtensionContext) => unknown }) { commands.set(name, command); },
+    registerTool(tool: Tool & { name: string }) { tools.set(tool.name, tool); },
     getActiveTools: () => active,
     setActiveTools(names: string[]) { active = names; },
     getAllTools: () => [...tools.keys()].map((name) => ({ name })),
@@ -62,6 +64,7 @@ function harness(t: import("node:test").TestContext) {
     async start(reason: string) { for (const handler of events.get("session_start") ?? []) await handler({ reason }, ctx); },
     async doctrine() { const results = await Promise.all((events.get("before_agent_start") ?? []).map((handler) => handler({ systemPrompt: "BASE" }, ctx))); return (results[0] as { systemPrompt: string }).systemPrompt; },
     async action(action: "start" | "close") { return tools.get("slate_change")!.execute("id", { action }, undefined, undefined, ctx); },
+    async resume() { await commands.get("slate")!.handler("resume", ctx); },
     saved() { return entries.at(-1)!.data; },
     branchTo(snapshot: SlateSnapshot) { branch = [{ type: "custom", customType: "slate-state", data: snapshot }]; },
     session(id: string) { sessionId = id; },
@@ -119,10 +122,20 @@ test("change actions retain closed state after a failed start save and restore o
   await assert.rejects(f.action("start"), /injected save failure/);
   assert.match(await f.doctrine(), /No change open/);
   await f.action("start");
+  const source = f.saved().currentChange!;
+  f.branchTo({ ...f.saved(), changeOwnerSessionId: "parent" });
+  await f.start("fork");
   const folder = f.saved().currentChange!;
   f.failNextSave();
   await assert.rejects(f.action("close"), /injected save failure/);
   assert.match(await f.doctrine(), new RegExp(`Current research log: slate-changes/${folder}/research-log.md`));
+  assert.match(await f.doctrine(), new RegExp(`Read-only source log: slate-changes/${source}/research-log.md`));
+  for (const stage of ["save", "reload"]) {
+    if (stage === "reload") await f.start("reload");
+    await f.resume();
+    const saved = f.saved();
+    assert.deepEqual([saved.currentChange, saved.sourceChange, saved.changeOwnerSessionId], [folder, source, "successor"], stage);
+  }
   await f.action("close");
   assert.equal(f.saved().currentChange, undefined);
   assert.equal(existsSync(join(f.project, "slate-changes", folder, "research-log.md")), true);

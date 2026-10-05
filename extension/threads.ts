@@ -150,7 +150,7 @@ export interface DispatchResult {
 	episode: EpisodeRecord;
 	thread: ThreadRecord;
 	usage: UsageStats;
-	/** Routing notices for this action. */
+	/** Notices for this action. */
 	warnings: readonly string[];
 }
 
@@ -721,6 +721,8 @@ export class ThreadManager {
 		let captureExecutionReports = false;
 		let executionReport: string | undefined;
 		const completedFacts = createCompletedFactRecorder();
+		// Count completed errors independently of bounded transcript facts.
+		const toolErrors = new Map<string, number>();
 		let frozenCompletedFacts: FrozenCompletedFacts | undefined;
 		let status: "ok" | "failed" = "ok";
 		let diagnostics: string | undefined;
@@ -805,6 +807,7 @@ export class ThreadManager {
 			} else if (event.type === "tool_execution_end") {
 				const tool = event as unknown as { toolName: string; result: unknown; isError: boolean };
 				completedFacts.addTool(tool.toolName, tool.result, tool.isError);
+				if (tool.isError) toolErrors.set(tool.toolName, (toolErrors.get(tool.toolName) ?? 0) + 1);
 			} else if (event.type === "auto_retry_start") {
 				// Keep the failed attempt until another assistant response actually replaces it.
 				// Pi can cancel during backoff without producing a replacement message.
@@ -1202,6 +1205,10 @@ export class ThreadManager {
 			throw new Error(appendLifecycleWarnings(`Thread ${thread.id} was ${reason}. No episode was recorded.`));
 		}
 
+		const toolErrorWarning = toolErrors.size > 0
+			? `slate: completed tool calls failed: ${[...toolErrors.keys()].sort().map((name) => `${sanitizeForNotify(name.replace(/\s+/g, " "), 80)} (${toolErrors.get(name)})`).join(", ")}.`
+			: undefined;
+		if (toolErrorWarning) routeWarn(toolErrorWarning);
 		if (status === "ok" && admission && logicalRoute) {
 			this.logicalRuntime!.publishProvider(admission, logicalRoute.logicalModel, logicalRoute.provider);
 		}
@@ -1373,6 +1380,7 @@ export class ThreadManager {
 				workerEffort: actualEffort,
 				completedText: completedWorkerText,
 				completedFacts: frozenCompletedFacts,
+				toolErrorWarning,
 				logicalRuntime: this.logicalRuntime!,
 				admission: admission!,
 				retryPolicy: this.compressorRetryPolicy,

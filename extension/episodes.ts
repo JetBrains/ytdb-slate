@@ -402,6 +402,8 @@ export interface CompressEpisodeOptions {
 	task: string;
 	status: "ok" | "failed";
 	diagnostics?: string; // failure diagnostics (D6)
+	/** Tool names and error counts rendered outside the compressed body. */
+	toolErrorWarning?: string;
 	messages: unknown[]; // AgentMessages produced during this action, used for observation compatibility
 	/** Stable bounded facts captured before mutable Pi history can be rewritten. */
 	completedFacts?: FrozenCompletedFacts;
@@ -682,6 +684,7 @@ export async function compressEpisode(opts: CompressEpisodeOptions): Promise<Com
 	// call, the compressor and `ran:` specs from the registry. None of them can
 	// introduce a line, a field or an unbounded run of text. The date is generated
 	// here and the status label is one of two literals, so both are already safe.
+	// The tool-error warning carries sanitized tool names and generated counts.
 	const episodeId = headerField(opts.episodeId, 80) ?? "(unknown)";
 	const threadId = headerField(renderThreadId(opts.threadId), 80) ?? "(unknown)";
 	const threadName = headerField(opts.threadName, 80) ?? "(unknown)";
@@ -697,6 +700,7 @@ export async function compressEpisode(opts: CompressEpisodeOptions): Promise<Com
 		`> observations: ${observations}`,
 		`> date: ${new Date().toISOString()}${ranOn ? ` | ran: ${headerField(ranOn, 120)}` : ""} | compressor: ${headerField(compressor, 120) ?? "(unknown)"}`,
 		...(failure ? [`> failure: ${failure}`] : []),
+		...(opts.toolErrorWarning ? [`> warning: ${opts.toolErrorWarning}`] : []),
 		"",
 		"",
 	].join("\n");

@@ -350,6 +350,36 @@ function completeResponse(usage: TokenUsage, stopReason = "stop", errorMessage =
   };
 }
 
+for (const isError of [false, true]) {
+  test(`completed tool errors ${isError ? "survive successful compression" : "produce no warning when absent"}`, { timeout: 1000 }, async (t) => {
+    const cwd = temporaryProject(t);
+    const session = fakeSession((current) => {
+      const callTool = (toolName: string) => ({ role: "toolResult", toolName, content: [{ type: "text", text: "PRIVATE TOOL OUTPUT" }], isError });
+      for (const toolName of ["write", "read", "read"]) {
+        const result = callTool(toolName);
+        current.messages.push(result);
+        current.emit({ type: "tool_execution_end", toolName, result, isError });
+      }
+      const message = assistant({}, "Finished successfully.");
+      current.messages.push(message);
+      current.emit({ type: "message_end", message });
+    });
+    compressorStub.complete = async () => completeResponse({});
+    const result = await managerWithSessions([session]).dispatch(
+      { ...TEST_ROUTE, task: "complete ordinary tool calls", type: "general" }, context(cwd, [model("test", "compressor")]), undefined);
+    const warning = "slate: completed tool calls failed: read (2), write (1).";
+    assert.equal(result.episode.status, "ok");
+    assert.equal(result.thread.status, "successful");
+    assert.deepEqual(result.warnings, isError ? [warning] : []);
+    assert.match(result.episodeText, /compressor: test\/compressor/);
+    assert.ok(result.episodeText.endsWith("## Intent\ncompressed\n"));
+    const saved = readFileSync(result.episode.file, "utf8");
+    assert.equal(saved, result.episodeText);
+    assert.deepEqual(saved.split("\n").filter((line) => line.startsWith("> warning: ")), isError ? [`> warning: ${warning}`] : []);
+    assert.doesNotMatch(saved, /PRIVATE TOOL OUTPUT/);
+  });
+}
+
 test("model authorization failures are sanitized before thread creation", async (t) => {
   const cwd = temporaryProject(t);
   const ran = model("test", "worker");
