@@ -91,8 +91,8 @@ test("separate detail permissions compose monotonically for every home and proje
 		const policy = resolve({ detail: general, pushDetail: push }, { detail: project, pushDetail: project }).settings;
 		assert.equal(policy.detail, levels[Math.min(levels.indexOf(general), levels.indexOf(project))]);
 		assert.equal(policy.pushDetail, levels[Math.min(levels.indexOf(push), levels.indexOf(project))]);
-		assert.equal(notificationText("finished", policy.pushDetail, "/private/folder", "agent").body,
-			policy.pushDetail === "generic" ? "" : policy.pushDetail === "project" ? "folder" : "folder: agent");
+		assert.equal(notificationText("input-needed", policy.pushDetail, "/private/folder", "agent").body,
+			policy.pushDetail === "generic" ? "" : policy.pushDetail === "project" ? "folder" : "folder: …agent");
 	}
 	for (const project of [null, { push: null }, { push: [] }]) {
 		assert.deepEqual(resolve({ push: destination }, project).settings.push, destination);
@@ -167,11 +167,12 @@ test("all text detail levels remove controls, limit bytes and expose only permit
 	assert.equal(sanitizeNotificationText(`before${hostile}after`), "beforeafter");
 	assert.equal(truncateNotificationUtf8("😀éX", 5), "😀");
 	assert.equal(truncateNotificationUtf8("😀éX", 6), "😀é");
-	assert.deepEqual(notificationText("finished", "generic", "/private/project", "secret"), { title: "Finished", body: "" });
+	assert.deepEqual(notificationText("input-needed", "generic", "/private/project", "secret"), { title: "Input needed", body: "" });
 	assert.deepEqual(notificationText("input-needed", "project", `/private/pro${hostile}ject`, "secret"), { title: "Input needed", body: "project" });
-	assert.deepEqual(notificationText("error", "message", "/private/project", `message${hostile}`), { title: "Error", body: "project: message" });
-	assert.equal(notificationText("error", "message", "/", "literal").body, "literal");
-	assert.ok(Buffer.byteLength(notificationText("error", "message", "/project", "😀".repeat(200)).body) <= 200);
+	assert.deepEqual(notificationText("error", "message", "/private/project", `message${hostile}`), { title: "Error", body: "project: …message" });
+	assert.equal(notificationText("error", "message", "/", "literal").body, "…literal");
+	assert.equal(notificationText("error", "message", "/project", "head" + "😀".repeat(50)).body, "project: …" + "😀".repeat(50));
+	assert.equal(notificationText("error", "message", "/", "head😀" + "é".repeat(99)).body, "…" + "é".repeat(99));
 });
 test("exact protocol bytes, OSC 9 prefix, OSC 99 metadata and identifiers", () => {
 	const text = { title: `1;title${hostile}`, body: `body;:= ${hostile}` };

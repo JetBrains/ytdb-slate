@@ -2,9 +2,9 @@ import { randomUUID } from "node:crypto";
 import { basename } from "node:path";
 import type { NotificationDetail, NotificationProtocol } from "./notification-config.ts";
 
-export type NotificationEvent = "finished" | "input-needed" | "error";
+export type NotificationEvent = "input-needed" | "error";
 export interface NotificationText { readonly title: string; readonly body: string }
-const titles = { finished: "Finished", "input-needed": "Input needed", error: "Error" };
+const titles = { "input-needed": "Input needed", error: "Error" };
 const ESC = "\x1b", BEL = "\x07", ST = `${ESC}\\`;
 export const NOTIFICATION_SEQUENCE_MAX_BYTES = 252;
 
@@ -23,9 +23,22 @@ export function truncateNotificationUtf8(text: string, bytes: number): string {
 	return result;
 }
 export function notificationText(event: NotificationEvent, detail: NotificationDetail, cwd: string, message = ""): NotificationText {
-	const folder = detail === "generic" ? "" : sanitizeNotificationText(basename(cwd));
-	const body = detail === "message" ? [folder, sanitizeNotificationText(message)].filter(Boolean).join(": ") : folder;
-	return Object.freeze({ title: titles[event], body: truncateNotificationUtf8(body, 200) });
+	const folder = detail === "generic" ? "" : truncateNotificationUtf8(sanitizeNotificationText(basename(cwd)), 200);
+	let tail = "", used = 0;
+	if (detail === "message") {
+		for (let end = message.length; end > 0;) {
+			const low = message.charCodeAt(end - 1);
+			const start = low >= 0xdc00 && low <= 0xdfff && end > 1 && message.charCodeAt(end - 2) >= 0xd800 && message.charCodeAt(end - 2) <= 0xdbff ? end - 2 : end - 1;
+			const character = message.slice(start, end), bytes = Buffer.byteLength(character);
+			if (used + bytes > 200) break;
+			tail = character + tail;
+			used += bytes;
+			end = start;
+		}
+	}
+	const copied = sanitizeNotificationText(tail);
+	const body = [folder, copied ? `…${copied}` : ""].filter(Boolean).join(": ");
+	return Object.freeze({ title: titles[event], body });
 }
 
 /** Assemble complete requests. Notification text never enters OSC 99 metadata. */

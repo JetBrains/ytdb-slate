@@ -1,5 +1,6 @@
 import { isContextOverflow, isRetryableAssistantError, type AssistantMessage } from "@earendil-works/pi-ai";
 import type { LogicalModelEffort } from "./logical-model-definitions.ts";
+import { classifyRunOutcome } from "./run-outcome.ts";
 import {
 	RecoveryOperation,
 	type RecoveryCandidate,
@@ -184,15 +185,17 @@ export class MainRetryEvidence {
 		route: string | undefined;
 		effort: LogicalModelEffort | undefined;
 		policy: CompressorRetryPolicy | undefined;
+		cancelled?: boolean;
 		isRetryable(message: { stopReason?: unknown; errorMessage?: unknown }): boolean;
 		isContextOverflow(message: { stopReason?: unknown; errorMessage?: unknown }): boolean;
 	}): AttemptResult<undefined> {
 		const turns = this.#turns.splice(0);
 		const final = turns.at(-1)?.message;
+		const outcome = classifyRunOutcome(final, input.cancelled);
+		if (outcome === "cancelled") return { kind: "cancelled" };
 		if (!final || typeof final.stopReason !== "string") return { kind: "unknown", reason: "The main session settled without a complete final assistant response." };
-		if (final.stopReason === "aborted") return { kind: "cancelled" };
-		if (["stop", "length", "toolUse"].includes(final.stopReason)) return { kind: "success", value: undefined, actualEffort: input.effort ?? "off" };
-		if (final.stopReason !== "error") return { kind: "unknown", reason: `The main session returned unknown stop reason ${JSON.stringify(final.stopReason)}.` };
+		if (outcome === "success") return { kind: "success", value: undefined, actualEffort: input.effort ?? "off" };
+		if (outcome !== "error") return { kind: "unknown", reason: `The main session returned unknown stop reason ${JSON.stringify(final.stopReason)}.` };
 		if (input.isContextOverflow(final)) return { kind: "terminal-fault", reason: "The main-session failure is a context-window fault." };
 		if (!input.isRetryable(final)) return { kind: "terminal-fault", reason: "The main-session failure is not an eligible transient provider fault." };
 		const policy = input.policy;
