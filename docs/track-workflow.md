@@ -393,7 +393,11 @@ The design-track boundary precedes research, expansion, and design work.
 The code-track boundary follows all required planning and pre-implementation gates.
 These include confirmation, scope-exception decisions, and applicable design gates.
 A review-fix child remains inside the affected code track and adds no new handoff boundary.
-Complete the prior ordinary track package and required acceptance before the next ordinary track boundary.
+
+Complete the prior ordinary track package and required acceptance before the next ordinary track boundary, except for a recorded permitted dependency pause.
+A subtree under that pause does not block its sibling's boundary.
+Use [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for the pause conditions.
+The paused subtree's package and acceptance stay pending and still block its own completion.
 
 The orchestrator pauses dispatch pending an actual handoff and resume or an explicit user decision to continue in the same session. The explicit same-session decision is recorded as a user waiver in the existing override log. A resumed session follows Resume order and reconciliation and does not repeat a boundary request already recorded as completed. Same-track fix rounds do not retrigger the request. Single-track changes are exempt. This workflow rule has no automated runtime enforcement.
 <!-- multi-track-handoff:end -->

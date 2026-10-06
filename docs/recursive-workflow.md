@@ -88,7 +88,9 @@ A contiguous slice is an uninterrupted range of commits.
 When dependency order would break a contiguous level pull request, the planner changes the split.
 Complete an entered subtree before continuing its siblings, except for a permitted dependency pause.
 A subtree may pause for an unfinished sibling dependency only when none of its open level slices has commits.
+A publishing bootstrap commit does not count as a subtree commit for this pause precondition.
 Otherwise the planner changes the split before that subtree's first commit.
+
 A late dependency discovery after commits exist stops work for a user-approved replan.
 A pause creates no permission to interleave commits in an open slice.
 
@@ -114,7 +116,9 @@ Use dependency order for branch bases and merges, including when code must finis
 The code-containing level branch starts from the latest completed history head for that level's dependency order.
 The dependent subtree's first level branch bases on the completed code-containing branch.
 Later dependent level branches base on the latest completed preceding level branch.
-Merge the foundation pull request before a pull request that depends on it.
+The user merges the code-containing level pull request only after its level is complete.
+Every track of that level, including the dependent design subtree, must have its required acceptance.
+The user then merges the dependent pull requests in dependency order.
 
 An existing level slice cannot be reopened around an intervening subtree.
 If the plan would require that reopening, change the split before the first affected commit.
@@ -152,7 +156,9 @@ A retention reference is never a pull request head branch.
 
 At each user review or acceptance event, create the named reference locally and record its exact commit.
 If that name already has the identical binding, verify it and record the repeated event instead of recreating it.
-Never move an existing reviewed binding.
+Keep every reviewed or accepted head reachable before any later rewrite.
+Never move an existing reviewed binding, even by fast-forward.
+
 With publishing disabled, keep these local references until root closure, including through the final squash.
 Check each local reference against its recorded commit before closure.
 Retention requires no remote operation in this setting.

@@ -74,7 +74,10 @@ Every creation path keeps these safeguards:
   Use dependency order for bases, including code before a dependent design subtree.
   Base that subtree's first level branch on the completed code-containing branch.
   Base later dependent levels on the latest completed preceding level branch.
-  Merge the foundation pull request before its dependent pull request.
+
+  The user merges the code-containing level pull request only after its level is complete.
+  Every track of that level, including the dependent design subtree, must have its required acceptance.
+  The user then merges the dependent pull requests in dependency order.
 - If the working branch has no diff against the base yet, land a
   bootstrap empty commit so the PR can be created.
 - At creation, if a high-level design exists, read the current authoritative design file for the change root or design track.
