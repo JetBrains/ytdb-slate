@@ -2414,7 +2414,7 @@ The code-track boundary follows all required planning and pre-implementation gat
 These include confirmation, scope-exception decisions, and applicable design gates.
 A review-fix child remains inside the affected code track and adds no new handoff boundary.
 Complete the prior ordinary track package and required acceptance before the next ordinary track boundary, except for a recorded permitted dependency pause.
-A subtree under that pause does not block its sibling's boundary.
+A subtree under that pause does not block the named unfinished sibling dependency's boundary until the recorded resume condition holds.
 Use [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for the pause conditions.
 The paused subtree's package and acceptance stay pending and still block its own completion.
 
@@ -2439,6 +2439,23 @@ The orchestrator pauses dispatch pending an actual handoff and resume or an expl
 				const resolved = resolvePhaseHandoff(source);
 				return { changed: source !== workflow, accepted: resolved.count === 1 && resolved.endCount === 1 && resolved.text === expectedPhaseHandoff, resolved };
 			});
+			const mutateDependencyPause = (source) => [
+				["named-dependency", "the named unfinished sibling dependency's boundary", "any sibling's boundary"],
+				["resume-limit", "boundary until the recorded resume condition holds.", "boundary."],
+			].map(([id, before, after]) => {
+				const pattern = literalPattern(before);
+				const mutated = source.replace(pattern, after);
+				const resolved = resolvePhaseHandoff(mutated);
+				return { id, changed: mutated !== source && !pattern.test(resolved.text),
+					rejected: resolved.count === 1 && resolved.endCount === 1 && resolved.text !== expectedPhaseHandoff };
+			});
+			const dependencyPauseMutationOutcomes = mutateDependencyPause(workflow);
+			const dependencyPauseSentence = "A subtree under that pause does not block the named unfinished sibling dependency's boundary until the recorded resume condition holds.";
+			const wrappedPauseSentence = dependencyPauseSentence.replace(/ /g, "\n  ");
+			const wrappedDependencyPause = workflow.replace(literalPattern(dependencyPauseSentence), (match) =>
+				match === wrappedPauseSentence ? dependencyPauseSentence.replace(/ /g, "\n\t") : wrappedPauseSentence);
+			const wrappedPauseHandoff = resolvePhaseHandoff(wrappedDependencyPause);
+			const wrappedPauseMutations = mutateDependencyPause(wrappedDependencyPause);
 			const phaseHandoffBoundaryMutations = [
 				workflow.replace("<!-- multi-track-handoff:begin -->", ""),
 				workflow.replace("<!-- multi-track-handoff:end -->", ""),
@@ -2565,6 +2582,8 @@ required reviews, ordered gates, user authority, or final acceptance.`;
 				["design-entry rule and boundary mutations fail while an outside edit passes", designEntryMutations.every(({ changed, rejected }) => changed && rejected) && acceptsDesignEntry(`${workflow}\nUnrelated outside-unit text.\n`), designEntryMutations],
 				["multi-track implementation boundaries require state save, handoff request, pause, override, resume de-duplication, and single-track exemption", phaseHandoff.count === 1 && phaseHandoff.endCount === 1 && phaseHandoff.text === expectedPhaseHandoff, { phaseHandoff, expectedPhaseHandoff }],
 				["weakened scope, ordering, logging, resume, fix-round, single-track, and contradictory additions fail through the same validator", phaseHandoffMutationOutcomes.every(({ changed, accepted }) => changed && !accepted), phaseHandoffMutationOutcomes],
+				["named-dependency and until-resume mutations change their intended input and fail", dependencyPauseMutationOutcomes.every(({ changed, rejected }) => changed && rejected), dependencyPauseMutationOutcomes],
+				["whitespace-wrapped dependency pause stays exact and both mutations remain discriminating", wrappedDependencyPause !== workflow && wrappedPauseHandoff.count === 1 && wrappedPauseHandoff.endCount === 1 && wrappedPauseHandoff.text === expectedPhaseHandoff && wrappedPauseMutations.every(({ changed, rejected }) => changed && rejected), { wrappedPauseHandoff, wrappedPauseMutations }],
 				["missing, duplicate, and malformed handoff boundaries fail closed", phaseHandoffBoundaryMutations.every(({ count, endCount, text }) => count !== 1 || endCount !== 1 || text === ""), phaseHandoffBoundaryMutations],
 				["benign text outside the handoff unit preserves its exact expectation", benignPhaseHandoff.every(({ count, endCount, text }) => count === 1 && endCount === 1 && text === expectedPhaseHandoff), benignPhaseHandoff],
 				["proved-area removal needs user approval and rejection preserves all gates", /area remains proved, with all of its gates and reviewers,\s*until the user approves removal/.test(riskLifecycle) && /Rejection preserves the proved area/.test(riskLifecycle), riskLifecycle],

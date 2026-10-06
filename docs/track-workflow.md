@@ -395,7 +395,7 @@ These include confirmation, scope-exception decisions, and applicable design gat
 A review-fix child remains inside the affected code track and adds no new handoff boundary.
 
 Complete the prior ordinary track package and required acceptance before the next ordinary track boundary, except for a recorded permitted dependency pause.
-A subtree under that pause does not block its sibling's boundary.
+A subtree under that pause does not block the named unfinished sibling dependency's boundary until the recorded resume condition holds.
 Use [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for the pause conditions.
 The paused subtree's package and acceptance stay pending and still block its own completion.
 
