@@ -4035,6 +4035,125 @@ At each user review or acceptance event, create the named reference locally and 
 If that name already has the identical binding, verify it and record the repeated event instead of recreating it.
 Keep every reviewed or accepted head reachable before any later rewrite.
 Never move an existing reviewed binding, even by fast-forward.
+
+With publishing enabled, use only the remote that holds the level pull request branch.
+Remote retention references are branches under \`refs/heads/slate-retained/<change>/\`.
+Before the first retention push, require an empty remote listing for \`slate-retained/<change>/\`.
+Record the remote, listing, and observation in the root research log.
+A failed listing or existing namespace does not establish uniqueness.
+Pause and ask the user instead of overwriting an existing namespace.
+A resumed change checks its recorded namespace and bindings instead of claiming a new empty namespace.
+The namespace check authorizes no rename or update of existing references.
+
+A reviewed reference is create-only, locally and remotely.
+A create-only update makes an absent reference and never moves an existing one.
+Check local absence before creation and make creation conditional on continued absence.
+A lease makes an update conditional on the remote reference still selecting a specified commit.
+An expected-absent lease requires the remote reference to be absent.
+Create the remote reviewed reference with an expected-absent lease.
+A plain push does not establish remote create-only behavior.
+Use the same absence safeguards when first creating a level reference.
+A divergent binding under the same reviewed name pauses affected work for a user decision.
+The user may approve another unique name, preserve both states under another kept reference, or choose an explicit evidence waiver.
+A non-waiver choice must preserve every reviewed and accepted head.
+No collision authorizes moving an existing reviewed binding.
+
+A read-back observes the reference on the selected remote after a push.
+With publishing enabled, inspect reachable history at each user review or acceptance event.
+Then push the event's named references under their creation or update safeguards.
+Read back each remote reference and check its exact binding.
+Record each result in the owning log.
+Complete this sequence before any later rewrite or reliance on remote retention.
+Keep these remote references until root closure.
+
+Before every retention push, inspect all commits and objects reachable from each reference to be pushed.
+This inspection covers event pushes, preserving-reference pushes, level updates, and retries.
+Inspect reachable history, not only the pushed tree.
+Use [recursive-workflow.md](recursive-workflow.md) § Design authority and privacy for the exposure warnings.
+A current untracked file does not prove that ancestor commits contain no private bytes.
+If inspection finds private bytes, do not push and pause.
+After inspection, every retention push must name its references explicitly.
+No untargeted push may publish retention references, including all-branches, mirror, or matching pushes.
+These inspection duties cover retention pushes only, not pull request branch pushes.
+
+A fast-forward update moves a reference to a descendant of its current commit.
+An ancestry check proves that one commit is an ancestor of another commit.
+A moving level reference normally advances by fast-forward from its latest recorded commit.
+Before that update, check locally that the recorded commit is an ancestor of the target head.
+The remote update must use a lease on that latest recorded commit.
+Make any local update conditional on the same expected old commit.
+Verify the result and record the successful new binding before relying on it.
+With publishing enabled, verification includes a remote read-back after the inspected push.
+The latest successfully recorded binding governs later comparisons.
+Keep earlier bindings in the owning log.
+
+Only a level reference may select a non-descendant head under the following exception.
+Apply the exception only after a permitted rewrite under [track-workflow.md](track-workflow.md) § Delivery and termination.
+A rebase reapplies commits on a different base commit.
+A stacked level may need a rebase after its foundation merges by squash or rebase.
+Before replacing the level binding, record the rebased-marker mapping in the owning log.
+The mapping names each old and new marker commit and its applicable evidence.
+It grants no new acceptance and waives no required rewrite review.
+Check every reviewed and accepted head reachable from the old level commit.
+An ancestry check must show that each head remains reachable from another recorded retention reference.
+That preserving reference must differ from the level reference selected for replacement.
+Verify each preserving reference against its recorded binding before the replacement.
+With publishing enabled, inspect its reachable history, push it under its safeguards, and read back its exact remote binding.
+With publishing disabled, verify its local binding.
+Keep every preserving reference until root closure.
+A mapping alone is not reachable history.
+Record the old level binding, proposed target, mapping, and ancestry results before the update.
+With publishing enabled, replace only the remote level reference under a lease on its latest recorded commit after reachable-history inspection.
+In either publishing setting, make the local replacement conditional on the same expected old commit.
+Verify and record the successful new level binding before relying on it.
+With publishing enabled, that verification includes a remote read-back.
+This exception permits no replacement of a reviewed reference.
+If any exception condition is unmet, pause and ask the user under the collision rule above.
+Do not move the old reference merely to solve that conflict.
+
+A forced update is any non-fast-forward update or replacement of an existing retention reference, except for the permitted level replacement.
+A checked fast-forward advances a binding and is not a replacement.
+Forbid every forced update outside the exception.
+The Git option \`--force-with-lease\` supplies a lease, not permission to bypass these rules.
+Use \`--force-with-lease=<ref>:\` for expected-absent remote creation.
+Use \`--force-with-lease=<ref>:<recorded-commit>\` for an authorized existing level update.
+The fast-forward ancestry check or the complete rewrite exception must also pass.
+
+After a failed or unclear push, read the remote before trying again.
+For creation, an absent reference permits retry under the original inspection and create-only safeguards.
+For an update, the recorded old commit permits retry only after its original inspection and authorization checks pass again.
+The exact proposed target confirms the completed effect and needs no repeated push.
+Record that observed successful binding before relying on it.
+An absent existing reference or another commit pauses affected work for a user decision.
+Do not retry an update against an unexpected commit.
+A failed read leaves the effect unresolved and does not authorize retry.
+
+**Stacked foundation rewrite example.** H1, H2, S, and H2' label commits.
+The user accepts subtree 3.1 at H1.
+The recorded create-only \`track-3.1-reviewed\` reference selects H1.
+Track 3 has a user review or acceptance event at H2, which descends from H1.
+Code track 3.2 receives blocking acceptance at H2 in this example.
+Record H2 under create-only \`track-3.2-reviewed\` and the moving track 3 level reference.
+With publishing enabled, complete event-time inspection, push, read-back, and recording before rewriting.
+With publishing disabled, create and verify local bindings without a remote operation.
+The user squash-merges 3.1 as S, which differs from H1.
+A permitted rebase onto S produces H2'.
+Record its old-to-new rebased-marker mapping in the owning log.
+Complete every review and evidence-reconciliation duty required by that rewrite.
+H2' does not descend from H2, so a fast-forward is not authorized.
+Verify \`track-3.2-reviewed\` still selects H2 and \`track-3.1-reviewed\` still selects H1.
+Check every reviewed and accepted head reached by H2 against another recorded retention reference.
+An ancestry check proves H2 remains reachable from recorded \`track-3.2-reviewed\` at H2.
+H1 and every other reviewed or accepted head remain reachable under their verified preserving references.
+With publishing enabled, verify those remote bindings after inspection, push, and read-back.
+With publishing disabled, verify their local bindings.
+Replace only the track 3 level reference under the complete exception, using a lease on H2 when publishing is enabled.
+In either setting, make the local replacement conditional on the expected old H2 commit.
+Verify H2' and record it as the successful new level binding, with remote read-back when enabled.
+Later level comparisons use H2', not the earlier H2 binding.
+Keep the H2 and H1 reviewed bindings unchanged through root closure.
+All exception conditions hold, so this example continues without a retention pause.
+
 With publishing disabled, keep these local references until root closure, including through the final squash.
 Check each local reference against its recorded commit before closure.
 Retention requires no remote operation in this setting.
@@ -4261,8 +4380,59 @@ A stale description fails the "deep enough" test.`),
 				return { id, changed: source !== original, accepted: agreesOnOrderAndLocalRetention(documents),
 					mutations: mutateOrderAndRetention(documents), eventMoveRejected: eventMoveRejected(documents) };
 			});
+			const retentionAttacks = [
+				["remote-replaced", "use only the remote that holds the level pull request branch", "use any available remote"],
+				["remote-removed", "With publishing enabled, use only the remote that holds the level pull request branch.", ""],
+				["remote-record", "Record the remote, listing, and observation in the root research log.", "Record only the listing and observation."],
+				["remote-namespace", "refs/heads/slate-retained/<change>/", "refs/tags/slate-retained/<change>/"],
+				["local-absence", "make creation conditional on continued absence", "create without an absence condition"],
+				["remote-absence", "Create the remote reviewed reference with an expected-absent lease.", "Create it with a plain push."],
+				["normal-ancestry", "check locally that the recorded commit is an ancestor of the target head", "skip the local ancestry check"],
+				["normal-lease", "The remote update must use a lease on that latest recorded commit.", "Use a lease on an earlier commit."],
+				["preserving-self", "That preserving reference must differ from the level reference selected for replacement.", "The replaced level reference may preserve itself."],
+				["preserving-lifetime", "Keep every preserving reference until root closure.", "Delete preserving references after the rewrite."],
+				["latest-binding", "The latest successfully recorded binding governs later comparisons.", "The first binding governs later comparisons."],
+				["tree-only", "inspect all commits and objects reachable from each reference to be pushed", "inspect only the pushed tree"],
+				["untracked-sentence", "A current untracked file does not prove that ancestor commits contain no private bytes.", ""],
+				["no-push-pause", "If inspection finds private bytes, do not push and pause.", "Push private bytes before pausing."],
+				["inspection-pointer", "§ Design authority and privacy for the exposure warnings.", "§ Terms and scope for the exposure warnings."],
+				["explicit-push", "After inspection, every retention push must name its references explicitly.", "Push all references without naming them."],
+				["untargeted-push", "No untargeted push may publish retention references, including all-branches, mirror, or matching pushes.", "Matching pushes may publish retention references."],
+				["lease-not-permission", "supplies a lease, not permission to bypass these rules", "authorizes any replacement"],
+				["retry-read", "After a failed or unclear push, read the remote before trying again.", "Retry before reading the remote."],
+				["unresolved-read", "A failed read leaves the effect unresolved and does not authorize retry.", "A failed read authorizes retry."],
+				["event-inspect", "With publishing enabled, inspect reachable history at each user review or acceptance event.", ""],
+				["event-push", "Then push the event's named references under their creation or update safeguards.", ""],
+				["event-read-back", "Read back each remote reference and check its exact binding.", ""],
+				["event-record", "Record each result in the owning log.", ""],
+				["event-too-late", "Complete this sequence before any later rewrite or reliance on remote retention.", "Complete this sequence after the next rewrite."],
+				...["event pushes", "preserving-reference pushes", "level updates", "retries"].map((site) => [`inspection-site-${site}`, `This inspection covers event pushes, preserving-reference pushes, level updates, and retries.`, `This inspection excludes ${site}.`]),
+				["RG4-reachability", "An ancestry check proves H2 remains reachable from recorded `track-3.2-reviewed` at H2.", "No reference needs to reach H2."],
+				["RG4-mapping", "Record its old-to-new rebased-marker mapping in the owning log.", "Skip the mapping."],
+				["RG4-unrecorded", "An ancestry check proves H2 remains reachable from recorded `track-3.2-reviewed` at H2.", "An ancestry check uses an unrecorded preserving reference for H2."],
+				["RG4-binding", "Verify `track-3.2-reviewed` still selects H2 and `track-3.1-reviewed` still selects H1.", "Verify both reviewed references select H2'."],
+				["RG4-ancestry", "An ancestry check proves H2 remains reachable", "An ancestry check fails to prove H2 remains reachable"],
+				["RG4-reviewed-replacement", "Replace only the track 3 level reference under the complete exception", "Replace the track-3.2-reviewed reference under the complete exception"],
+			];
+			const mutateRetention = (original) => retentionAttacks.map(([id, before, after]) => {
+				const pattern = literalPattern(before);
+				const source = original.replace(pattern, after);
+				const retained = ["A permitted rebase onto S produces H2'.", "Record its old-to-new rebased-marker mapping in the owning log.", "using a lease on H2 when publishing is enabled"].every((rule) => normalizeText(source).includes(rule));
+				return { id, changed: source !== original && !pattern.test(source), rejected: !acceptsLevelUnit(historyUnit, source), retained: id !== "RG4-reachability" || retained };
+			});
+			const inspectionSentence = "Before every retention push, inspect all commits and objects reachable from each reference to be pushed.";
+			const movedInspection = recursive.replace(literalPattern(inspectionSentence), "").replace("<!-- level-history-policy:end -->", `<!-- level-history-policy:end -->\n${inspectionSentence}`);
+			const wrappedRetention = recursive.replace(literalPattern(inspectionSentence), inspectionSentence.replace(/ /g, "\n  "));
+			const retentionMutations = mutateRetention(recursive);
+			const wrappedRetentionMutations = mutateRetention(wrappedRetention);
+			const privacyDestination = headingUnit("### Design authority and privacy")(recursive);
 			const benignOrderingDocuments = Object.fromEntries(Object.entries(orderingDocuments).map(([id, source]) => [id, `${source}\n<!-- Outside ordering control. -->\n`]));
 			checkAll("contract-level-publishing", "level membership, dependency order, pauses, local retention, approval, delivery, cleanup, rebase mappings, unavailable evidence, and publishing defaults are mutation-resistant owned rules", [
+				["safe creation, updates, remote events, inspection, and RG4 mutations change their intended input and fail", retentionMutations.length === 35 && retentionMutations.every(({ changed, rejected, retained }) => changed && rejected && retained), retentionMutations],
+				["the complete valid stacked example and normal fast-forward policy match in both publishing settings", acceptsLevelUnit(historyUnit, recursive), "independent complete history literal"],
+				["moving inspection outside the marker fails while keeping the sentence present", movedInspection !== recursive && movedInspection.includes(inspectionSentence) && !historyUnit.extract(movedInspection).text.includes(inspectionSentence) && !acceptsLevelUnit(historyUnit, movedInspection), "outside-marker inspection control"],
+				["wrapped inspection passes and keeps all named mutations discriminating", wrappedRetention !== recursive && acceptsLevelUnit(historyUnit, wrappedRetention) && wrappedRetentionMutations.every(({ changed, rejected, retained }) => changed && rejected && retained), wrappedRetentionMutations],
+				["the inspection pointer reaches the unique existing privacy subsection", privacyDestination.count === 1 && privacyDestination.text.includes("Record contents can also appear in saved worker sessions and command text."), privacyDestination.count],
 				["every unit matches its independent expectation", levelPolicyUnits.every((unit) => acceptsLevelUnit(unit, unit.source)), levelPolicyUnits.filter((unit) => !acceptsLevelUnit(unit, unit.source)).map(({ id }) => id)],
 				["every rule mutation changes input and fails", levelRuleMutations.every(({ changed, rejected }) => changed && rejected), levelRuleMutations],
 				["every safety sentence removal changes its owned input and fails", safetySentenceRemovals.every(({ changed, rejected }) => changed && rejected), safetySentenceRemovals],
