@@ -4534,23 +4534,36 @@ A stale description fails the "deep enough" test.`),
 			const wrappedRetentionMutations = mutateRetention(wrappedRetention);
 			const privacyDestination = headingUnit("### Design authority and privacy")(recursive);
 			// Literal citations have an exact context roster. Paraphrase detection is best-effort.
+			// Track 3.1.5 adds the handoff cleanup context and raises the citation count.
+			// Review the full lifecycle diff, refresh its digest, and recount pin attacks.
 			const lifecycleRetentionContexts = [
 				["## Recursive planning and loading", "For nested work, use [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for dependency order, pauses, split changes, and branch bases."],
 				["## Confirmation gate", "Use [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for the pause conditions."],
 				["## Delivery and termination", "For changes that load the nested sections, route a missing or wrong-commit retention reference to [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for the user's choice."],
 			];
 			const privateSetUnit = levelPolicyUnits.find(({ id }) => id === "private-set");
+			// These pins cover only publishing, delivery, and lifecycle documents.
+			// A pin rejects unreviewed content changes in any wording. It cannot judge content.
+			// A refreshed digest accepts whatever the new text says. The refresh reviewer
+			// is the real gate and must confirm that the edit adds no procedure copy.
+			// Every edit to these documents needs a reviewed digest refresh in the same commit.
+			// Whitespace-only reflow passes because normalizeText collapses whitespace.
+			// HTML comments count. The word layer is best-effort during refresh review.
+			// Known word-layer escapes include "retention branches" and "branches kept for retention".
+			const EXPECTED_PUBLISHING_SHA256 = "d3c039739f5a633c6a7de5b7300a56893acc7ac62344e1f18f77a02ae9526b0e";
+			const EXPECTED_TRACK_WORKFLOW_SHA256 = "c44836077fad52b0b8fd48770a8d8a858329f8e5e03bac64b0ce784ab8ff73a0";
+			const EXPECTED_DELIVERY_PACKAGES_SHA256 = "21a47331244a66225b4b59c24555f686656512e61f42b9b7f9546f440c7cd64e";
 			const peerRetentionOwners = [
 				{ id: "nested", source: recursive, units: [historyUnit, privateSetUnit] },
-				{ id: "publishing", source: publishing, units: [levelPolicyUnits.find(({ id }) => id === "ready-history"), publishingMigrationUnits[0]], count: 3, contexts: [
+				{ id: "publishing", source: publishing, pin: EXPECTED_PUBLISHING_SHA256, units: [levelPolicyUnits.find(({ id }) => id === "ready-history"), publishingMigrationUnits[0]], count: 3, contexts: [
 					["## One draft pull request", "For nested work, use [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for subtree ordering, branch bases, and history slices."],
 					["## Creation", "For nested work, choose its base under [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history."],
 					["## Ready-for-review flip", "For changes that load the nested sections, complete the retention protocol in [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history before the final ready flip and each merge handoff, and for the comparisons after each merge."],
 				] },
-				{ id: "delivery", source: deliveryPackages, units: [levelPolicyUnits.find(({ id }) => id === "transfer"), levelPolicyUnits.find(({ id }) => id === "disabled-preservation")], count: 1, contexts: [
+				{ id: "delivery", source: deliveryPackages, pin: EXPECTED_DELIVERY_PACKAGES_SHA256, units: [levelPolicyUnits.find(({ id }) => id === "transfer"), levelPolicyUnits.find(({ id }) => id === "disabled-preservation")], count: 1, contexts: [
 					["## Durable accounting", "4. For changes that load the nested sections with publishing enabled, complete the retention protocol in [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history."],
 				] },
-				{ id: "lifecycle", source: workflow, units: [recursiveUnits[0], levelPolicyUnits.find(({ id }) => id === "accepted-history"), {
+				{ id: "lifecycle", source: workflow, pin: EXPECTED_TRACK_WORKFLOW_SHA256, units: [recursiveUnits[0], levelPolicyUnits.find(({ id }) => id === "accepted-history"), {
 					id: "shared-scheduling", extract: regionUnit(/^(Tracks are contiguous[\s\S]*?)(?=^## Session handoff and the research log)/gm),
 					expected: normalizeText(`Tracks are contiguous and execute through one sequential writer. Independent
 research and reviews may run in parallel. File-writing implementation does not.
@@ -4560,6 +4573,7 @@ A later track builds on the accepted boundary before it.`),
 					expected: "Preserve accepted source history before rewriting under this section's safeguards.",
 				}], count: 3, contexts: lifecycleRetentionContexts },
 			];
+			const peerPinFailure = (owner, source) => owner.pin && recordDigest(source) !== owner.pin ? "document-content" : "";
 			const retentionCitationPattern = /§ (?:Level publishing and retained history|Design authority and privacy)|recursive-workflow\.md#(?:level-publishing-and-retained-history|design-authority-and-privacy)/gi;
 			const peerCitationFailure = (owner, source) => {
 				if (!owner.contexts) return "";
@@ -4574,11 +4588,9 @@ A later track builds on the accepted boundary before it.`),
 			};
 			// Use independent owner expectations, not candidate sentences, to detect copies.
 			const ownerSentences = [...new Set([historyUnit, privateSetUnit].flatMap((unit) => unit.expected.split(/(?<=\.) /)))];
-			// After validated units and citation contexts are removed, peer text may name
-			// no retention-form name or retained, reviewed, or kept reference or branch noun.
-			// Legitimate peer text needs no other such names. This rule needs no verb list,
-			// so removal and move synonyms fail in either word order and under new headings.
-			const peerRetentionNames = /\btrack-(?:\d+(?:[.-]\d+)*|<number>)-(?:fix(?:\d+|<r>)-)?reviewed\b|\bslate-retained\/|\b(?:retained|reviewed|kept)(?:[- ](?:local|remote|marker|named|Git|retention|source))*[- ](?:references?|branch(?:es)?)\b/i;
+			// After validated units and citation contexts are removed, the word scan
+			// rejects retention-form names without treating ordinary reviewed branches as such names.
+			const peerRetentionNames = /\btrack-(?:\d+(?:[.-]\d+)*|<number>)-(?:fix(?:\d+|<r>)-)?reviewed\b|\bslate-retained\//i;
 			const peerVocabulary = /slate-retained|retention[- ](?:reference|protocol|push|check)|retained (?:history|references?|markers?|bindings?|branches)|reviewed (?:binding|reference|marker)|kept (?:copy|(?:local |remote )?reference)|level reference|unexpected commit|private (?:set|bytes|content|files?)|preserv\w*[^.]*\b(?:reference|binding|history|commit)|(?:force[- ]push|forced update)[^.]*reference|(?:publish\w*[^.]*slate-changes|slate-changes[^.]*publish\w*)|(?:delet\w*[^.]*track-[\d.<][\w.<>-]*-reviewed)/i;
 			const peerRetentionFailure = (owner, source) => {
 				const citationFailure = peerCitationFailure(owner, source);
@@ -4596,8 +4608,8 @@ A later track builds on the accepted boundary before it.`),
 			};
 			const acceptsPeerRetention = (owner, source) => !peerRetentionFailure(owner, source);
 			const peerPlacementNames = [
-				"track-3-reviewed", "track-3.1-fix2-reviewed", "track-<number>-reviewed", "track-<number>-fix<r>-reviewed", "slate-retained/change/track-3-reviewed",
-				"retained reference", "retained branch", "reviewed reference", "reviewed branch", "kept reference", "kept branch",
+				...["track-3-reviewed", "track-3.1-fix2-reviewed", "track-<number>-reviewed", "track-<number>-fix<r>-reviewed", "slate-retained/change/track-3-reviewed"].map((name) => [name, "retention-name"]),
+				["retained reference", "vocabulary"], ["reviewed reference", "vocabulary"],
 			];
 			const peerPlacementVerbs = ["delete", "remove", "drop", "discard", "purge", "prune", "erase", "reset", "move", "rename", "force", "overwrite", "replace", "rewrite"];
 			const peerEscapeRules = [
@@ -4607,7 +4619,7 @@ A later track builds on the accepted boundary before it.`),
 				["reviewed-binding-move", "Move an existing reviewed binding by fast-forward without asking the user.", "vocabulary"],
 				["verbatim-owner", "Never move an existing reviewed binding, even by fast-forward.", "owner-sentence"],
 				["recovery-before-record", "Recover an unexpected commit before recording or preserving it.", "vocabulary"],
-				["delete-retained", "Delete retained references after the merge.", "retention-name"],
+				["delete-retained", "Delete retained references after the merge.", "vocabulary"],
 				["delete-reviewed-branch", "After merge, delete the track-3-reviewed branch.", "retention-name"],
 				["delete-branch-before-name", "After merge, delete the branch track-3-reviewed.", "retention-name"],
 				["gate-remove", "After merge, remove the track-3-reviewed branch.", "retention-name"],
@@ -4627,11 +4639,11 @@ A later track builds on the accepted boundary before it.`),
 				["privacy-citation", "Use [recursive-workflow.md](recursive-workflow.md) § Design authority and privacy for ordinary work.", "citation-count"],
 				["history-fragment", "Use [rules](recursive-workflow.md#level-publishing-and-retained-history) for every change.", "citation-count"],
 				["privacy-fragment", "Use [rules](recursive-workflow.md#design-authority-and-privacy) for every change.", "citation-count"],
-				...peerPlacementNames.flatMap((name) => [
-					[`name-only-${name}`, `The name is ${name}.`, "retention-name"],
+				...peerPlacementNames.flatMap(([name, reason]) => [
+					[`name-only-${name}`, `The name is ${name}.`, reason],
 					...peerPlacementVerbs.flatMap((verb) => [
-						[`verb-first-${verb}-${name}`, `After merge, ${verb} ${name}.`, "retention-name"],
-						[`name-first-${verb}-${name}`, `For ${name}, ${verb} it after merge.`, "retention-name"],
+						[`verb-first-${verb}-${name}`, `After merge, ${verb} ${name}.`, reason],
+						[`name-first-${verb}-${name}`, `For ${name}, ${verb} it after merge.`, reason],
 					]),
 				]),
 			];
@@ -4652,6 +4664,29 @@ A later track builds on the accepted boundary before it.`),
 				const source = `${owner.source}\n\n${rule}\n`;
 				return { id: owner.id, index, changed: source !== owner.source, rejected: !acceptsPeerRetention(owner, source) };
 			}));
+			const pinnedPeerOwners = peerRetentionOwners.filter(({ pin }) => pin);
+			const peerPinRules = [
+				"After merge, remove the retention branches.",
+				"After merge, remove the branches kept for retention.",
+				"After merge, remove the track-3-reviewed branch.",
+				"After merge, drop the branch track-3-reviewed.",
+				"After merge, delete every branch whose name ends in -reviewed.",
+				"After merge, delete the backup branches from the level work.",
+			];
+			const peerPinAttacks = pinnedPeerOwners.flatMap((owner) => peerPinRules.flatMap((rule) => [
+				...[...owner.source.matchAll(/^## /gm)].map((match) => [`heading-${match.index}`, `${owner.source.slice(0, match.index)}${rule}\n\n${owner.source.slice(match.index)}`]),
+				["end", `${owner.source}\n\n${rule}\n`],
+				["new-heading", `${owner.source}\n\n## Merge notes\n\n${rule}\n`],
+				...owner.contexts.map(([, text], index) => [`context-${index}`, owner.source.replace(literalPattern(text), (match) => `${match}\n\n${rule}`)]),
+			].map(([position, source]) => ({ id: owner.id, rule, position, changed: source !== owner.source, rejected: peerPinFailure(owner, source) === "document-content" }))));
+			const reviewedBranchSentence = "For an ordinary one-level change, the reviewed branch becomes the merge source.";
+			const reviewedBranchControls = pinnedPeerOwners.flatMap((owner) => [
+				["end", `${owner.source}\n\n${reviewedBranchSentence}\n`],
+				...({ publishing: ["## One draft pull request"], lifecycle: ["## Recursive planning and loading"] }[owner.id] ?? []).map((heading) => [heading, owner.source.replace(heading, `${heading}\n\n${reviewedBranchSentence}`)]),
+			].map(([position, source]) => ({ id: owner.id, position, changed: source !== owner.source, accepted: acceptsPeerRetention(owner, source) })));
+			const wordLayerControls = pinnedPeerOwners.map((owner) => ({ id: owner.id,
+				rejected: peerRetentionFailure(owner, `${owner.source}\n\nAfter merge, delete the track-3-reviewed branch.\n`) === "retention-name",
+			}));
 			const peerOutsideControls = peerRetentionOwners.map((owner) => ({ id: owner.id,
 				accepted: acceptsPeerRetention(owner, `${owner.source}\n<!-- Outside control. -->`)
 					&& acceptsPeerRetention(owner, `${owner.source}\n\n## Unrelated section\n\nThis section contains an unrelated note.\n`),
@@ -4665,8 +4700,8 @@ A later track builds on the accepted boundary before it.`),
 				return { id: owner.id, kind, changed: source !== owner.source, rejected: !acceptsPeerRetention(owner, source) };
 			})));
 			const benignOrderingDocuments = Object.fromEntries(Object.entries(orderingDocuments).map(([id, source]) => [id, `${source}\n<!-- Outside ordering control. -->\n`]));
-			checkAll("contract-level-publishing", "level membership, dependency order, pauses, local retention, approval, delivery, cleanup, rebase mappings, unavailable evidence, and publishing defaults are mutation-resistant owned rules", [
-				["single scoped peer pointers reject copies, conflicting procedures, privacy definitions, and broadened or redirected pointers", peerRetentionOwners.every((owner) => acceptsPeerRetention(owner, owner.source)) && peerOutsideControls.every(({ accepted }) => accepted) && peerPlacementNames.length === 11 && peerPlacementVerbs.length === 14 && peerEscapeAttacks.length === 1035 && [...peerRetentionAttacks, ...peerEscapeAttacks, ...ownerSentenceCopies, ...pointerAttacks].every(({ changed, rejected }) => changed && rejected), { baseline: peerRetentionOwners.map((owner) => [owner.id, peerRetentionFailure(owner, owner.source)]), peerOutsideControls, peerRetentionAttacks, peerEscapeAttacks, ownerSentenceCopies: ownerSentenceCopies.filter(({ changed, rejected }) => !changed || !rejected), pointerAttacks }],
+			checkAll("contract-level-publishing", "level membership, dependency order, pauses, local retention, approval, delivery, cleanup, rebase mappings, unavailable evidence, and publishing defaults have owned rules and reviewed peer-document pins", [
+				["reviewed peer-document pins reject unreviewed additions while scoped pointers and the word layer discriminate known copies", peerRetentionOwners.every((owner) => !peerPinFailure(owner, owner.source) && acceptsPeerRetention(owner, owner.source)) && pinnedPeerOwners.length === 3 && peerPinRules.length === 6 && peerPinAttacks.length === 246 && peerPinAttacks.every(({ changed, rejected }) => changed && rejected) && reviewedBranchControls.length === 5 && reviewedBranchControls.every(({ changed, accepted }) => changed && accepted) && wordLayerControls.length === 3 && wordLayerControls.every(({ rejected }) => rejected) && peerOutsideControls.every(({ accepted }) => accepted) && peerPlacementNames.length === 7 && peerPlacementVerbs.length === 14 && peerEscapeAttacks.length === 687 && [...peerRetentionAttacks, ...peerEscapeAttacks, ...ownerSentenceCopies, ...pointerAttacks].every(({ changed, rejected }) => changed && rejected), { baseline: peerRetentionOwners.map((owner) => [owner.id, peerPinFailure(owner, owner.source), peerRetentionFailure(owner, owner.source)]), peerPinAttacks: peerPinAttacks.filter(({ changed, rejected }) => !changed || !rejected), reviewedBranchControls, wordLayerControls, peerOutsideControls, peerRetentionAttacks, peerEscapeAttacks, ownerSentenceCopies: ownerSentenceCopies.filter(({ changed, rejected }) => !changed || !rejected), pointerAttacks }],
 				["safe creation, updates, remote events, inspection, and RG4 mutations change their intended input and fail", retentionMutations.length === 58 && retentionMutations.every(({ changed, rejected, retained }) => changed && rejected && retained), retentionMutations],
 				["the complete valid stacked example and normal fast-forward policy match in both publishing settings", acceptsLevelUnit(historyUnit, recursive), "independent complete history literal"],
 				["moving inspection outside the marker fails while keeping the sentence present", movedInspection !== recursive && movedInspection.includes(inspectionSentence) && !historyUnit.extract(movedInspection).text.includes(inspectionSentence) && !acceptsLevelUnit(historyUnit, movedInspection), "outside-marker inspection control"],
@@ -5385,7 +5420,6 @@ omitted and why.`);
 
 			const packageContract = block(deliveryPackages, "delivery-package-contract");
 			const digest = (text) => createHash("sha256").update(normalizeText(text)).digest("hex");
-			const EXPECTED_DELIVERY_PACKAGES_SHA256 = "21a47331244a66225b4b59c24555f686656512e61f42b9b7f9546f440c7cd64e";
 			const acceptsPackageContract = (source) => {
 				const owned = block(source, "delivery-package-contract");
 				return owned.count === 1 && owned.endCount === 1 && digest(source) === EXPECTED_DELIVERY_PACKAGES_SHA256;
