@@ -361,6 +361,7 @@ const DOCTRINE_CONTRACT_IDS = [
 	"contract-recursive-records",
 	"contract-recursive-split-pointers",
 	"contract-recursive-delivery",
+	"contract-heading-regions",
 	"contract-recursive-acceptance-transfer",
 	"contract-repair-authorization",
 	"contract-level-publishing",
@@ -2631,6 +2632,32 @@ required reviews, ordered gates, user authority, or final acceptance.`;
 				const matches = [...source.matchAll(pattern)].map((match) => normalizeText(match[1] ?? "")).filter((text) => text !== "");
 				return { count: matches.length, text: matches.length === 1 ? matches[0] : "" };
 			};
+			// Owned headings occur at line start outside fenced examples.
+			const headingUnit = (start) => (source) => {
+				const headings = [];
+				let offset = 0;
+				let fence = null;
+				for (const line of source.split(/(?<=\n)/)) {
+					const text = line.replace(/\r?\n$/, "");
+					const delimiter = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(text);
+					if (fence) {
+						if (delimiter && delimiter[1][0] === fence.char && delimiter[1].length >= fence.length && !delimiter[2].trim()) fence = null;
+					} else if (delimiter) {
+						if (delimiter[1][0] !== "`" || !delimiter[2].includes("`")) fence = { char: delimiter[1][0], length: delimiter[1].length };
+					} else {
+						const heading = /^(#{1,6})(?:[ \t]+|$)/.exec(text);
+						if (heading) headings.push({ start: offset, body: offset + line.length, level: heading[1].length, text: text.replace(/^(#{1,6})[ \t]+/, "$1 ").trimEnd().replace(/[ \t]+#+$/, "") });
+					}
+					offset += line.length;
+				}
+				const starts = headings.filter((heading) => heading.text === start);
+				if (starts.length !== 1) return { count: starts.length, text: "", rawText: "", reason: starts.length ? "duplicate" : "missing" };
+				const owner = starts[0];
+				const end = headings.find((heading) => heading.start >= owner.body && heading.level <= owner.level)?.start ?? source.length;
+				const rawText = source.slice(owner.body, end).trim();
+				const text = normalizeText(rawText);
+				return { count: 1, text, rawText, reason: text ? "content" : "empty" };
+			};
 			// Each active copy has its own bounded, independent text expectation. An
 			// addition inside a rule fails even when the required phrases remain.
 			const sizeCopyUnits = [
@@ -3152,7 +3179,7 @@ Use its § Session handoff and the research log for ownership.`);
 			const protectedRepairOwners = Object.freeze({
 				"repair-rounds": "25a681e30d96285c7d65fa9285b46c073a958fe1c9500b206273b64ba28a873b",
 				"repair-consultations": "86f0f04219e871881c7f99263689d848fc78772d2b034e3d359cdc6662f4d780",
-				"child-fix-title": "5aae2e552982b790e7fa15a115415cd7f204704b9ba19e464d592c7de04ec7ed",
+				"child-fix-title": "748f0126285376546b073320e72e044f91970294058931c7a51cafc8d6098edb",
 			});
 			const protectedRepairSummary = "f1bfd2437621d5ba83c8a04619f92b71c5e4e0862e8454957fb7757471e69874";
 			const agreementDigest = (text) => createHash("sha256").update(normalizeText(text)).digest("hex");
@@ -3160,14 +3187,14 @@ Use its § Session handoff and the research log for ownership.`);
 				{ id: "loading", rules: loadingRules, extract: regionUnit(/^## Loading and planning\n([\s\S]*?)(?=^## Nested designs and gates\n)/gm) },
 				{ id: "nested", rules: nestedRules, extract: markedUnit("nested-design-policy") },
 				{ id: "records", rules: recordRules, extract: regionUnit(/^## Proportional process\n([\s\S]*?)(?=^## Recorded-workflow compatibility\n)/gm) },
-				{ id: "status-trigger", rules: ["A design track or review-fix child track triggers the manual status file."], extract: regionUnit(/^## Manual records and safe writes\n([\s\S]*?)(?=^## Resume and folder forks\n)/gm) },
-				{ id: "canonical-grammar", owner: markedUnit("marker-identity-policy"), rules: ["Write positive decimal components without leading zeros, separated by dots."], extract: regionUnit(/^## Identifiers, code ranges, and design markers\n([\s\S]*?)(?=^## Manual records and safe writes\n)/gm) },
-				{ id: "repair-records", owner: markedUnit("multi-track-handoff"), rules: ["For a review-fix subtree, use the affected code track's existing records."], extract: regionUnit(/^## Manual records and safe writes\n([\s\S]*?)(?=^## Resume and folder forks\n)/gm) },
-				{ id: "append-only", owner: regionUnit(/^Use a safe write method\. ([\s\S]*?)(?=^Before a session handoff)/gm), rules: ["Research logs and implementer reports are append-only.", "A correction is a new entry."], extract: regionUnit(/^## Manual records and safe writes\n([\s\S]*?)(?=^## Resume and folder forks\n)/gm) },
-				{ id: "resume-entry", owner: regionUnit(/^## Resume order and reconciliation\n([\s\S]*?)(?=^## Review coverage\n)/gm), rules: ["Before relying on a summary, check that its named subtree entry exists."], extract: regionUnit(/^## Resume and folder forks\n([\s\S]*?)(?=^## Handoff boundaries\n)/gm) },
-				{ id: "repair-rounds", document: "reviews", owner: regionUnit(/^## Fix loop and gate verdicts\n([\s\S]*?)(?=^## Stuck-fix consultation\n)/gm), rules: ["Run at most two ordinary fix rounds."], extract: regionUnit(/^## Review-fix subtrees and repair limits\n([\s\S]*?)(?=^## Whole-subtree acceptance\n)/gm) },
-				{ id: "repair-consultations", document: "reviews", owner: regionUnit(/^## Stuck-fix consultation\n([\s\S]*?)(?=^## Termination and deferred-work routing\n)/gm), rules: ["The ordinary budget permits one consultation."], extract: regionUnit(/^## Review-fix subtrees and repair limits\n([\s\S]*?)(?=^## Whole-subtree acceptance\n)/gm) },
-				{ id: "child-fix-title", owner: regionUnit(/^Implementation commit titles use ([\s\S]*?)(?=^For each code track)/gm), rules: ["`Track <n> fix round <r>: <intent title>`", "`Track <n> user review fix <r>: <intent title>`"], extract: regionUnit(/^## Review-fix subtrees and repair limits\n([\s\S]*?)(?=^## Whole-subtree acceptance\n)/gm) },
+				{ id: "status-trigger", rules: ["A design track or review-fix child track triggers the manual status file."], extract: headingUnit("## Manual records and safe writes") },
+				{ id: "canonical-grammar", owner: markedUnit("marker-identity-policy"), rules: ["Write positive decimal components without leading zeros, separated by dots."], extract: headingUnit("## Identifiers, code ranges, and design markers") },
+				{ id: "repair-records", owner: markedUnit("multi-track-handoff"), rules: ["For a review-fix subtree, use the affected code track's existing records."], extract: headingUnit("## Manual records and safe writes") },
+				{ id: "append-only", owner: regionUnit(/^Use a safe write method\. ([\s\S]*?)(?=^### Handoff summary\n)/gm), rules: ["Research logs and implementer reports are append-only.", "A correction is a new entry."], extract: headingUnit("## Manual records and safe writes") },
+				{ id: "resume-entry", owner: headingUnit("## Resume order and reconciliation"), rules: ["Before relying on a summary, check that its named subtree entry exists."], extract: headingUnit("## Resume and folder forks") },
+				{ id: "repair-rounds", document: "reviews", owner: headingUnit("## Fix loop and gate verdicts"), rules: ["Run at most two ordinary fix rounds."], extract: headingUnit("## Review-fix subtrees and repair limits") },
+				{ id: "repair-consultations", document: "reviews", owner: headingUnit("## Stuck-fix consultation"), rules: ["The ordinary budget permits one consultation."], extract: headingUnit("## Review-fix subtrees and repair limits") },
+				{ id: "child-fix-title", owner: headingUnit("### Commit titles and bodies"), rules: ["`Track <n> fix round <r>: <intent title>`", "`Track <n> user review fix <r>: <intent title>`"], extract: headingUnit("## Review-fix subtrees and repair limits") },
 				{ id: "child-attribution", document: "delivery", owner: regionUnit(/^## Track package\n([\s\S]*?)(?=^## Change package\n)/gm), rules: ["Do not count accepted child work as new implementation."], extract: regionUnit(/^## Packages, attribution, and issues\n([\s\S]*)/gm) },
 			];
 			const recursiveSummariesAgree = (recursiveSource, workflowSource, reviewSource = reviews, deliverySource = deliveryPackages) => {
@@ -3228,14 +3255,14 @@ Use its § Session handoff and the research log for ownership.`);
 
 			const recordDigest = (text) => createHash("sha256").update(normalizeText(text)).digest("hex");
 			const recursiveRecordUnits = [
-				{ id: "identifiers-ranges", source: recursive, extract: regionUnit(/^## Identifiers, code ranges, and design markers\n([\s\S]*?)(?=^## Manual records and safe writes\n)/gm), expected: "06a2a0822448a5112173b65c04826364d3a3094f7930ba98ecd7f17300e19ed8" },
-				{ id: "tool-records-and-recovery", source: recursive, extract: regionUnit(/^## Manual records and safe writes\n([\s\S]*?)(?=^## Resume and folder forks\n)/gm), expected: "26f45e8838e2190e04e360cfa94b84500d56213de062d6e2688d1abaa8cc35ae" },
-				{ id: "resume-forks", source: recursive, extract: regionUnit(/^## Resume and folder forks\n([\s\S]*?)(?=^## Handoff boundaries\n)/gm), expected: "ee8952191bf8a044b0c4c124644079ad41a918a51510d10a1d8b1ea6d72e6860" },
-				{ id: "handoff-pointer", source: recursive, extract: regionUnit(/^## Handoff boundaries\n([\s\S]*?)(?=^## Review-fix subtrees and repair limits\n)/gm), expected: "fc5ca34c11f5f1defb5989c10af42cbac9af901c102dc18c6c8d1b55a98cd52f" },
+				{ id: "identifiers-ranges", source: recursive, start: "## Identifiers, code ranges, and design markers", extract: headingUnit("## Identifiers, code ranges, and design markers"), expected: "06a2a0822448a5112173b65c04826364d3a3094f7930ba98ecd7f17300e19ed8" },
+				{ id: "tool-records-and-recovery", source: recursive, start: "## Manual records and safe writes", extract: headingUnit("## Manual records and safe writes"), expected: "26f45e8838e2190e04e360cfa94b84500d56213de062d6e2688d1abaa8cc35ae" },
+				{ id: "resume-forks", source: recursive, start: "## Resume and folder forks", extract: headingUnit("## Resume and folder forks"), expected: "ee8952191bf8a044b0c4c124644079ad41a918a51510d10a1d8b1ea6d72e6860" },
+				{ id: "handoff-pointer", source: recursive, start: "## Handoff boundaries", extract: headingUnit("## Handoff boundaries"), expected: "fc5ca34c11f5f1defb5989c10af42cbac9af901c102dc18c6c8d1b55a98cd52f" },
 				{ id: "marker-identity", source: workflow, extract: markedUnit("marker-identity-policy"), expected: "846764c07a6b2c925091bd80f944c888d49994a71f2799b5cd2b8368b415a3c9" },
-				{ id: "resume-order", source: workflow, extract: regionUnit(/^## Resume order and reconciliation\n([\s\S]*?)(?=^## Review coverage\n)/gm), expected: "9edb063aea53ffc494d650f1a2306b975bbf31f1700a874ea0fd004bb1d0e244" },
-				{ id: "general-handoff", source: workflow, extract: regionUnit(/^Before a session handoff, ([\s\S]*?)(?=^## Resume order and reconciliation\n)/gm), expected: "7b7447512bbd7bb34344b322c744da57896fd849a7b050ff04ffaead47ed16ae" },
-				{ id: "closed-range-feedback", source: workflow, extract: regionUnit(/^The correction remains a separate commit ([\s\S]*?)(?=^A bootstrap commit)/gm), expected: "bed41eb1f1f38a00f40bc2a217a87454a6c2a1cdf55ac15f0e4fb1ab0ccecd3e" },
+				{ id: "resume-order", source: workflow, start: "## Resume order and reconciliation", extract: headingUnit("## Resume order and reconciliation"), expected: "9edb063aea53ffc494d650f1a2306b975bbf31f1700a874ea0fd004bb1d0e244" },
+				{ id: "general-handoff", source: workflow, start: "### Handoff summary", extract: headingUnit("### Handoff summary"), expected: "deebae98b03815c0a68bd933d6d910624a5e6206f1c410a7fd9052c1d23fe64f" },
+				{ id: "closed-range-feedback", source: workflow, start: "### Closed-range corrections", extract: headingUnit("### Closed-range corrections"), expected: "07c9e0dd0eb0de15e13b6977f88145a2dec09554e693a2d6bfbe1173f09eb37a" },
 			];
 			const acceptsRecordUnit = (unit, source) => {
 				const resolved = unit.extract(source);
@@ -3647,15 +3674,15 @@ The split bypasses no stuck-fix consultation or required fix gate.`) },
 			// These pins cover complete owned policies. Source-set pins protect every record kind.
 			const policyRegion = (start, end, endAtLineStart = false) => regionUnit(new RegExp(`^${start.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([\\s\\S]*?)(?=${endAtLineStart ? "^" : ""}${end.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gm"));
 			const recursiveDeliveryUnits = [
-				{ id: "repairs", source: recursive, start: "## Review-fix subtrees and repair limits", end: "## Whole-subtree acceptance", expected: protectedRepairSummary },
-				{ id: "aggregate", source: recursive, start: "## Whole-subtree acceptance", end: "## Packages, attribution, and issues", expected: "6e37e0e95c35ed0c3ede6e02f3322f43038d8653d9885ce4b2ac1ed423472b63" },
+				{ id: "repairs", source: recursive, start: "## Review-fix subtrees and repair limits", expected: protectedRepairSummary },
+				{ id: "aggregate", source: recursive, start: "## Whole-subtree acceptance", expected: "6e37e0e95c35ed0c3ede6e02f3322f43038d8653d9885ce4b2ac1ed423472b63" },
 				{ id: "issues", source: recursive, start: "## Packages, attribution, and issues", end: null, expected: "895b87ee7afdda0d4d85e071c978727e0cf962f9af42e68c534c022ac010a5a3" },
-				{ id: "sources", source: deliveryPackages, start: "## Durable accounting", end: "<!-- publishing-disabled-accounting:begin -->", expected: "418a2f29fea42d4de31c49930c9fe726785f36efd1772eccccc1458575102516" },
-				{ id: "workflow-accounting", source: workflow, start: "With draft publishing,", end: "\n\nAim for a delivery body", expected: "9410e62de528ba3d18269213779348a187c5f894bd2d99fa5f529dfa3fc5a4a1" },
-				{ id: "notes-accounting", source: userNotes, start: "Before final acceptance, reconcile", end: "\n\n- every finding", expected: "7efa6f8740078ef4a9f5511b485a4e95e8b0e5f7341d2e278eddfbf27011b500" },
-				{ id: "publishing-sync", source: publishing, start: "## Keeping the PR in sync", end: "## Ready-for-review flip", expected: "fb386e6f14c2f051a842cd050cc4e2834dea5e2674853cc22794792cd4c1a7cc" },
+				{ id: "sources", source: deliveryPackages, start: "## Durable accounting", expected: "0659078a4ccb82cf3ccb833a7aff3dd39f701c74f8a492b79e855843db57bdad" },
+				{ id: "workflow-accounting", source: workflow, start: "### Delivery history and accounting", expected: "cd6e2aed70a20d7c1b40a6847d4bf5fb9c6706b288333f0c6cf66a7231601d23" },
+				{ id: "notes-accounting", source: userNotes, start: "### Final accounting preparation", expected: "27a19ef36cc0fc14fbd2c14fc1699d6d3ddeadfe8a284f2d85ab76481faaa352" },
+				{ id: "publishing-sync", source: publishing, start: "## Keeping the PR in sync", expected: "fb386e6f14c2f051a842cd050cc4e2834dea5e2674853cc22794792cd4c1a7cc" },
 				{ id: "public-workflow", source: projectReadme, start: "A track is a bounded", end: "## ", endAtLineStart: true, expected: "23f90e859751918fac2f72ad4819c635cf21d88f15e18d100cc0a9944018fbf3" },
-				{ id: "public-roadmap", source: readFileSync(join(REPO, "docs", "roadmap.md"), "utf8"), start: "## Larger changes", end: "## Developer experience", expected: "ffd9a4e0a96809b60debc7a45d6b0bb09881622889ae571c09bd888a7d09da17" },
+				{ id: "public-roadmap", source: readFileSync(join(REPO, "docs", "roadmap.md"), "utf8"), start: "## Larger changes", expected: "ffd9a4e0a96809b60debc7a45d6b0bb09881622889ae571c09bd888a7d09da17" },
 			].map((unit) => ({ ...unit, extract: unit.end === null
 				? (source) => {
 					// Visible policy after the final marker belongs to the final section.
@@ -3665,7 +3692,7 @@ The split bypasses no stuck-fix consultation or required fix gate.`) },
 					const visibleTail = parts[1].replace(/<!--[^<>]*-->/g, "");
 					return regionUnit(/^## Packages, attribution, and issues([\s\S]*)(?![\s\S])/gm)(parts[0] + marker + visibleTail);
 				}
-				: policyRegion(unit.start, unit.end, unit.endAtLineStart) }));
+				: unit.id === "public-workflow" ? policyRegion(unit.start, unit.end, unit.endAtLineStart) : headingUnit(unit.start) }));
 			const acceptsRecursiveDelivery = (unit, source) => {
 				const resolved = unit.extract(source);
 				return resolved.count === 1 && recordDigest(resolved.text) === unit.expected;
@@ -3710,7 +3737,7 @@ The split bypasses no stuck-fix consultation or required fix gate.`) },
 			checkAll("contract-recursive-delivery", "review-fix identities and budgets, whole-design acceptance, issue purposes, all-record accounting, and public guidance retain their complete owned policies", [
 				["each policy resolves exactly once and matches its independent pin", recursiveDeliveryUnits.every((unit) => acceptsRecursiveDelivery(unit, unit.source)), recursiveDeliveryUnits.map((unit) => ({ id: unit.id, count: unit.extract(unit.source).count, digest: recordDigest(unit.extract(unit.source).text) }))],
 				["every sentence mutation changes input and fails its policy", recursiveDeliveryAttacks.every(({ changed, rejected }) => changed && rejected), recursiveDeliveryAttacks],
-				["missing and duplicate units fail, while outside controls pass", recursiveDeliveryUnits.every((unit) => !acceptsRecursiveDelivery(unit, unit.source.replace(unit.start, "Missing policy anchor")) && !acceptsRecursiveDelivery(unit, `${unit.source}\n${unit.source}`) && acceptsRecursiveDelivery(unit, `${unit.source}\n<!-- Outside policy control. -->`)), "bounded policy controls"],
+				["missing and duplicate units fail, while outside controls pass", recursiveDeliveryUnits.every((unit) => !acceptsRecursiveDelivery(unit, unit.source.replace(unit.start, "Missing policy anchor")) && !acceptsRecursiveDelivery(unit, `${unit.source}\n${unit.source}`) && acceptsRecursiveDelivery(unit, `${unit.source}\n${["sources", "notes-accounting"].includes(unit.id) ? "## Outside accounting control\n" : ""}<!-- Outside policy control. -->`)), "bounded policy controls"],
 				["an unrelated section after public workflow text preserves its pin", publicWorkflowRaw !== "" && publicWorkflowOutsideSection !== projectReadme && acceptsRecursiveDelivery(publicWorkflowUnit, publicWorkflowOutsideSection), "next level-two heading control"],
 				["headings inside public workflow text fail without hiding remaining rules", publicWorkflowHeadingAttacks.every(({ changed, rejected }) => changed && rejected), publicWorkflowHeadingAttacks],
 				["visible contradictions after the final marker fail the complete final section", finalSectionAttacks.every(({ changed, rejected }) => changed && rejected), finalSectionAttacks],
@@ -3753,7 +3780,7 @@ Verify every level record and all root-wide accounting before root closure.`);
 				["subtree acceptance and merge followed by root acceptance retains earlier markers without creating them again", sequentialAcceptanceAttacks.every(({ changed, rejected }) => changed && rejected), sequentialAcceptanceAttacks],
 				["outside edits preserve the sequence", acceptsTransfer(`${deliveryPackages}\n<!-- Outside transfer control. -->`), "outside control"],
 			]);
-			const repairEscalation = regionUnit(/^## Mandatory escalation set\n([\s\S]*?)(?=^## User note accounting\n)/gm);
+			const repairEscalation = headingUnit("## Mandatory escalation set");
 			const repairEscalationDigest = "b9ebf47c2dceb335adfd3fb1cd694e2e23e6d210f5d962ef5c5c6d709cdc3de4";
 			const repairState = regionUnit(/^(Its plain-text \*\*repair state\*\* column[\s\S]*?)(?=^Create `track-<number>-research-log\.md`)/gm);
 			const repairStateExpected = normalizeText(`Its plain-text **repair state** column shows each code track and review-fix child's repair use.
@@ -4391,7 +4418,130 @@ verbatim retention of every tool result.`);
 			const perspectiveBlastRows = [...block(blast, "focus-area-table").text.matchAll(/^\| (\d+) \| ([^|]+) \| ([^|]+) \|/gm)].map((match) => [match[2].trim(), match[3].trim()]);
 			const indexRows = [...reviews.matchAll(/^\| (.*?) \| ([A-Z]{2}) \| (.*?) \| \[([^\]]+)\]\(review-perspectives\/([a-z]+)\.md\) \|$/gm)].map((match) => [match[1].trim(), match[2], match[3].trim(), match[5]]);
 			const authorGuidelines = readFileSync(join(REPO, "docs", "design-principles.md"), "utf8");
-			const authorPrinciple = authorGuidelines.match(/^- \*\*P13 —[\s\S]*?(?=^## 5\.)/m)?.[0].trim() ?? "";
+			const authorRegion = headingUnit("### Built-in focus-area authoring")(authorGuidelines);
+			const authorPrinciple = authorRegion.rawText;
+			// The roster uses current document owners. Marker contracts stay separate.
+			const headingOwnedUnits = [
+				...recursiveRecordUnits.filter((unit) => unit.id !== "marker-identity").map((unit) => ({ ...unit, id: unit.id === "tool-records-and-recovery" ? "manual-records" : unit.id })),
+				...recursiveDeliveryUnits.filter((unit) => !["issues", "public-workflow"].includes(unit.id)),
+				{ id: "repair-escalation", source: userNotes, start: "## Mandatory escalation set", expected: repairEscalationDigest },
+				{ id: "repair-rounds-owner", source: reviews, start: "## Fix loop and gate verdicts", expected: protectedRepairOwners["repair-rounds"] },
+				{ id: "repair-consultations-owner", source: reviews, start: "## Stuck-fix consultation", expected: protectedRepairOwners["repair-consultations"] },
+				{ id: "child-fix-title-owner", source: workflow, start: "### Commit titles and bodies", expected: protectedRepairOwners["child-fix-title"] },
+				{ id: "P13-authoring", source: authorGuidelines, start: "### Built-in focus-area authoring", expected: "e2b7529353072b4a911bf86b038348f7223a94538f0aff0adb1d7f7ff863b9cc" },
+			].map((unit) => ({ ...unit, extract: headingUnit(unit.start) }));
+			const expectedHeadingRegionIds = [
+				"identifiers-ranges", "manual-records", "resume-forks", "handoff-pointer", "resume-order", "general-handoff", "closed-range-feedback",
+				"repairs", "aggregate", "sources", "workflow-accounting", "notes-accounting", "publishing-sync", "public-roadmap",
+				"repair-escalation", "repair-rounds-owner", "repair-consultations-owner", "child-fix-title-owner", "P13-authoring",
+			];
+			const headingPolicyAttacks = headingOwnedUnits.flatMap((unit) => {
+				const resolved = unit.extract(unit.source);
+				const raw = resolved.rawText;
+				const peerHashes = /^#+/.exec(unit.start)[0];
+				const peer = `${peerHashes} Unrelated following section`;
+				const fixture = `${unit.start}\n${raw}\n${peer}\nOutside rule.\n`;
+				const boundaryCases = [
+					["missing", fixture.replace(unit.start, "Missing start"), "missing", 0],
+					["duplicate", `${fixture}\n${unit.start}\n${raw}\n`, "duplicate", 2],
+					["empty", `${unit.start}\n\n${peer}\nOutside rule.\n`, "empty", 1],
+					["empty-duplicate", `${unit.start}\n\n${fixture}`, "duplicate", 2],
+					["closed-heading-duplicate", `${fixture}\n${unit.start} ###\n`, "duplicate", 2],
+				].map(([kind, source, reason, count]) => {
+					const result = unit.extract(source);
+					return { id: unit.id, kind, changed: source !== fixture, rejected: !acceptsRecordUnit(unit, source), intended: result.reason === reason && result.count === count };
+				});
+				const cut = raw.indexOf("\n");
+				const protectedTail = normalizeText(raw.slice(cut + 1));
+				const truncations = [peer, "# Unrelated higher section", peerHashes, `${peerHashes} \t`, "#", "# \t"].map((heading) => {
+					const source = `${unit.start}\n${raw.slice(0, cut)}\n${heading}\n${raw.slice(cut + 1)}\n`;
+					const result = unit.extract(source);
+					return { id: unit.id, kind: heading === peer ? "peer-truncation" : "higher-truncation", changed: source !== fixture, rejected: !acceptsRecordUnit(unit, source), intended: cut > 0 && protectedTail !== "" && result.reason === "content" && result.text === normalizeText(raw.slice(0, cut)) && !result.text.includes(protectedTail) };
+				});
+				// Mutate each complete sentence without repeating a full document fixture.
+				const sentences = resolved.text.split(/(?<=\.) /).filter((rule) => /[a-z]/i.test(rule));
+				return [...boundaryCases, ...truncations, ...sentences.map((rule, index) => {
+					const pattern = new RegExp(rule.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+"));
+					const source = fixture.replace(pattern, `Contradicting ${unit.id} sentence ${index}.`);
+					return { id: unit.id, kind: `sentence-${index}`, changed: source !== fixture, rejected: !acceptsRecordUnit(unit, source), intended: unit.extract(source).reason === "content" };
+				})];
+			});
+			const headingOutsideControls = headingOwnedUnits.flatMap((unit) => {
+				const raw = unit.extract(unit.source).rawText;
+				const peer = /^#+/.exec(unit.start)[0];
+				return [`${peer} Unrelated following section`, peer, `${peer} \t`, "#", "# \t"].map((heading) => {
+					const source = `${unit.start}\n${raw}\n${heading}\nOutside rule.\n`;
+					const changed = source.replace("Outside rule.", "Changed outside rule.\n\nUnrelated insertion.");
+					const fullDocument = unit.source.replace(raw, `${raw}\n${heading}\nOutside rule.\n`);
+					return { id: unit.id, heading, changed: changed !== source && fullDocument !== unit.source, accepted: acceptsRecordUnit(unit, source) && acceptsRecordUnit(unit, changed) && acceptsRecordUnit(unit, fullDocument) && acceptsRecordUnit(unit, `${unit.start}\n${raw}`) };
+				});
+			});
+			// These independent literals test parsing separately from document digests.
+			const boundaryStart = "## Policy";
+			const boundaryExtract = headingUnit(boundaryStart);
+			const boundaryBody = "Required first rule.\nRequired last rule.";
+			const boundarySource = `${boundaryStart}\n${boundaryBody}\n## Following\nOutside rule.\n`;
+			const acceptsBoundary = (source, expected = boundaryBody) => {
+				const result = boundaryExtract(source);
+				return result.count === 1 && result.text === normalizeText(expected);
+			};
+			const truncationAttacks = ["## Peer", "# Higher", "##", "## ", "##\t", "#", "# \t"].map((heading) => {
+				const source = boundarySource.replace("Required last rule.", `${heading}\nRequired last rule.`);
+				const result = boundaryExtract(source);
+				return { heading, changed: source !== boundarySource, rejected: !acceptsBoundary(source), intended: result.reason === "content" && result.text === "Required first rule." };
+			});
+			const levelBoundaries = [1, 2, 3, 4, 5, 6].flatMap((level) => {
+				const hashes = "#".repeat(level);
+				const extract = headingUnit(`${hashes} Policy`);
+				return [hashes, `${hashes} \t`, "#"].map((heading) => {
+					const source = `${hashes} Policy\n${boundaryBody}\n${heading}\nOutside rule.`;
+					const result = extract(source);
+					return { level, heading, accepted: result.count === 1 && result.text === normalizeText(boundaryBody) };
+				});
+			});
+			const inclusionCases = [
+				["lower-level", "### Detail\n"],
+				["empty-lower-level", "###\n"],
+				["seven-hashes", "#######\n"],
+				["missing-heading-space", "##Text\n"],
+				["empty-inline", "Inline ##\n"],
+				["empty-indented", "    ##\n"],
+				["empty-backtick-fence", "```text\n##\n#\nRequired example rule.\n```\n"],
+				["empty-tilde-fence", "~~~text\n## \t\n#\nRequired example rule.\n~~~\n"],
+				["inline", "Inline ## Example\n"],
+				["indented", "  ## Example\n"],
+				["backtick-fence", "```text\n## Example\nRequired example rule.\n```\n"],
+				["tilde-fence", "~~~text\n## Example\nRequired example rule.\n~~~\n"],
+				["fenced-start", "````text\n## Policy\n```\nRequired example rule.\n````\n"],
+			].map(([kind, insertion]) => {
+				const source = boundarySource.replace("Required last rule.", `${insertion}Required last rule.`);
+				const expected = `Required first rule.\n${insertion}Required last rule.`;
+				const protectedRule = insertion.includes("Required example rule.") ? "Required example rule." : "Required last rule.";
+				const changed = source.replace(protectedRule, "Contradictory example rule.");
+				return { kind, changed: source !== boundarySource && changed !== source, accepted: acceptsBoundary(source, expected), rejected: !acceptsBoundary(changed, expected), intended: boundaryExtract(changed).reason === "content" && boundaryExtract(source).text.includes("Required last rule.") };
+			});
+			const keptAnchorRemovals = [
+				["notes-accounting", "- every finding and its disposition."],
+				["workflow-accounting", "Aim for a delivery body at or below 16,384 UTF-8 bytes."],
+				["workflow-accounting", "A bootstrap commit created to open a draft pull request uses\n`Bootstrap: <intent title>`."],
+			].map(([id, rule]) => {
+				const unit = headingOwnedUnits.find((unit) => unit.id === id);
+				const source = unit.source.replace(rule, "");
+				return { id, rule, changed: source !== unit.source, rejected: !acceptsRecordUnit(unit, source) };
+			});
+			const privacyUnit = headingOwnedUnits.find((unit) => unit.id === "manual-records");
+			const privacyRule = "Pi saves session files with default permissions, which can expose record text to other local users.";
+			const privacyMutation = recursive.replace(privacyRule, "Session permissions need no attention.");
+			checkAll("contract-heading-regions", "all 19 heading-owned regions retain complete independent content protection and fence-aware same-level or higher boundaries", [
+				["the exact region roster resolves once and matches independent expectations", JSON.stringify(headingOwnedUnits.map((unit) => unit.id)) === JSON.stringify(expectedHeadingRegionIds) && headingOwnedUnits.every((unit) => acceptsRecordUnit(unit, unit.source)), headingOwnedUnits.map((unit) => ({ id: unit.id, result: unit.extract(unit.source).reason }))],
+				["missing, duplicate, empty, empty duplicate, truncation, and every sentence mutation fail for their intended reason", headingPolicyAttacks.every(({ changed, rejected, intended }) => changed && rejected && intended), headingPolicyAttacks],
+				["following-section insertions preserve every preceding pin and document-end controls pass", headingOutsideControls.every(({ changed, accepted }) => changed && accepted), headingOutsideControls],
+				["peer and higher headings truncate a protected rule and fail content expectations", truncationAttacks.every(({ changed, rejected, intended }) => changed && rejected && intended), truncationAttacks],
+				["all six empty heading levels close regions without becoming owned starts", levelBoundaries.every(({ accepted }) => accepted) && boundaryExtract("##\nRequired rule.").count === 0, levelBoundaries],
+				["lower, inline, indented, and fenced headings keep protected content and its mutations active", inclusionCases.every(({ changed, accepted, rejected, intended }) => changed && accepted && rejected && intended), inclusionCases],
+				["removing each restored anchor sentence fails its complete owning pin", keptAnchorRemovals.every(({ changed, rejected }) => changed && rejected), keptAnchorRemovals],
+				["the lower-level privacy subsection stays protected by the complete manual-record pin", privacyMutation !== recursive && privacyUnit.extract(recursive).text.includes("### Design authority and privacy") && privacyUnit.extract(recursive).text.includes(privacyRule) && !acceptsRecordUnit(privacyUnit, privacyMutation), "privacy sentence removal"],
+			]);
 			const authorRow = "| P13 risk-based focus-area authorship | no runtime code home for author research or approval. Focus definitions, reviewer content, the code roster, and structure and agreement checks apply the rule. |";
 			checkAll("contract-review-agreement", "runtime names, prefixes and focus areas agree with the canonical focus table and linked index; Reviewer I has no focus row", [
 				["canonical eleven focus rows and reviewer labels are exact", JSON.stringify(perspectiveBlastRows) === JSON.stringify(expectedPerspectiveFocus.map((row) => row.slice(0, 2))), perspectiveBlastRows],
@@ -4399,7 +4549,7 @@ verbatim retention of every tool result.`);
 				["general reviewer is outside focus table", roles[0]?.name === "Reviewer I" && roles[0]?.prefix === "RI" && roles[0]?.focusArea === null && !perspectiveBlastRows.some(([area]) => area === "Reviewer I"), roles[0]],
 				["index includes each runtime selector, prefix and focus once", JSON.stringify(indexRows) === JSON.stringify(roles.map((role) => [role.name, role.prefix, role.focusArea ?? "none", role.prefix.toLowerCase()])), indexRows],
 				["regression-gate prefix stays outside roster", !roles.some((role) => role.prefix === "RG") && reviews.includes("RG is a regression-gate prefix and not a perspective"), roles.map((role) => role.prefix)],
-				["on-demand P13 follows P12 and has its approved content and table row", authorGuidelines.indexOf("**P12 —") < authorGuidelines.indexOf("**P13 —") && authorGuidelines.split("**P13 —").length === 2 && hash(authorPrinciple) === "e2b7529353072b4a911bf86b038348f7223a94538f0aff0adb1d7f7ff863b9cc" && Buffer.byteLength(authorPrinciple, "utf8") === 2292 && authorGuidelines.split(authorRow).length === 2, { bytes: Buffer.byteLength(authorPrinciple, "utf8"), digest: hash(authorPrinciple) }],
+				["on-demand P13 follows P12 and has its approved content and table row", authorGuidelines.indexOf("**P12 —") < authorGuidelines.indexOf("**P13 —") && authorGuidelines.split("**P13 —").length === 2 && authorRegion.count === 1 && hash(authorPrinciple) === "e2b7529353072b4a911bf86b038348f7223a94538f0aff0adb1d7f7ff863b9cc" && Buffer.byteLength(authorPrinciple, "utf8") === 2292 && Buffer.byteLength(`### Built-in focus-area authoring\n\n${authorPrinciple}`, "utf8") === 2327 && authorGuidelines.split(authorRow).length === 2, { bytes: Buffer.byteLength(authorPrinciple, "utf8"), digest: hash(authorPrinciple) }],
 			]);
 			checkAll("contract-review-charters", "Reviewer I keeps bounded duties, conditional composition and independent dispatch; specialist limits and prefixes stay exact", [
 				["Reviewer I names its five local duties and evidence boundaries", ["maintainability", "concretely harmful antipatterns", "responsibility distribution", "completeness against the approved current-track requirements", "ordinary local correctness", "adverse effect", "unjustified coupling", "responsibility placed in a component"].every((term) => normalizeText(reviewerICharter).includes(term)), reviewerICharter],
@@ -4546,7 +4696,7 @@ Record each grant in the override log.`),
 			}));
 			// Exact pins include the report and ownership rules after the trigger list.
 			const reportRule = regionUnit(/^For each code track, the implementer creates\n([\s\S]*?)(?=^Tracks are contiguous)/gm);
-			const forkRule = regionUnit(/^Use a safe write method\. ([\s\S]*?)(?=^Before a session handoff)/gm);
+			const forkRule = regionUnit(/^Use a safe write method\. ([\s\S]*?)(?=^### Handoff summary\n)/gm);
 			const expectedReportRule = normalizeText(`\`track-<number>-implementer-report.md\` in the current change folder when the track starts. The dispatch gives the exact path. The report is untracked working material. After a session with a different identifier takes ownership, create a report in the new change folder. If the source folder has this track's report, name it as read-only in the new report's first entry. Continue the work in the new report. The report has four required sections: changes to the high-level design with the reason for each, the low-level design, diagrams where they help, and checks run with their results. The report states the approximate track size in counted lines. Later fix rounds append to that report in the current change folder.`);
 			const expectedForkRule = normalizeText(`Follow the direct-write and retry rules for change records, including implementer reports. Use [recursive-workflow.md](recursive-workflow.md) § Manual records and safe writes for write methods, record checks, and inspection before retries. Research logs and implementer reports are append-only. A correction is a new entry. Slate checks the folder chain when it creates the change. Keep all manual records and leftover temporary files untracked and visible in repository status. Do not add them to an ignore file or a pull request. Exclude their references and contents from reviewer inputs. Never overwrite a record from a stale in-memory copy. When a session adopts a change owned by a different Pi session identifier, Slate starts a new folder. Its log first names the direct source folder as a read-only earlier log. Each source log's first entry links to its own source. Follow those links to read the full history. The source remains in place without copying. A resume or reload with the same identifier continues the current folder. A /tree move to parent history with a different owner creates a new folder on reload. A handoff makes the successor the owner of the current folder. If folder allocation fails, Slate saves no open change and reports the failure. If that save fails, Slate reports it too. A legacy root \`research-log.md\` remains read-only. Only the user deletes a delivered or abandoned change folder.`);
 			const acceptsLateRules = (source) => {
@@ -4554,6 +4704,21 @@ Record each grant in the override log.`),
 				const fork = forkRule(source);
 				return report.count === 1 && fork.count === 1 && normalizeText(report.text) === expectedReportRule && normalizeText(fork.text) === expectedForkRule;
 			};
+			const expectedResearchPrivacy = normalizeText(`Do not copy secrets, credentials, private user data, or unnecessary personal
+data into the log. Record a privacy exception as a typed ruling. State what was
+omitted and why.`);
+			const researchPrivacy = (source) => regionUnit(/^(Do not copy secrets,[\s\S]*?)(?=\n\s*\n|(?![\s\S]))/gm)(headingUnit("## Session handoff and the research log")(source).rawText);
+			const acceptsResearchPrivacy = (source) => {
+				const unit = researchPrivacy(source);
+				return unit.count === 1 && unit.text === expectedResearchPrivacy;
+			};
+			const privacyPattern = (rule) => new RegExp(rule.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+"));
+			const researchPrivacyRemovals = expectedResearchPrivacy.split(/(?<=\.) /).map((rule, index) => {
+				const source = workflow.replace(privacyPattern(rule), "");
+				const result = researchPrivacy(source);
+				return { rule, changed: source !== workflow, rejected: !acceptsResearchPrivacy(source), intended: !normalizeText(source).includes(rule) && result.count === (index === 0 ? 0 : 1) && result.text !== expectedResearchPrivacy };
+			});
+			const movedResearchPrivacy = workflow.replace(privacyPattern(expectedResearchPrivacy), "") + `\n## Outside research log\n\n${expectedResearchPrivacy}\n`;
 			const rootReport = workflow.replace("in the current change folder when the track", "at the repository root when the track");
 			const reusedFork = workflow.replace(/Slate starts a new folder\.\s+Its log first names/, "Slate reuses the source folder. Its log first names");
 			const unconditionalReport = workflow.replace(/If the source folder has this track's report,\s+name it as read-only in the new report's first entry\./, "Name the earlier report as read-only in the new report's first entry.");
@@ -4572,6 +4737,10 @@ Record each grant in the override log.`),
 			const duplicatedCharters = `${roleFiles.nl}\n${roleFiles.nl}`;
 			const missingBoundary = roleFiles.nl.replace("**Charter.**", "**Task.**");
 			checkAll("contract-dispatch-context", "four complete dispatch-policy units resolve exactly once and equal independent expectations. They cover the focused implementation-context obligation, research-log lifecycle, reviewer-input contract, and stuck-fix policy. Counterfactuals reject missing current-context inputs, a restored mandatory whole-log read, other policy weakening, or additions inside a unit, while benign text outside the units remains accepted. Five bounded UTF-8 measurements remain exact", [
+				["the complete research-log privacy paragraph matches an independent literal in its owning section", acceptsResearchPrivacy(workflow), researchPrivacy(workflow)],
+				["all three privacy sentence removals change input and fail for missing or changed content", researchPrivacyRemovals.length === 3 && researchPrivacyRemovals.every(({ changed, rejected, intended }) => changed && rejected && intended), researchPrivacyRemovals],
+				["moving the intact privacy paragraph outside its owner fails with no owned paragraph", movedResearchPrivacy !== workflow && normalizeText(movedResearchPrivacy).includes(expectedResearchPrivacy) && researchPrivacy(movedResearchPrivacy).count === 0 && !acceptsResearchPrivacy(movedResearchPrivacy), researchPrivacy(movedResearchPrivacy)],
+				["an unrelated outside edit preserves the research-log privacy paragraph", acceptsResearchPrivacy(benignWorkflow), researchPrivacy(benignWorkflow)],
 				["later report-location and fork-ownership rules match independent exact pins", acceptsLateRules(workflow), { report: reportRule(workflow), fork: forkRule(workflow) }],
 				["root-report, same-folder fork, and unconditional report mutations each break their pin", rootReport !== workflow && reusedFork !== workflow && unconditionalReport !== workflow && !acceptsLateRules(rootReport) && !acceptsLateRules(reusedFork) && !acceptsLateRules(unconditionalReport), { root: acceptsLateRules(rootReport), fork: acceptsLateRules(reusedFork), unconditional: acceptsLateRules(unconditionalReport) }],
 				["the four approved policy units form the exact roster and resolve once", dispatchUnitResults.map(({ id }) => id).join() === "implementation-reference,research-log-lifecycle,reviewer-input-contract,stuck-fix-policy" && dispatchUnitResults.every(({ count }) => count === 1), dispatchUnitResults.map(({ id, count }) => ({ id, count }))],
@@ -4803,7 +4972,7 @@ Do not count accepted child work as new implementation.`),
 					"# Track-based development workflow",
 					...(index === 0 ? [] : index === 1
 						? ["## Review coverage", "### Routing recommendations at change completion"]
-						: ["## Delivery and termination"]),
+						: ["## Delivery and termination", ...(index === 4 ? ["### Delivery history and accounting"] : [])]),
 				], text)),
 				reviewedReference("docs/user-notes.md", ["# User notes and user-facing registers"], `[delivery-packages.md](delivery-packages.md) owns the short user-facing package
 format. Other workflow documents may call a track package a **track packet** and
@@ -4817,7 +4986,7 @@ accounting. The package references that record and the diff.`),
 [delivery-packages.md](delivery-packages.md) § Single-track combined package. A
 multi-track change uses the separate change package defined in that document.
 Package preparation does not delay or replace the feedback triggers above.`),
-				reviewedReference("docs/user-notes.md", ["# User notes and user-facing registers", "## Durable final accounting"], `Before final acceptance, reconcile all owning records defined in
+				reviewedReference("docs/user-notes.md", ["# User notes and user-facing registers", "## Durable final accounting", "### Final accounting preparation"], `Before final acceptance, reconcile all owning records defined in
 [delivery-packages.md](delivery-packages.md) § Durable accounting.
 With publishing, use that section's package and post-acceptance transfer sequence before merge.
 Without publishing, packages reference the owning accounting sources.

@@ -481,6 +481,8 @@ contract. Reviewers receive the approved inputs for their role. Ordinary
 repository and library evidence needed for the assigned work remains available.
 This permission is not a closed changed-file allowlist.
 
+### Commit titles and bodies
+
 Implementation commit titles use `Track <n>: <intent title>`.
 An agentic-review fix commit inside a track uses
 `Track <n> fix round <r>: <intent title>`. The original implementation commit
@@ -492,6 +494,8 @@ commit uses
 For that title, `<r>` starts at 1 and increases by one for each user-review fix
 commit in the track. That section also defines the distinct cumulative
 implementation body.
+
+### Implementer reports and execution
 
 For each code track, the implementer creates
 `track-<number>-implementer-report.md` in the current change folder when the track
@@ -561,6 +565,8 @@ the successor the owner of the current folder. If folder allocation fails,
 Slate saves no open change and reports the failure. If that save fails, Slate
 reports it too. A legacy root `research-log.md` remains read-only. Only the user
 deletes a delivered or abandoned change folder.
+
+### Handoff summary
 
 Before a session handoff, use § Confirmation gate's handoff block for record order and the subtree-entry reference.
 The root state summary names the proved focus
@@ -686,6 +692,8 @@ and Deviation-delta shape applies. This conditional body rule is also stated in
 [blast-radius.md](blast-radius.md) § Commit discipline for drift and
 boundaries.
 
+### Closed-range corrections
+
 Commit each fix requested during user review separately after the cumulative
 commit. Do not squash a user-review fix into the cumulative commit, because
 folding it back would destroy the exact state the user reviewed. Present each
@@ -709,6 +717,8 @@ commit. Do not squash it. A track with no user-review fix commit adds neither
 this range nor this gate action. Where a marker applies, it comes last because
 it defines the track range. Later feedback follows [user-notes.md](user-notes.md).
 It does not extend the closed range or automatically belong to the next track.
+
+### Delivery history and accounting
 
 A bootstrap commit created to open a draft pull request uses
 `Bootstrap: <intent title>`. It is not part of any track. Re-pin every recorded
