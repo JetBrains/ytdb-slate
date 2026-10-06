@@ -718,7 +718,7 @@ this range nor this gate action. Where a marker applies, it comes last because
 it defines the track range. Later feedback follows [user-notes.md](user-notes.md).
 It does not extend the closed range or automatically belong to the next track.
 
-### Delivery accounting
+### Delivery history and accounting
 
 A bootstrap commit created to open a draft pull request uses
 `Bootstrap: <intent title>`. It is not part of any track. Re-pin every recorded

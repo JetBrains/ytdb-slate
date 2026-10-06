@@ -3678,7 +3678,7 @@ The split bypasses no stuck-fix consultation or required fix gate.`) },
 				{ id: "aggregate", source: recursive, start: "## Whole-subtree acceptance", expected: "6e37e0e95c35ed0c3ede6e02f3322f43038d8653d9885ce4b2ac1ed423472b63" },
 				{ id: "issues", source: recursive, start: "## Packages, attribution, and issues", end: null, expected: "895b87ee7afdda0d4d85e071c978727e0cf962f9af42e68c534c022ac010a5a3" },
 				{ id: "sources", source: deliveryPackages, start: "## Durable accounting", expected: "0659078a4ccb82cf3ccb833a7aff3dd39f701c74f8a492b79e855843db57bdad" },
-				{ id: "workflow-accounting", source: workflow, start: "### Delivery accounting", expected: "cd6e2aed70a20d7c1b40a6847d4bf5fb9c6706b288333f0c6cf66a7231601d23" },
+				{ id: "workflow-accounting", source: workflow, start: "### Delivery history and accounting", expected: "cd6e2aed70a20d7c1b40a6847d4bf5fb9c6706b288333f0c6cf66a7231601d23" },
 				{ id: "notes-accounting", source: userNotes, start: "### Final accounting preparation", expected: "27a19ef36cc0fc14fbd2c14fc1699d6d3ddeadfe8a284f2d85ab76481faaa352" },
 				{ id: "publishing-sync", source: publishing, start: "## Keeping the PR in sync", expected: "fb386e6f14c2f051a842cd050cc4e2834dea5e2674853cc22794792cd4c1a7cc" },
 				{ id: "public-workflow", source: projectReadme, start: "A track is a bounded", end: "## ", endAtLineStart: true, expected: "23f90e859751918fac2f72ad4819c635cf21d88f15e18d100cc0a9944018fbf3" },
@@ -4704,6 +4704,21 @@ Record each grant in the override log.`),
 				const fork = forkRule(source);
 				return report.count === 1 && fork.count === 1 && normalizeText(report.text) === expectedReportRule && normalizeText(fork.text) === expectedForkRule;
 			};
+			const expectedResearchPrivacy = normalizeText(`Do not copy secrets, credentials, private user data, or unnecessary personal
+data into the log. Record a privacy exception as a typed ruling. State what was
+omitted and why.`);
+			const researchPrivacy = (source) => regionUnit(/^(Do not copy secrets,[\s\S]*?)(?=\n\s*\n|(?![\s\S]))/gm)(headingUnit("## Session handoff and the research log")(source).rawText);
+			const acceptsResearchPrivacy = (source) => {
+				const unit = researchPrivacy(source);
+				return unit.count === 1 && unit.text === expectedResearchPrivacy;
+			};
+			const privacyPattern = (rule) => new RegExp(rule.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+"));
+			const researchPrivacyRemovals = expectedResearchPrivacy.split(/(?<=\.) /).map((rule, index) => {
+				const source = workflow.replace(privacyPattern(rule), "");
+				const result = researchPrivacy(source);
+				return { rule, changed: source !== workflow, rejected: !acceptsResearchPrivacy(source), intended: !normalizeText(source).includes(rule) && result.count === (index === 0 ? 0 : 1) && result.text !== expectedResearchPrivacy };
+			});
+			const movedResearchPrivacy = workflow.replace(privacyPattern(expectedResearchPrivacy), "") + `\n## Outside research log\n\n${expectedResearchPrivacy}\n`;
 			const rootReport = workflow.replace("in the current change folder when the track", "at the repository root when the track");
 			const reusedFork = workflow.replace(/Slate starts a new folder\.\s+Its log first names/, "Slate reuses the source folder. Its log first names");
 			const unconditionalReport = workflow.replace(/If the source folder has this track's report,\s+name it as read-only in the new report's first entry\./, "Name the earlier report as read-only in the new report's first entry.");
@@ -4722,6 +4737,10 @@ Record each grant in the override log.`),
 			const duplicatedCharters = `${roleFiles.nl}\n${roleFiles.nl}`;
 			const missingBoundary = roleFiles.nl.replace("**Charter.**", "**Task.**");
 			checkAll("contract-dispatch-context", "four complete dispatch-policy units resolve exactly once and equal independent expectations. They cover the focused implementation-context obligation, research-log lifecycle, reviewer-input contract, and stuck-fix policy. Counterfactuals reject missing current-context inputs, a restored mandatory whole-log read, other policy weakening, or additions inside a unit, while benign text outside the units remains accepted. Five bounded UTF-8 measurements remain exact", [
+				["the complete research-log privacy paragraph matches an independent literal in its owning section", acceptsResearchPrivacy(workflow), researchPrivacy(workflow)],
+				["all three privacy sentence removals change input and fail for missing or changed content", researchPrivacyRemovals.length === 3 && researchPrivacyRemovals.every(({ changed, rejected, intended }) => changed && rejected && intended), researchPrivacyRemovals],
+				["moving the intact privacy paragraph outside its owner fails with no owned paragraph", movedResearchPrivacy !== workflow && normalizeText(movedResearchPrivacy).includes(expectedResearchPrivacy) && researchPrivacy(movedResearchPrivacy).count === 0 && !acceptsResearchPrivacy(movedResearchPrivacy), researchPrivacy(movedResearchPrivacy)],
+				["an unrelated outside edit preserves the research-log privacy paragraph", acceptsResearchPrivacy(benignWorkflow), researchPrivacy(benignWorkflow)],
 				["later report-location and fork-ownership rules match independent exact pins", acceptsLateRules(workflow), { report: reportRule(workflow), fork: forkRule(workflow) }],
 				["root-report, same-folder fork, and unconditional report mutations each break their pin", rootReport !== workflow && reusedFork !== workflow && unconditionalReport !== workflow && !acceptsLateRules(rootReport) && !acceptsLateRules(reusedFork) && !acceptsLateRules(unconditionalReport), { root: acceptsLateRules(rootReport), fork: acceptsLateRules(reusedFork), unconditional: acceptsLateRules(unconditionalReport) }],
 				["the four approved policy units form the exact roster and resolve once", dispatchUnitResults.map(({ id }) => id).join() === "implementation-reference,research-log-lifecycle,reviewer-input-contract,stuck-fix-policy" && dispatchUnitResults.every(({ count }) => count === 1), dispatchUnitResults.map(({ id, count }) => ({ id, count }))],
@@ -4953,7 +4972,7 @@ Do not count accepted child work as new implementation.`),
 					"# Track-based development workflow",
 					...(index === 0 ? [] : index === 1
 						? ["## Review coverage", "### Routing recommendations at change completion"]
-						: ["## Delivery and termination", ...(index === 4 ? ["### Delivery accounting"] : [])]),
+						: ["## Delivery and termination", ...(index === 4 ? ["### Delivery history and accounting"] : [])]),
 				], text)),
 				reviewedReference("docs/user-notes.md", ["# User notes and user-facing registers"], `[delivery-packages.md](delivery-packages.md) owns the short user-facing package
 format. Other workflow documents may call a track package a **track packet** and

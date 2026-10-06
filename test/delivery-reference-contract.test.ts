@@ -93,7 +93,7 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
     await check("count-preserving reference order change within one heading", {
       "docs/user-notes.md": notes.replace(combinedPackage, "") + `\n\n${combinedPackage}\n`,
     });
-    for (const [file, heading] of [[workflowFile, "### Delivery accounting"], ["docs/user-notes.md", "### Final accounting preparation"]] as const) {
+    for (const [file, heading] of [[workflowFile, "### Delivery history and accounting"], ["docs/user-notes.md", "### Final accounting preparation"]] as const) {
       const source = readFileSync(join(fixture, file), "utf8");
       assert.ok(source.includes(heading));
       await check(`changed accounting subsection: ${file}`, { [file]: source.replace(heading, "### Other accounting") });
