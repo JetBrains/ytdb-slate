@@ -692,6 +692,8 @@ and Deviation-delta shape applies. This conditional body rule is also stated in
 [blast-radius.md](blast-radius.md) § Commit discipline for drift and
 boundaries.
 
+### Closed-range corrections
+
 Commit each fix requested during user review separately after the cumulative
 commit. Do not squash a user-review fix into the cumulative commit, because
 folding it back would destroy the exact state the user reviewed. Present each
@@ -710,15 +712,13 @@ corrected range. This correction loop uses the ordinary two-round cap and
 escalation rules in
 [review-rules.md](review-rules.md) § Fix loop and gate verdicts.
 
-### Closed-range corrections
-
 The correction remains a separate commit after the cumulative implementation
 commit. Do not squash it. A track with no user-review fix commit adds neither
 this range nor this gate action. Where a marker applies, it comes last because
 it defines the track range. Later feedback follows [user-notes.md](user-notes.md).
 It does not extend the closed range or automatically belong to the next track.
 
-### Publishing bootstrap and markers
+### Delivery accounting
 
 A bootstrap commit created to open a draft pull request uses
 `Bootstrap: <intent title>`. It is not part of any track. Re-pin every recorded
@@ -776,8 +776,6 @@ The track table lists names, one-line scopes, and status. It contains no commit
 identifier. Track numbers are append-only. Abandoned tracks are struck through.
 Numbers are never reused.
 
-### Delivery accounting
-
 With draft publishing, [pr-publishing.md](pr-publishing.md) § After the merge
 owns per-level delivery accounting and root closure.
 Without publishing, use all owning accounting sources defined in
@@ -801,8 +799,6 @@ in § Session handoff and the research log keeps the local files out of the pull
 request.
 On abandonment, offer their content for archival first. Only the user deletes
 an old change folder.
-
-### Delivery body size and release scope
 
 Aim for a delivery body at or below 16,384 UTF-8 bytes. Measure exact bytes from
 the commit object. If larger, remove repetition first. Then record a measured

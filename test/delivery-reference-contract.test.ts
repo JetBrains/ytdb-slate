@@ -27,7 +27,7 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
     const loading = workflow.slice(workflow.indexOf(begin), workflow.indexOf(end) + end.length);
     assert.ok(readme.includes(readmeReference) && workflow.includes(actor) && loading.includes("Immediately before"));
 
-    async function check(name: string, changes: Record<string, string>, accepted = false): Promise<void> {
+    async function check(name: string, changes: Record<string, string>, accepted = false, contract = "contract-delivery-packages"): Promise<void> {
       await t.test(name, { timeout: 25_000 }, () => {
         const originals = new Map<string, string | undefined>();
         try {
@@ -47,7 +47,7 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
           assert.equal(result.error, undefined, output);
           assert.equal(result.signal, null, output);
           assert.equal(result.status, accepted ? 0 : 1, output);
-          assert.match(output, new RegExp(`^CHECK +contract-delivery-packages +${accepted ? "PASS" : "FAIL"}\\b`, "m"));
+          assert.match(output, new RegExp(`^CHECK +${contract} +${accepted ? "PASS" : "FAIL"}\\b`, "m"));
           assert.match(output, /^CHECK +roster +PASS\b/m);
         } finally {
           for (const [path, original] of originals) {
@@ -98,6 +98,15 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
       assert.ok(source.includes(heading));
       await check(`changed accounting subsection: ${file}`, { [file]: source.replace(heading, "### Other accounting") });
       await check(`duplicated accounting subsection: ${file}`, { [file]: source.replace(heading, `${heading}\n${heading}`) });
+    }
+    for (const [file, rule] of [
+      ["docs/user-notes.md", "- every finding and its disposition."],
+      [workflowFile, "Aim for a delivery body at or below 16,384 UTF-8 bytes."],
+      [workflowFile, "A bootstrap commit created to open a draft pull request uses\n`Bootstrap: <intent title>`."],
+    ] as const) {
+      const source = readFileSync(join(fixture, file), "utf8");
+      assert.ok(source.includes(rule));
+      await check(`removed kept anchor: ${rule}`, { [file]: source.replace(rule, "") }, false, "contract-heading-regions");
     }
     await check("changed owned loading rule", { [workflowFile]: workflow.replace("Immediately before preparing any track package or final change package", "At session start") });
     await check("moved owned loading unit", { [workflowFile]: workflow.replace(loading, "") + `\n## Early reads\n\n${loading}\n` });

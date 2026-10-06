@@ -2645,7 +2645,7 @@ required reviews, ordered gates, user authority, or final acceptance.`;
 					} else if (delimiter) {
 						if (delimiter[1][0] !== "`" || !delimiter[2].includes("`")) fence = { char: delimiter[1][0], length: delimiter[1].length };
 					} else {
-						const heading = /^(#{1,6})[ \t]+\S/.exec(text);
+						const heading = /^(#{1,6})(?:[ \t]+|$)/.exec(text);
 						if (heading) headings.push({ start: offset, body: offset + line.length, level: heading[1].length, text: text.replace(/^(#{1,6})[ \t]+/, "$1 ").trimEnd().replace(/[ \t]+#+$/, "") });
 					}
 					offset += line.length;
@@ -3262,7 +3262,7 @@ Use its § Session handoff and the research log for ownership.`);
 				{ id: "marker-identity", source: workflow, extract: markedUnit("marker-identity-policy"), expected: "846764c07a6b2c925091bd80f944c888d49994a71f2799b5cd2b8368b415a3c9" },
 				{ id: "resume-order", source: workflow, start: "## Resume order and reconciliation", extract: headingUnit("## Resume order and reconciliation"), expected: "9edb063aea53ffc494d650f1a2306b975bbf31f1700a874ea0fd004bb1d0e244" },
 				{ id: "general-handoff", source: workflow, start: "### Handoff summary", extract: headingUnit("### Handoff summary"), expected: "deebae98b03815c0a68bd933d6d910624a5e6206f1c410a7fd9052c1d23fe64f" },
-				{ id: "closed-range-feedback", source: workflow, start: "### Closed-range corrections", extract: headingUnit("### Closed-range corrections"), expected: "99f2677c4d1cda283366e9bd209e9330119795e222af78fc3c24bc45a853c182" },
+				{ id: "closed-range-feedback", source: workflow, start: "### Closed-range corrections", extract: headingUnit("### Closed-range corrections"), expected: "07c9e0dd0eb0de15e13b6977f88145a2dec09554e693a2d6bfbe1173f09eb37a" },
 			];
 			const acceptsRecordUnit = (unit, source) => {
 				const resolved = unit.extract(source);
@@ -3678,8 +3678,8 @@ The split bypasses no stuck-fix consultation or required fix gate.`) },
 				{ id: "aggregate", source: recursive, start: "## Whole-subtree acceptance", expected: "6e37e0e95c35ed0c3ede6e02f3322f43038d8653d9885ce4b2ac1ed423472b63" },
 				{ id: "issues", source: recursive, start: "## Packages, attribution, and issues", end: null, expected: "895b87ee7afdda0d4d85e071c978727e0cf962f9af42e68c534c022ac010a5a3" },
 				{ id: "sources", source: deliveryPackages, start: "## Durable accounting", expected: "0659078a4ccb82cf3ccb833a7aff3dd39f701c74f8a492b79e855843db57bdad" },
-				{ id: "workflow-accounting", source: workflow, start: "### Delivery accounting", expected: "a6c13eaed24bf2c4924075f44fd1cd45f3c3bb351fa61badfae7b8d3925d193c" },
-				{ id: "notes-accounting", source: userNotes, start: "### Final accounting preparation", expected: "d9da7be5f5dff5dc3350ee5d27e6fa2364d3bc6b8dfa2841979e11c55ba5c5b6" },
+				{ id: "workflow-accounting", source: workflow, start: "### Delivery accounting", expected: "cd6e2aed70a20d7c1b40a6847d4bf5fb9c6706b288333f0c6cf66a7231601d23" },
+				{ id: "notes-accounting", source: userNotes, start: "### Final accounting preparation", expected: "27a19ef36cc0fc14fbd2c14fc1699d6d3ddeadfe8a284f2d85ab76481faaa352" },
 				{ id: "publishing-sync", source: publishing, start: "## Keeping the PR in sync", expected: "fb386e6f14c2f051a842cd050cc4e2834dea5e2674853cc22794792cd4c1a7cc" },
 				{ id: "public-workflow", source: projectReadme, start: "A track is a bounded", end: "## ", endAtLineStart: true, expected: "23f90e859751918fac2f72ad4819c635cf21d88f15e18d100cc0a9944018fbf3" },
 				{ id: "public-roadmap", source: readFileSync(join(REPO, "docs", "roadmap.md"), "utf8"), start: "## Larger changes", expected: "ffd9a4e0a96809b60debc7a45d6b0bb09881622889ae571c09bd888a7d09da17" },
@@ -3737,7 +3737,7 @@ The split bypasses no stuck-fix consultation or required fix gate.`) },
 			checkAll("contract-recursive-delivery", "review-fix identities and budgets, whole-design acceptance, issue purposes, all-record accounting, and public guidance retain their complete owned policies", [
 				["each policy resolves exactly once and matches its independent pin", recursiveDeliveryUnits.every((unit) => acceptsRecursiveDelivery(unit, unit.source)), recursiveDeliveryUnits.map((unit) => ({ id: unit.id, count: unit.extract(unit.source).count, digest: recordDigest(unit.extract(unit.source).text) }))],
 				["every sentence mutation changes input and fails its policy", recursiveDeliveryAttacks.every(({ changed, rejected }) => changed && rejected), recursiveDeliveryAttacks],
-				["missing and duplicate units fail, while outside controls pass", recursiveDeliveryUnits.every((unit) => !acceptsRecursiveDelivery(unit, unit.source.replace(unit.start, "Missing policy anchor")) && !acceptsRecursiveDelivery(unit, `${unit.source}\n${unit.source}`) && acceptsRecursiveDelivery(unit, `${unit.source}\n${unit.id === "sources" ? "## Outside accounting control\n" : ""}<!-- Outside policy control. -->`)), "bounded policy controls"],
+				["missing and duplicate units fail, while outside controls pass", recursiveDeliveryUnits.every((unit) => !acceptsRecursiveDelivery(unit, unit.source.replace(unit.start, "Missing policy anchor")) && !acceptsRecursiveDelivery(unit, `${unit.source}\n${unit.source}`) && acceptsRecursiveDelivery(unit, `${unit.source}\n${["sources", "notes-accounting"].includes(unit.id) ? "## Outside accounting control\n" : ""}<!-- Outside policy control. -->`)), "bounded policy controls"],
 				["an unrelated section after public workflow text preserves its pin", publicWorkflowRaw !== "" && publicWorkflowOutsideSection !== projectReadme && acceptsRecursiveDelivery(publicWorkflowUnit, publicWorkflowOutsideSection), "next level-two heading control"],
 				["headings inside public workflow text fail without hiding remaining rules", publicWorkflowHeadingAttacks.every(({ changed, rejected }) => changed && rejected), publicWorkflowHeadingAttacks],
 				["visible contradictions after the final marker fail the complete final section", finalSectionAttacks.every(({ changed, rejected }) => changed && rejected), finalSectionAttacks],
@@ -4438,7 +4438,8 @@ verbatim retention of every tool result.`);
 			const headingPolicyAttacks = headingOwnedUnits.flatMap((unit) => {
 				const resolved = unit.extract(unit.source);
 				const raw = resolved.rawText;
-				const peer = `${/^#+/.exec(unit.start)[0]} Unrelated following section`;
+				const peerHashes = /^#+/.exec(unit.start)[0];
+				const peer = `${peerHashes} Unrelated following section`;
 				const fixture = `${unit.start}\n${raw}\n${peer}\nOutside rule.\n`;
 				const boundaryCases = [
 					["missing", fixture.replace(unit.start, "Missing start"), "missing", 0],
@@ -4452,7 +4453,7 @@ verbatim retention of every tool result.`);
 				});
 				const cut = raw.indexOf("\n");
 				const protectedTail = normalizeText(raw.slice(cut + 1));
-				const truncations = [peer, "# Unrelated higher section"].map((heading) => {
+				const truncations = [peer, "# Unrelated higher section", peerHashes, `${peerHashes} \t`, "#", "# \t"].map((heading) => {
 					const source = `${unit.start}\n${raw.slice(0, cut)}\n${heading}\n${raw.slice(cut + 1)}\n`;
 					const result = unit.extract(source);
 					return { id: unit.id, kind: heading === peer ? "peer-truncation" : "higher-truncation", changed: source !== fixture, rejected: !acceptsRecordUnit(unit, source), intended: cut > 0 && protectedTail !== "" && result.reason === "content" && result.text === normalizeText(raw.slice(0, cut)) && !result.text.includes(protectedTail) };
@@ -4465,12 +4466,15 @@ verbatim retention of every tool result.`);
 					return { id: unit.id, kind: `sentence-${index}`, changed: source !== fixture, rejected: !acceptsRecordUnit(unit, source), intended: unit.extract(source).reason === "content" };
 				})];
 			});
-			const headingOutsideControls = headingOwnedUnits.map((unit) => {
+			const headingOutsideControls = headingOwnedUnits.flatMap((unit) => {
 				const raw = unit.extract(unit.source).rawText;
-				const source = `${unit.start}\n${raw}\n${/^#+/.exec(unit.start)[0]} Unrelated following section\nOutside rule.\n`;
-				const changed = source.replace("Outside rule.", "Changed outside rule.\n\nUnrelated insertion.");
-				const fullDocument = unit.source.replace(raw, `${raw}\n${/^#+/.exec(unit.start)[0]} Unrelated inserted section\nOutside rule.\n`);
-				return { id: unit.id, changed: changed !== source && fullDocument !== unit.source, accepted: acceptsRecordUnit(unit, source) && acceptsRecordUnit(unit, changed) && acceptsRecordUnit(unit, fullDocument) && acceptsRecordUnit(unit, `${unit.start}\n${raw}`) };
+				const peer = /^#+/.exec(unit.start)[0];
+				return [`${peer} Unrelated following section`, peer, `${peer} \t`, "#", "# \t"].map((heading) => {
+					const source = `${unit.start}\n${raw}\n${heading}\nOutside rule.\n`;
+					const changed = source.replace("Outside rule.", "Changed outside rule.\n\nUnrelated insertion.");
+					const fullDocument = unit.source.replace(raw, `${raw}\n${heading}\nOutside rule.\n`);
+					return { id: unit.id, heading, changed: changed !== source && fullDocument !== unit.source, accepted: acceptsRecordUnit(unit, source) && acceptsRecordUnit(unit, changed) && acceptsRecordUnit(unit, fullDocument) && acceptsRecordUnit(unit, `${unit.start}\n${raw}`) };
+				});
 			});
 			// These independent literals test parsing separately from document digests.
 			const boundaryStart = "## Policy";
@@ -4481,13 +4485,29 @@ verbatim retention of every tool result.`);
 				const result = boundaryExtract(source);
 				return result.count === 1 && result.text === normalizeText(expected);
 			};
-			const truncationAttacks = ["## Peer", "# Higher"].map((heading) => {
+			const truncationAttacks = ["## Peer", "# Higher", "##", "## ", "##\t", "#", "# \t"].map((heading) => {
 				const source = boundarySource.replace("Required last rule.", `${heading}\nRequired last rule.`);
 				const result = boundaryExtract(source);
 				return { heading, changed: source !== boundarySource, rejected: !acceptsBoundary(source), intended: result.reason === "content" && result.text === "Required first rule." };
 			});
+			const levelBoundaries = [1, 2, 3, 4, 5, 6].flatMap((level) => {
+				const hashes = "#".repeat(level);
+				const extract = headingUnit(`${hashes} Policy`);
+				return [hashes, `${hashes} \t`, "#"].map((heading) => {
+					const source = `${hashes} Policy\n${boundaryBody}\n${heading}\nOutside rule.`;
+					const result = extract(source);
+					return { level, heading, accepted: result.count === 1 && result.text === normalizeText(boundaryBody) };
+				});
+			});
 			const inclusionCases = [
 				["lower-level", "### Detail\n"],
+				["empty-lower-level", "###\n"],
+				["seven-hashes", "#######\n"],
+				["missing-heading-space", "##Text\n"],
+				["empty-inline", "Inline ##\n"],
+				["empty-indented", "    ##\n"],
+				["empty-backtick-fence", "```text\n##\n#\nRequired example rule.\n```\n"],
+				["empty-tilde-fence", "~~~text\n## \t\n#\nRequired example rule.\n~~~\n"],
 				["inline", "Inline ## Example\n"],
 				["indented", "  ## Example\n"],
 				["backtick-fence", "```text\n## Example\nRequired example rule.\n```\n"],
@@ -4500,6 +4520,15 @@ verbatim retention of every tool result.`);
 				const changed = source.replace(protectedRule, "Contradictory example rule.");
 				return { kind, changed: source !== boundarySource && changed !== source, accepted: acceptsBoundary(source, expected), rejected: !acceptsBoundary(changed, expected), intended: boundaryExtract(changed).reason === "content" && boundaryExtract(source).text.includes("Required last rule.") };
 			});
+			const keptAnchorRemovals = [
+				["notes-accounting", "- every finding and its disposition."],
+				["workflow-accounting", "Aim for a delivery body at or below 16,384 UTF-8 bytes."],
+				["workflow-accounting", "A bootstrap commit created to open a draft pull request uses\n`Bootstrap: <intent title>`."],
+			].map(([id, rule]) => {
+				const unit = headingOwnedUnits.find((unit) => unit.id === id);
+				const source = unit.source.replace(rule, "");
+				return { id, rule, changed: source !== unit.source, rejected: !acceptsRecordUnit(unit, source) };
+			});
 			const privacyUnit = headingOwnedUnits.find((unit) => unit.id === "manual-records");
 			const privacyRule = "Pi saves session files with default permissions, which can expose record text to other local users.";
 			const privacyMutation = recursive.replace(privacyRule, "Session permissions need no attention.");
@@ -4508,7 +4537,9 @@ verbatim retention of every tool result.`);
 				["missing, duplicate, empty, empty duplicate, truncation, and every sentence mutation fail for their intended reason", headingPolicyAttacks.every(({ changed, rejected, intended }) => changed && rejected && intended), headingPolicyAttacks],
 				["following-section insertions preserve every preceding pin and document-end controls pass", headingOutsideControls.every(({ changed, accepted }) => changed && accepted), headingOutsideControls],
 				["peer and higher headings truncate a protected rule and fail content expectations", truncationAttacks.every(({ changed, rejected, intended }) => changed && rejected && intended), truncationAttacks],
+				["all six empty heading levels close regions without becoming owned starts", levelBoundaries.every(({ accepted }) => accepted) && boundaryExtract("##\nRequired rule.").count === 0, levelBoundaries],
 				["lower, inline, indented, and fenced headings keep protected content and its mutations active", inclusionCases.every(({ changed, accepted, rejected, intended }) => changed && accepted && rejected && intended), inclusionCases],
+				["removing each restored anchor sentence fails its complete owning pin", keptAnchorRemovals.every(({ changed, rejected }) => changed && rejected), keptAnchorRemovals],
 				["the lower-level privacy subsection stays protected by the complete manual-record pin", privacyMutation !== recursive && privacyUnit.extract(recursive).text.includes("### Design authority and privacy") && privacyUnit.extract(recursive).text.includes(privacyRule) && !acceptsRecordUnit(privacyUnit, privacyMutation), "privacy sentence removal"],
 			]);
 			const authorRow = "| P13 risk-based focus-area authorship | no runtime code home for author research or approval. Focus definitions, reviewer content, the code roster, and structure and agreement checks apply the rule. |";

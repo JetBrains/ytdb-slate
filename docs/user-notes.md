@@ -195,8 +195,6 @@ After root final acceptance, copy every required conclusion into the final deliv
 Root closure waits for verification against all accounting sources.
 The accounting covers:
 
-### Required accounting conclusions
-
 - every finding and its disposition.
 - every user note, acknowledgement, route, blocking reading and disposition.
 - a one-line index of every ignored finding.
