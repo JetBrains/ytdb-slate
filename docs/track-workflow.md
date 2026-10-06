@@ -169,7 +169,7 @@ A small tree with a design track still loads the whole document.
 A change with neither triggering track type reads only the named common sections.
 Only changes that load the nested sections have retention-reference duties.
 An ordinary change has no such duty, with publishing enabled or disabled.
-Use [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for dependency order, pauses, split changes, and branch bases.
+For nested work, use [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for dependency order, pauses, split changes, and branch bases.
 
 The approved plan supplies specific evidence for proportional process.
 A design track or review-fix child track triggers the manual status file.
@@ -775,7 +775,9 @@ Re-pin affected ranges after a permitted rewrite.
 Never destroy the exact state the user reviewed.
 A later aggregate package does not authorize rewriting earlier user-reviewed ranges.
 
-If marker history is unavailable, pause affected work.
+For changes that load the nested sections, route a missing or wrong-commit retention reference to
+[recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for the user's choice.
+For other unavailable marker history, pause affected work.
 Try to recover the exact recorded history from retained branches, references, or source records.
 A status entry, merge result, or copied marker title cannot replace missing history.
 Never recreate a marker to claim an earlier boundary was proved.

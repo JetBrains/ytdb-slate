@@ -2923,7 +2923,7 @@ Verify the observed merge commit's identity and parents against its accepted his
 Record the observed merge-result binding in the reachable description and owning log.
 The merge commit itself supplies that binding, including for the last level.
 The root final package lists every level delivery.
-It distinguishes merged levels from the last accepted level waiting for merge.
+It distinguishes merged levels from every level waiting for merge, including levels held behind an unmerged foundation.
 Close the root change only after all delivery accounting is verified.
 Use track-workflow.md § Session handoff and the research log for closure. Abandonment at any stage also ends with
 \`slate_change close\`, even if no delivery artifact exists. Closing deletes
@@ -3029,7 +3029,7 @@ A small tree with a design track still loads the whole document.
 A change with neither triggering track type reads only the named common sections.
 Only changes that load the nested sections have retention-reference duties.
 An ordinary change has no such duty, with publishing enabled or disabled.
-Use [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for dependency order, pauses, split changes, and branch bases.
+For nested work, use [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for dependency order, pauses, split changes, and branch bases.
 
 The approved plan supplies specific evidence for proportional process.
 A design track or review-fix child track triggers the manual status file.
@@ -3308,7 +3308,7 @@ A mismatch pauses work. Reconcile it in the log. Use marker commits and Git
 history as boundary authority. The track table is display-only.`);
 			const recursiveRecordUnits = [
 				{ id: "identifiers-ranges", source: recursive, start: "## Identifiers, code ranges, and design markers", extract: headingUnit("## Identifiers, code ranges, and design markers"), expected: "06a2a0822448a5112173b65c04826364d3a3094f7930ba98ecd7f17300e19ed8" },
-				{ id: "tool-records-and-recovery", source: recursive, start: "## Manual records and safe writes", extract: headingUnit("## Manual records and safe writes"), expected: "26f45e8838e2190e04e360cfa94b84500d56213de062d6e2688d1abaa8cc35ae" },
+				{ id: "tool-records-and-recovery", source: recursive, start: "## Manual records and safe writes", extract: headingUnit("## Manual records and safe writes"), expected: "8dbdbb6508744b3b4a2fc364dda4709c4e734fe17e032275a1dc8823af765b68" },
 				{ id: "resume-forks", source: recursive, start: "## Resume and folder forks", extract: headingUnit("## Resume and folder forks"), expected: "ee8952191bf8a044b0c4c124644079ad41a918a51510d10a1d8b1ea6d72e6860" },
 				{ id: "handoff-pointer", source: recursive, start: "## Handoff boundaries", extract: headingUnit("## Handoff boundaries"), expected: "fc5ca34c11f5f1defb5989c10af42cbac9af901c102dc18c6c8d1b55a98cd52f" },
 				{ id: "marker-identity", source: workflow, extract: markedUnit("marker-identity-policy"), expected: "846764c07a6b2c925091bd80f944c888d49994a71f2799b5cd2b8368b415a3c9" },
@@ -3755,8 +3755,8 @@ Use [track-workflow.md](track-workflow.md) for the common lifecycle.`);
 				{ id: "repairs", source: recursive, start: "## Review-fix subtrees and repair limits", expected: protectedRepairSummary },
 				{ id: "aggregate", source: recursive, start: "## Whole-subtree acceptance", expected: "6e37e0e95c35ed0c3ede6e02f3322f43038d8653d9885ce4b2ac1ed423472b63" },
 				{ id: "issues", source: recursive, start: "## Packages, attribution, and issues", end: null, expected: "895b87ee7afdda0d4d85e071c978727e0cf962f9af42e68c534c022ac010a5a3" },
-				{ id: "sources", source: deliveryPackages, start: "## Durable accounting", expected: "0659078a4ccb82cf3ccb833a7aff3dd39f701c74f8a492b79e855843db57bdad" },
-				{ id: "workflow-accounting", source: workflow, start: "### Delivery history and accounting", expected: "cd6e2aed70a20d7c1b40a6847d4bf5fb9c6706b288333f0c6cf66a7231601d23" },
+				{ id: "sources", source: deliveryPackages, start: "## Durable accounting", expected: "efd4e8f172b2bb21f2daec2ccd03db897420167fe0b53e28aec8a5da5f456557" },
+				{ id: "workflow-accounting", source: workflow, start: "### Delivery history and accounting", expected: "bf928762831b7dd3e5082d8f9271c890b9d6c8e31f739271e03a33c960629516" },
 				{ id: "notes-accounting", source: userNotes, start: "### Final accounting preparation", expected: "27a19ef36cc0fc14fbd2c14fc1699d6d3ddeadfe8a284f2d85ab76481faaa352" },
 				{ id: "publishing-sync", source: publishing, start: "## Keeping the PR in sync", expected: "fb386e6f14c2f051a842cd050cc4e2834dea5e2674853cc22794792cd4c1a7cc" },
 				{ id: "public-workflow", source: projectReadme, start: "A track is a bounded", end: "## ", endAtLineStart: true, expected: "23f90e859751918fac2f72ad4819c635cf21d88f15e18d100cc0a9944018fbf3" },
@@ -3828,8 +3828,9 @@ Use [track-workflow.md](track-workflow.md) for the common lifecycle.`);
 1. Obtain and record the explicit acceptance decision after its package and prerequisites.
 2. Copy that decision and its aggregate evidence references into the closing level's description.
 3. Add a marker only for each design track newly accepted by this decision. Reuse retained marker references for tracks accepted earlier. Record each track's history references in that description.
-4. Verify the description against all accounting sources after these updates and before handoff for merge.
-5. Hand the updated description to the user for merge. Only the user merges.
+4. For changes that load the nested sections with publishing enabled, complete the retention protocol in [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history.
+5. Verify the description against all accounting sources, including the step 4 results, after these updates and before handoff for merge.
+6. Hand the updated description to the user for merge. Only the user merges.
 
 Repeat the description measurement and size-exception checks after each update.
 A missing acceptance or required conclusion blocks handoff for merge.
@@ -3841,8 +3842,12 @@ Verify every level record and all root-wide accounting before root closure.`);
 			};
 			const transferCopy = "2. Copy that decision and its aggregate evidence references into the closing level's description.";
 			const transferDecision = "1. Obtain and record the explicit acceptance decision after its package and prerequisites.";
+			const transferRetention = "4. For changes that load the nested sections with publishing enabled, complete the retention protocol in [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history.";
+			const transferVerification = "5. Verify the description against all accounting sources, including the step 4 results, after these updates and before handoff for merge.";
 			const transferAttacks = [
 				deliveryPackages.replace(transferCopy, ""),
+				deliveryPackages.replace(transferRetention + "\n", "").replace("3. Add a marker", transferRetention + "\n3. Add a marker"),
+				deliveryPackages.replace(transferRetention + "\n", "").replace(transferVerification, transferVerification + "\n" + transferRetention),
 				deliveryPackages.replace(transferDecision, transferCopy).replace(transferCopy + "\n" + transferCopy, transferCopy + "\n" + transferDecision),
 				deliveryPackages.replace("after these updates and before handoff for merge", "before these updates and after merge"),
 			].map((source) => ({ changed: source !== deliveryPackages, rejected: !acceptsTransfer(source) }));
@@ -3949,7 +3954,9 @@ Re-pin affected ranges after a permitted rewrite.
 Never destroy the exact state the user reviewed.
 A later aggregate package does not authorize rewriting earlier user-reviewed ranges.
 
-If marker history is unavailable, pause affected work.
+For changes that load the nested sections, route a missing or wrong-commit retention reference to
+[recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for the user's choice.
+For other unavailable marker history, pause affected work.
 Try to recover the exact recorded history from retained branches, references, or source records.
 A status entry, merge result, or copied marker title cannot replace missing history.
 Never recreate a marker to claim an earlier boundary was proved.
@@ -4073,9 +4080,17 @@ With publishing enabled, keep these remote references until root closure.
 Before every retention push, inspect all commits and objects reachable from each reference to be pushed.
 This inspection covers event pushes, preserving-reference pushes, level updates, and retries.
 Inspect reachable history, not only the pushed tree.
-Use [recursive-workflow.md](recursive-workflow.md) § Design authority and privacy for the exposure warnings.
+Use [recursive-workflow.md](recursive-workflow.md) § Design authority and privacy for the private-set definition and exposure warnings.
 A current untracked file does not prove that ancestor commits contain no private bytes.
 If inspection finds private bytes, do not push and pause.
+Ask the user to choose a permitted rewrite, a limited explicit waiver, or abandonment.
+A permitted rewrite removes the private bytes and records a new reviewed binding after its required review.
+It never moves an existing reviewed reference.
+History preservation before a rewrite must not push a commit that holds private bytes.
+A waiver states which exposure or evidence limit the user accepts.
+It grants no unstated publication permission and claims no recovered evidence.
+Keep private reference-to-commit evidence in the owning log locally.
+Public accounting includes only permitted conclusions and history references.
 After inspection, every retention push must name its references explicitly.
 No untargeted push may publish retention references, including all-branches, mirror, or matching pushes.
 The reachable-history inspection duty applies only to retention pushes, not pull request branch pushes.
@@ -4160,13 +4175,66 @@ Later level comparisons use H2', not the earlier H2 binding.
 Keep the H2 and H1 reviewed bindings unchanged through root closure.
 All exception conditions hold, so this example continues without a retention pause.
 
+Before the final ready flip and every merge handoff, complete all required commits and retention checks.
+For an already-ready pull request, repeat the checks without treating another flip as acceptance.
+With publishing enabled, after acceptance markers, push every kept reference under its creation or update safeguards.
+This includes final-marker and recovery-reference pushes, which require the reachable-history inspection above.
+Read back every pushed reference and record each exact result in the owning log before handoff.
+Recheck review-event retention rather than replacing it with the final checks.
+Advance the current level reference through every final marker under the authorized update rules.
+At handoff, that reference and its latest recorded binding must equal the actual pull request head.
+Verify that remote binding by read-back.
+An earlier binding does not satisfy handoff equality.
+Any new commit after a check requires a fresh handoff check.
+
+After merge, compare the host's recorded merged pull request head with the latest level binding used at final handoff.
+Check that the level reference still equals that final-handoff binding.
+Compare every kept reference with its latest recorded binding, including remote copies when publishing is enabled.
+An exact head comparison uses that reference's binding, not a reachable ancestor.
+Earlier level bindings remain historical evidence, not the merge-comparison target.
+Record these comparisons with the merge-result evidence before root closure.
+If the host cannot supply the merged head, pause rather than infer it from a squash commit.
+Branch deletion by the host does not remove retained marker authority.
+Missing evidence or any comparison mismatch pauses affected work for the user-choice route below.
+
+A missing reference or a reference at another commit pauses affected work.
+Record the observed unexpected commit before any recovery.
+Keep that commit under a new unique reference approved through the collision route unless the user explicitly chooses to discard it.
+Keep that preserving reference until root closure, with inspected push and read-back when publishing is enabled.
+The user chooses recovery from another kept copy, an explicit evidence waiver, or abandonment.
+Resetting a moved reference is a user choice, not an automatic recovery attempt.
+No choice authorizes a forced update or replacement of an existing reviewed reference.
+Recovery establishes exact recorded evidence under an allowed binding before work relies on it.
+An evidence waiver records its limit and claims no recovered evidence.
+A status entry, merge result, or copied marker title cannot replace lost history.
+Never create a marker to claim an earlier boundary that was not proved.
+
+With publishing disabled, before the final squash, compare the local level reference for the branch being squashed and its latest recorded binding with that branch head.
+Both must equal the complete head, including every marker commit.
+An earlier binding does not satisfy this equality even when the reference still matches it.
+Use the authorized local level-update rules above.
 With publishing disabled, keep these local references until root closure, including through the final squash.
-Check each local reference against its recorded commit before closure.
+Check every kept local reference against its latest recorded binding before closure.
 Retention requires no remote operation in this setting.
 Do not push any retention reference to any remote when publishing is disabled.
 
 Use [track-workflow.md](track-workflow.md) § Delivery and termination for permitted
 history rewrites, rebased-marker mappings, range updates, and unavailable history.`),
+				},
+				{
+					id: "private-set", source: recursive, extract: headingUnit("### Design authority and privacy"),
+					expected: normalizeText(`The **private set** contains every path under \`slate-changes/\`, saved-session text, and private reasoning.
+**Private bytes** are bytes from that set.
+A write approves no design and grants no completion or gate authority.
+The owning log records approved design hashes.
+SHA-256 means Secure Hash Algorithm, 256-bit.
+A hash identifies the exact file bytes.
+Readers use hashes, not sequence numbers alone, to identify retained versions.
+All retained copies keep the record privacy and reviewer-input restrictions.
+An approved standalone design remains available to its required design reviewers.
+Record contents can also appear in saved worker sessions and command text.
+Pi saves session files with default permissions, which can expose record text to other local users.
+[Issue #499](https://github.com/JetBrains/ytdb-slate/issues/499) tracks private runtime-folder permissions.`),
 				},
 				{
 					id: "history-owner-pointers", source: recursive,
@@ -4198,8 +4266,8 @@ Apply that sequence even when the pull request is already ready.`),
   placeholder — plus any notes under it. Preserve required acceptance and
   history references in Delivery accounting.
   A squash merge does not preserve marker commits in the default-branch history.
-  For nested work, keep accepted source markers under
-  [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history.
+  For changes that load the nested sections, complete the retention protocol in
+  [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history before the final ready flip and each merge handoff.
   Motivation and Planned changes remain in the description.`),
 				},
 				{
@@ -4258,6 +4326,15 @@ from it. Before each package for this level, copy its required delivery
 accounting from the complete accounting source set in
 [delivery-packages.md](delivery-packages.md) § Durable accounting into the description.
 A stale description fails the "deep enough" test.`),
+				},
+				{ id: "transfer", source: deliveryPackages, extract: transferUnit, expected: acceptanceTransferExpected },
+				{
+					id: "disabled-preservation", source: deliveryPackages,
+					extract: regionUnit(/^(3\. After root final acceptance,[\s\S]*?)(?=^4\. Verify the body)/gm),
+					expected: normalizeText(`3. After root final acceptance, create the final squashed delivery commit.
+   Copy every required conclusion from all accounting sources into its body.
+   Before rewriting, preserve accepted source history under
+   [track-workflow.md](track-workflow.md) § Delivery and termination.`),
 				},
 				{
 					id: "configuration", source: configuration,
@@ -4404,7 +4481,7 @@ A stale description fails the "deep enough" test.`),
 				["tree-only", "inspect all commits and objects reachable from each reference to be pushed", "inspect only the pushed tree"],
 				["untracked-sentence", "A current untracked file does not prove that ancestor commits contain no private bytes.", ""],
 				["no-push-pause", "If inspection finds private bytes, do not push and pause.", "Push private bytes before pausing."],
-				["inspection-pointer", "§ Design authority and privacy for the exposure warnings.", "§ Terms and scope for the exposure warnings."],
+				["inspection-pointer", "§ Design authority and privacy for the private-set definition and exposure warnings.", "§ Terms and scope for the exposure warnings."],
 				["explicit-push", "After inspection, every retention push must name its references explicitly.", "Push all references without naming them."],
 				["untargeted-push", "No untargeted push may publish retention references, including all-branches, mirror, or matching pushes.", "Matching pushes may publish retention references."],
 				["pr-branch-explicit-push", "A pull request branch push must name its branch explicitly.", "A pull request branch push may omit its branch name."],
@@ -4417,6 +4494,21 @@ A stale description fails the "deep enough" test.`),
 				["event-read-back", "With publishing enabled, read back each remote reference and check its exact binding.", ""],
 				["event-record", "Record each result in the owning log.", ""],
 				["event-too-late", "Complete this sequence before any later rewrite or reliance on remote retention.", "Complete this sequence after the next rewrite."],
+				["waiver-publication", "It grants no unstated publication permission and claims no recovered evidence.", "A waiver permits publication of private bytes and claims recovered evidence."],
+				["private-preservation", "History preservation before a rewrite must not push a commit that holds private bytes.", "History preservation may push private bytes before a rewrite."],
+				...["permitted rewrite", "limited explicit waiver", "abandonment"].map((choice) => [`private-choice-${choice}`, "Ask the user to choose a permitted rewrite, a limited explicit waiver, or abandonment.", `Ask the user to choose only ${choice}.`]),
+				["unexpected-record", "Record the observed unexpected commit before any recovery.", "Recover before recording the unexpected commit."],
+				["unexpected-discard", "unless the user explicitly chooses to discard it", "unless the agent chooses to discard it"],
+				["unexpected-preservation", "Keep that commit under a new unique reference approved through the collision route", "Discard that commit without asking the user"],
+				["recovery-force", "No choice authorizes a forced update or replacement of an existing reviewed reference.", "Recovery authorizes replacing a reviewed reference."],
+				["final-inspection", "This includes final-marker and recovery-reference pushes, which require the reachable-history inspection above.", "Final-marker and recovery-reference pushes need no inspection."],
+				["handoff-earlier", "that reference and its latest recorded binding must equal the actual pull request head", "that reference and an earlier binding must equal the actual pull request head"],
+				["disabled-target", "the local level reference for the branch being squashed", "every local level reference"],
+				["disabled-markers", "Both must equal the complete head, including every marker commit.", "Both may equal the head before the final marker."],
+				["disabled-earlier", "An earlier binding does not satisfy this equality even when the reference still matches it.", "An earlier binding satisfies this equality when the reference matches it."],
+				["merge-earlier", "with the latest level binding used at final handoff", "with an earlier reviewed binding"],
+				["merge-inferred", "pause rather than infer it from a squash commit", "infer it from a squash commit"],
+				["exact-binding", "An exact head comparison uses that reference's binding, not a reachable ancestor.", "An exact head comparison may use any reachable ancestor."],
 				...["event pushes", "preserving-reference pushes", "level updates", "retries"].map((site) => [`inspection-site-${site}`, `This inspection covers event pushes, preserving-reference pushes, level updates, and retries.`, `This inspection excludes ${site}.`]),
 				["RG4-reachability", "An ancestry check proves H2 remains reachable from recorded `track-3.2-reviewed` at H2.", "No reference needs to reach H2."],
 				["RG4-mapping", "Record its old-to-new rebased-marker mapping in the owning log.", "Skip the mapping."],
@@ -4437,9 +4529,41 @@ A stale description fails the "deep enough" test.`),
 			const retentionMutations = mutateRetention(recursive);
 			const wrappedRetentionMutations = mutateRetention(wrappedRetention);
 			const privacyDestination = headingUnit("### Design authority and privacy")(recursive);
+			// Only independently pinned scoped paragraphs may state peer retention duties.
+			const peerRetentionOwners = [
+				{ id: "nested", source: recursive, units: [historyUnit, levelPolicyUnits.find(({ id }) => id === "private-set")] },
+				{ id: "publishing", source: publishing, units: [levelPolicyUnits.find(({ id }) => id === "ready-history")] },
+				{ id: "delivery", source: deliveryPackages, units: [levelPolicyUnits.find(({ id }) => id === "transfer")] },
+				{ id: "lifecycle", source: workflow, units: [recursiveUnits[0], levelPolicyUnits.find(({ id }) => id === "accepted-history")] },
+			];
+			const acceptsPeerRetention = ({ units }, source) => {
+				for (const unit of units) {
+					if (!acceptsLevelUnit(unit, source)) return false;
+					source = source.replace(literalPattern(unit.expected), "");
+				}
+				return !/slate-retained|retention[- ](?:reference|protocol|push|check)|kept (?:local |remote )?reference|level reference|private set|private bytes|(?:force[- ]push|forced update)[^.]*reference/i.test(normalizeText(source));
+			};
+			const peerRetentionAttacks = peerRetentionOwners.flatMap((owner) => [
+				"Force-push the kept references without inspection.",
+				"Create a retention reference before any ordinary change.",
+				"The private set contains only credentials.",
+				historyUnit.expected,
+			].map((rule) => {
+				const source = `${owner.source}\n\n${rule}\n`;
+				return { id: owner.id, changed: source !== owner.source, rejected: !acceptsPeerRetention(owner, source) };
+			}));
+			const pointerAttacks = peerRetentionOwners.flatMap((owner) => owner.units.filter(({ id }) => !["lifecycle-planning", "history", "private-set"].includes(id)).flatMap((unit) => [
+				["scope", "For changes that load the nested sections", "For every change"],
+				["destination", "§ Level publishing and retained history", "§ Terms and scope"],
+				...(unit.id === "transfer" ? [["disabled", "with publishing enabled", "with publishing disabled"]] : []),
+			].map(([kind, before, after]) => {
+				const source = owner.source.replace(literalPattern(unit.expected), unit.expected.replace(before, after));
+				return { id: owner.id, kind, changed: source !== owner.source, rejected: !acceptsPeerRetention(owner, source) };
+			})));
 			const benignOrderingDocuments = Object.fromEntries(Object.entries(orderingDocuments).map(([id, source]) => [id, `${source}\n<!-- Outside ordering control. -->\n`]));
 			checkAll("contract-level-publishing", "level membership, dependency order, pauses, local retention, approval, delivery, cleanup, rebase mappings, unavailable evidence, and publishing defaults are mutation-resistant owned rules", [
-				["safe creation, updates, remote events, inspection, and RG4 mutations change their intended input and fail", retentionMutations.length === 39 && retentionMutations.every(({ changed, rejected, retained }) => changed && rejected && retained), retentionMutations],
+				["single scoped peer pointers reject copies, conflicting procedures, privacy definitions, and broadened or redirected pointers", peerRetentionOwners.every((owner) => acceptsPeerRetention(owner, owner.source) && acceptsPeerRetention(owner, `${owner.source}\n<!-- Outside control. -->`)) && peerRetentionAttacks.every(({ changed, rejected }) => changed && rejected) && pointerAttacks.every(({ changed, rejected }) => changed && rejected), { peerRetentionAttacks, pointerAttacks }],
+				["safe creation, updates, remote events, inspection, and RG4 mutations change their intended input and fail", retentionMutations.length === 56 && retentionMutations.every(({ changed, rejected, retained }) => changed && rejected && retained), retentionMutations],
 				["the complete valid stacked example and normal fast-forward policy match in both publishing settings", acceptsLevelUnit(historyUnit, recursive), "independent complete history literal"],
 				["moving inspection outside the marker fails while keeping the sentence present", movedInspection !== recursive && movedInspection.includes(inspectionSentence) && !historyUnit.extract(movedInspection).text.includes(inspectionSentence) && !acceptsLevelUnit(historyUnit, movedInspection), "outside-marker inspection control"],
 				["wrapped inspection passes and keeps all named mutations discriminating", wrappedRetention !== recursive && acceptsLevelUnit(historyUnit, wrappedRetention) && wrappedRetentionMutations.every(({ changed, rejected, retained }) => changed && rejected && retained), wrappedRetentionMutations],
@@ -5157,7 +5281,7 @@ omitted and why.`);
 
 			const packageContract = block(deliveryPackages, "delivery-package-contract");
 			const digest = (text) => createHash("sha256").update(normalizeText(text)).digest("hex");
-			const EXPECTED_DELIVERY_PACKAGES_SHA256 = "569dbba8904d5a7b698eff3c7a9024e11adb2251ce7fcf0939091f793b87dc17";
+			const EXPECTED_DELIVERY_PACKAGES_SHA256 = "21a47331244a66225b4b59c24555f686656512e61f42b9b7f9546f440c7cd64e";
 			const acceptsPackageContract = (source) => {
 				const owned = block(source, "delivery-package-contract");
 				return owned.count === 1 && owned.endCount === 1 && digest(source) === EXPECTED_DELIVERY_PACKAGES_SHA256;
@@ -5218,6 +5342,7 @@ exists.`);
 			const disabledAccountingMutations = [
 				["future-intermediate-record", deliveryPackages.replace("Reference those owning records and\n   accepted ranges.", "Reference the future final commit body.")],
 				["missing-final-transfer", deliveryPackages.replace("Copy every required conclusion from all accounting sources into its body.", "Create the commit without copying the accounting.")],
+				["disabled-source-preservation", deliveryPackages.replace(literalPattern("Before rewriting, preserve accepted source history under [track-workflow.md](track-workflow.md) § Delivery and termination."), "")],
 				["cleanup-before-verification", deliveryPackages.replace("Verify the body against every accounting source and required conclusion.\n   Only then close", "Close before verifying the accounting. Then restore")],
 				["missing-single-track-route", deliveryPackages.replace("A publishing-disabled single-track change starts at step 2.", "A publishing-disabled single-track change has no accounting route.")],
 			];
