@@ -93,6 +93,12 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
     await check("count-preserving reference order change within one heading", {
       "docs/user-notes.md": notes.replace(combinedPackage, "") + `\n\n${combinedPackage}\n`,
     });
+    for (const [file, heading] of [[workflowFile, "### Delivery accounting"], ["docs/user-notes.md", "### Final accounting preparation"]] as const) {
+      const source = readFileSync(join(fixture, file), "utf8");
+      assert.ok(source.includes(heading));
+      await check(`changed accounting subsection: ${file}`, { [file]: source.replace(heading, "### Other accounting") });
+      await check(`duplicated accounting subsection: ${file}`, { [file]: source.replace(heading, `${heading}\n${heading}`) });
+    }
     await check("changed owned loading rule", { [workflowFile]: workflow.replace("Immediately before preparing any track package or final change package", "At session start") });
     await check("moved owned loading unit", { [workflowFile]: workflow.replace(loading, "") + `\n## Early reads\n\n${loading}\n` });
     for (const marker of [begin, end]) {

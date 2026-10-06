@@ -481,6 +481,8 @@ contract. Reviewers receive the approved inputs for their role. Ordinary
 repository and library evidence needed for the assigned work remains available.
 This permission is not a closed changed-file allowlist.
 
+### Commit titles and bodies
+
 Implementation commit titles use `Track <n>: <intent title>`.
 An agentic-review fix commit inside a track uses
 `Track <n> fix round <r>: <intent title>`. The original implementation commit
@@ -492,6 +494,8 @@ commit uses
 For that title, `<r>` starts at 1 and increases by one for each user-review fix
 commit in the track. That section also defines the distinct cumulative
 implementation body.
+
+### Implementer reports and execution
 
 For each code track, the implementer creates
 `track-<number>-implementer-report.md` in the current change folder when the track
@@ -561,6 +565,8 @@ the successor the owner of the current folder. If folder allocation fails,
 Slate saves no open change and reports the failure. If that save fails, Slate
 reports it too. A legacy root `research-log.md` remains read-only. Only the user
 deletes a delivered or abandoned change folder.
+
+### Handoff summary
 
 Before a session handoff, use § Confirmation gate's handoff block for record order and the subtree-entry reference.
 The root state summary names the proved focus
@@ -704,11 +710,15 @@ corrected range. This correction loop uses the ordinary two-round cap and
 escalation rules in
 [review-rules.md](review-rules.md) § Fix loop and gate verdicts.
 
+### Closed-range corrections
+
 The correction remains a separate commit after the cumulative implementation
 commit. Do not squash it. A track with no user-review fix commit adds neither
 this range nor this gate action. Where a marker applies, it comes last because
 it defines the track range. Later feedback follows [user-notes.md](user-notes.md).
 It does not extend the closed range or automatically belong to the next track.
+
+### Publishing bootstrap and markers
 
 A bootstrap commit created to open a draft pull request uses
 `Bootstrap: <intent title>`. It is not part of any track. Re-pin every recorded
@@ -766,6 +776,8 @@ The track table lists names, one-line scopes, and status. It contains no commit
 identifier. Track numbers are append-only. Abandoned tracks are struck through.
 Numbers are never reused.
 
+### Delivery accounting
+
 With draft publishing, [pr-publishing.md](pr-publishing.md) § After the merge
 owns per-level delivery accounting and root closure.
 Without publishing, use all owning accounting sources defined in
@@ -789,6 +801,8 @@ in § Session handoff and the research log keeps the local files out of the pull
 request.
 On abandonment, offer their content for archival first. Only the user deletes
 an old change folder.
+
+### Delivery body size and release scope
 
 Aim for a delivery body at or below 16,384 UTF-8 bytes. Measure exact bytes from
 the commit object. If larger, remove repetition first. Then record a measured

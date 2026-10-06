@@ -185,6 +185,8 @@ A single-track change uses the combined package defined in
 multi-track change uses the separate change package defined in that document.
 Package preparation does not delay or replace the feedback triggers above.
 
+### Final accounting preparation
+
 Before final acceptance, reconcile all owning records defined in
 [delivery-packages.md](delivery-packages.md) § Durable accounting.
 With publishing, use that section's package and post-acceptance transfer sequence before merge.
@@ -192,6 +194,8 @@ Without publishing, packages reference the owning accounting sources.
 After root final acceptance, copy every required conclusion into the final delivery commit body.
 Root closure waits for verification against all accounting sources.
 The accounting covers:
+
+### Required accounting conclusions
 
 - every finding and its disposition.
 - every user note, acknowledgement, route, blocking reading and disposition.
