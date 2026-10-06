@@ -314,11 +314,13 @@ Branch deletion by the host does not remove retained marker authority.
 Missing evidence or any comparison mismatch pauses affected work for the user-choice route below.
 
 A missing reference or a reference at another commit pauses affected work.
-Record the observed unexpected commit before any recovery.
+The user chooses recovery from another kept copy, an explicit evidence waiver, or abandonment.
+Before recovering a wrong-commit reference, record its observed unexpected commit.
 Keep that commit under a new unique reference approved through the collision route unless the user explicitly chooses to discard it.
 Keep that preserving reference until root closure, with inspected push and read-back when publishing is enabled.
-The user chooses recovery from another kept copy, an explicit evidence waiver, or abandonment.
+A missing reference has no unexpected commit to record or preserve.
 Resetting a moved reference is a user choice, not an automatic recovery attempt.
+A reset must pass the checked fast-forward rules or the complete permitted level-replacement exception above.
 No choice authorizes a forced update or replacement of an existing reviewed reference.
 Recovery establishes exact recorded evidence under an allowed binding before work relies on it.
 An evidence waiver records its limit and claims no recovered evidence.

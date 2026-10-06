@@ -221,7 +221,7 @@ stay agent duties below. The flip is gated by this checklist, executed in order:
   history references in Delivery accounting.
   A squash merge does not preserve marker commits in the default-branch history.
   For changes that load the nested sections, complete the retention protocol in
-  [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history before the final ready flip and each merge handoff.
+  [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history before the final ready flip and each merge handoff, and for the comparisons after each merge.
   Motivation and Planned changes remain in the description.
 - Update the PR title and description to the final state of the
   level: the title names what was actually delivered — preserving any

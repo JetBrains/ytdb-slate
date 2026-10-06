@@ -4198,11 +4198,13 @@ Branch deletion by the host does not remove retained marker authority.
 Missing evidence or any comparison mismatch pauses affected work for the user-choice route below.
 
 A missing reference or a reference at another commit pauses affected work.
-Record the observed unexpected commit before any recovery.
+The user chooses recovery from another kept copy, an explicit evidence waiver, or abandonment.
+Before recovering a wrong-commit reference, record its observed unexpected commit.
 Keep that commit under a new unique reference approved through the collision route unless the user explicitly chooses to discard it.
 Keep that preserving reference until root closure, with inspected push and read-back when publishing is enabled.
-The user chooses recovery from another kept copy, an explicit evidence waiver, or abandonment.
+A missing reference has no unexpected commit to record or preserve.
 Resetting a moved reference is a user choice, not an automatic recovery attempt.
+A reset must pass the checked fast-forward rules or the complete permitted level-replacement exception above.
 No choice authorizes a forced update or replacement of an existing reviewed reference.
 Recovery establishes exact recorded evidence under an allowed binding before work relies on it.
 An evidence waiver records its limit and claims no recovered evidence.
@@ -4267,7 +4269,7 @@ Apply that sequence even when the pull request is already ready.`),
   history references in Delivery accounting.
   A squash merge does not preserve marker commits in the default-branch history.
   For changes that load the nested sections, complete the retention protocol in
-  [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history before the final ready flip and each merge handoff.
+  [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history before the final ready flip and each merge handoff, and for the comparisons after each merge.
   Motivation and Planned changes remain in the description.`),
 				},
 				{
@@ -4497,7 +4499,9 @@ A stale description fails the "deep enough" test.`),
 				["waiver-publication", "It grants no unstated publication permission and claims no recovered evidence.", "A waiver permits publication of private bytes and claims recovered evidence."],
 				["private-preservation", "History preservation before a rewrite must not push a commit that holds private bytes.", "History preservation may push private bytes before a rewrite."],
 				...["permitted rewrite", "limited explicit waiver", "abandonment"].map((choice) => [`private-choice-${choice}`, "Ask the user to choose a permitted rewrite, a limited explicit waiver, or abandonment.", `Ask the user to choose only ${choice}.`]),
-				["unexpected-record", "Record the observed unexpected commit before any recovery.", "Recover before recording the unexpected commit."],
+				["unexpected-record", "Before recovering a wrong-commit reference, record its observed unexpected commit.", "Recover a wrong-commit reference without recording its observed unexpected commit."],
+				["missing-record-duty", "A missing reference has no unexpected commit to record or preserve.", "Before recovering a missing reference, record and preserve its observed unexpected commit."],
+				["reset-update-rules", "A reset must pass the checked fast-forward rules or the complete permitted level-replacement exception above.", "A user reset needs no update authorization checks."],
 				["unexpected-discard", "unless the user explicitly chooses to discard it", "unless the agent chooses to discard it"],
 				["unexpected-preservation", "Keep that commit under a new unique reference approved through the collision route", "Discard that commit without asking the user"],
 				["recovery-force", "No choice authorizes a forced update or replacement of an existing reviewed reference.", "Recovery authorizes replacing a reviewed reference."],
@@ -4529,20 +4533,82 @@ A stale description fails the "deep enough" test.`),
 			const retentionMutations = mutateRetention(recursive);
 			const wrappedRetentionMutations = mutateRetention(wrappedRetention);
 			const privacyDestination = headingUnit("### Design authority and privacy")(recursive);
-			// Only independently pinned scoped paragraphs may state peer retention duties.
-			const peerRetentionOwners = [
-				{ id: "nested", source: recursive, units: [historyUnit, levelPolicyUnits.find(({ id }) => id === "private-set")] },
-				{ id: "publishing", source: publishing, units: [levelPolicyUnits.find(({ id }) => id === "ready-history")] },
-				{ id: "delivery", source: deliveryPackages, units: [levelPolicyUnits.find(({ id }) => id === "transfer")] },
-				{ id: "lifecycle", source: workflow, units: [recursiveUnits[0], levelPolicyUnits.find(({ id }) => id === "accepted-history")] },
+			// Literal citations have an exact context roster. Paraphrase detection is best-effort.
+			const lifecycleRetentionContexts = [
+				["## Recursive planning and loading", "For nested work, use [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for dependency order, pauses, split changes, and branch bases."],
+				["## Confirmation gate", "Use [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for the pause conditions."],
+				["## Delivery and termination", "For changes that load the nested sections, route a missing or wrong-commit retention reference to [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for the user's choice."],
 			];
-			const acceptsPeerRetention = ({ units }, source) => {
-				for (const unit of units) {
-					if (!acceptsLevelUnit(unit, source)) return false;
+			const privateSetUnit = levelPolicyUnits.find(({ id }) => id === "private-set");
+			const peerRetentionOwners = [
+				{ id: "nested", source: recursive, units: [historyUnit, privateSetUnit] },
+				{ id: "publishing", source: publishing, units: [levelPolicyUnits.find(({ id }) => id === "ready-history"), publishingMigrationUnits[0]], count: 3, contexts: [
+					["## One draft pull request", "For nested work, use [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for subtree ordering, branch bases, and history slices."],
+					["## Creation", "For nested work, choose its base under [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history."],
+					["## Ready-for-review flip", "For changes that load the nested sections, complete the retention protocol in [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history before the final ready flip and each merge handoff, and for the comparisons after each merge."],
+				] },
+				{ id: "delivery", source: deliveryPackages, units: [levelPolicyUnits.find(({ id }) => id === "transfer"), levelPolicyUnits.find(({ id }) => id === "disabled-preservation")], count: 1, contexts: [
+					["## Durable accounting", "4. For changes that load the nested sections with publishing enabled, complete the retention protocol in [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history."],
+				] },
+				{ id: "lifecycle", source: workflow, units: [recursiveUnits[0], levelPolicyUnits.find(({ id }) => id === "accepted-history"), {
+					id: "shared-scheduling", extract: regionUnit(/^(Tracks are contiguous[\s\S]*?)(?=^## Session handoff and the research log)/gm),
+					expected: normalizeText(`Tracks are contiguous and execute through one sequential writer. Independent
+research and reviews may run in parallel. File-writing implementation does not.
+A later track builds on the accepted boundary before it.`),
+				}, {
+					id: "shared-disabled-preservation", extract: regionUnit(/^(Preserve accepted source history[\s\S]*?)(?=^Verify the body against all accounting sources before root closure\.)/gm),
+					expected: "Preserve accepted source history before rewriting under this section's safeguards.",
+				}], count: 3, contexts: lifecycleRetentionContexts },
+			];
+			const retentionCitationPattern = /§ (?:Level publishing and retained history|Design authority and privacy)|recursive-workflow\.md#(?:level-publishing-and-retained-history|design-authority-and-privacy)/gi;
+			const peerCitationFailure = (owner, source) => {
+				if (!owner.contexts) return "";
+				let remainder = normalizeText(source);
+				if ([...remainder.matchAll(retentionCitationPattern)].length !== owner.count) return "citation-count";
+				for (const [heading, text] of owner.contexts) {
+					const region = headingUnit(heading)(source);
+					if (region.count !== 1 || !region.text.includes(text) || remainder.split(text).length !== 2) return "citation-context";
+					remainder = remainder.replace(text, "");
+				}
+				return [...remainder.matchAll(retentionCitationPattern)].length ? "citation-context" : "";
+			};
+			// Use independent owner expectations, not candidate sentences, to detect copies.
+			const ownerSentences = [...new Set([historyUnit, privateSetUnit].flatMap((unit) => unit.expected.split(/(?<=\.) /)))];
+			const peerVocabulary = /slate-retained|retention[- ](?:reference|protocol|push|check)|retained (?:history|references?|markers?|bindings?|branches)|reviewed (?:binding|reference|marker)|kept (?:copy|(?:local |remote )?reference)|level reference|unexpected commit|private (?:set|bytes|content|files?)|preserv\w*[^.]*\b(?:reference|binding|history|commit)|(?:force[- ]push|forced update)[^.]*reference|(?:publish\w*[^.]*slate-changes|slate-changes[^.]*publish\w*)|(?:delet\w*[^.]*track-[\d.<][\w.<>-]*-reviewed)/i;
+			const peerRetentionFailure = (owner, source) => {
+				const citationFailure = peerCitationFailure(owner, source);
+				if (citationFailure) return citationFailure;
+				for (const unit of owner.units) {
+					if (!acceptsLevelUnit(unit, source)) return "owned-unit";
 					source = source.replace(literalPattern(unit.expected), "");
 				}
-				return !/slate-retained|retention[- ](?:reference|protocol|push|check)|kept (?:local |remote )?reference|level reference|private set|private bytes|(?:force[- ]push|forced update)[^.]*reference/i.test(normalizeText(source));
+				source = normalizeText(source);
+				for (const [, text] of owner.contexts ?? []) source = source.replace(text, "");
+				if (owner.id === "nested") source = source.replace("## Level publishing and retained history", "");
+				if (owner.id !== "nested" && ownerSentences.some((sentence) => source.includes(sentence))) return "owner-sentence";
+				return peerVocabulary.test(source) ? "vocabulary" : "";
 			};
+			const acceptsPeerRetention = (owner, source) => !peerRetentionFailure(owner, source);
+			const peerEscapeRules = [
+				["extra-scoped-pointer", "For changes that load the nested sections, use [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history before each merge handoff.", "citation-count"],
+				["ordinary-pointer", "For ordinary changes, use [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history before each merge handoff.", "citation-count"],
+				["every-change-pointer", "Every change must complete [recursive-workflow.md] § Level publishing and retained history before each merge handoff", "citation-count"],
+				["reviewed-binding-move", "Move an existing reviewed binding by fast-forward without asking the user.", "vocabulary"],
+				["verbatim-owner", "Never move an existing reviewed binding, even by fast-forward.", "owner-sentence"],
+				["recovery-before-record", "Recover an unexpected commit before recording or preserving it.", "vocabulary"],
+				["delete-retained", "Delete retained references after the merge.", "vocabulary"],
+				["delete-reviewed-branch", "After merge, delete the track-3-reviewed branch.", "vocabulary"],
+				["delete-branch-before-name", "After merge, delete the branch track-3-reviewed.", "vocabulary"],
+				["narrow-private-content", "Only research logs count as private content for any push.", "vocabulary"],
+				["publish-private-path", "Files under slate-changes/ other than the research log may be published.", "vocabulary"],
+				["privacy-citation", "Use [recursive-workflow.md](recursive-workflow.md) § Design authority and privacy for ordinary work.", "citation-count"],
+				["history-fragment", "Use [rules](recursive-workflow.md#level-publishing-and-retained-history) for every change.", "citation-count"],
+				["privacy-fragment", "Use [rules](recursive-workflow.md#design-authority-and-privacy) for every change.", "citation-count"],
+			];
+			const peerEscapeAttacks = peerRetentionOwners.filter(({ contexts }) => contexts).flatMap((owner) => peerEscapeRules.map(([kind, rule, reason]) => {
+				const source = `${owner.source}\n\n${rule}\n`;
+				return { id: owner.id, kind, changed: source !== owner.source, rejected: peerRetentionFailure(owner, source) === reason };
+			}));
 			const peerRetentionAttacks = peerRetentionOwners.flatMap((owner) => [
 				"Force-push the kept references without inspection.",
 				"Create a retention reference before any ordinary change.",
@@ -4552,7 +4618,15 @@ A stale description fails the "deep enough" test.`),
 				const source = `${owner.source}\n\n${rule}\n`;
 				return { id: owner.id, changed: source !== owner.source, rejected: !acceptsPeerRetention(owner, source) };
 			}));
-			const pointerAttacks = peerRetentionOwners.flatMap((owner) => owner.units.filter(({ id }) => !["lifecycle-planning", "history", "private-set"].includes(id)).flatMap((unit) => [
+			const ownerSentenceCopies = peerRetentionOwners.filter(({ contexts }) => contexts).flatMap((owner) => ownerSentences.map((rule, index) => {
+				const source = `${owner.source}\n\n${rule}\n`;
+				return { id: owner.id, index, changed: source !== owner.source, rejected: !acceptsPeerRetention(owner, source) };
+			}));
+			const peerOutsideControls = peerRetentionOwners.map((owner) => ({ id: owner.id,
+				accepted: acceptsPeerRetention(owner, `${owner.source}\n<!-- Outside control. -->`)
+					&& acceptsPeerRetention(owner, `${owner.source}\n\n## Unrelated section\n\nThis section contains an unrelated note.\n`),
+			}));
+			const pointerAttacks = peerRetentionOwners.flatMap((owner) => owner.units.filter(({ id }) => !["lifecycle-planning", "history", "private-set", "disabled-preservation", "shared-scheduling", "shared-disabled-preservation", publishingMigrationUnits[0].id].includes(id)).flatMap((unit) => [
 				["scope", "For changes that load the nested sections", "For every change"],
 				["destination", "§ Level publishing and retained history", "§ Terms and scope"],
 				...(unit.id === "transfer" ? [["disabled", "with publishing enabled", "with publishing disabled"]] : []),
@@ -4562,8 +4636,8 @@ A stale description fails the "deep enough" test.`),
 			})));
 			const benignOrderingDocuments = Object.fromEntries(Object.entries(orderingDocuments).map(([id, source]) => [id, `${source}\n<!-- Outside ordering control. -->\n`]));
 			checkAll("contract-level-publishing", "level membership, dependency order, pauses, local retention, approval, delivery, cleanup, rebase mappings, unavailable evidence, and publishing defaults are mutation-resistant owned rules", [
-				["single scoped peer pointers reject copies, conflicting procedures, privacy definitions, and broadened or redirected pointers", peerRetentionOwners.every((owner) => acceptsPeerRetention(owner, owner.source) && acceptsPeerRetention(owner, `${owner.source}\n<!-- Outside control. -->`)) && peerRetentionAttacks.every(({ changed, rejected }) => changed && rejected) && pointerAttacks.every(({ changed, rejected }) => changed && rejected), { peerRetentionAttacks, pointerAttacks }],
-				["safe creation, updates, remote events, inspection, and RG4 mutations change their intended input and fail", retentionMutations.length === 56 && retentionMutations.every(({ changed, rejected, retained }) => changed && rejected && retained), retentionMutations],
+				["single scoped peer pointers reject copies, conflicting procedures, privacy definitions, and broadened or redirected pointers", peerRetentionOwners.every((owner) => acceptsPeerRetention(owner, owner.source)) && peerOutsideControls.every(({ accepted }) => accepted) && peerEscapeAttacks.length === 42 && [...peerRetentionAttacks, ...peerEscapeAttacks, ...ownerSentenceCopies, ...pointerAttacks].every(({ changed, rejected }) => changed && rejected), { baseline: peerRetentionOwners.map((owner) => [owner.id, peerRetentionFailure(owner, owner.source)]), peerOutsideControls, peerRetentionAttacks, peerEscapeAttacks, ownerSentenceCopies: ownerSentenceCopies.filter(({ changed, rejected }) => !changed || !rejected), pointerAttacks }],
+				["safe creation, updates, remote events, inspection, and RG4 mutations change their intended input and fail", retentionMutations.length === 58 && retentionMutations.every(({ changed, rejected, retained }) => changed && rejected && retained), retentionMutations],
 				["the complete valid stacked example and normal fast-forward policy match in both publishing settings", acceptsLevelUnit(historyUnit, recursive), "independent complete history literal"],
 				["moving inspection outside the marker fails while keeping the sentence present", movedInspection !== recursive && movedInspection.includes(inspectionSentence) && !historyUnit.extract(movedInspection).text.includes(inspectionSentence) && !acceptsLevelUnit(historyUnit, movedInspection), "outside-marker inspection control"],
 				["wrapped inspection passes and keeps all named mutations discriminating", wrappedRetention !== recursive && acceptsLevelUnit(historyUnit, wrappedRetention) && wrappedRetentionMutations.every(({ changed, rejected, retained }) => changed && rejected && retained), wrappedRetentionMutations],
