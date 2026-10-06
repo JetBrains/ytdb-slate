@@ -23,7 +23,7 @@ Design tracks produce the pull requests of their descendant levels.
 A change without design tracks keeps exactly one pull request.
 Do not create separate pull requests for code tracks or review-fix children.
 For nested work, use [recursive-workflow.md](recursive-workflow.md) § Level publishing
-and retained history for subtree ordering, branch bases, history slices, and retention.
+and retained history for subtree ordering, branch bases, and history slices.
 
 The level is the merge unit.
 All checks pass at each child marker.
@@ -71,6 +71,13 @@ Every creation path keeps these safeguards:
   A one-level change starts from the repository's default development branch.
   For nested work, choose its base under [recursive-workflow.md](recursive-workflow.md)
   § Level publishing and retained history.
+  Use dependency order for bases, including code before a dependent design subtree.
+  Base that subtree's first level branch on the completed code-containing branch.
+  Base later dependent levels on the latest completed preceding level branch.
+
+  The user merges the code-containing level pull request only after its level is complete.
+  Every track of that level, including the dependent design subtree, must have its required acceptance.
+  The user then merges the dependent pull requests in dependency order.
 - If the working branch has no diff against the base yet, land a
   bootstrap empty commit so the PR can be created.
 - At creation, if a high-level design exists, read the current authoritative design file for the change root or design track.
