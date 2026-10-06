@@ -27,7 +27,14 @@ A **code track** implements bounded approved work.
 A **level** contains sibling tracks created by one split.
 Each level with code tracks has one optional draft pull request.
 A **subtree** contains a track and its descendants.
-Complete an entered subtree before starting its siblings.
+
+Tracks finish in dependency order.
+Design tracks finish first only when tracks do not depend on each other.
+Complete an entered subtree before continuing its siblings, except for a permitted dependency pause.
+A subtree may pause for an unfinished sibling dependency only when none of its open level slices has commits.
+Otherwise change the split before the subtree's first commit.
+A late dependency discovery after commits exist stops work for a user-approved replan.
+
 Each design track needs explicit acceptance of its whole subtree.
 Root final acceptance covers the whole change.
 Only the user merges pull requests.

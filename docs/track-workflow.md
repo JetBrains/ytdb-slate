@@ -167,6 +167,9 @@ Read the applicable sections before relying on their rules.
 A lazy plan needs no total descendant count to apply the condition.
 A small tree with a design track still loads the whole document.
 A change with neither triggering track type reads only the named common sections.
+Only changes that load the nested sections have retention-reference duties.
+An ordinary change has no such duty, with publishing enabled or disabled.
+Use [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for dependency order, pauses, split changes, and branch bases.
 
 The approved plan supplies specific evidence for proportional process.
 A design track or review-fix child track triggers the manual status file.
@@ -587,6 +590,10 @@ Resume in this fixed order:
    When the summary names an existing current implementer report, read it there.
    Use [recursive-workflow.md](recursive-workflow.md) § Resume and folder forks
    for tree reconciliation and read-only source boundaries.
+   Before resuming a paused subtree, read its typed `decision` entry in the owning parent research log.
+   Check that its unfinished sibling dependency has completed and its recorded resume condition holds.
+   Confirm the decision records no commits in any open level slice of the paused subtree.
+   A status entry alone authorizes neither pause nor resume.
 3. Inspect marker commits and the current branch state.
 4. Reconcile the declared file list, track table, coverage register, proved
    focus areas, risk record, and live diff.

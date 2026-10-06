@@ -2869,7 +2869,7 @@ Design tracks produce the pull requests of their descendant levels.
 A change without design tracks keeps exactly one pull request.
 Do not create separate pull requests for code tracks or review-fix children.
 For nested work, use [recursive-workflow.md](recursive-workflow.md) § Level publishing
-and retained history for subtree ordering, branch bases, history slices, and retention.
+and retained history for subtree ordering, branch bases, and history slices.
 
 The level is the merge unit.
 All checks pass at each child marker.
@@ -3001,6 +3001,9 @@ Read the applicable sections before relying on their rules.
 A lazy plan needs no total descendant count to apply the condition.
 A small tree with a design track still loads the whole document.
 A change with neither triggering track type reads only the named common sections.
+Only changes that load the nested sections have retention-reference duties.
+An ordinary change has no such duty, with publishing enabled or disabled.
+Use [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for dependency order, pauses, split changes, and branch bases.
 
 The approved plan supplies specific evidence for proportional process.
 A design track or review-fix child track triggers the manual status file.
@@ -3254,13 +3257,36 @@ Use its § Session handoff and the research log for ownership.`);
 			]);
 
 			const recordDigest = (text) => createHash("sha256").update(normalizeText(text)).digest("hex");
+			const resumeOrderExpected = normalizeText(`Resume in this fixed order:
+
+1. Read the initial request and latest state summary.
+   Before relying on a summary, check that its named subtree entry exists.
+   An older summary without a subtree reference still resumes under its recorded workflow.
+2. Read later decisions and the active subtree's records.
+   When the summary names an existing current implementer report, read it there.
+   Use [recursive-workflow.md](recursive-workflow.md) § Resume and folder forks
+   for tree reconciliation and read-only source boundaries.
+   Before resuming a paused subtree, read its typed \`decision\` entry in the owning parent research log.
+   Check that its unfinished sibling dependency has completed and its recorded resume condition holds.
+   Confirm the decision records no commits in any open level slice of the paused subtree.
+   A status entry alone authorizes neither pause nor resume.
+3. Inspect marker commits and the current branch state.
+4. Reconcile the declared file list, track table, coverage register, proved
+   focus areas, risk record, and live diff.
+5. Re-run any stale precondition check.
+6. Apply the user-decision reuse rule before asking any question.
+7. Continue only after answering: **What changed since the last state summary,
+   and does it change focus, scope, or required gates?**
+
+A mismatch pauses work. Reconcile it in the log. Use marker commits and Git
+history as boundary authority. The track table is display-only.`);
 			const recursiveRecordUnits = [
 				{ id: "identifiers-ranges", source: recursive, start: "## Identifiers, code ranges, and design markers", extract: headingUnit("## Identifiers, code ranges, and design markers"), expected: "06a2a0822448a5112173b65c04826364d3a3094f7930ba98ecd7f17300e19ed8" },
 				{ id: "tool-records-and-recovery", source: recursive, start: "## Manual records and safe writes", extract: headingUnit("## Manual records and safe writes"), expected: "26f45e8838e2190e04e360cfa94b84500d56213de062d6e2688d1abaa8cc35ae" },
 				{ id: "resume-forks", source: recursive, start: "## Resume and folder forks", extract: headingUnit("## Resume and folder forks"), expected: "ee8952191bf8a044b0c4c124644079ad41a918a51510d10a1d8b1ea6d72e6860" },
 				{ id: "handoff-pointer", source: recursive, start: "## Handoff boundaries", extract: headingUnit("## Handoff boundaries"), expected: "fc5ca34c11f5f1defb5989c10af42cbac9af901c102dc18c6c8d1b55a98cd52f" },
 				{ id: "marker-identity", source: workflow, extract: markedUnit("marker-identity-policy"), expected: "846764c07a6b2c925091bd80f944c888d49994a71f2799b5cd2b8368b415a3c9" },
-				{ id: "resume-order", source: workflow, start: "## Resume order and reconciliation", extract: headingUnit("## Resume order and reconciliation"), expected: "9edb063aea53ffc494d650f1a2306b975bbf31f1700a874ea0fd004bb1d0e244" },
+				{ id: "resume-order", source: workflow, start: "## Resume order and reconciliation", extract: headingUnit("## Resume order and reconciliation"), expected: recordDigest(resumeOrderExpected) },
 				{ id: "general-handoff", source: workflow, start: "### Handoff summary", extract: headingUnit("### Handoff summary"), expected: "deebae98b03815c0a68bd933d6d910624a5e6206f1c410a7fd9052c1d23fe64f" },
 				{ id: "closed-range-feedback", source: workflow, start: "### Closed-range corrections", extract: headingUnit("### Closed-range corrections"), expected: "07c9e0dd0eb0de15e13b6977f88145a2dec09554e693a2d6bfbe1173f09eb37a" },
 			];
@@ -3531,6 +3557,10 @@ Every creation path keeps these safeguards:
   A one-level change starts from the repository's default development branch.
   For nested work, choose its base under [recursive-workflow.md](recursive-workflow.md)
   § Level publishing and retained history.
+  Use dependency order for bases, including code before a dependent design subtree.
+  Base that subtree's first level branch on the completed code-containing branch.
+  Base later dependent levels on the latest completed preceding level branch.
+  Merge the foundation pull request before its dependent pull request.
 - If the working branch has no diff against the base yet, land a
   bootstrap empty commit so the PR can be created.
 - At creation, if a high-level design exists, read the current authoritative design file for the change root or design track.
@@ -3673,6 +3703,26 @@ The split bypasses no stuck-fix consultation or required fix gate.`) },
 
 			// These pins cover complete owned policies. Source-set pins protect every record kind.
 			const policyRegion = (start, end, endAtLineStart = false) => regionUnit(new RegExp(`^${start.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([\\s\\S]*?)(?=${endAtLineStart ? "^" : ""}${end.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gm"));
+			const roadmapExpected = normalizeText(`The current workflow supports nested planning through design tracks.
+A **design track** plans a nested change with child tracks.
+A **code track** implements bounded approved work.
+A **level** contains sibling tracks created by one split.
+Each level with code tracks has one optional draft pull request.
+A **subtree** contains a track and its descendants.
+Tracks finish in dependency order.
+Design tracks finish first only when tracks do not depend on each other.
+Complete an entered subtree before continuing its siblings, except for a permitted dependency pause.
+A subtree may pause for an unfinished sibling dependency only when none of its open level slices has commits.
+Otherwise change the split before the subtree's first commit.
+A late dependency discovery after commits exist stops work for a user-approved replan.
+Each design track needs explicit acceptance of its whole subtree.
+Root final acceptance covers the whole change.
+Only the user merges pull requests.
+A **review-fix child track** repairs outstanding work under a user-approved split.
+It stays in the affected code track's delivery.
+Each new child starts at round zero with two ordinary rounds and one stuck-fix consultation.
+Use [recursive-workflow.md](recursive-workflow.md) for the nested rules.
+Use [track-workflow.md](track-workflow.md) for the common lifecycle.`);
 			const recursiveDeliveryUnits = [
 				{ id: "repairs", source: recursive, start: "## Review-fix subtrees and repair limits", expected: protectedRepairSummary },
 				{ id: "aggregate", source: recursive, start: "## Whole-subtree acceptance", expected: "6e37e0e95c35ed0c3ede6e02f3322f43038d8653d9885ce4b2ac1ed423472b63" },
@@ -3682,7 +3732,7 @@ The split bypasses no stuck-fix consultation or required fix gate.`) },
 				{ id: "notes-accounting", source: userNotes, start: "### Final accounting preparation", expected: "27a19ef36cc0fc14fbd2c14fc1699d6d3ddeadfe8a284f2d85ab76481faaa352" },
 				{ id: "publishing-sync", source: publishing, start: "## Keeping the PR in sync", expected: "fb386e6f14c2f051a842cd050cc4e2834dea5e2674853cc22794792cd4c1a7cc" },
 				{ id: "public-workflow", source: projectReadme, start: "A track is a bounded", end: "## ", endAtLineStart: true, expected: "23f90e859751918fac2f72ad4819c635cf21d88f15e18d100cc0a9944018fbf3" },
-				{ id: "public-roadmap", source: readFileSync(join(REPO, "docs", "roadmap.md"), "utf8"), start: "## Larger changes", expected: "ffd9a4e0a96809b60debc7a45d6b0bb09881622889ae571c09bd888a7d09da17" },
+				{ id: "public-roadmap", source: readFileSync(join(REPO, "docs", "roadmap.md"), "utf8"), start: "## Larger changes", expected: recordDigest(roadmapExpected) },
 			].map((unit) => ({ ...unit, extract: unit.end === null
 				? (source) => {
 					// Visible policy after the final marker belongs to the final section.
@@ -3886,28 +3936,76 @@ A change without design tracks is unaffected because its root closes at its merg
 				},
 				{
 					id: "history", source: recursive, extract: markedUnit("level-history-policy"),
-					expected: normalizeText(`Within a level, complete every design-track subtree before starting its code tracks.
-A plan that needs the opposite order must change its split.
-Complete one entered subtree before continuing its sibling tracks.
-Keep one sequential implementation writer.
-Independent research and reviews may run in parallel.
-
+					expected: normalizeText(`Within one level, tracks finish in dependency order.
+A dependency requires another track's result before affected work can finish.
+When tracks do not depend on each other, design tracks finish first.
 All work forms one linear history.
 Each level pull request contains one contiguous slice of that history.
 A contiguous slice is an uninterrupted range of commits.
+When dependency order would break a contiguous level pull request, the planner changes the split.
+Complete an entered subtree before continuing its siblings, except for a permitted dependency pause.
+A subtree may pause for an unfinished sibling dependency only when none of its open level slices has commits.
+Otherwise the planner changes the split before that subtree's first commit.
+A late dependency discovery after commits exist stops work for a user-approved replan.
+A pause creates no permission to interleave commits in an open slice.
+A pause changes work order, not completion or acceptance.
+The paused subtree keeps its records, pending gates, and accepted evidence.
+Keep one sequential implementation writer.
+Independent research and reviews may run in parallel.
+
+Record the pause as a typed \`decision\` entry in the owning parent research log.
+The entry names the paused subtree, unfinished sibling dependency, and resume condition.
+It records that no open level slice of the subtree has commits.
+Show that decision and pending dependency in \`status.md\` before continuing the sibling.
+Resume reconciliation reads the decision and checks the completed dependency before continuing the subtree.
+A status entry alone does not authorize a pause or resume.
+
+A split change keeps stable track numbers and each new track's required approvals.
+It does not authorize a noncontiguous level delivery.
+It does not reduce reviews, repair budgets, markers, or acceptance.
 Earlier completed descendant work is the foundation, not new work in an upper-level slice.
 A stacked pull request uses another pull request's branch as its base.
-Sibling subtree pull requests stack in completion order by default.
-Upper-level pull requests stack on completed lower-level work by default.
-A user-approved project arrangement may differ.
-It must preserve linear history, contiguous slices, and every gate.
-No new setting is needed to approve that arrangement.
+Use dependency order for branch bases and merges, including when code must finish before a sibling design subtree.
+The code-containing level branch starts from the latest completed history head for that level's dependency order.
+The dependent subtree's first level branch bases on the completed code-containing branch.
+Later dependent level branches base on the latest completed preceding level branch.
+Merge the foundation pull request before a pull request that depends on it.
+An existing level slice cannot be reopened around an intervening subtree.
+If the plan would require that reopening, change the split before the first affected commit.
+If an enclosing acceptance gate prevents a foundation-first merge, change the split before those commits.
+The branch-base rule waives no enclosing acceptance or final-merge gate.
+This dependency-driven order needs no separate project-arrangement approval.
+A different project arrangement still needs user approval and every existing history safeguard.
 
 Keep branches and accepted marker history available until the root change closes.
 For each delivered level, retain its accepted history boundaries and accepted branch head.
 Bind that history to its pull request and observed merge result in the owning research log.
 The default-branch merge result proves delivery, not track completion.
 A squash merge does not replace accepted marker authority.
+
+The retention rules below apply only to changes that load this document's nested sections.
+Such a change has a current or proposed design track or review-fix child track.
+An ordinary change with neither triggering track type has no retention-reference duty, with publishing enabled or disabled.
+A retention reference is a named Git reference that keeps a recorded commit reachable.
+A binding records its name and exact commit.
+Use \`slate-retained/<change>/<name>\`.
+The \`<change>\` component is a short name recorded in the root research log before the first retention reference.
+The full name must be a valid Git reference name and safe to publish.
+It contains no private data.
+Pass the name to commands as a quoted value.
+The allowed \`<name>\` forms are the level branch name, \`track-<number>-reviewed\`, and \`track-<number>-fix<r>-reviewed\`.
+The \`<number>\` component uses the accepted canonical track spelling.
+The \`<r>\` component is one increasing sequence per affected track across every review-fix child and every fix kind.
+Record each allocated value and binding in the owning log.
+The sequence is not a child's local fix-round count.
+A retention reference is never a pull request head branch.
+
+At each user review or acceptance event, create the named reference locally and record its exact commit.
+If that name already has the identical binding, verify it and record the repeated event instead of recreating it.
+Never move an existing reviewed binding.
+With publishing disabled, keep these local references until root closure, including through the final squash.
+Check each local reference against its recorded commit before closure.
+Retention requires no remote operation in this setting.
 
 Use [track-workflow.md](track-workflow.md) § Delivery and termination for permitted
 history rewrites, rebased-marker mappings, range updates, and unavailable history.`),
@@ -4051,9 +4149,70 @@ A stale description fails the "deep enough" test.`),
 				return { id: copy.id, ruleIndex, changed: source !== copy.source, rejected: !agreesOnLevelMergeability(copies) };
 			}));
 			const benignLevelMergeabilityCopies = levelMergeabilityCopies.map((copy) => ({ ...copy, source: `${copy.source}\n<!-- Outside-unit control. -->\n` }));
-			checkAll("contract-level-publishing", "level membership, ordering, approval, delivery, retained histories, cleanup, rebase mappings, unavailable evidence, and publishing defaults are mutation-resistant owned rules", [
+			const historyUnit = levelPolicyUnits.find(({ id }) => id === "history");
+			const resumeUnit = recursiveRecordUnits.find(({ id }) => id === "resume-order");
+			const roadmapUnit = recursiveDeliveryUnits.find(({ id }) => id === "public-roadmap");
+			const orderingDocuments = { recursive, workflow, publishing, roadmap: roadmapUnit.source };
+			const sentenceRemovalUnits = [
+				...levelPolicyUnits, recursiveUnits[0],
+				{ ...resumeUnit, expected: resumeOrderExpected },
+				{ ...roadmapUnit, expected: roadmapExpected },
+			];
+			const safetySentenceRemovals = sentenceRemovalUnits.flatMap((unit) => unit.expected.split(/(?<=\.) /).filter((rule) => /[a-z]/i.test(rule)).map((rule, index) => {
+				const pattern = new RegExp(rule.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+"));
+				const source = unit.source.replace(pattern, "");
+				return { id: unit.id, index, changed: source !== unit.source && !unit.extract(source).text.includes(rule), rejected: !acceptsLevelUnit(unit, source) };
+			}));
+			const agreesOnOrderAndLocalRetention = (sources = orderingDocuments) =>
+				acceptsLevelUnit(historyUnit, sources.recursive)
+				&& acceptsRecursiveUnit(recursiveUnits[0], sources.workflow)
+				&& acceptsRecordUnit(resumeUnit, sources.workflow)
+				&& acceptsRecursiveDelivery(roadmapUnit, sources.roadmap)
+				&& [trackSizePublishingUnits[1], publishingMigrationUnits[0]].every((unit) => acceptsLevelUnit(unit, sources.publishing));
+			// These literals express independently reviewed violating policies.
+			const orderAndRetentionMutations = [
+				["history", "recursive", "none of its open level slices has commits", "an open level slice already has commits"],
+				["roadmap-pause", "roadmap", "none of its open level slices has commits", "an open level slice already has commits"],
+				["resume-pause", "workflow", "Confirm the decision records no commits in any open level slice of the paused subtree.", "A subtree with commits in an open slice may resume from a status entry."],
+				["design-first-base", "publishing", "Use dependency order for bases, including code before a dependent design subtree.", "Always base code work on completed design subtrees, regardless of dependencies."],
+				["design-first-history", "recursive", "Use dependency order for branch bases and merges, including when code must finish before a sibling design subtree.", "Always stack design subtrees first, even when they depend on code tracks."],
+				["design-first-roadmap", "roadmap", "Design tracks finish first only when tracks do not depend on each other.", "Design tracks always finish first."],
+				["foundation-base", "publishing", "Base that subtree's first level branch on the completed code-containing branch.", "Base that subtree's first level branch on the default branch."],
+				["foundation-merge", "publishing", "Merge the foundation pull request before its dependent pull request.", "Merge the dependent pull request first."],
+				["pause-decision", "recursive", "Record the pause as a typed `decision` entry in the owning parent research log.", "Record the pause only in status.md."],
+				["pause-resume", "workflow", "Before resuming a paused subtree, read its typed `decision` entry in the owning parent research log.", "Resume using the status entry alone."],
+				["event-review", "recursive", "At each user review or acceptance event,", "At each acceptance event,"],
+				["event-acceptance", "recursive", "At each user review or acceptance event,", "At each user review event,"],
+				["event-trigger", "recursive", "At each user review or acceptance event, create the named reference locally and record its exact commit.", ""],
+				["history-scope", "recursive", "The retention rules below apply only to changes that load this document's nested sections.", ""],
+				["plan-scope", "workflow", "Only changes that load the nested sections have retention-reference duties.", ""],
+				["current-scope", "recursive", "a current or proposed design track or review-fix child track", "a proposed design track or review-fix child track"],
+				["proposed-scope", "recursive", "a current or proposed design track or review-fix child track", "a current design track or review-fix child track"],
+				["design-scope", "recursive", "Such a change has a current or proposed design track or review-fix child track.", "Such a change has a current or proposed review-fix child track."],
+				["review-fix-scope", "recursive", "Such a change has a current or proposed design track or review-fix child track.", "Such a change has a current or proposed design track."],
+				["local-lifetime", "recursive", "including through the final squash", "only before the final squash"],
+				["disabled-remote-duty", "recursive", "Retention requires no remote operation in this setting.", "Disabled publishing still requires remote retention operations."],
+				["ordering-retention-copy", "publishing", "for subtree ordering, branch bases, and history slices.", "for subtree ordering, branch bases, history slices, and retention."],
+				...["enabled", "disabled"].flatMap((setting) => [
+					[`ordinary-history-${setting}`, "recursive", "An ordinary change with neither triggering track type has no retention-reference duty, with publishing enabled or disabled.", `An ordinary change must retain references when publishing is ${setting}.`],
+					[`ordinary-plan-${setting}`, "workflow", "An ordinary change has no such duty, with publishing enabled or disabled.", `An ordinary change must retain references when publishing is ${setting}.`],
+				]),
+			].map(([id, document, before, after]) => {
+				const original = orderingDocuments[document];
+				const source = original.replace(before, after);
+				return { id, changed: source !== original && !source.includes(before), rejected: !agreesOnOrderAndLocalRetention({ ...orderingDocuments, [document]: source }) };
+			});
+			const eventSentence = "At each user review or acceptance event, create the named reference locally and record its exact commit.";
+			const eventOutsideMarker = recursive.replace(eventSentence, "").replace("<!-- level-history-policy:end -->", `<!-- level-history-policy:end -->\n${eventSentence}`);
+			const benignOrderingDocuments = Object.fromEntries(Object.entries(orderingDocuments).map(([id, source]) => [id, `${source}\n<!-- Outside ordering control. -->\n`]));
+			checkAll("contract-level-publishing", "level membership, dependency order, pauses, local retention, approval, delivery, cleanup, rebase mappings, unavailable evidence, and publishing defaults are mutation-resistant owned rules", [
 				["every unit matches its independent expectation", levelPolicyUnits.every((unit) => acceptsLevelUnit(unit, unit.source)), levelPolicyUnits.filter((unit) => !acceptsLevelUnit(unit, unit.source)).map(({ id }) => id)],
 				["every rule mutation changes input and fails", levelRuleMutations.every(({ changed, rejected }) => changed && rejected), levelRuleMutations],
+				["every safety sentence removal changes its owned input and fails", safetySentenceRemovals.every(({ changed, rejected }) => changed && rejected), safetySentenceRemovals],
+				["ordering, pause reconciliation, and local retention agree across all four documents", agreesOnOrderAndLocalRetention(), "complete independent history, planning, resume, roadmap, and publishing expectations"],
+				["unsafe pauses, conflicting bases, missing scope or events, and ordinary duties in either publishing setting fail", orderAndRetentionMutations.every(({ changed, rejected }) => changed && rejected), orderAndRetentionMutations],
+				["moving an intact event sentence outside the marker fails", eventOutsideMarker !== recursive && eventOutsideMarker.includes(eventSentence) && !historyUnit.extract(eventOutsideMarker).text.includes(eventSentence) && !agreesOnOrderAndLocalRetention({ ...orderingDocuments, recursive: eventOutsideMarker }), "event remains present beyond the protected marker"],
+				["harmless edits outside all ordering units pass", agreesOnOrderAndLocalRetention(benignOrderingDocuments), "four outside controls"],
 				["missing and duplicate units fail and outside-unit controls pass", levelBoundaryControls.every(({ missing, duplicate, benign }) => missing && duplicate && benign), levelBoundaryControls],
 				["all five level constraints agree across lifecycle, publishing, and focus documents", agreesOnLevelMergeability(levelMergeabilityCopies), levelMergeabilityCopies.map(({ id }) => id)],
 				["every constraint rejects weakening in each of its three copies", levelMergeabilityAttacks.every(({ changed, rejected }) => changed && rejected), levelMergeabilityAttacks],

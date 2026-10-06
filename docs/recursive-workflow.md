@@ -78,28 +78,84 @@ Use its § Session handoff and the research log for ownership.
 Use [pr-publishing.md](pr-publishing.md) for activation, approval, ready safeguards, and accounting.
 
 <!-- level-history-policy:begin -->
-Within a level, complete every design-track subtree before starting its code tracks.
-A plan that needs the opposite order must change its split.
-Complete one entered subtree before continuing its sibling tracks.
-Keep one sequential implementation writer.
-Independent research and reviews may run in parallel.
-
+Within one level, tracks finish in dependency order.
+A dependency requires another track's result before affected work can finish.
+When tracks do not depend on each other, design tracks finish first.
 All work forms one linear history.
 Each level pull request contains one contiguous slice of that history.
 A contiguous slice is an uninterrupted range of commits.
+
+When dependency order would break a contiguous level pull request, the planner changes the split.
+Complete an entered subtree before continuing its siblings, except for a permitted dependency pause.
+A subtree may pause for an unfinished sibling dependency only when none of its open level slices has commits.
+Otherwise the planner changes the split before that subtree's first commit.
+A late dependency discovery after commits exist stops work for a user-approved replan.
+A pause creates no permission to interleave commits in an open slice.
+
+A pause changes work order, not completion or acceptance.
+The paused subtree keeps its records, pending gates, and accepted evidence.
+Keep one sequential implementation writer.
+Independent research and reviews may run in parallel.
+
+Record the pause as a typed `decision` entry in the owning parent research log.
+The entry names the paused subtree, unfinished sibling dependency, and resume condition.
+It records that no open level slice of the subtree has commits.
+Show that decision and pending dependency in `status.md` before continuing the sibling.
+Resume reconciliation reads the decision and checks the completed dependency before continuing the subtree.
+A status entry alone does not authorize a pause or resume.
+
+A split change keeps stable track numbers and each new track's required approvals.
+It does not authorize a noncontiguous level delivery.
+It does not reduce reviews, repair budgets, markers, or acceptance.
 Earlier completed descendant work is the foundation, not new work in an upper-level slice.
 A stacked pull request uses another pull request's branch as its base.
-Sibling subtree pull requests stack in completion order by default.
-Upper-level pull requests stack on completed lower-level work by default.
-A user-approved project arrangement may differ.
-It must preserve linear history, contiguous slices, and every gate.
-No new setting is needed to approve that arrangement.
+
+Use dependency order for branch bases and merges, including when code must finish before a sibling design subtree.
+The code-containing level branch starts from the latest completed history head for that level's dependency order.
+The dependent subtree's first level branch bases on the completed code-containing branch.
+Later dependent level branches base on the latest completed preceding level branch.
+Merge the foundation pull request before a pull request that depends on it.
+
+An existing level slice cannot be reopened around an intervening subtree.
+If the plan would require that reopening, change the split before the first affected commit.
+If an enclosing acceptance gate prevents a foundation-first merge, change the split before those commits.
+The branch-base rule waives no enclosing acceptance or final-merge gate.
+
+This dependency-driven order needs no separate project-arrangement approval.
+A different project arrangement still needs user approval and every existing history safeguard.
 
 Keep branches and accepted marker history available until the root change closes.
 For each delivered level, retain its accepted history boundaries and accepted branch head.
 Bind that history to its pull request and observed merge result in the owning research log.
 The default-branch merge result proves delivery, not track completion.
 A squash merge does not replace accepted marker authority.
+
+The retention rules below apply only to changes that load this document's nested sections.
+Such a change has a current or proposed design track or review-fix child track.
+An ordinary change with neither triggering track type has no retention-reference duty, with publishing enabled or disabled.
+
+A retention reference is a named Git reference that keeps a recorded commit reachable.
+A binding records its name and exact commit.
+Use `slate-retained/<change>/<name>`.
+
+The `<change>` component is a short name recorded in the root research log before the first retention reference.
+The full name must be a valid Git reference name and safe to publish.
+It contains no private data.
+Pass the name to commands as a quoted value.
+
+The allowed `<name>` forms are the level branch name, `track-<number>-reviewed`, and `track-<number>-fix<r>-reviewed`.
+The `<number>` component uses the accepted canonical track spelling.
+The `<r>` component is one increasing sequence per affected track across every review-fix child and every fix kind.
+Record each allocated value and binding in the owning log.
+The sequence is not a child's local fix-round count.
+A retention reference is never a pull request head branch.
+
+At each user review or acceptance event, create the named reference locally and record its exact commit.
+If that name already has the identical binding, verify it and record the repeated event instead of recreating it.
+Never move an existing reviewed binding.
+With publishing disabled, keep these local references until root closure, including through the final squash.
+Check each local reference against its recorded commit before closure.
+Retention requires no remote operation in this setting.
 
 Use [track-workflow.md](track-workflow.md) § Delivery and termination for permitted
 history rewrites, rebased-marker mappings, range updates, and unavailable history.
