@@ -4574,6 +4574,11 @@ A later track builds on the accepted boundary before it.`),
 			};
 			// Use independent owner expectations, not candidate sentences, to detect copies.
 			const ownerSentences = [...new Set([historyUnit, privateSetUnit].flatMap((unit) => unit.expected.split(/(?<=\.) /)))];
+			// After validated units and citation contexts are removed, peer text may name
+			// no retention-form name or retained, reviewed, or kept reference or branch noun.
+			// Legitimate peer text needs no other such names. This rule needs no verb list,
+			// so removal and move synonyms fail in either word order and under new headings.
+			const peerRetentionNames = /\btrack-(?:\d+(?:[.-]\d+)*|<number>)-(?:fix(?:\d+|<r>)-)?reviewed\b|\bslate-retained\/|\b(?:retained|reviewed|kept)(?:[- ](?:local|remote|marker|named|Git|retention|source))*[- ](?:references?|branch(?:es)?)\b/i;
 			const peerVocabulary = /slate-retained|retention[- ](?:reference|protocol|push|check)|retained (?:history|references?|markers?|bindings?|branches)|reviewed (?:binding|reference|marker)|kept (?:copy|(?:local |remote )?reference)|level reference|unexpected commit|private (?:set|bytes|content|files?)|preserv\w*[^.]*\b(?:reference|binding|history|commit)|(?:force[- ]push|forced update)[^.]*reference|(?:publish\w*[^.]*slate-changes|slate-changes[^.]*publish\w*)|(?:delet\w*[^.]*track-[\d.<][\w.<>-]*-reviewed)/i;
 			const peerRetentionFailure = (owner, source) => {
 				const citationFailure = peerCitationFailure(owner, source);
@@ -4586,9 +4591,15 @@ A later track builds on the accepted boundary before it.`),
 				for (const [, text] of owner.contexts ?? []) source = source.replace(text, "");
 				if (owner.id === "nested") source = source.replace("## Level publishing and retained history", "");
 				if (owner.id !== "nested" && ownerSentences.some((sentence) => source.includes(sentence))) return "owner-sentence";
+				if (owner.id !== "nested" && peerRetentionNames.test(source)) return "retention-name";
 				return peerVocabulary.test(source) ? "vocabulary" : "";
 			};
 			const acceptsPeerRetention = (owner, source) => !peerRetentionFailure(owner, source);
+			const peerPlacementNames = [
+				"track-3-reviewed", "track-3.1-fix2-reviewed", "track-<number>-reviewed", "track-<number>-fix<r>-reviewed", "slate-retained/change/track-3-reviewed",
+				"retained reference", "retained branch", "reviewed reference", "reviewed branch", "kept reference", "kept branch",
+			];
+			const peerPlacementVerbs = ["delete", "remove", "drop", "discard", "purge", "prune", "erase", "reset", "move", "rename", "force", "overwrite", "replace", "rewrite"];
 			const peerEscapeRules = [
 				["extra-scoped-pointer", "For changes that load the nested sections, use [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history before each merge handoff.", "citation-count"],
 				["ordinary-pointer", "For ordinary changes, use [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history before each merge handoff.", "citation-count"],
@@ -4596,14 +4607,33 @@ A later track builds on the accepted boundary before it.`),
 				["reviewed-binding-move", "Move an existing reviewed binding by fast-forward without asking the user.", "vocabulary"],
 				["verbatim-owner", "Never move an existing reviewed binding, even by fast-forward.", "owner-sentence"],
 				["recovery-before-record", "Recover an unexpected commit before recording or preserving it.", "vocabulary"],
-				["delete-retained", "Delete retained references after the merge.", "vocabulary"],
-				["delete-reviewed-branch", "After merge, delete the track-3-reviewed branch.", "vocabulary"],
-				["delete-branch-before-name", "After merge, delete the branch track-3-reviewed.", "vocabulary"],
+				["delete-retained", "Delete retained references after the merge.", "retention-name"],
+				["delete-reviewed-branch", "After merge, delete the track-3-reviewed branch.", "retention-name"],
+				["delete-branch-before-name", "After merge, delete the branch track-3-reviewed.", "retention-name"],
+				["gate-remove", "After merge, remove the track-3-reviewed branch.", "retention-name"],
+				["gate-drop", "After merge, drop the branch track-3-reviewed.", "retention-name"],
+				["discard-reviewed", "After merge, discard the track-3-reviewed branch.", "retention-name"],
+				["purge-reviewed", "After merge, purge the branch track-3-reviewed.", "retention-name"],
+				["prune-reviewed", "After merge, prune the track-3-reviewed branch.", "retention-name"],
+				["erase-reviewed", "After merge, erase the branch track-3-reviewed.", "retention-name"],
+				["new-heading-removal", "## Merge notes\n\nAfter merge, remove the track-3-reviewed branch.", "retention-name"],
+				["new-heading-drop", "## Merge notes\n\nAfter merge, drop the branch track-3-reviewed.", "retention-name"],
+				["new-heading-discard", "## Merge notes\n\nAfter merge, discard the track-3-reviewed branch.", "retention-name"],
+				["new-heading-purge", "## Merge notes\n\nAfter merge, purge the branch track-3-reviewed.", "retention-name"],
+				["new-heading-prune", "## Merge notes\n\nAfter merge, prune the track-3-reviewed branch.", "retention-name"],
+				["new-heading-erase", "## Merge notes\n\nAfter merge, erase the branch track-3-reviewed.", "retention-name"],
 				["narrow-private-content", "Only research logs count as private content for any push.", "vocabulary"],
 				["publish-private-path", "Files under slate-changes/ other than the research log may be published.", "vocabulary"],
 				["privacy-citation", "Use [recursive-workflow.md](recursive-workflow.md) § Design authority and privacy for ordinary work.", "citation-count"],
 				["history-fragment", "Use [rules](recursive-workflow.md#level-publishing-and-retained-history) for every change.", "citation-count"],
 				["privacy-fragment", "Use [rules](recursive-workflow.md#design-authority-and-privacy) for every change.", "citation-count"],
+				...peerPlacementNames.flatMap((name) => [
+					[`name-only-${name}`, `The name is ${name}.`, "retention-name"],
+					...peerPlacementVerbs.flatMap((verb) => [
+						[`verb-first-${verb}-${name}`, `After merge, ${verb} ${name}.`, "retention-name"],
+						[`name-first-${verb}-${name}`, `For ${name}, ${verb} it after merge.`, "retention-name"],
+					]),
+				]),
 			];
 			const peerEscapeAttacks = peerRetentionOwners.filter(({ contexts }) => contexts).flatMap((owner) => peerEscapeRules.map(([kind, rule, reason]) => {
 				const source = `${owner.source}\n\n${rule}\n`;
@@ -4636,7 +4666,7 @@ A later track builds on the accepted boundary before it.`),
 			})));
 			const benignOrderingDocuments = Object.fromEntries(Object.entries(orderingDocuments).map(([id, source]) => [id, `${source}\n<!-- Outside ordering control. -->\n`]));
 			checkAll("contract-level-publishing", "level membership, dependency order, pauses, local retention, approval, delivery, cleanup, rebase mappings, unavailable evidence, and publishing defaults are mutation-resistant owned rules", [
-				["single scoped peer pointers reject copies, conflicting procedures, privacy definitions, and broadened or redirected pointers", peerRetentionOwners.every((owner) => acceptsPeerRetention(owner, owner.source)) && peerOutsideControls.every(({ accepted }) => accepted) && peerEscapeAttacks.length === 42 && [...peerRetentionAttacks, ...peerEscapeAttacks, ...ownerSentenceCopies, ...pointerAttacks].every(({ changed, rejected }) => changed && rejected), { baseline: peerRetentionOwners.map((owner) => [owner.id, peerRetentionFailure(owner, owner.source)]), peerOutsideControls, peerRetentionAttacks, peerEscapeAttacks, ownerSentenceCopies: ownerSentenceCopies.filter(({ changed, rejected }) => !changed || !rejected), pointerAttacks }],
+				["single scoped peer pointers reject copies, conflicting procedures, privacy definitions, and broadened or redirected pointers", peerRetentionOwners.every((owner) => acceptsPeerRetention(owner, owner.source)) && peerOutsideControls.every(({ accepted }) => accepted) && peerPlacementNames.length === 11 && peerPlacementVerbs.length === 14 && peerEscapeAttacks.length === 1035 && [...peerRetentionAttacks, ...peerEscapeAttacks, ...ownerSentenceCopies, ...pointerAttacks].every(({ changed, rejected }) => changed && rejected), { baseline: peerRetentionOwners.map((owner) => [owner.id, peerRetentionFailure(owner, owner.source)]), peerOutsideControls, peerRetentionAttacks, peerEscapeAttacks, ownerSentenceCopies: ownerSentenceCopies.filter(({ changed, rejected }) => !changed || !rejected), pointerAttacks }],
 				["safe creation, updates, remote events, inspection, and RG4 mutations change their intended input and fail", retentionMutations.length === 58 && retentionMutations.every(({ changed, rejected, retained }) => changed && rejected && retained), retentionMutations],
 				["the complete valid stacked example and normal fast-forward policy match in both publishing settings", acceptsLevelUnit(historyUnit, recursive), "independent complete history literal"],
 				["moving inspection outside the marker fails while keeping the sentence present", movedInspection !== recursive && movedInspection.includes(inspectionSentence) && !historyUnit.extract(movedInspection).text.includes(inspectionSentence) && !acceptsLevelUnit(historyUnit, movedInspection), "outside-marker inspection control"],
