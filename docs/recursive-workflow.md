@@ -196,9 +196,17 @@ With publishing enabled, keep these remote references until root closure.
 Before every retention push, inspect all commits and objects reachable from each reference to be pushed.
 This inspection covers event pushes, preserving-reference pushes, level updates, and retries.
 Inspect reachable history, not only the pushed tree.
-Use [recursive-workflow.md](recursive-workflow.md) § Design authority and privacy for the exposure warnings.
+Use [recursive-workflow.md](recursive-workflow.md) § Design authority and privacy for the private-set definition and exposure warnings.
 A current untracked file does not prove that ancestor commits contain no private bytes.
 If inspection finds private bytes, do not push and pause.
+Ask the user to choose a permitted rewrite, a limited explicit waiver, or abandonment.
+A permitted rewrite removes the private bytes and records a new reviewed binding after its required review.
+It never moves an existing reviewed reference.
+History preservation before a rewrite must not push a commit that holds private bytes.
+A waiver states which exposure or evidence limit the user accepts.
+It grants no unstated publication permission and claims no recovered evidence.
+Keep private reference-to-commit evidence in the owning log locally.
+Public accounting includes only permitted conclusions and history references.
 After inspection, every retention push must name its references explicitly.
 No untargeted push may publish retention references, including all-branches, mirror, or matching pushes.
 The reachable-history inspection duty applies only to retention pushes, not pull request branch pushes.
@@ -283,8 +291,48 @@ Later level comparisons use H2', not the earlier H2 binding.
 Keep the H2 and H1 reviewed bindings unchanged through root closure.
 All exception conditions hold, so this example continues without a retention pause.
 
+Before the final ready flip and every merge handoff, complete all required commits and retention checks.
+For an already-ready pull request, repeat the checks without treating another flip as acceptance.
+With publishing enabled, after acceptance markers, push every kept reference under its creation or update safeguards.
+This includes final-marker and recovery-reference pushes, which require the reachable-history inspection above.
+Read back every pushed reference and record each exact result in the owning log before handoff.
+Recheck review-event retention rather than replacing it with the final checks.
+Advance the current level reference through every final marker under the authorized update rules.
+At handoff, that reference and its latest recorded binding must equal the actual pull request head.
+Verify that remote binding by read-back.
+An earlier binding does not satisfy handoff equality.
+Any new commit after a check requires a fresh handoff check.
+
+After merge, compare the host's recorded merged pull request head with the latest level binding used at final handoff.
+Check that the level reference still equals that final-handoff binding.
+Compare every kept reference with its latest recorded binding, including remote copies when publishing is enabled.
+An exact head comparison uses that reference's binding, not a reachable ancestor.
+Earlier level bindings remain historical evidence, not the merge-comparison target.
+Record these comparisons with the merge-result evidence before root closure.
+If the host cannot supply the merged head, pause rather than infer it from a squash commit.
+Branch deletion by the host does not remove retained marker authority.
+Missing evidence or any comparison mismatch pauses affected work for the user-choice route below.
+
+A missing reference or a reference at another commit pauses affected work.
+The user chooses recovery from another kept copy, an explicit evidence waiver, or abandonment.
+Before recovering a wrong-commit reference, record its observed unexpected commit.
+Keep that commit under a new unique reference approved through the collision route unless the user explicitly chooses to discard it.
+Keep that preserving reference until root closure, with inspected push and read-back when publishing is enabled.
+A missing reference has no unexpected commit to record or preserve.
+Resetting a moved reference is a user choice, not an automatic recovery attempt.
+A reset must pass the checked fast-forward rules or the complete permitted level-replacement exception above.
+No choice authorizes a forced update or replacement of an existing reviewed reference.
+Recovery establishes exact recorded evidence under an allowed binding before work relies on it.
+An evidence waiver records its limit and claims no recovered evidence.
+A status entry, merge result, or copied marker title cannot replace lost history.
+Never create a marker to claim an earlier boundary that was not proved.
+
+With publishing disabled, before the final squash, compare the local level reference for the branch being squashed and its latest recorded binding with that branch head.
+Both must equal the complete head, including every marker commit.
+An earlier binding does not satisfy this equality even when the reference still matches it.
+Use the authorized local level-update rules above.
 With publishing disabled, keep these local references until root closure, including through the final squash.
-Check each local reference against its recorded commit before closure.
+Check every kept local reference against its latest recorded binding before closure.
 Retention requires no remote operation in this setting.
 Do not push any retention reference to any remote when publishing is disabled.
 
@@ -470,6 +518,8 @@ They do not enforce single-writer behavior against another process.
 
 ### Design authority and privacy
 
+The **private set** contains every path under `slate-changes/`, saved-session text, and private reasoning.
+**Private bytes** are bytes from that set.
 A write approves no design and grants no completion or gate authority.
 The owning log records approved design hashes.
 SHA-256 means Secure Hash Algorithm, 256-bit.

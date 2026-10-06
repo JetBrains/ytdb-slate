@@ -220,8 +220,8 @@ stay agent duties below. The flip is gated by this checklist, executed in order:
   placeholder — plus any notes under it. Preserve required acceptance and
   history references in Delivery accounting.
   A squash merge does not preserve marker commits in the default-branch history.
-  For nested work, keep accepted source markers under
-  [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history.
+  For changes that load the nested sections, complete the retention protocol in
+  [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history before the final ready flip and each merge handoff, and for the comparisons after each merge.
   Motivation and Planned changes remain in the description.
 - Update the PR title and description to the final state of the
   level: the title names what was actually delivered — preserving any
@@ -266,7 +266,7 @@ Verify the observed merge commit's identity and parents against its accepted his
 Record the observed merge-result binding in the reachable description and owning log.
 The merge commit itself supplies that binding, including for the last level.
 The root final package lists every level delivery.
-It distinguishes merged levels from the last accepted level waiting for merge.
+It distinguishes merged levels from every level waiting for merge, including levels held behind an unmerged foundation.
 Close the root change only after all delivery accounting is verified.
 Use track-workflow.md § Session handoff and the research log for closure.
 Abandonment at any stage also ends with

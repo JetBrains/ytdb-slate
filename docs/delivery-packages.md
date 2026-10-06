@@ -68,7 +68,7 @@ A design-track package names its approved design, accepted child ranges, and eve
 It has no implementation range or extra cumulative commit.
 Do not count accepted child work as new implementation.
 With publishing, a code package links its level pull request and states its delivery state.
-A design package distinguishes merged levels from the last accepted level waiting for merge.
+A design package distinguishes merged levels from every level waiting for merge, including levels held behind an unmerged foundation.
 Without publishing, state that no pull request exists.
 
 The **Next step** states the applicable acceptance action. Follow
@@ -113,7 +113,7 @@ The **Decision** field asks explicitly for the final acceptance required by
 [track-workflow.md](track-workflow.md) § Delivery and termination. Do not treat
 silence as acceptance.
 The root package lists every level delivery once.
-Distinguish merged levels from the last accepted level waiting for merge.
+Distinguish merged levels from every level waiting for merge, including levels held behind an unmerged foundation.
 A change without nested tracks has one level and at most one pull request.
 
 When trusted configuration enables `workflow.routingRecommendations`, always
@@ -184,8 +184,9 @@ For each required whole-subtree or root final acceptance, use this order even af
 1. Obtain and record the explicit acceptance decision after its package and prerequisites.
 2. Copy that decision and its aggregate evidence references into the closing level's description.
 3. Add a marker only for each design track newly accepted by this decision. Reuse retained marker references for tracks accepted earlier. Record each track's history references in that description.
-4. Verify the description against all accounting sources after these updates and before handoff for merge.
-5. Hand the updated description to the user for merge. Only the user merges.
+4. For changes that load the nested sections with publishing enabled, complete the retention protocol in [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history.
+5. Verify the description against all accounting sources, including the step 4 results, after these updates and before handoff for merge.
+6. Hand the updated description to the user for merge. Only the user merges.
 
 Repeat the description measurement and size-exception checks after each update.
 A missing acceptance or required conclusion blocks handoff for merge.
