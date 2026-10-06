@@ -14,6 +14,8 @@ function resolve(home: unknown = undefined, project: unknown = undefined) {
 }
 test("defaults are immutable and every invalid notification setting warns without echoing values", () => {
 	assert.deepEqual(resolve().settings, NOTIFICATION_DEFAULTS);
+	assert.equal(resolve().settings.minimumDelayMs, 30000);
+	assert.equal(resolve().settings.cooldownMs, 60000);
 	assert.deepEqual(resolve().warnings, []);
 	for (const group of [null, [], 4, "secret"]) assert.equal(resolve(group).warnings.length, 1);
 	for (const key of ["terminal", "native", "bell", "detail", "pushDetail", "minimumDelayMs", "cooldownMs", "sequences"]) {
@@ -27,6 +29,45 @@ test("defaults are immutable and every invalid notification setting warns withou
 	assert.equal(resolve({ terminal: false, push: { enabled: false } }, { terminal: "secret", push: { enabled: "secret" } }).warnings.length, 2);
 	const policy = resolve({ sequences: ["osc99"], push: destination }).settings;
 	assert.ok(Object.isFrozen(policy) && Object.isFrozen(policy.push) && Object.isFrozen(policy.sequences));
+});
+test("warnings name the invalid notification group or setting and its source", () => {
+	for (const source of ["home", "project"] as const) {
+		const fromSource = (value: unknown) => source === "home" ? resolve(value) : resolve(undefined, value);
+		for (const value of [null, [], 4, "private-value"]) {
+			assert.deepEqual(fromSource(value).warnings, [`slate: invalid notifications in ${source} configuration. Using a safe default.`]);
+		}
+		for (const key of ["terminal", "native", "bell", "detail", "pushDetail", "minimumDelayMs", "cooldownMs", "sequences", "push"]) {
+			assert.deepEqual(fromSource({ [key]: "private-value" }).warnings,
+				[`slate: invalid notifications.${key} in ${source} configuration. Using a safe default.`]);
+		}
+		assert.deepEqual(fromSource({ push: { enabled: "private-value" } }).warnings,
+			[`slate: invalid notifications.push.enabled in ${source} configuration. Using a safe default.`]);
+	}
+	assert.deepEqual(resolve({ push: { ...destination, topic: "private/value" } }).warnings,
+		["slate: invalid notifications.push.topic in home configuration. Using a safe default."]);
+});
+test("invalid project channel values combine documented defaults with home permission", () => {
+	for (const invalid of ["false", null, 0, [], {}]) {
+		const result = resolve({ push: destination, terminal: true }, { push: { enabled: invalid }, terminal: invalid });
+		assert.equal(result.settings.push.enabled, false);
+		assert.equal(result.settings.terminal, true);
+		assert.deepEqual(result.warnings, [
+			"slate: invalid notifications.push.enabled in project configuration. Using a safe default.",
+			"slate: invalid notifications.terminal in project configuration. Using a safe default.",
+		]);
+		assert.equal(resolve({ terminal: false }, { terminal: invalid }).settings.terminal, false);
+	}
+	assert.equal(resolve({ push: destination }, { push: {} }).settings.push.enabled, true);
+});
+test("project push destinations and credentials produce one warning without supplied values", () => {
+	const fields = { server: "https://attacker.example", topic: "attacker-topic", token: "attacker-token", username: "attacker-user", password: "attacker-password" };
+	for (const supplied of [fields, ...Object.entries(fields).map(([key, value]) => ({ [key]: value })), { server: null }]) {
+		const result = resolve({ push: destination }, { push: { enabled: true, ...supplied } });
+		assert.deepEqual(result.settings.push, destination);
+		assert.deepEqual(result.warnings, ["slate: ignoring home-only notification push fields in project configuration."]);
+		for (const value of Object.values(fields)) assert.ok(!result.warnings.join().includes(value));
+	}
+	assert.deepEqual(resolve({ push: destination }, { push: { enabled: false } }).warnings, []);
 });
 test("projects only lower all channel and detail permissions and cannot replace push authority", () => {
 	const h = { terminal: false, native: false, bell: false, detail: "project", pushDetail: "generic", push: destination };
@@ -119,7 +160,7 @@ test("loader ignores untrusted projects and replacement cannot manufacture home-
 	assert.deepEqual(notificationSettings(reloaded).push, destination);
 	assert.equal(notificationSettings(reloaded).minimumDelayMs, 1);
 	assert.deepEqual(reloaded.notifications, notificationSettings(reloaded));
-	assert.deepEqual(warnings, []);
+	assert.deepEqual(warnings, ["slate: ignoring home-only notification push fields in project configuration."]);
 });
 const hostile = String.fromCodePoint(...Array.from({ length: 32 }, (_, i) => i), ...Array.from({ length: 33 }, (_, i) => 127 + i), 0x61c, 0x200e, 0x200f, 0x2028, 0x2029, 0x202a, 0x202b, 0x202c, 0x202d, 0x202e, 0x2066, 0x2067, 0x2068, 0x2069);
 test("all text detail levels remove controls, limit bytes and expose only permitted information", () => {
@@ -163,7 +204,9 @@ test("ordered explicit protocols preserve complete requests through tmux, screen
 		assert.equal(wrapNotificationSequence(sequence, {}), sequence);
 		assert.equal(wrapNotificationSequence(sequence, { TMUX: "", STY: "", ZELLIJ: "" }), sequence);
 		assert.equal(wrapNotificationSequence(sequence, { ZELLIJ: "1" }), sequence);
-		const tmux = wrapNotificationSequence(sequence, { TMUX: "1" })!.toString();
+		const wrappedTmux = wrapNotificationSequence(sequence, { TMUX: "1" })!;
+		assert.deepEqual(wrappedTmux, Buffer.from(`\x1bPtmux;${sequence.toString().replaceAll("\x1b", "\x1b\x1b")}\x1b\\`));
+		const tmux = wrappedTmux.toString();
 		assert.equal(tmux.slice(7, -2).replaceAll("\x1b\x1b", "\x1b"), sequence.toString());
 		const screen = wrapNotificationSequence(sequence, { STY: "1" })!;
 		const chunks: Buffer[] = [];

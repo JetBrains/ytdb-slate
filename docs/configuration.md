@@ -53,8 +53,8 @@ The project must be trusted before Slate reads this file. Start a new session af
 | `notifications.minimumDelayMs` | number | `30000` | Minimum interval since input, in milliseconds. Accept a nonnegative safe integer. A trusted project value wins. |
 | `notifications.cooldownMs` | number | `60000` | Minimum interval between events of the same type, in milliseconds. Accept a nonnegative safe integer. A trusted project value wins. |
 | `notifications.sequences` | `auto` \| string[] | `auto` | An explicit list must contain distinct values from `osc9`, `osc777`, and `osc99`. The list must not be empty. List order is preserved. A trusted project value wins. |
-| `notifications.push.server` | string | — | Home-only server address. Accept HTTPS, or HTTP for `localhost`, IPv4 loopback, or `::1`. Reject embedded credentials, query strings, and fragments. An invalid address disables push with a generic warning. |
-| `notifications.push.topic` | string | — | Home-only topic name, using letters, digits, `_`, or `-`. Enabled push requires both server and topic. An invalid or missing destination disables push. |
+| `notifications.push.server` | string | — | Accept HTTPS (Hypertext Transfer Protocol Secure) addresses from home configuration for encrypted web traffic. Accept HTTP (Hypertext Transfer Protocol) only for loopback addresses, which refer to this computer. Allow `localhost`, IPv4 (Internet Protocol version 4) addresses starting with `127.`, or `::1`. Reject embedded credentials, query strings, and fragments. An invalid address disables push with a generic warning. Slate ignores project destination and credential fields with one generic warning. |
+| `notifications.push.topic` | string | — | Home-only topic name. Accept ASCII (American Standard Code for Information Interchange) letters `A-Z` and `a-z`, digits `0-9`, `_`, or `-`. Enabled push requires both server and topic. An invalid or missing destination disables push. |
 | `notifications.push.token` | string | — | Home-only authentication token. Do not combine it with username and password. |
 | `notifications.push.username`, `notifications.push.password` | string | — | Home-only authentication pair. Supply both values or neither. Credentials must be nonempty and contain no control characters. Invalid credentials disable push. |
 | `workerTools` | string[] | `["read", "bash", "edit", "write", "grep", "find", "ls"]` | Tools available to worker threads (an empty list also falls back to the default). |
@@ -88,7 +88,7 @@ The project must be trusted before Slate reads this file. Start a new session af
 
 Notification settings define permissions and text policy. Slate validates these settings at session start. Slate registers no notification tool or delivery channel.
 
-Invalid values produce generic warnings without showing supplied values. Invalid detail falls back to `generic`. Invalid intervals use their defaults. Invalid sequence selection uses `auto`. Invalid or incomplete push destinations disable push.
+Invalid values produce generic warnings that name the setting and its home or project source without showing supplied values. Invalid channel values use the channel defaults, combined with home permission for project values. Invalid detail falls back to `generic`. Invalid intervals use their defaults. Invalid sequence selection uses `auto`. Invalid or incomplete push destinations disable push.
 
 ## Extended example
 

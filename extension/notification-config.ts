@@ -24,38 +24,39 @@ function object(value: unknown): Record<string, unknown> {
 
 /** Resolve sources separately so a trusted project cannot grant disclosure or push authority. */
 export function resolveNotificationSettings(home: unknown, project: unknown, warn: (message: string) => void): NotificationSettings {
-	const invalid = (key: string) => warn(`slate: invalid notifications.${key}. Using a safe default.`);
-	const group = (value: unknown, key: string) => {
-		if (value !== undefined && (value === null || typeof value !== "object" || Array.isArray(value))) invalid(key);
+	const invalid = (key: string, source: "home" | "project" = "home") =>
+		warn(`slate: invalid notifications${key ? `.${key}` : ""} in ${source} configuration. Using a safe default.`);
+	const group = (value: unknown, key: string, source: "home" | "project") => {
+		if (value !== undefined && (value === null || typeof value !== "object" || Array.isArray(value))) invalid(key, source);
 		return object(value);
 	};
-	const h = group(home, "settings"), p = group(project, "settings");
-	const bool = (value: unknown, fallback: boolean, key: string): boolean => {
+	const h = group(home, "", "home"), p = group(project, "", "project");
+	const bool = (value: unknown, fallback: boolean, key: string, source: "home" | "project"): boolean => {
 		if (value === undefined) return fallback;
 		if (typeof value === "boolean") return value;
-		invalid(key);
+		invalid(key, source);
 		return fallback;
 	};
 	const lowerChannel = (homeValue: unknown, projectValue: unknown, fallback: boolean, key: string) => {
-		const permitted = bool(homeValue, fallback, key);
-		const requested = bool(projectValue, true, key);
+		const permitted = bool(homeValue, fallback, key, "home");
+		const requested = projectValue === undefined ? true : bool(projectValue, fallback, key, "project");
 		return permitted && requested;
 	};
-	const detail = (value: unknown, key: string): NotificationDetail => {
+	const detail = (value: unknown, key: string, source: "home" | "project"): NotificationDetail => {
 		if (value === undefined) return "generic";
 		if (details.includes(value as NotificationDetail)) return value as NotificationDetail;
-		invalid(key);
+		invalid(key, source);
 		return "generic";
 	};
 	const lowerDetail = (key: "detail" | "pushDetail") => {
-		const permitted = detail(h[key], key);
-		return p[key] === undefined ? permitted : details[Math.min(details.indexOf(permitted), details.indexOf(detail(p[key], key)))]!;
+		const permitted = detail(h[key], key, "home");
+		return p[key] === undefined ? permitted : details[Math.min(details.indexOf(permitted), details.indexOf(detail(p[key], key, "project")))]!;
 	};
 	const interval = (key: "minimumDelayMs" | "cooldownMs") => {
 		const value = Object.hasOwn(p, key) ? p[key] : h[key];
 		if (value === undefined) return NOTIFICATION_DEFAULTS[key];
 		if (Number.isSafeInteger(value) && (value as number) >= 0) return value as number;
-		invalid(key);
+		invalid(key, Object.hasOwn(p, key) ? "project" : "home");
 		return NOTIFICATION_DEFAULTS[key];
 	};
 	let sequences: NotificationSettings["sequences"] = "auto";
@@ -63,9 +64,12 @@ export function resolveNotificationSettings(home: unknown, project: unknown, war
 	if (raw !== undefined && raw !== "auto") {
 		if (Array.isArray(raw) && raw.length > 0 && raw.every((v) => protocols.includes(v)) && new Set(raw).size === raw.length) {
 			sequences = Object.freeze([...raw]) as readonly NotificationProtocol[];
-		} else invalid("sequences");
+		} else invalid("sequences", Object.hasOwn(p, "sequences") ? "project" : "home");
 	}
-	const push = group(h.push, "push"), projectPush = group(p.push, "push");
+	const push = group(h.push, "push", "home"), projectPush = group(p.push, "push", "project");
+	if (["server", "topic", "token", "username", "password"].some((key) => Object.hasOwn(projectPush, key))) {
+		warn("slate: ignoring home-only notification push fields in project configuration.");
+	}
 	const destination: { enabled: boolean; server?: string; topic?: string; token?: string; username?: string; password?: string } = {
 		enabled: lowerChannel(push.enabled, projectPush.enabled, false, "push.enabled"),
 	};
