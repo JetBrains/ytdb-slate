@@ -529,7 +529,7 @@ session identifier in saved state. Each code track creates its implementer repor
 there at track start. Append a retained entry immediately when any trigger
 below fires. `slate_change close` clears the current change after delivery or
 abandonment. It deletes no files.
-For changes that load the nested sections, follow [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for the before-close retention inventory and after-close retention cleanup.
+For changes that load the nested sections, follow [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for retention inventory and cleanup before close.
 
 - a second non-obvious decision.
 - a surprise about repository behaviour.

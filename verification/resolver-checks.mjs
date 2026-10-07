@@ -3317,7 +3317,7 @@ A mismatch pauses work. Reconcile it in the log. Use marker commits and Git
 history as boundary authority. The track table is display-only.`);
 			const recursiveRecordUnits = [
 				{ id: "identifiers-ranges", source: recursive, start: "## Identifiers, code ranges, and design markers", extract: headingUnit("## Identifiers, code ranges, and design markers"), expected: "06a2a0822448a5112173b65c04826364d3a3094f7930ba98ecd7f17300e19ed8" },
-				{ id: "tool-records-and-recovery", source: recursive, start: "## Manual records and safe writes", extract: headingUnit("## Manual records and safe writes"), expected: "9ebcc5986c51ff906f6aa71e0afc921b8236e1b37d4c793a5876cd20828a0ea8" },
+				{ id: "tool-records-and-recovery", source: recursive, start: "## Manual records and safe writes", extract: headingUnit("## Manual records and safe writes"), expected: "8dbdbb6508744b3b4a2fc364dda4709c4e734fe17e032275a1dc8823af765b68" },
 				{ id: "resume-forks", source: recursive, start: "## Resume and folder forks", extract: headingUnit("## Resume and folder forks"), expected: "ee8952191bf8a044b0c4c124644079ad41a918a51510d10a1d8b1ea6d72e6860" },
 				{ id: "handoff-pointer", source: recursive, start: "## Handoff boundaries", extract: headingUnit("## Handoff boundaries"), expected: "fc5ca34c11f5f1defb5989c10af42cbac9af901c102dc18c6c8d1b55a98cd52f" },
 				{ id: "marker-identity", source: workflow, extract: markedUnit("marker-identity-policy"), expected: "846764c07a6b2c925091bd80f944c888d49994a71f2799b5cd2b8368b415a3c9" },
@@ -4229,26 +4229,37 @@ Check every kept local reference against its latest recorded binding before clos
 Retention requires no remote operation in this setting.
 Do not push any retention reference to any remote when publishing is disabled.
 
-**Retention cleanup after root closure.** Cleanup deletes retention references, not change records or delivered content.
+**Retention cleanup before root closure.** Cleanup deletes retention references, not change records or delivered content.
 These cleanup duties apply only to nested changes.
 An ordinary change has no cleanup duty in either publishing setting.
 A cleanup inventory lists recorded retention references and their latest recorded bindings.
-Record it as the last root-log record before \`slate_change close\`, after final post-merge comparisons and verified accounting.
-With publishing disabled, record it after final local comparisons and verified final-squash accounting.
-For abandonment, record it after the archival offer and any explicit user choice to delete.
-Require exactly one inventory entry in the root log.
-If there are zero or two or more inventory entries, delete nothing.
-Before stopping, the cleanup worker records the inventory-count refusal wherever § Post-close cleanup writes permits a write.
-Report the refusal to the user.
-Every authorizing record precedes the inventory, including closure evidence, the abandonment deletion choice, and marked-entry discard choices.
+Record the inventory after all closure conditions hold.
+For delivered publishing work, require final acceptance and each applicable level merge-result binding.
+Also require final post-merge comparisons and verified accounting.
+Record every authorizing record before the inventory.
+With publishing disabled, record the inventory after final local comparisons and verified final-squash accounting.
+For abandonment cleanup, record the inventory after the archival offer and the recorded explicit user choice to delete. Count inventory entries across the root log and its read-only source chain within the recorded boundaries. Read the chain in its recorded source order and select its latest inventory.
+Do not select an earlier inventory because its evidence appears valid.
+Require exactly one unambiguous latest inventory after every non-cleanup record and after all closure conditions hold. Earlier inventories remain evidence and grant no deletion authority.
+Zero entries or an ambiguous latest inventory permit no deletion. Multiple historical inventories permit deletion only when one latest valid inventory is unambiguous. The inventory condition governs deletion only, not close.
+Before stopping, the cleanup worker records the inventory-count refusal under the ordinary safe-write rules of the still-open change folder. Treat that refusal as incomplete cleanup and report it to the user.
+Every authorizing record precedes the latest inventory, including closure evidence, the abandonment deletion choice, and marked-entry discard choices.
 Read authorization only from those earlier records.
+No record after an inventory may widen that inventory's deletion authority.
+After the inventory, only cleanup observations, the user report, the retry-or-keep choice, and \`slate_change close\` may follow. Any other record voids that inventory's deletion authority.
+Examples include a new track, fix, a decision other than the permitted retry-or-keep choice, merge-result binding, abandonment withdrawal, or handoff state summary outside those permitted kinds.
+Check for voiding records before each deletion, on resume, and before each retry. If any voiding record exists, delete nothing and report the refusal to the user.
+This structural refusal offers no retry against the voided inventory. The user may keep the remaining references and close only when closure conditions still hold.
+Alternatively, wait until every closure condition holds again. The orchestrator then records a new inventory after every non-cleanup record.
+Cleanup then uses only that latest inventory and its preceding authorization. A new inventory does not amend an earlier inventory or authorize deletion under it.
+Apply this route to missing or ambiguous latest inventories and missing earlier closure evidence too. Also apply it when current closure conditions no longer hold.
 A URL (Uniform Resource Locator) identifies a remote location.
 Include the recorded namespace and, with publishing enabled, the remote name and its fetch and push URLs.
 With publishing enabled, obtain the effective fetch URL with \`git remote get-url --all "<remote>"\`.
 With publishing enabled, obtain the effective push URL with \`git remote get-url --push --all "<remote>"\`.
 Require each command to return exactly one URL, not raw configuration values.
 If either command fails or returns zero or multiple URLs, run no remote command.
-Before stopping, the cleanup worker records that refusal wherever § Post-close cleanup writes permits a write.
+Before stopping, the cleanup worker records that refusal under the ordinary safe-write rules of the still-open change folder.
 Report that refusal to the user.
 Userinfo is the user name and password before \`@\` in a URL.
 Remove any userinfo from each URL before recording or comparing it.
@@ -4256,7 +4267,7 @@ Apply this removal identically to recorded and current values.
 Never record a credential.
 Before any remote command, compare both current URLs with the inventory.
 If either URL differs, or the fetch and push URLs differ from each other, run no remote command.
-Before stopping, the cleanup worker records the URL mismatch wherever § Post-close cleanup writes permits a write.
+Before stopping, the cleanup worker records the URL mismatch under the ordinary safe-write rules of the still-open change folder.
 Report the mismatch to the user.
 Follow root and subtree logs and their read-only folder-fork source chains within each recorded last-entry boundary.
 Never write to a source folder.
@@ -4274,20 +4285,29 @@ Delivery alone or a general abandonment deletion choice does not authorize disca
 Before any deletion, the worker checks each entry's owning logs for a recovery or collision-preservation record.
 Treat an unmarked entry with such a record as marked.
 Keep it unless an explicit discard choice precedes the inventory.
-Before close, copy the root folder path from the orchestrator's Current research log line into the inventory.
-Pass that folder path, its root research log path, and the inventory to the cleanup worker.
-The worker must not infer the folder from other record text.
-Close the root with \`slate_change close\` before cleanup in the same session, only after all existing closure conditions hold.
-Before any deletion, require root-log closure evidence from records before the inventory.
+Run cleanup in the closing session after every closure condition holds and immediately before \`slate_change close\`. Pass the open change's Current research log path to the cleanup worker as for any record worker.
+Use the ordinary current-folder rule in § Manual records and safe writes. The worker must not infer the folder from other record text. No inventory folder-path field or closed-folder write permission is required.
+For current closure conditions, exclude each copy recorded as deleted under an inventory that had deletion authority when that deletion ran.
+Require its deletion record in the root log under these cleanup rules.
+Confirm that each excluded copy is still absent.
+Confirmed absence of such a copy is not a missing-reference pause.
+An absent copy without such a deletion record still causes a missing-reference pause.
+This exclusion grants no deletion authority.
+Keep every other closure condition.
+Before each deletion, require current closure conditions and root-log closure evidence from records before the latest inventory.
+Also recheck that no voiding record follows that inventory.
 Delivered publishing work requires final acceptance, each applicable level merge-result binding, post-merge comparisons, and verified accounting.
 An unmerged level prevents delivery closure and deletion.
 Disabled delivery requires final acceptance, final local comparisons, and verified final-squash accounting instead of level merges.
 Abandonment requires the recorded explicit user deletion choice after the archival offer.
 If closure evidence is missing, delete nothing.
-Before stopping, the cleanup worker records the missing closure evidence wherever § Post-close cleanup writes permits a write.
+Before stopping, the cleanup worker records the missing closure evidence under the ordinary safe-write rules of the still-open change folder.
 Report the missing evidence to the user.
 The orchestrator dispatches one bounded cleanup worker action.
-That action may delete only authorized inventory references and append cleanup observations under § Post-close cleanup writes.
+That action may only delete authorized inventory references and append permitted cleanup observations in the open root log.
+Permitted cleanup record kinds are comparisons, listings, deleted and kept copies, failures, interruptions, refusals, incomplete-state observations, and the user report.
+The cleanup action writes no other record and no record outside the open root log.
+Use the normal temporary start copy, separate temporary append texts, \`>>\`, whole-record comparison, and retry inspection. Finish the worker and every record write before close.
 It cannot add or amend closure evidence, the inventory, a mark, or a user choice.
 Cleanup acts only on recorded copies, without inferred counterparts or pairing by commit.
 A regular reference stores a commit identifier, while a symbolic reference names another reference.
@@ -4335,7 +4355,7 @@ For that both-copy entry, read the remote reference live before continuing.
 If it is still absent, continue with the local copy under every local check.
 A present remote copy or a failed read permits no continuation and must be reported.
 Observations alone authorize no deletion.
-The inventory remains the deletion authority.
+Only the latest valid inventory remains the deletion authority.
 After a failed or unclear remote deletion, read that remote reference before any retry.
 Observed absence confirms deletion and must be recorded.
 The inventory commit permits retry under the same full-reference lease and safeguards.
@@ -4350,63 +4370,51 @@ After deletion, list the remote namespace when publishing is enabled and the loc
 Record both applicable listings in the root research log.
 Record each deleted copy's name and old commit, and each kept copy's name and reason.
 Report the result to the user.
-Cleanup is complete when no recorded copy remains except reported kept copies.
-A failed confirmation listing or unresolved deletion leaves cleanup incomplete.
-For every incomplete cleanup exit, the cleanup worker reports the result to the user.
-Where § Post-close cleanup writes permits a write, record an observation before stopping.
-The observation states that cleanup is incomplete.
-A cleanup failure reopens nothing and changes no acceptance, delivery accounting, or merge record.
-Kept references keep history reachable, including when the session ends before cleanup finishes.
-If the session ends before cleanup finishes, the orchestrator reports the interruption and incomplete cleanup to the user.
-Where § Post-close cleanup writes permits a write, the cleanup worker records that incomplete cleanup before the session ends.
-A later session may finish only on a user request naming the closed change folder.
-Before loading the rule or writing, validate that folder under § Post-close cleanup writes.
-Require \`slate-changes/<change-folder name>\` inside this checkout with Slate's generated change-folder form and no \`..\` component.
-Slate's generated change-folder form is \`change-<YYYYMMDD>T<HHMMSS>Z-<32 lowercase hexadecimal characters>\`.
-The date and time must be valid in UTC (Coordinated Universal Time).
-Require a real directory, not a symbolic link, and a regular \`research-log.md\`.
-Require the folder path to equal the root folder path in its inventory.
-No other change folder's first log line may name it as a read-only source.
-On any failure, write nothing, delete nothing, and ask the user.
-Only a validated request loads this rule and grants append-only cleanup observation entries in that root log.
-Dispatch the same bounded worker with the user-named path and recorded inventory.
-Use the same closure evidence, comparisons, safeguards, safe-write steps, and confirmation records.
-Make no other folder write, write no source folder, and start no new change for cleanup.
+Cleanup is complete only when no inventoried copy remains and every confirmation listing succeeds. Kept copies, failures, unresolved deletions, or a failed confirmation listing leave cleanup incomplete.
+For every incomplete cleanup exit, report the result to the user. Record an observation under the normal write rules before stopping. The observation states that cleanup is incomplete.
+The orchestrator reports the cleanup result to the user before \`slate_change close\`. For incomplete cleanup without a structural refusal, the user chooses retry or close with the remaining references kept.
+A structural refusal offers only keep or a new inventory after closure conditions hold again. State the kept copies, failures, unresolved deletions, and failed listings in that report.
+Record the explicit choice after the latest cleanup report through an ordinary record-only action. The cleanup worker cannot record or amend that user choice. A choice after the inventory authorizes no deletion.
+A retry uses only the latest valid inventory and its earlier authorization, not the later choice as deletion authority. Before each retry, recheck closure conditions and the absence of voiding records after that inventory.
+Dispatch one bounded cleanup action at a time and repeat every applicable live read before each deletion. Record the retry observations and report the result before close.
+A keep choice ends cleanup. Only close may follow in that cleanup sequence.
+More deletion requires a new user report and a retry choice recorded after that report. The retry still requires a valid latest inventory and all deletion safeguards.
+A structural refusal still requires the new-inventory route before any further deletion. The choice that permits close must follow the latest cleanup report.
+A recorded keep choice permits close with incomplete cleanup only when closure conditions still hold. It claims neither confirmed absence nor successful cleanup. Neither incomplete cleanup nor that choice changes acceptance, accounting, or merge records.
+For an applicable cleanup sequence, close follows the required user report and any required choice after that latest report. An inventory-count refusal is incomplete cleanup, and a recorded keep choice permits close when closure conditions still hold.
+The inventory condition governs deletion only.
+Recheck closure conditions before every close, including close after complete cleanup.
+If the session ends before cleanup finishes, the change stays open. Keep remaining references in place.
+Record the interruption and incomplete cleanup under normal write rules and report them to the user. The next session follows Resume order and reconciliation and uses the structural-refusal route above.
+Permitted cleanup records include interruption, refusal, and incomplete-state observations.
+They grant no deletion authority.
+Use the current folder and its read-only source chains under normal ownership rules. On a folder fork, read inventories through the root log's recorded source boundary.
+On resume, count inventory entries across the root log and its read-only source chain within the recorded boundaries.
+Apply the latest-inventory rule, including its closure conditions and non-cleanup record boundary.
+On resume, check for voiding records before any deletion or retry.
+The required handoff state summary voids the inventory like any other non-cleanup record. The first source-naming record after a folder fork also voids the inventory.
+On resume, apply this exclusion even when a later record voids or replaces the inventory that authorized the recorded deletion.
+Read those deletion records through the root log and its read-only source chain within the recorded boundaries.
+A new latest inventory lists only remaining reference copies.
+Confirm absence of the excluded copies before keep-and-close or recording that new inventory.
+Resume therefore permits keep-and-close only when closure conditions still hold. Further deletion requires the orchestrator to record a new latest inventory after every non-cleanup record while all closure conditions hold.
+Repeat every live read before deletion under that new inventory, including the confirmed-absence continuation rule above. A closed folder grants no later-session cleanup route and permits no cleanup record write.
 Abandonment has no automatic cleanup.
 After the existing archival offer, ask whether to delete retention references.
-Without an explicit recorded user choice and root closure, delete nothing.
+Without an explicit recorded user deletion choice before the inventory, delete nothing. If the user declines abandonment cleanup, record that choice and report the kept references before ordinary abandonment close.
+The deletion inventory and worker sequence apply only when the user requests abandonment cleanup. That no-cleanup choice grants no deletion authority.
 \`slate_change close\` itself deletes nothing.
-The until-root-closure retention lifetimes stay unchanged.
-This owner alone permits post-closure retention deletion in both publishing settings, not the publishing-only accepted-history-cleanup block.
+The cleanup step immediately before close is the only authorized end of the until-root-closure retention lifetime.
+Authorized inventory cleanup after every closure condition holds ends approved retention and is not a rewrite under the reviewed-state rule.
+This owner supplies deletion authority in both publishing settings. The publishing-only accepted-history-cleanup block governs layered peer-review cleanup, not this inventory cleanup.
 
 Use [track-workflow.md](track-workflow.md) § Delivery and termination for permitted
 history rewrites, rebased-marker mappings, range updates, and unavailable history.`),
 				},
 				{
-					id: "cleanup-writes", source: recursive, extract: headingUnit("### Post-close cleanup writes"),
-					expected: normalizeText(`After \`slate_change close\`, only the closing session's bounded cleanup worker may append cleanup records to the passed root research log path.
-The worker may delete only authorized inventory references under § Level publishing and retained history.
-Cleanup records are observation entries for comparisons, listings, deleted and kept copies, failures, and the user report.
-They never add or amend closure evidence, the inventory, a mark, or a user choice.
-Use the existing temporary start copy, separate temporary append texts, \`>>\`, whole-record comparison, and retry inspection steps.
-This exception grants no other record write and no source-folder write.
-A user request naming a closed change folder is the only later-session exception.
-Before loading the cleanup rule or making any write, validate the user-named folder.
-Require \`slate-changes/<change-folder name>\` inside this checkout with Slate's generated change-folder form and no \`..\` component.
-Use the form defined in § Level publishing and retained history.
-Require a real directory, not a symbolic link, with a regular \`research-log.md\`.
-Require the path to equal the root folder path in that folder's inventory.
-Check every other change folder's first log line and reject a folder named there as a read-only source.
-On any failure, write nothing, delete nothing, and ask the user.
-Only a validated request loads the cleanup rule and grants observation-only appends in that root log.
-Dispatch the same bounded cleanup worker with the user-named path and recorded inventory.
-Make no other write in that folder and start no new change for it.
-Read-only source folders remain outside this permission.`),
-				},
-				{
 					id: "cleanup-pointer", source: workflow,
-					extract: regionUnit(/^(For\s+changes\s+that\s+load\s+the\s+nested\s+sections,\s+follow[\s\S]*?after-close\s+retention\s+cleanup\.)/gm),
-					expected: "For changes that load the nested sections, follow [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for the before-close retention inventory and after-close retention cleanup.",
+					extract: regionUnit(/^(For\s+changes\s+that\s+load\s+the\s+nested\s+sections,\s+follow[\s\S]*?retention\s+inventory\s+and\s+cleanup\s+before\s+close\.)/gm),
+					expected: "For changes that load the nested sections, follow [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for retention inventory and cleanup before close.",
 				},
 				{
 					id: "private-set", source: recursive, extract: headingUnit("### Design authority and privacy"),
@@ -4533,14 +4541,16 @@ A stale description fails the "deep enough" test.`),
 				const result = unit.extract(source);
 				return result.count === 1 && result.text === unit.expected;
 			};
+			// Match the raw marked history body to keep its size independent of the regex compiler stack.
+			const levelPattern = (unit, source) => unit.id === "history" ? block(source, "level-history-policy").text : literalPattern(unit.expected);
 			const levelRuleMutations = levelPolicyUnits.flatMap((unit) => unit.expected.split(/(?<=\.) /).filter((rule) => /[a-z]/i.test(rule)).map((rule, index) => {
 				const pattern = new RegExp(rule.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+"));
-				const source = unit.source.replace(literalPattern(unit.expected), (text) => text.replace(pattern, `Contradicting ${unit.id} rule ${index}.`));
+				const source = unit.source.replace(levelPattern(unit, unit.source), (text) => text.replace(pattern, `Contradicting ${unit.id} rule ${index}.`));
 				return { id: unit.id, index, changed: source !== unit.source, rejected: !acceptsLevelUnit(unit, source) };
 			}));
 			const levelBoundaryControls = levelPolicyUnits.map((unit) => {
 				const resolved = unit.extract(unit.source);
-				const pattern = new RegExp(resolved.text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+"));
+				const pattern = levelPattern(unit, unit.source);
 				return {
 					id: unit.id,
 					missing: !acceptsLevelUnit(unit, unit.source.replace(pattern, "")),
@@ -4582,7 +4592,7 @@ A stale description fails the "deep enough" test.`),
 			];
 			const safetySentenceRemovals = sentenceRemovalUnits.flatMap((unit) => unit.expected.split(/(?<=\.) /).filter((rule) => /[a-z]/i.test(rule)).map((rule, index) => {
 				const pattern = new RegExp(rule.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+"));
-				const source = unit.source.replace(literalPattern(unit.expected), (text) => text.replace(pattern, ""));
+				const source = unit.source.replace(levelPattern(unit, unit.source), (text) => text.replace(pattern, ""));
 				return { id: unit.id, index, changed: source !== unit.source && !unit.extract(source).text.includes(rule), rejected: !acceptsLevelUnit(unit, source) };
 			}));
 			const agreesOnOrderAndLocalRetention = (sources = orderingDocuments) =>
@@ -4712,30 +4722,65 @@ A stale description fails the "deep enough" test.`),
 				const retained = ["A permitted rebase onto S produces H2'.", "Record its old-to-new rebased-marker mapping in the owning log.", "using a lease on H2 when publishing is enabled"].every((rule) => normalizeText(source).includes(rule));
 				return { id, changed: source !== original && !pattern.test(source), rejected: !acceptsLevelUnit(historyUnit, source), retained: id !== "RG4-reachability" || retained };
 			});
-			const cleanupWritesUnit = levelPolicyUnits.find(({ id }) => id === "cleanup-writes");
+			const cleanupRecordsUnit = recursiveRecordUnits.find(({ id }) => id === "tool-records-and-recovery");
 			const cleanupPointerUnit = levelPolicyUnits.find(({ id }) => id === "cleanup-pointer");
-			// Each literal attacks an approved safety condition, not a candidate-derived expectation.
+			const restoredCleanupSentences = [
+				["inventory-conditions", "Record the inventory after all closure conditions hold."],
+				["inventory-acceptance-merges", "For delivered publishing work, require final acceptance and each applicable level merge-result binding."],
+				["inventory-comparisons-accounting", "Also require final post-merge comparisons and verified accounting."],
+				["inventory-earlier-authorization", "Record every authorizing record before the inventory."],
+				["no-earlier-inventory", "Do not select an earlier inventory because its evidence appears valid."],
+				["inventory-deletion-only", "The inventory condition governs deletion only."],
+				["resume-permitted-observations", "Permitted cleanup records include interruption, refusal, and incomplete-state observations."],
+				["resume-no-authority", "They grant no deletion authority."],
+				["resume-inventory-count", "On resume, count inventory entries across the root log and its read-only source chain within the recorded boundaries."],
+				["resume-inventory-boundary", "Apply the latest-inventory rule, including its closure conditions and non-cleanup record boundary."],
+				["other-closure-conditions", "Keep every other closure condition."],
+			];
+			const resumeDeletionSentences = [
+				["resume-exclusion", "On resume, apply this exclusion even when a later record voids or replaces the inventory that authorized the recorded deletion."],
+				["resume-record-boundary", "Read those deletion records through the root log and its read-only source chain within the recorded boundaries."],
+				["resume-remaining-copies", "A new latest inventory lists only remaining reference copies."],
+				["resume-absence", "Confirm absence of the excluded copies before keep-and-close or recording that new inventory."],
+			];
+			const recordedDeletionSentences = [
+				["authorized-exclusion", "For current closure conditions, exclude each copy recorded as deleted under an inventory that had deletion authority when that deletion ran."],
+				["root-record", "Require its deletion record in the root log under these cleanup rules."],
+				["continued-absence", "Confirm that each excluded copy is still absent."],
+				["no-pause", "Confirmed absence of such a copy is not a missing-reference pause."],
+				["unrecorded-pause", "An absent copy without such a deletion record still causes a missing-reference pause."],
+				["no-authority", "This exclusion grants no deletion authority."],
+				...resumeDeletionSentences,
+			];
+			// Each literal attacks a required safety condition, not a candidate-derived expectation.
 			const cleanupAttacks = [
-				["early-delete", "before cleanup in the same session", "after cleanup in the same session"],
-				["inventory-early", "as the last root-log record before `slate_change close`, after final post-merge comparisons and verified accounting", "before final comparisons and accounting"],
-				...[0, 2].map((count) => [`inventory-count-${count}`, "Require exactly one inventory entry in the root log.", `Require exactly ${count} inventory entries in the root log.`]),
+				...restoredCleanupSentences.map(([id, rule]) => [`restored-${id}`, rule, ""]),
+				...recordedDeletionSentences.map(([id, rule]) => [`deleted-${id}`, rule, ""]),
+				["deleted-any-missing", recordedDeletionSentences[0][1], "For current closure conditions, any missing copy leaves the kept-reference comparison set."],
+				["deleted-unauthorized-inventory", recordedDeletionSentences[0][1], "For current closure conditions, exclude copies recorded as deleted under any inventory, including one without deletion authority."],
+				["deleted-latest-only", recordedDeletionSentences[0][1], "For current closure conditions, copies recorded as deleted under the latest valid inventory leave the kept-reference comparison set."],
+				["deleted-no-record", recordedDeletionSentences[1][1], "Exclude deleted copies even without a root-log deletion record."],
+				["deleted-resume-voided", resumeDeletionSentences[0][1], "On resume, exclude deleted copies only while their inventory remains valid."],
+				["after-close", "immediately before `slate_change close`", "immediately after `slate_change close`"],
+				["inventory-early", "Record the inventory after all closure conditions hold.", "Record the inventory before closure conditions hold."],
+				...[0, 2].map((count) => [`inventory-count-${count}`, "Require exactly one unambiguous latest inventory after every non-cleanup record and after all closure conditions hold.", `Require exactly ${count} latest inventories.`]),
 				["late-authorization", "Read authorization only from those earlier records.", "Read authorization from cleanup observations after the inventory."],
 				["source-chain", "Follow root and subtree logs and their read-only folder-fork source chains within each recorded last-entry boundary.", "Read only the root log without source boundaries."],
 				["inferred-binding", "never an inferred current branch head", "or an inferred current branch head"],
-				["passed-path", "Pass that folder path, its root research log path, and the inventory to the cleanup worker.", "Let the worker infer its folder path."],
-				["inventory-refusal-record", "Before stopping, the cleanup worker records the inventory-count refusal wherever § Post-close cleanup writes permits a write.", "Stop without recording the inventory-count refusal."],
-				["inventory-refusal-report", "Report the refusal to the user.", "Keep the inventory-count refusal from the user."],
+				["passed-path", "Pass the open change's Current research log path to the cleanup worker as for any record worker.", "Let the worker infer its folder path."],
+				["inventory-refusal-record", "Before stopping, the cleanup worker records the inventory-count refusal under the ordinary safe-write rules of the still-open change folder.", "Stop without recording the inventory-count refusal."],
+				["inventory-refusal-report", "Treat that refusal as incomplete cleanup and report it to the user.", "Keep the inventory-count refusal from the user."],
 				["remote-binding", "the remote name and its fetch and push URLs", "only the remote name"],
 				["effective-fetch", 'With publishing enabled, obtain the effective fetch URL with `git remote get-url --all "<remote>"`.', "Read the raw remote fetch configuration."],
 				["effective-push", 'With publishing enabled, obtain the effective push URL with `git remote get-url --push --all "<remote>"`.', 'Obtain only the first push URL with `git remote get-url --push "<remote>"`.'],
 				["single-effective-URL", "Require each command to return exactly one URL, not raw configuration values.", "Accept multiple URLs or raw configuration values."],
 				["URL-read-refusal", "If either command fails or returns zero or multiple URLs, run no remote command.", "Continue remote deletion after a failed or multiple-URL read."],
-				["URL-read-record", "Before stopping, the cleanup worker records that refusal wherever § Post-close cleanup writes permits a write.", "Stop without recording the URL-read refusal."],
+				["URL-read-record", "Before stopping, the cleanup worker records that refusal under the ordinary safe-write rules of the still-open change folder.", "Stop without recording the URL-read refusal."],
 				["URL-read-report", "Report that refusal to the user.", "Keep the URL-read refusal from the user."],
 				["userinfo-removal", "Remove any userinfo from each URL before recording or comparing it.", "Record and compare URLs with embedded credentials."],
 				["userinfo-identical", "Apply this removal identically to recorded and current values.", "Remove userinfo only from current values."],
 				["credential-ban", "Never record a credential.", "Record credentials in the inventory."],
-				["URL-mismatch-record", "Before stopping, the cleanup worker records the URL mismatch wherever § Post-close cleanup writes permits a write.", "Stop without recording the URL mismatch."],
+				["URL-mismatch-record", "Before stopping, the cleanup worker records the URL mismatch under the ordinary safe-write rules of the still-open change folder.", "Stop without recording the URL mismatch."],
 				["URL-mismatch-report", "Report the mismatch to the user.", "Keep the URL mismatch from the user."],
 				...["either URL differs", "the fetch and push URLs differ from each other"].map((condition) => [`URL-${condition}`, `If either URL differs, or the fetch and push URLs differ from each other, run no remote command.`, `If ${condition}, run remote deletion anyway.`]),
 				["check-ref-format", 'Require each name to pass `git check-ref-format "<ref>"` before use.', "Use unchecked names."],
@@ -4745,9 +4790,9 @@ A stale description fails the "deep enough" test.`),
 				...["pull request branch", "local level branch", "default branch"].map((name) => [`excluded-${name}`, "Never delete a pull request branch, a local level branch, or the default branch.", `Delete the ${name}.`]),
 				...["prune", "mirror", "pattern", "all-branches"].map((kind) => [`untargeted-${kind}`, "Use no untargeted deletion, including prune, mirror, pattern, or all-branches deletion.", `Use ${kind} deletion.`]),
 				["no-explicit-name", "Every deletion requires an explicit inventory name.", "Delete without an explicit inventory name."],
-				["missing-closure", "Before any deletion, require root-log closure evidence from records before the inventory.", "Delete without root-log closure evidence."],
+				["missing-closure", "Before each deletion, require current closure conditions and root-log closure evidence from records before the latest inventory.", "Delete without root-log closure evidence."],
 				["unmerged-level", "An unmerged level prevents delivery closure and deletion.", "An unmerged level allows closure and deletion."],
-				["closure-refusal-record", "Before stopping, the cleanup worker records the missing closure evidence wherever § Post-close cleanup writes permits a write.", "Stop without recording the missing closure evidence."],
+				["closure-refusal-record", "Before stopping, the cleanup worker records the missing closure evidence under the ordinary safe-write rules of the still-open change folder.", "Stop without recording the missing closure evidence."],
 				["closure-refusal-report", "Report the missing evidence to the user.", "Keep the missing closure evidence from the user."],
 				["preservation-log-check", "Before any deletion, the worker checks each entry's owning logs for a recovery or collision-preservation record.", "Trust inventory marks without checking the owning logs."],
 				["unmarked-preservation", "Treat an unmarked entry with such a record as marked.", "Delete unmarked entries despite preservation records."],
@@ -4778,7 +4823,7 @@ A stale description fails the "deep enough" test.`),
 				["continuation-local-checks", "If it is still absent, continue with the local copy under every local check.", "Continue local deletion without the local checks."],
 				["continuation-present-or-failed", "A present remote copy or a failed read permits no continuation and must be reported.", "Continue despite a present remote copy or failed read."],
 				["observation-not-authority", "Observations alone authorize no deletion.", "Observations alone authorize deletion."],
-				["inventory-authority", "The inventory remains the deletion authority.", "The observation replaces inventory authority."],
+				["inventory-authority", "Only the latest valid inventory remains the deletion authority.", "The observation replaces inventory authority."],
 				["local-retry-read", "Before any local retry, read the local reference again.", "Retry local deletion without a fresh read."],
 				["local-retry-checks", "Retry only if the fresh read shows the inventory commit and both regular-reference checks pass again.", "Retry at any commit without repeating regular-reference checks."],
 				["local-retry-outcomes", "A missing reference confirms absence, while another commit or a failed read permits no retry.", "Retry against a missing reference, another commit, or a failed read."],
@@ -4789,60 +4834,75 @@ A stale description fails the "deep enough" test.`),
 				["one-sided", "A one-sided entry is complete when its recorded copy is deleted and absence is confirmed.", "One-sided entries never complete."],
 				["confirmation", "Record both applicable listings in the root research log.", "Record no confirmation listing."],
 				["deleted-kept-record", "Record each deleted copy's name and old commit, and each kept copy's name and reason.", "Record only a total count."],
-				["unresolved-complete", "A failed confirmation listing or unresolved deletion leaves cleanup incomplete.", "Unresolved deletion is complete."],
-				["incomplete-user-report", "For every incomplete cleanup exit, the cleanup worker reports the result to the user.", "Incomplete cleanup needs no user report."],
-				["incomplete-observation", "Where § Post-close cleanup writes permits a write, record an observation before stopping.", "Stop without a permitted incomplete-cleanup observation."],
+				...["Kept copies", "failures", "unresolved deletions", "a failed confirmation listing"].map((kind) => [`incomplete-${kind}`, "Kept copies, failures, unresolved deletions, or a failed confirmation listing leave cleanup incomplete.", `Only ${kind} leaves cleanup incomplete.`]),
+				["incomplete-user-report", "For every incomplete cleanup exit, report the result to the user.", "Incomplete cleanup needs no user report."],
+				["incomplete-observation", "Record an observation under the normal write rules before stopping.", "Stop without a permitted incomplete-cleanup observation."],
 				["incomplete-record-state", "The observation states that cleanup is incomplete.", "Record cleanup as complete."],
-				["interruption-report", "If the session ends before cleanup finishes, the orchestrator reports the interruption and incomplete cleanup to the user.", "The session ends without an interruption report."],
-				["interruption-observation", "Where § Post-close cleanup writes permits a write, the cleanup worker records that incomplete cleanup before the session ends.", "End the session without a permitted incomplete-cleanup observation."],
-				["folder-definition-missing", "Slate's generated change-folder form is `change-<YYYYMMDD>T<HHMMSS>Z-<32 lowercase hexadecimal characters>`.", ""],
-				["folder-uppercase-hex", "32 lowercase hexadecimal characters", "32 hexadecimal characters in either case"],
-				["folder-impossible-date", "The date and time must be valid in UTC (Coordinated Universal Time).", "Accept impossible UTC dates or times."],
+				["interruption-report", "Record the interruption and incomplete cleanup under normal write rules and report them to the user.", "The session ends without an interruption report."],
+				["interruption-open", "If the session ends before cleanup finishes, the change stays open.", "Automatically close on interruption."],
 				["abandonment-auto", "Abandonment has no automatic cleanup.", "Abandonment automatically deletes references."],
 				["ordinary", "An ordinary change has no cleanup duty in either publishing setting.", "Every ordinary change must clean up references."],
-				["publishing-authority", "This owner alone permits post-closure retention deletion in both publishing settings, not the publishing-only accepted-history-cleanup block.", "Only the publishing cleanup block permits deletion."],
+				["publishing-authority", "This owner supplies deletion authority in both publishing settings.", "Only the publishing cleanup block permits deletion."],
+				["reviewed-state-owner-removal", "Authorized inventory cleanup after every closure condition holds ends approved retention and is not a rewrite under the reviewed-state rule.", ""],
+				...["new track", "fix", "decision", "merge-result binding", "abandonment withdrawal", "handoff state summary"].map((kind) => [`void-${kind}`, "Examples include a new track, fix, a decision other than the permitted retry-or-keep choice, merge-result binding, abandonment withdrawal, or handoff state summary outside those permitted kinds.", `A later ${kind} permits continued deletion.`]),
+				...["before each deletion", "on resume", "before each retry"].map((when) => [`void-check-${when}`, "Check for voiding records before each deletion, on resume, and before each retry.", `Check for voiding records except ${when}.`]),
+				...["temporary start copy", "separate temporary append texts", "`>>`", "whole-record comparison", "retry inspection"].map((step) => [`safe-${step}`, "Use the normal temporary start copy, separate temporary append texts, `>>`, whole-record comparison, and retry inspection.", `Omit ${step}.`]),
+				...["closure evidence", "the inventory", "a mark", "a user choice"].map((kind) => [`observation-${kind}`, "It cannot add or amend closure evidence, the inventory, a mark, or a user choice.", `Cleanup records may amend ${kind}.`]),
+				...["record-kind-list", "append-limit"].map((id) => [id, "Permitted cleanup record kinds are comparisons, listings, deleted and kept copies, failures, interruptions, refusals, incomplete-state observations, and the user report.", id === "append-limit" ? "Any record kind is permitted." : ""]),
+				...["another record", "a source folder"].map((place) => [`other-write-${place}`, "The cleanup action writes no other record and no record outside the open root log.", `The cleanup action may write ${place}.`]),
+				["actor", "The orchestrator dispatches one bounded cleanup worker action.", "Any worker may perform unlimited cleanup actions."],
+				["inventory-folder-field", "No inventory folder-path field or closed-folder write permission is required.", "Require an inventory folder path and closed-folder permission."],
+				["close-writer", "Finish the worker and every record write before close.", "Close while a record writer runs."],
+				["pointer-order", "Run cleanup in the closing session after every closure condition holds and immediately before `slate_change close`.", "Run cleanup before closure conditions hold."],
+				...["disabled-recording", "abandonment-recording"].map((id, index) => [id, ["With publishing disabled, record the inventory after final local comparisons and verified final-squash accounting.", "For abandonment cleanup, record the inventory after the archival offer and the recorded explicit user choice to delete."][index], ""]),
+				...["Record the inventory after all closure conditions hold.", "Count inventory entries across the root log and its read-only source chain within the recorded boundaries.", "Read the chain in its recorded source order and select its latest inventory.", "Earlier inventories remain evidence and grant no deletion authority.", "Zero entries or an ambiguous latest inventory permit no deletion.", "Multiple historical inventories permit deletion only when one latest valid inventory is unambiguous.", "No record after an inventory may widen that inventory's deletion authority.", "This structural refusal offers no retry against the voided inventory.", "The user may keep the remaining references and close only when closure conditions still hold.", "Alternatively, wait until every closure condition holds again.", "The orchestrator then records a new inventory after every non-cleanup record.", "Cleanup then uses only that latest inventory and its preceding authorization.", "A new inventory does not amend an earlier inventory or authorize deletion under it.", "Apply this route to missing or ambiguous latest inventories and missing earlier closure evidence too.", "Also apply it when current closure conditions no longer hold."].map((rule, index) => [`latest-refusal-${index}`, rule, ""]),
+				...["The orchestrator reports the cleanup result to the user before `slate_change close`.", "For incomplete cleanup without a structural refusal, the user chooses retry or close with the remaining references kept.", "A structural refusal offers only keep or a new inventory after closure conditions hold again.", "Record the explicit choice after the latest cleanup report through an ordinary record-only action.", "A retry uses only the latest valid inventory and its earlier authorization, not the later choice as deletion authority.", "Before each retry, recheck closure conditions and the absence of voiding records after that inventory.", "A keep choice ends cleanup.", "Only close may follow in that cleanup sequence.", "More deletion requires a new user report and a retry choice recorded after that report.", "The choice that permits close must follow the latest cleanup report.", "A recorded keep choice permits close with incomplete cleanup only when closure conditions still hold.", "For an applicable cleanup sequence, close follows the required user report and any required choice after that latest report.", "An inventory-count refusal is incomplete cleanup, and a recorded keep choice permits close when closure conditions still hold.", "Recheck closure conditions before every close, including close after complete cleanup."].map((rule, index) => [`report-choice-${index}`, rule, ""]),
+				...["new user report", "a retry choice recorded after that report"].map((part) => [`keep-restart-${part}`, "More deletion requires a new user report and a retry choice recorded after that report.", `More deletion needs no ${part}.`]),
+				...["The next session follows Resume order and reconciliation and uses the structural-refusal route above.", "On a folder fork, read inventories through the root log's recorded source boundary.", "Apply the latest-inventory rule, including its closure conditions and non-cleanup record boundary.", "On resume, check for voiding records before any deletion or retry.", "The required handoff state summary voids the inventory like any other non-cleanup record.", "The first source-naming record after a folder fork also voids the inventory.", "Resume therefore permits keep-and-close only when closure conditions still hold.", "Further deletion requires the orchestrator to record a new latest inventory after every non-cleanup record while all closure conditions hold.", "Repeat every live read before deletion under that new inventory, including the confirmed-absence continuation rule above.", "If the user declines abandonment cleanup, record that choice and report the kept references before ordinary abandonment close."].map((rule, index) => [`resume-abandonment-${index}`, rule, ""]),
+				["inventory-close-barrier", "The inventory condition governs deletion only, not close.", "An inventory-count refusal always forbids close."],
+				...["remote namespace when publishing is enabled", "local inventory names in either setting"].map((listing) => [`listing-${listing}`, "After deletion, list the remote namespace when publishing is enabled and the local inventory names in either setting.", `Omit the ${listing} listing.`]),
 			].map(([id, before, after]) => ({ id, unit: historyUnit, before, after }));
-			const cleanupWriteAttacks = [
-				["closing-session", "only the closing session's bounded cleanup worker", "any session's worker"],
-				...["closure evidence", "the inventory", "a mark", "a user choice"].map((kind) => [`observation-${kind}`, "They never add or amend closure evidence, the inventory, a mark, or a user choice.", `Cleanup records may amend ${kind}.`]),
-				["safe-steps", "Use the existing temporary start copy, separate temporary append texts, `>>`, whole-record comparison, and retry inspection steps.", "Append directly without safe-write checks."],
-				["other-write", "This exception grants no other record write and no source-folder write.", "Rewrite other records and source folders."],
-				["request", "A user request naming a closed change folder is the only later-session exception.", "Later sessions need no user request."],
-				["validation-first", "Before loading the cleanup rule or making any write, validate the user-named folder.", "Validate only after loading the rule and writing."],
-				["folder-definition-pointer", "Use the form defined in § Level publishing and retained history.", "Accept any timestamp or hexadecimal spelling."],
-				...["slate-changes/<change-folder name>", "inside this checkout", "Slate's generated change-folder form", "no `..` component"].map((part) => [`folder-${part}`, part, "any supplied path"]),
-				...["a real directory, not a symbolic link", "a regular `research-log.md`"].map((part) => [`folder-${part}`, part, "any filesystem entry"]),
-				["inventory-path", "Require the path to equal the root folder path in that folder's inventory.", "Accept an inventory path mismatch."],
-				["read-only-source", "Check every other change folder's first log line and reject a folder named there as a read-only source.", "Accept a read-only source folder."],
-				["failure-effect", "On any failure, write nothing, delete nothing, and ask the user.", "Continue after validation failure."],
-				["new-change", "Make no other write in that folder and start no new change for it.", "Start a new change and write any record."],
-			].map(([id, before, after]) => ({ id, unit: cleanupWritesUnit, before, after }));
-			const mutateCleanup = (original = recursive) => [...cleanupAttacks, ...cleanupWriteAttacks].map(({ id, unit, before, after }) => {
+			const mutateCleanup = (original = recursive) => cleanupAttacks.map(({ id, unit, before, after }) => {
 				const pattern = literalPattern(before);
-				const source = original.replace(literalPattern(unit.expected), (text) => text.replace(pattern, after));
+				const source = original.replace(levelPattern(unit, original), (text) => text.replace(pattern, after));
 				return { id, changed: source !== original && !pattern.test(unit.extract(source).text), rejected: !acceptsLevelUnit(unit, source) };
 			});
 			const cleanupMutations = mutateCleanup();
+			const forbiddenCleanupRoutes = [
+				["post-close-write", "After `slate_change close`, the cleanup worker may append cleanup records to the root log."],
+				["closing-exception", "The closing session has a post-close cleanup write exception."],
+				["later-session", "A later session may clean up a closed change folder."],
+				["validated-closed-folder", "A user request naming a closed change folder permits cleanup after validating its generated path inside this checkout without parent components, real directory and regular log, matching inventory path, and absence from read-only source links."],
+			];
+			const acceptsCleanupRoutes = (source) => acceptsLevelUnit(historyUnit, source) && acceptsRecordUnit(cleanupRecordsUnit, source) && !/Post-close cleanup writes|After `slate_change close`[^.]*may append|closing session[^.]*post-close[^.]*exception|later session[^.]*may[^.]*closed change folder|user request naming a closed change folder[^.]*permits cleanup/i.test(normalizeText(source));
+			const forbiddenCleanupMutations = forbiddenCleanupRoutes.map(([id, rule]) => { const source = `${recursive}\n${rule}\n`; return { id, changed: source !== recursive, rejected: !acceptsCleanupRoutes(source) }; });
+			const forbiddenCleanupPositions = ["<!-- level-history-policy:end -->", "## Identifiers, code ranges, and design markers", "## Manual records and safe writes", "document-end"];
+			const wrappedForbiddenCleanupMutations = forbiddenCleanupRoutes.flatMap(([id, rule]) => forbiddenCleanupPositions.map((position) => {
+				const wrapped = rule.replace(/ /g, "\n\t");
+				const source = position === "document-end" ? `${recursive}\n${wrapped}\n` : recursive.replace(position, `${position}\n\n${wrapped}\n`);
+				return { id, position, changed: source !== recursive && source.includes(wrapped), rejected: !acceptsCleanupRoutes(source) };
+			}));
 			const cleanupControlSentences = [
-				"Before any deletion, require root-log closure evidence from records before the inventory.",
-				"Slate's generated change-folder form is `change-<YYYYMMDD>T<HHMMSS>Z-<32 lowercase hexadecimal characters>`.",
-				"Before stopping, the cleanup worker records the inventory-count refusal wherever § Post-close cleanup writes permits a write.",
-				"Before stopping, the cleanup worker records the URL mismatch wherever § Post-close cleanup writes permits a write.",
-				"Before stopping, the cleanup worker records the missing closure evidence wherever § Post-close cleanup writes permits a write.",
-				"If the session ends before cleanup finishes, the orchestrator reports the interruption and incomplete cleanup to the user.",
+				"Before each deletion, require current closure conditions and root-log closure evidence from records before the latest inventory.",
+				"Authorized inventory cleanup after every closure condition holds ends approved retention and is not a rewrite under the reviewed-state rule.",
+				"Before stopping, the cleanup worker records the inventory-count refusal under the ordinary safe-write rules of the still-open change folder.",
+				"Before stopping, the cleanup worker records the URL mismatch under the ordinary safe-write rules of the still-open change folder.",
+				"Before stopping, the cleanup worker records the missing closure evidence under the ordinary safe-write rules of the still-open change folder.",
+				"Record the interruption and incomplete cleanup under normal write rules and report them to the user.",
 				"For that both-copy entry, read the remote reference live before continuing.",
 			];
 			const cleanupOutsideControls = cleanupControlSentences.map((sentence) => {
 				const source = recursive.replace(literalPattern(sentence), "").replace("<!-- level-history-policy:end -->", `<!-- level-history-policy:end -->\n${sentence}`);
 				return { changed: source !== recursive, retained: source.includes(sentence), outside: !historyUnit.extract(source).text.includes(sentence), rejected: !acceptsLevelUnit(historyUnit, source) };
 			});
-			const cleanupWrapControls = [...cleanupControlSentences, "Use the form defined in § Level publishing and retained history."].map((sentence) => {
+			const cleanupWrapControls = [...cleanupControlSentences, "Pass the open change's Current research log path to the cleanup worker as for any record worker.", "Multiple historical inventories permit deletion only when one latest valid inventory is unambiguous.", "After the inventory, only cleanup observations, the user report, the retry-or-keep choice, and `slate_change close` may follow.", "Permitted cleanup record kinds are comparisons, listings, deleted and kept copies, failures, interruptions, refusals, incomplete-state observations, and the user report.", "An inventory-count refusal is incomplete cleanup, and a recorded keep choice permits close when closure conditions still hold.", "Further deletion requires the orchestrator to record a new latest inventory after every non-cleanup record while all closure conditions hold."].map((sentence) => {
 				const source = recursive.replace(literalPattern(sentence), (match) => {
 					const wrapped = sentence.replace(/ /g, "\n  ");
 					return match === wrapped ? sentence.replace(/ /g, "\n\t") : wrapped;
 				});
-				return { changed: source !== recursive, accepted: acceptsLevelUnit(historyUnit, source) && acceptsLevelUnit(cleanupWritesUnit, source), mutations: mutateCleanup(source) };
+				return { changed: source !== recursive, accepted: acceptsCleanupRoutes(source), mutations: mutateCleanup(source) };
 			});
+			const cleanupPointerAttacks = ["For changes that load the nested sections", "retention inventory", "cleanup before close"].map((part) => { const source = workflow.replace(literalPattern(cleanupPointerUnit.expected), cleanupPointerUnit.expected.replace(part, "after-close work for every change")); return { part, changed: source !== workflow, rejected: !acceptsLevelUnit(cleanupPointerUnit, source) }; });
 			const wrappedCleanupPointer = workflow.replace(literalPattern(cleanupPointerUnit.expected), (match) => {
 				const wrapped = cleanupPointerUnit.expected.replace(/ /g, "\n  ");
 				return match === wrapped ? cleanupPointerUnit.expected.replace(/ /g, "\n\t") : wrapped;
@@ -4854,13 +4914,13 @@ A stale description fails the "deep enough" test.`),
 			const wrappedRetentionMutations = mutateRetention(wrappedRetention);
 			const privacyDestination = headingUnit("### Design authority and privacy")(recursive);
 			// Literal citations have an exact context roster. Paraphrase detection is best-effort.
-			// The handoff context selects before-close inventory and after-close cleanup.
+			// The handoff context selects inventory and cleanup before close.
 			// Every context edit needs full lifecycle review, a digest refresh, and a pin-attack recount.
 			const lifecycleRetentionContexts = [
 				["## Recursive planning and loading", "For nested work, use [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for dependency order, pauses, split changes, and branch bases."],
 				["## Confirmation gate", "Use [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for the pause conditions."],
 				["## Delivery and termination", "For changes that load the nested sections, route a missing or wrong-commit retention reference to [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for the user's choice."],
-				["## Session handoff and the research log", "For changes that load the nested sections, follow [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for the before-close retention inventory and after-close retention cleanup."],
+				["## Session handoff and the research log", "For changes that load the nested sections, follow [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for retention inventory and cleanup before close."],
 			];
 			const privateSetUnit = levelPolicyUnits.find(({ id }) => id === "private-set");
 			// These pins cover only publishing, delivery, and lifecycle documents.
@@ -4872,10 +4932,10 @@ A stale description fails the "deep enough" test.`),
 			// HTML comments count. The word layer is best-effort during refresh review.
 			// Known word-layer escapes include "retention branches" and "branches kept for retention".
 			const EXPECTED_PUBLISHING_SHA256 = "d3c039739f5a633c6a7de5b7300a56893acc7ac62344e1f18f77a02ae9526b0e";
-			const EXPECTED_TRACK_WORKFLOW_SHA256 = "d897df7b649e268031f89013bf5ee2c296033bcbc7ac73bd6050067ae9c33958";
+			const EXPECTED_TRACK_WORKFLOW_SHA256 = "88760411b097e09cb27a7ee705dd79ae0218fc2c26e07b1f3131b4316b1fe29d";
 			const EXPECTED_DELIVERY_PACKAGES_SHA256 = "21a47331244a66225b4b59c24555f686656512e61f42b9b7f9546f440c7cd64e";
 			const peerRetentionOwners = [
-				{ id: "nested", source: recursive, units: [historyUnit, privateSetUnit, levelPolicyUnits.find(({ id }) => id === "cleanup-writes")] },
+				{ id: "nested", source: recursive, units: [historyUnit, privateSetUnit] },
 				{ id: "publishing", source: publishing, pin: EXPECTED_PUBLISHING_SHA256, units: [levelPolicyUnits.find(({ id }) => id === "ready-history"), publishingMigrationUnits[0]], count: 3, contexts: [
 					["## One draft pull request", "For nested work, use [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for subtree ordering, branch bases, and history slices."],
 					["## Creation", "For nested work, choose its base under [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history."],
@@ -4918,7 +4978,7 @@ A later track builds on the accepted boundary before it.`),
 				if (citationFailure) return citationFailure;
 				for (const unit of owner.units) {
 					if (!acceptsLevelUnit(unit, source)) return "owned-unit";
-					source = source.replace(literalPattern(unit.expected), "");
+					source = source.replace(levelPattern(unit, source), "");
 				}
 				source = normalizeText(source);
 				for (const [, text] of owner.contexts ?? []) source = source.replace(text, "");
@@ -5012,7 +5072,7 @@ A later track builds on the accepted boundary before it.`),
 				accepted: acceptsPeerRetention(owner, `${owner.source}\n<!-- Outside control. -->`)
 					&& acceptsPeerRetention(owner, `${owner.source}\n\n## Unrelated section\n\nThis section contains an unrelated note.\n`),
 			}));
-			const pointerAttacks = peerRetentionOwners.flatMap((owner) => owner.units.filter(({ id }) => !["lifecycle-planning", "history", "private-set", "cleanup-writes", "disabled-preservation", "shared-scheduling", "shared-disabled-preservation", publishingMigrationUnits[0].id].includes(id)).flatMap((unit) => [
+			const pointerAttacks = peerRetentionOwners.flatMap((owner) => owner.units.filter(({ id }) => !["lifecycle-planning", "history", "private-set", "disabled-preservation", "shared-scheduling", "shared-disabled-preservation", publishingMigrationUnits[0].id].includes(id)).flatMap((unit) => [
 				["scope", "For changes that load the nested sections", "For every change"],
 				["destination", "§ Level publishing and retained history", "§ Terms and scope"],
 				...(unit.id === "transfer" ? [["disabled", "with publishing enabled", "with publishing disabled"]] : []),
@@ -5022,10 +5082,15 @@ A later track builds on the accepted boundary before it.`),
 			})));
 			const benignOrderingDocuments = Object.fromEntries(Object.entries(orderingDocuments).map(([id, source]) => [id, `${source}\n<!-- Outside ordering control. -->\n`]));
 			checkAll("contract-level-publishing", "level membership, dependency order, pauses, local retention, approval, delivery, cleanup, rebase mappings, unavailable evidence, and publishing defaults have owned rules and reviewed peer-document pins", [
-				["reviewed peer-document pins reject unreviewed additions while scoped pointers and the word layer discriminate known copies", peerRetentionOwners.every((owner) => !peerPinFailure(owner, owner.source) && acceptsPeerRetention(owner, owner.source)) && pinnedPeerOwners.length === 3 && peerPinRules.length === 6 && peerPinAttacks.length === 252 && peerPinAttacks.every(({ changed, rejected }) => changed && rejected) && reviewedBranchControls.length === 5 && reviewedBranchControls.every(({ changed, accepted }) => changed && accepted) && wordLayerControls.length === 3 && wordLayerControls.every(({ rejected }) => rejected) && peerOutsideControls.every(({ accepted }) => accepted) && peerPlacementNames.length === 7 && peerPlacementVerbs.length === 14 && peerEscapeAttacks.length === 687 && ownerSentenceCopies.length === 1158 && [...peerRetentionAttacks, ...peerEscapeAttacks, ...ownerSentenceCopies, ...pointerAttacks].every(({ changed, rejected }) => changed && rejected), { baseline: peerRetentionOwners.map((owner) => [owner.id, peerPinFailure(owner, owner.source), peerRetentionFailure(owner, owner.source)]), peerPinAttacks: peerPinAttacks.filter(({ changed, rejected }) => !changed || !rejected), reviewedBranchControls, wordLayerControls, peerOutsideControls, peerRetentionAttacks, peerEscapeAttacks, ownerSentenceCopies: ownerSentenceCopies.filter(({ changed, rejected }) => !changed || !rejected), pointerAttacks }],
-				["cleanup safety and bounded-write mutations change the owned input and fail", cleanupMutations.length === 118 && new Set(cleanupMutations.map(({ id }) => id)).size === 118 && cleanupMutations.every(({ changed, rejected }) => changed && rejected), cleanupMutations],
+				["reviewed peer-document pins reject unreviewed additions while scoped pointers and the word layer discriminate known copies", peerRetentionOwners.every((owner) => !peerPinFailure(owner, owner.source) && acceptsPeerRetention(owner, owner.source)) && pinnedPeerOwners.length === 3 && peerPinRules.length === 6 && peerPinAttacks.length === 252 && peerPinAttacks.every(({ changed, rejected }) => changed && rejected) && reviewedBranchControls.length === 5 && reviewedBranchControls.every(({ changed, accepted }) => changed && accepted) && wordLayerControls.length === 3 && wordLayerControls.every(({ rejected }) => rejected) && peerOutsideControls.every(({ accepted }) => accepted) && peerPlacementNames.length === 7 && peerPlacementVerbs.length === 14 && peerEscapeAttacks.length === 687 && ownerSentenceCopies.length === 1365 && [...peerRetentionAttacks, ...peerEscapeAttacks, ...ownerSentenceCopies, ...pointerAttacks].every(({ changed, rejected }) => changed && rejected), { baseline: peerRetentionOwners.map((owner) => [owner.id, peerPinFailure(owner, owner.source), peerRetentionFailure(owner, owner.source)]), peerPinAttacks: peerPinAttacks.filter(({ changed, rejected }) => !changed || !rejected), reviewedBranchControls, wordLayerControls, peerOutsideControls, peerRetentionAttacks, peerEscapeAttacks, ownerSentenceCopies: ownerSentenceCopies.filter(({ changed, rejected }) => !changed || !rejected), pointerAttacks }],
+				["closed-folder routes and post-close exceptions fail, including a request with all former folder checks", acceptsCleanupRoutes(recursive) && forbiddenCleanupMutations.length === 4 && wrappedForbiddenCleanupMutations.length === 16 && [...forbiddenCleanupMutations, ...wrappedForbiddenCleanupMutations].every(({ changed, rejected }) => changed && rejected), { forbiddenCleanupMutations, wrappedForbiddenCleanupMutations }],
+				["restored cleanup safety sentences have independent expectations and removal mutations", restoredCleanupSentences.length === 11 && restoredCleanupSentences.every(([id, rule]) => historyUnit.expected.includes(rule) && cleanupMutations.some((mutation) => mutation.id === `restored-${id}` && mutation.changed && mutation.rejected)), restoredCleanupSentences],
+				["recorded authorized deletions have independent exclusions, absence checks, and removal mutations", recordedDeletionSentences.length === 10 && recordedDeletionSentences.every(([id, rule]) => historyUnit.expected.includes(rule) && cleanupMutations.some((mutation) => mutation.id === `deleted-${id}` && mutation.changed && mutation.rejected)), recordedDeletionSentences],
+				["resume preserves recorded-deletion exclusions and inventories only remaining copies without weakening closure or deletion authority", resumeDeletionSentences.length === 4 && resumeDeletionSentences.every(([, rule]) => historyUnit.extract(recursive).text.includes(rule)) && ["Keep every other closure condition.", "Only the latest valid inventory remains the deletion authority.", "Resume therefore permits keep-and-close only when closure conditions still hold.", "Further deletion requires the orchestrator to record a new latest inventory after every non-cleanup record while all closure conditions hold."].every((rule) => historyUnit.expected.includes(rule) && historyUnit.extract(recursive).text.includes(rule)) && ["deleted-any-missing", "deleted-unauthorized-inventory", "deleted-latest-only", "deleted-no-record", "deleted-resume-voided"].every((id) => cleanupMutations.some((mutation) => mutation.id === id && mutation.changed && mutation.rejected)), resumeDeletionSentences],
+				["each lifecycle cleanup pointer clause rejects weakening", cleanupPointerAttacks.length === 3 && cleanupPointerAttacks.every(({ changed, rejected }) => changed && rejected), cleanupPointerAttacks],
+				["cleanup safety and bounded-write mutations change the owned input and fail", cleanupMutations.length === 197 && new Set(cleanupMutations.map(({ id }) => id)).size === 197 && cleanupMutations.every(({ changed, rejected }) => changed && rejected), cleanupMutations],
 				["moving cleanup safeguards outside the marker fails while preserving each sentence", cleanupOutsideControls.length === 7 && cleanupOutsideControls.every(({ changed, retained, outside, rejected }) => changed && retained && outside && rejected), cleanupOutsideControls],
-				["cleanup safeguard wrapping passes and all mutations remain discriminating", cleanupWrapControls.length === 8 && cleanupWrapControls.every(({ changed, accepted, mutations }) => changed && accepted && mutations.every(({ changed, rejected }) => changed && rejected)), cleanupWrapControls],
+				["cleanup safeguard wrapping passes and all mutations remain discriminating", cleanupWrapControls.length === 13 && cleanupWrapControls.every(({ changed, accepted, mutations }) => changed && accepted && mutations.every(({ changed, rejected }) => changed && rejected)), cleanupWrapControls],
 				["pointer wrapping preserves scope and destination in the required handoff context", wrappedCleanupPointer !== workflow && acceptsLevelUnit(cleanupPointerUnit, wrappedCleanupPointer) && acceptsPeerRetention(peerRetentionOwners.find(({ id }) => id === "lifecycle"), wrappedCleanupPointer), "wrapped cleanup pointer"],
 				["safe creation, updates, remote events, inspection, and RG4 mutations change their intended input and fail", retentionMutations.length === 58 && retentionMutations.every(({ changed, rejected, retained }) => changed && rejected && retained), retentionMutations],
 				["the complete valid stacked example and normal fast-forward policy match in both publishing settings", acceptsLevelUnit(historyUnit, recursive), "independent complete history literal"],
@@ -5033,8 +5098,8 @@ A later track builds on the accepted boundary before it.`),
 				["wrapped inspection passes and keeps all named mutations discriminating", wrappedRetention !== recursive && acceptsLevelUnit(historyUnit, wrappedRetention) && wrappedRetentionMutations.every(({ changed, rejected, retained }) => changed && rejected && retained), wrappedRetentionMutations],
 				["the inspection pointer reaches the unique existing privacy subsection", privacyDestination.count === 1 && privacyDestination.text.includes("Record contents can also appear in saved worker sessions and command text."), privacyDestination.count],
 				["every unit matches its independent expectation", levelPolicyUnits.every((unit) => acceptsLevelUnit(unit, unit.source)), levelPolicyUnits.filter((unit) => !acceptsLevelUnit(unit, unit.source)).map(({ id }) => id)],
-				["every rule mutation changes input and fails", levelRuleMutations.length === 560 && levelRuleMutations.every(({ changed, rejected }) => changed && rejected), levelRuleMutations],
-				["every safety sentence removal changes its owned input and fails", safetySentenceRemovals.length === 637 && safetySentenceRemovals.filter(({ id }) => id === "history").length === 374 && safetySentenceRemovals.filter(({ id }) => id === "cleanup-writes").length === 18 && safetySentenceRemovals.every(({ changed, rejected }) => changed && rejected), safetySentenceRemovals],
+				["every rule mutation changes input and fails", levelRuleMutations.length === 611 && levelRuleMutations.every(({ changed, rejected }) => changed && rejected), levelRuleMutations],
+				["every safety sentence removal changes its owned input and fails", safetySentenceRemovals.length === 688 && safetySentenceRemovals.filter(({ id }) => id === "history").length === 443 && !safetySentenceRemovals.some(({ id }) => id === "cleanup-writes") && safetySentenceRemovals.every(({ changed, rejected }) => changed && rejected), safetySentenceRemovals],
 				["ordering, pause reconciliation, and local retention agree across all four documents", agreesOnOrderAndLocalRetention(), "complete independent history, planning, resume, roadmap, and publishing expectations"],
 				["unsafe pauses, conflicting bases, missing scope or events, and ordinary duties in either publishing setting fail", orderAndRetentionMutations.every(({ changed, rejected }) => changed && rejected), orderAndRetentionMutations],
 				["moving an intact event sentence outside the marker fails", eventMoveRejected(orderingDocuments), "event remains present beyond the protected marker"],
@@ -5609,7 +5674,7 @@ The block states the current approved design when one exists, the current task a
 					source: workflow,
 					extract: regionUnit(/^(Start a change with `slate_change start` before the first implementation[\s\S]*?)(?=^Open these sections:)/gm),
 					expected: normalizeText(`Start a change with \`slate_change start\` before the first implementation dispatch. Slate creates \`slate-changes/<change>/research-log.md\` without waiting for a retained trigger. It records the generated folder name and owning Pi session identifier in saved state. Each code track creates its implementer report there at track start. Append a retained entry immediately when any trigger below fires. \`slate_change close\` clears the current change after delivery or abandonment. It deletes no files.
-For changes that load the nested sections, follow [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for the before-close retention inventory and after-close retention cleanup.
+For changes that load the nested sections, follow [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for retention inventory and cleanup before close.
 
 - a second non-obvious decision.
 - a surprise about repository behaviour.

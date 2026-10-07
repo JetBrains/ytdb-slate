@@ -336,20 +336,49 @@ Check every kept local reference against its latest recorded binding before clos
 Retention requires no remote operation in this setting.
 Do not push any retention reference to any remote when publishing is disabled.
 
-**Retention cleanup after root closure.** Cleanup deletes retention references, not change records or delivered content.
+**Retention cleanup before root closure.** Cleanup deletes retention references, not change records or delivered content.
 These cleanup duties apply only to nested changes.
 An ordinary change has no cleanup duty in either publishing setting.
 
 A cleanup inventory lists recorded retention references and their latest recorded bindings.
-Record it as the last root-log record before `slate_change close`, after final post-merge comparisons and verified accounting.
-With publishing disabled, record it after final local comparisons and verified final-squash accounting.
-For abandonment, record it after the archival offer and any explicit user choice to delete.
-Require exactly one inventory entry in the root log.
-If there are zero or two or more inventory entries, delete nothing.
-Before stopping, the cleanup worker records the inventory-count refusal wherever § Post-close cleanup writes permits a write.
-Report the refusal to the user.
-Every authorizing record precedes the inventory, including closure evidence, the abandonment deletion choice, and marked-entry discard choices.
+Record the inventory after all closure conditions hold.
+For delivered publishing work, require final acceptance and each applicable level merge-result binding.
+Also require final post-merge comparisons and verified accounting.
+Record every authorizing record before the inventory.
+With publishing disabled, record the inventory after final local comparisons and verified final-squash accounting.
+For abandonment cleanup, record the inventory after the archival offer and the recorded explicit user choice to delete.
+
+Count inventory entries across the root log and its read-only source chain within the recorded boundaries.
+Read the chain in its recorded source order and select its latest inventory.
+Do not select an earlier inventory because its evidence appears valid.
+Require exactly one unambiguous latest inventory after every non-cleanup record and after all closure conditions hold.
+Earlier inventories remain evidence and grant no deletion authority.
+Zero entries or an ambiguous latest inventory permit no deletion.
+Multiple historical inventories permit deletion only when one latest valid inventory is unambiguous.
+The inventory condition governs deletion only, not close.
+
+Before stopping, the cleanup worker records the inventory-count refusal under the ordinary safe-write rules of the still-open change folder.
+Treat that refusal as incomplete cleanup and report it to the user.
+Every authorizing record precedes the latest inventory, including closure evidence, the abandonment deletion choice, and marked-entry discard choices.
 Read authorization only from those earlier records.
+No record after an inventory may widen that inventory's deletion authority.
+
+After the inventory, only cleanup observations, the user report, the retry-or-keep choice, and `slate_change close` may follow.
+Any other record voids that inventory's deletion authority.
+Examples include a new track, fix, a decision other than the permitted retry-or-keep choice, merge-result binding, abandonment withdrawal, or handoff state summary outside those permitted kinds.
+Check for voiding records before each deletion, on resume, and before each retry.
+If any voiding record exists, delete nothing and report the refusal to the user.
+
+This structural refusal offers no retry against the voided inventory.
+The user may keep the remaining references and close only when closure conditions still hold.
+
+Alternatively, wait until every closure condition holds again.
+The orchestrator then records a new inventory after every non-cleanup record.
+Cleanup then uses only that latest inventory and its preceding authorization.
+A new inventory does not amend an earlier inventory or authorize deletion under it.
+
+Apply this route to missing or ambiguous latest inventories and missing earlier closure evidence too.
+Also apply it when current closure conditions no longer hold.
 
 A URL (Uniform Resource Locator) identifies a remote location.
 Include the recorded namespace and, with publishing enabled, the remote name and its fetch and push URLs.
@@ -357,7 +386,7 @@ With publishing enabled, obtain the effective fetch URL with `git remote get-url
 With publishing enabled, obtain the effective push URL with `git remote get-url --push --all "<remote>"`.
 Require each command to return exactly one URL, not raw configuration values.
 If either command fails or returns zero or multiple URLs, run no remote command.
-Before stopping, the cleanup worker records that refusal wherever § Post-close cleanup writes permits a write.
+Before stopping, the cleanup worker records that refusal under the ordinary safe-write rules of the still-open change folder.
 Report that refusal to the user.
 
 Userinfo is the user name and password before `@` in a URL.
@@ -367,7 +396,7 @@ Never record a credential.
 
 Before any remote command, compare both current URLs with the inventory.
 If either URL differs, or the fetch and push URLs differ from each other, run no remote command.
-Before stopping, the cleanup worker records the URL mismatch wherever § Post-close cleanup writes permits a write.
+Before stopping, the cleanup worker records the URL mismatch under the ordinary safe-write rules of the still-open change folder.
 Report the mismatch to the user.
 
 Follow root and subtree logs and their read-only folder-fork source chains within each recorded last-entry boundary.
@@ -388,22 +417,35 @@ Before any deletion, the worker checks each entry's owning logs for a recovery o
 Treat an unmarked entry with such a record as marked.
 Keep it unless an explicit discard choice precedes the inventory.
 
-Before close, copy the root folder path from the orchestrator's Current research log line into the inventory.
-Pass that folder path, its root research log path, and the inventory to the cleanup worker.
+Run cleanup in the closing session after every closure condition holds and immediately before `slate_change close`.
+Pass the open change's Current research log path to the cleanup worker as for any record worker.
+Use the ordinary current-folder rule in § Manual records and safe writes.
 The worker must not infer the folder from other record text.
-Close the root with `slate_change close` before cleanup in the same session, only after all existing closure conditions hold.
+No inventory folder-path field or closed-folder write permission is required.
 
-Before any deletion, require root-log closure evidence from records before the inventory.
+For current closure conditions, exclude each copy recorded as deleted under an inventory that had deletion authority when that deletion ran.
+Require its deletion record in the root log under these cleanup rules.
+Confirm that each excluded copy is still absent.
+Confirmed absence of such a copy is not a missing-reference pause.
+An absent copy without such a deletion record still causes a missing-reference pause.
+This exclusion grants no deletion authority.
+Keep every other closure condition.
+Before each deletion, require current closure conditions and root-log closure evidence from records before the latest inventory.
+Also recheck that no voiding record follows that inventory.
 Delivered publishing work requires final acceptance, each applicable level merge-result binding, post-merge comparisons, and verified accounting.
 An unmerged level prevents delivery closure and deletion.
 Disabled delivery requires final acceptance, final local comparisons, and verified final-squash accounting instead of level merges.
 Abandonment requires the recorded explicit user deletion choice after the archival offer.
 If closure evidence is missing, delete nothing.
-Before stopping, the cleanup worker records the missing closure evidence wherever § Post-close cleanup writes permits a write.
+Before stopping, the cleanup worker records the missing closure evidence under the ordinary safe-write rules of the still-open change folder.
 Report the missing evidence to the user.
 
 The orchestrator dispatches one bounded cleanup worker action.
-That action may delete only authorized inventory references and append cleanup observations under § Post-close cleanup writes.
+That action may only delete authorized inventory references and append permitted cleanup observations in the open root log.
+Permitted cleanup record kinds are comparisons, listings, deleted and kept copies, failures, interruptions, refusals, incomplete-state observations, and the user report.
+The cleanup action writes no other record and no record outside the open root log.
+Use the normal temporary start copy, separate temporary append texts, `>>`, whole-record comparison, and retry inspection.
+Finish the worker and every record write before close.
 It cannot add or amend closure evidence, the inventory, a mark, or a user choice.
 Cleanup acts only on recorded copies, without inferred counterparts or pairing by commit.
 
@@ -458,7 +500,7 @@ For that both-copy entry, read the remote reference live before continuing.
 If it is still absent, continue with the local copy under every local check.
 A present remote copy or a failed read permits no continuation and must be reported.
 Observations alone authorize no deletion.
-The inventory remains the deletion authority.
+Only the latest valid inventory remains the deletion authority.
 
 After a failed or unclear remote deletion, read that remote reference before any retry.
 Observed absence confirms deletion and must be recorded.
@@ -475,38 +517,76 @@ After deletion, list the remote namespace when publishing is enabled and the loc
 Record both applicable listings in the root research log.
 Record each deleted copy's name and old commit, and each kept copy's name and reason.
 Report the result to the user.
-Cleanup is complete when no recorded copy remains except reported kept copies.
-A failed confirmation listing or unresolved deletion leaves cleanup incomplete.
-For every incomplete cleanup exit, the cleanup worker reports the result to the user.
-Where § Post-close cleanup writes permits a write, record an observation before stopping.
+Cleanup is complete only when no inventoried copy remains and every confirmation listing succeeds.
+Kept copies, failures, unresolved deletions, or a failed confirmation listing leave cleanup incomplete.
+For every incomplete cleanup exit, report the result to the user.
+Record an observation under the normal write rules before stopping.
 The observation states that cleanup is incomplete.
 
-A cleanup failure reopens nothing and changes no acceptance, delivery accounting, or merge record.
-Kept references keep history reachable, including when the session ends before cleanup finishes.
-If the session ends before cleanup finishes, the orchestrator reports the interruption and incomplete cleanup to the user.
-Where § Post-close cleanup writes permits a write, the cleanup worker records that incomplete cleanup before the session ends.
+The orchestrator reports the cleanup result to the user before `slate_change close`.
+For incomplete cleanup without a structural refusal, the user chooses retry or close with the remaining references kept.
+A structural refusal offers only keep or a new inventory after closure conditions hold again.
+State the kept copies, failures, unresolved deletions, and failed listings in that report.
+Record the explicit choice after the latest cleanup report through an ordinary record-only action.
 
-A later session may finish only on a user request naming the closed change folder.
-Before loading the rule or writing, validate that folder under § Post-close cleanup writes.
-Require `slate-changes/<change-folder name>` inside this checkout with Slate's generated change-folder form and no `..` component.
-Slate's generated change-folder form is `change-<YYYYMMDD>T<HHMMSS>Z-<32 lowercase hexadecimal characters>`.
-The date and time must be valid in UTC (Coordinated Universal Time).
-Require a real directory, not a symbolic link, and a regular `research-log.md`.
-Require the folder path to equal the root folder path in its inventory.
-No other change folder's first log line may name it as a read-only source.
-On any failure, write nothing, delete nothing, and ask the user.
-Only a validated request loads this rule and grants append-only cleanup observation entries in that root log.
-Dispatch the same bounded worker with the user-named path and recorded inventory.
-Use the same closure evidence, comparisons, safeguards, safe-write steps, and confirmation records.
-Make no other folder write, write no source folder, and start no new change for cleanup.
+The cleanup worker cannot record or amend that user choice.
+A choice after the inventory authorizes no deletion.
+A retry uses only the latest valid inventory and its earlier authorization, not the later choice as deletion authority.
+Before each retry, recheck closure conditions and the absence of voiding records after that inventory.
+Dispatch one bounded cleanup action at a time and repeat every applicable live read before each deletion.
+Record the retry observations and report the result before close.
+
+A keep choice ends cleanup.
+Only close may follow in that cleanup sequence.
+More deletion requires a new user report and a retry choice recorded after that report.
+The retry still requires a valid latest inventory and all deletion safeguards.
+A structural refusal still requires the new-inventory route before any further deletion.
+The choice that permits close must follow the latest cleanup report.
+
+A recorded keep choice permits close with incomplete cleanup only when closure conditions still hold.
+It claims neither confirmed absence nor successful cleanup.
+Neither incomplete cleanup nor that choice changes acceptance, accounting, or merge records.
+
+For an applicable cleanup sequence, close follows the required user report and any required choice after that latest report.
+An inventory-count refusal is incomplete cleanup, and a recorded keep choice permits close when closure conditions still hold.
+The inventory condition governs deletion only.
+Recheck closure conditions before every close, including close after complete cleanup.
+
+If the session ends before cleanup finishes, the change stays open.
+Keep remaining references in place.
+Record the interruption and incomplete cleanup under normal write rules and report them to the user.
+The next session follows Resume order and reconciliation and uses the structural-refusal route above.
+Permitted cleanup records include interruption, refusal, and incomplete-state observations.
+They grant no deletion authority.
+Use the current folder and its read-only source chains under normal ownership rules.
+On a folder fork, read inventories through the root log's recorded source boundary.
+On resume, count inventory entries across the root log and its read-only source chain within the recorded boundaries.
+Apply the latest-inventory rule, including its closure conditions and non-cleanup record boundary.
+On resume, check for voiding records before any deletion or retry.
+
+The required handoff state summary voids the inventory like any other non-cleanup record.
+The first source-naming record after a folder fork also voids the inventory.
+On resume, apply this exclusion even when a later record voids or replaces the inventory that authorized the recorded deletion.
+Read those deletion records through the root log and its read-only source chain within the recorded boundaries.
+A new latest inventory lists only remaining reference copies.
+Confirm absence of the excluded copies before keep-and-close or recording that new inventory.
+Resume therefore permits keep-and-close only when closure conditions still hold.
+Further deletion requires the orchestrator to record a new latest inventory after every non-cleanup record while all closure conditions hold.
+Repeat every live read before deletion under that new inventory, including the confirmed-absence continuation rule above.
+A closed folder grants no later-session cleanup route and permits no cleanup record write.
 
 Abandonment has no automatic cleanup.
 After the existing archival offer, ask whether to delete retention references.
-Without an explicit recorded user choice and root closure, delete nothing.
+Without an explicit recorded user deletion choice before the inventory, delete nothing.
+If the user declines abandonment cleanup, record that choice and report the kept references before ordinary abandonment close.
+The deletion inventory and worker sequence apply only when the user requests abandonment cleanup.
+That no-cleanup choice grants no deletion authority.
 
 `slate_change close` itself deletes nothing.
-The until-root-closure retention lifetimes stay unchanged.
-This owner alone permits post-closure retention deletion in both publishing settings, not the publishing-only accepted-history-cleanup block.
+The cleanup step immediately before close is the only authorized end of the until-root-closure retention lifetime.
+Authorized inventory cleanup after every closure condition holds ends approved retention and is not a rewrite under the reviewed-state rule.
+This owner supplies deletion authority in both publishing settings.
+The publishing-only accepted-history-cleanup block governs layered peer-review cleanup, not this inventory cleanup.
 
 Use [track-workflow.md](track-workflow.md) § Delivery and termination for permitted
 history rewrites, rebased-marker mappings, range updates, and unavailable history.
@@ -687,29 +767,6 @@ for retention, privacy, and reviewer-input exclusions, including leftover tempor
 These duties are not an extension access boundary.
 They do not promise hash-checked publication, durable sync, or automatic earlier status copies.
 They do not enforce single-writer behavior against another process.
-
-### Post-close cleanup writes
-
-After `slate_change close`, only the closing session's bounded cleanup worker may append cleanup records to the passed root research log path.
-The worker may delete only authorized inventory references under § Level publishing and retained history.
-Cleanup records are observation entries for comparisons, listings, deleted and kept copies, failures, and the user report.
-They never add or amend closure evidence, the inventory, a mark, or a user choice.
-Use the existing temporary start copy, separate temporary append texts, `>>`, whole-record comparison, and retry inspection steps.
-This exception grants no other record write and no source-folder write.
-
-A user request naming a closed change folder is the only later-session exception.
-Before loading the cleanup rule or making any write, validate the user-named folder.
-Require `slate-changes/<change-folder name>` inside this checkout with Slate's generated change-folder form and no `..` component.
-Use the form defined in § Level publishing and retained history.
-Require a real directory, not a symbolic link, with a regular `research-log.md`.
-Require the path to equal the root folder path in that folder's inventory.
-Check every other change folder's first log line and reject a folder named there as a read-only source.
-On any failure, write nothing, delete nothing, and ask the user.
-
-Only a validated request loads the cleanup rule and grants observation-only appends in that root log.
-Dispatch the same bounded cleanup worker with the user-named path and recorded inventory.
-Make no other write in that folder and start no new change for it.
-Read-only source folders remain outside this permission.
 
 ### Design authority and privacy
 
