@@ -45,6 +45,7 @@ import { registerOrchestratorFailover } from "./failover.ts";
 import { registerSlateHandoff, sanitizeContextBudget } from "./handoff.ts";
 import { createLogicalRuntime, type LogicalRuntime } from "./logical-model-runtime.ts";
 import { registerSlateMode } from "./mode.ts";
+import { registerNotificationEvents } from "./notification-events.ts";
 import {
 	sanitizeCacheKeyEnabled,
 	sanitizeWorkflowConfig,
@@ -92,6 +93,12 @@ export default function (pi: ExtensionAPI) {
 	// Factory-local execution state uses one owner. Active saved-default leases
 	// share the exact global settings resource across replacement factories.
 	const lifecycleRecoveryOwnership = new RecoveryOwnership(join(getAgentDir(), "settings.json"));
+	let recovering = () => false;
+	// Activity must precede handoff and mode input handlers, including paused-input refusal.
+	const notifications = registerNotificationEvents(pi, {
+		currentLifecycle: () => lifecycleRecoveryOwnership.isCurrentLifecycle(),
+		recovering: () => recovering(),
+	});
 
 	// One prompt-cache key and one request throttle belong to this main session.
 	let sessionScope: ThreadSessionScope = {
@@ -111,9 +118,11 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
+		notifications.retire();
 		// Invalidate asynchronous recovery before replacing session-owned state.
-		logicalSessionEpoch += 1;
+		const epoch = ++logicalSessionEpoch;
 		await manager.disposeAll();
+		if (epoch !== logicalSessionEpoch || !lifecycleRecoveryOwnership.isCurrentLifecycle()) return;
 		store.startRuntime();
 		logicalRuntime?.resetPreferences();
 		// Select permitted Slate sources without changing pi project trust.
@@ -182,9 +191,11 @@ export default function (pi: ExtensionAPI) {
 		};
 		manager = new ThreadManager(store, config, resolveWorkerExtensionSet, logicalRuntime, compressorRetryPolicy, sessionScope);
 		store.restore(ctx);
+		notifications.start(config, ctx);
 	});
 
 	pi.on("session_shutdown", async () => {
+		notifications.retire();
 		// Pi creates a new extension factory for replacement sessions. Mark every
 		// callback from this factory obsolete, but keep each active lease until the
 		// operation that acquired it reaches its own completion path.
@@ -195,7 +206,7 @@ export default function (pi: ExtensionAPI) {
 	// session_start ordering: restore → adopt successor → reconcile change owner
 	// → re-apply mode tools. Handoff must adopt before ownership is checked.
 	// getConfig reads the CURRENT `manager` (reassigned on session_start).
-	const handoff = registerSlateHandoff(pi, store, () => manager.getConfig(), () => baseModel, () => logicalRuntime);
+	const handoff = registerSlateHandoff(pi, store, () => manager.getConfig(), () => baseModel, () => logicalRuntime, notifications.ownReplacement);
 
 	// Ownership is tied to Pi's session identifier, not the startup reason.
 	// /tree can select a copied parent entry after a successful fork. On reload
@@ -225,16 +236,18 @@ export default function (pi: ExtensionAPI) {
 		}
 	});
 
-	// Orchestrator model failover (turn_end/agent_settled/input) — not
-	// order-critical relative to the handlers above (different trigger events).
-	registerOrchestratorFailover(
+	// Failover owns recovery before the notification settlement observer runs.
+	const failover = registerOrchestratorFailover(
 		pi,
 		() => manager.getConfig(),
 		() => baseModel,
 		() => logicalRuntime,
 		() => compressorRetryPolicy,
 		() => logicalSessionEpoch,
+		{ cancelled: notifications.cancelled, finished: notifications.recoveryFinished },
 	);
+	recovering = failover.recovering;
+	notifications.registerSettlement();
 
 	registerSlateMode(
 		pi,

@@ -105,6 +105,10 @@ export class NotificationDispatcher {
 		this.#lastMessage = message;
 		if (this.#observedRun) this.#runMessage = message;
 	}
+	/** Dialog text does not change the current run's outcome evidence. */
+	dialogMessage(message: NotificationMessage | undefined): void {
+		if (this.#current()) this.#lastMessage = message?.role === "assistant" ? message : undefined;
+	}
 	settled(): void {
 		if (!this.#current() || !this.#observedRun || this.#settled) return;
 		this.#settled = true;
@@ -135,7 +139,8 @@ export class NotificationDispatcher {
 			if (this.#retired || (kind === "run" ? this.#run : this.#dialog) !== wait) return;
 			const remaining = this.#options.settings.minimumDelayMs - (this.#now() - Math.max(wait.since, this.#activity));
 			if (remaining > 0) { wait.cancel = this.#schedule(remaining, expire); return; }
-			this.#admit(wait);
+			// Extension message transforms can supply throwing getters. Timer failures stay local.
+			try { this.#admit(wait); } catch { this.#cancel(kind); }
 		};
 		wait.cancel = this.#schedule(this.#options.settings.minimumDelayMs, expire);
 	}

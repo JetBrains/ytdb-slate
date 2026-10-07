@@ -48,7 +48,8 @@ export function registerOrchestratorFailover(
 	getRuntime: () => Readonly<LogicalRuntime> | undefined,
 	getRetryPolicy: () => CompressorRetryPolicy | undefined,
 	getSessionEpoch: () => number = () => 0,
-): void {
+	observer?: { cancelled: () => boolean; finished: () => void },
+): { recovering: () => boolean } {
 	const evidence = new MainRetryEvidence();
 	let operation: MainOperation | undefined;
 
@@ -56,6 +57,8 @@ export function registerOrchestratorFailover(
 		if (operation !== held) return;
 		operation = undefined;
 		try { held.lease.release(); } catch { /* idempotent lease contract */ }
+		// Notify only the session that owned this recovery, after releasing ownership.
+		if (held.runtime.ownership.isCurrentLifecycle() && held.sessionEpoch === getSessionEpoch() && getRuntime() === held.runtime) observer?.finished();
 	};
 
 	const stop = (held: MainOperation, ctx: ExtensionContext, message: string): void => {
@@ -168,6 +171,7 @@ export function registerOrchestratorFailover(
 			route: route ? `${route.provider}/${route.model}` : undefined,
 			effort,
 			policy: getRetryPolicy(),
+			cancelled: observer?.cancelled(),
 			isRetryable: (message) => isRetryableAssistantError(message as AssistantMessage),
 			isContextOverflow: (message) => isContextOverflow(message as AssistantMessage, ctx.model?.contextWindow),
 		});
@@ -221,4 +225,5 @@ export function registerOrchestratorFailover(
 		};
 		await transition(operation, ctx);
 	});
+	return { recovering: () => operation !== undefined };
 }
