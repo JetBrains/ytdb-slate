@@ -3308,7 +3308,7 @@ A mismatch pauses work. Reconcile it in the log. Use marker commits and Git
 history as boundary authority. The track table is display-only.`);
 			const recursiveRecordUnits = [
 				{ id: "identifiers-ranges", source: recursive, start: "## Identifiers, code ranges, and design markers", extract: headingUnit("## Identifiers, code ranges, and design markers"), expected: "06a2a0822448a5112173b65c04826364d3a3094f7930ba98ecd7f17300e19ed8" },
-				{ id: "tool-records-and-recovery", source: recursive, start: "## Manual records and safe writes", extract: headingUnit("## Manual records and safe writes"), expected: "bdf0814737cc03d800ee4d5495dfa155ec9f0cf6dc58826587dbafb0cb66211e" },
+				{ id: "tool-records-and-recovery", source: recursive, start: "## Manual records and safe writes", extract: headingUnit("## Manual records and safe writes"), expected: "9ebcc5986c51ff906f6aa71e0afc921b8236e1b37d4c793a5876cd20828a0ea8" },
 				{ id: "resume-forks", source: recursive, start: "## Resume and folder forks", extract: headingUnit("## Resume and folder forks"), expected: "ee8952191bf8a044b0c4c124644079ad41a918a51510d10a1d8b1ea6d72e6860" },
 				{ id: "handoff-pointer", source: recursive, start: "## Handoff boundaries", extract: headingUnit("## Handoff boundaries"), expected: "fc5ca34c11f5f1defb5989c10af42cbac9af901c102dc18c6c8d1b55a98cd52f" },
 				{ id: "marker-identity", source: workflow, extract: markedUnit("marker-identity-policy"), expected: "846764c07a6b2c925091bd80f944c888d49994a71f2799b5cd2b8368b415a3c9" },
@@ -4228,13 +4228,27 @@ Record it as the last root-log record before \`slate_change close\`, after final
 With publishing disabled, record it after final local comparisons and verified final-squash accounting.
 For abandonment, record it after the archival offer and any explicit user choice to delete.
 Require exactly one inventory entry in the root log.
-If there are zero or two or more inventory entries, delete nothing and report to the user.
+If there are zero or two or more inventory entries, delete nothing.
+Before stopping, the cleanup worker records the inventory-count refusal wherever § Post-close cleanup writes permits a write.
+Report the refusal to the user.
 Every authorizing record precedes the inventory, including closure evidence, the abandonment deletion choice, and marked-entry discard choices.
 Read authorization only from those earlier records.
 A URL (Uniform Resource Locator) identifies a remote location.
 Include the recorded namespace and, with publishing enabled, the remote name and its fetch and push URLs.
+With publishing enabled, obtain the effective fetch URL with \`git remote get-url --all "<remote>"\`.
+With publishing enabled, obtain the effective push URL with \`git remote get-url --push --all "<remote>"\`.
+Require each command to return exactly one URL, not raw configuration values.
+If either command fails or returns zero or multiple URLs, run no remote command.
+Before stopping, the cleanup worker records that refusal wherever § Post-close cleanup writes permits a write.
+Report that refusal to the user.
+Userinfo is the user name and password before \`@\` in a URL.
+Remove any userinfo from each URL before recording or comparing it.
+Apply this removal identically to recorded and current values.
+Never record a credential.
 Before any remote command, compare both current URLs with the inventory.
-If either URL differs, or the fetch and push URLs differ from each other, stop, run no remote command, and report to the user.
+If either URL differs, or the fetch and push URLs differ from each other, run no remote command.
+Before stopping, the cleanup worker records the URL mismatch wherever § Post-close cleanup writes permits a write.
+Report the mismatch to the user.
 Follow root and subtree logs and their read-only folder-fork source chains within each recorded last-entry boundary.
 Never write to a source folder.
 Check each entry against its owning log's latest recorded binding, never an inferred current branch head.
@@ -4248,6 +4262,9 @@ Mark entries that preserve an unexpected recovery commit or a collision-preserve
 Keep those entries unless the user explicitly chooses to discard that commit or state before the inventory.
 A choice recorded after the inventory authorizes nothing.
 Delivery alone or a general abandonment deletion choice does not authorize discarding a marked entry.
+Before any deletion, the worker checks each entry's owning logs for a recovery or collision-preservation record.
+Treat an unmarked entry with such a record as marked.
+Keep it unless an explicit discard choice precedes the inventory.
 Before close, copy the root folder path from the orchestrator's Current research log line into the inventory.
 Pass that folder path, its root research log path, and the inventory to the cleanup worker.
 The worker must not infer the folder from other record text.
@@ -4257,7 +4274,9 @@ Delivered publishing work requires final acceptance, each applicable level merge
 An unmerged level prevents delivery closure and deletion.
 Disabled delivery requires final acceptance, final local comparisons, and verified final-squash accounting instead of level merges.
 Abandonment requires the recorded explicit user deletion choice after the archival offer.
-If closure evidence is missing, delete nothing and report the missing evidence to the user.
+If closure evidence is missing, delete nothing.
+Before stopping, the cleanup worker records the missing closure evidence wherever § Post-close cleanup writes permits a write.
+Report the missing evidence to the user.
 The orchestrator dispatches one bounded cleanup worker action.
 That action may delete only authorized inventory references and append cleanup observations under § Post-close cleanup writes.
 It cannot add or amend closure evidence, the inventory, a mark, or a user choice.
@@ -4274,7 +4293,7 @@ For any other exit status, delete nothing and report the failed check.
 Compare each recorded local copy with its inventory commit.
 With publishing enabled, read each recorded remote copy live and compare it with its inventory commit.
 A remote-tracking reference is an earlier local observation, not a live remote read.
-Delete only when all applicable comparisons match.
+Delete only when all applicable comparisons match, except for the confirmed-absence continuation below.
 For both-copy entries, delete the explicitly named remote reference first.
 A delete refspec names the remote reference to remove.
 A full-reference lease names that same complete reference and its expected inventory commit.
@@ -4296,29 +4315,46 @@ A one-sided entry is complete when its recorded copy is deleted and absence is c
 With publishing disabled, delete only recorded local copies under the conditional check and run no remote command.
 Never delete an unlisted name or a name outside the recorded namespace.
 Never delete a pull request branch, a local level branch, or the default branch.
-Keep \`track1-pre-squash\`, \`track2-pre-squash\`, \`track1-before-squash\`, \`track03-preserve\`, \`track04-preserve-7248ab2\`, and \`backup-pre-rebase\` outside cleanup.
 Use no untargeted deletion, including prune, mirror, pattern, or all-branches deletion.
 Every deletion requires an explicit inventory name.
 A mismatch, missing recorded copy on initial comparison, or unexpected reference permits no deletion for that item.
 Keep remaining copies unchanged, record the observation, and report to the user.
 Never delete against an unexpected commit or substitute a pull request branch for a missing retention copy.
+The confirmed-absence continuation below is the only exception for a missing remote copy.
+An earlier cleanup observation may record the remote copy's confirmed absence for this cleanup.
+For that both-copy entry, read the remote reference live before continuing.
+If it is still absent, continue with the local copy under every local check.
+A present remote copy or a failed read permits no continuation and must be reported.
+Observations alone authorize no deletion.
+The inventory remains the deletion authority.
 After a failed or unclear remote deletion, read that remote reference before any retry.
 Observed absence confirms deletion and must be recorded.
 The inventory commit permits retry under the same full-reference lease and safeguards.
 Another commit permits no retry and must be kept and reported.
 A failed read leaves deletion unresolved, permits no retry, and must be reported.
 A failed local conditional deletion leaves the remaining local copy unchanged and must be reported.
+Before any local retry, read the local reference again.
+Retry only if the fresh read shows the inventory commit and both regular-reference checks pass again.
+A missing reference confirms absence, while another commit or a failed read permits no retry.
+Record and report the observed result.
 After deletion, list the remote namespace when publishing is enabled and the local inventory names in either setting.
 Record both applicable listings in the root research log.
 Record each deleted copy's name and old commit, and each kept copy's name and reason.
 Report the result to the user.
 Cleanup is complete when no recorded copy remains except reported kept copies.
 A failed confirmation listing or unresolved deletion leaves cleanup incomplete.
+For every incomplete cleanup exit, the cleanup worker reports the result to the user.
+Where § Post-close cleanup writes permits a write, record an observation before stopping.
+The observation states that cleanup is incomplete.
 A cleanup failure reopens nothing and changes no acceptance, delivery accounting, or merge record.
 Kept references keep history reachable, including when the session ends before cleanup finishes.
+If the session ends before cleanup finishes, the orchestrator reports the interruption and incomplete cleanup to the user.
+Where § Post-close cleanup writes permits a write, the cleanup worker records that incomplete cleanup before the session ends.
 A later session may finish only on a user request naming the closed change folder.
 Before loading the rule or writing, validate that folder under § Post-close cleanup writes.
-Require \`slate-changes/<change-folder name>\` inside this checkout, a Slate-generated name, and no \`..\` component.
+Require \`slate-changes/<change-folder name>\` inside this checkout with Slate's generated change-folder form and no \`..\` component.
+Slate's generated change-folder form is \`change-<YYYYMMDD>T<HHMMSS>Z-<32 lowercase hexadecimal characters>\`.
+The date and time must be valid in UTC (Coordinated Universal Time).
 Require a real directory, not a symbolic link, and a regular \`research-log.md\`.
 Require the folder path to equal the root folder path in its inventory.
 No other change folder's first log line may name it as a read-only source.
@@ -4348,6 +4384,7 @@ This exception grants no other record write and no source-folder write.
 A user request naming a closed change folder is the only later-session exception.
 Before loading the cleanup rule or making any write, validate the user-named folder.
 Require \`slate-changes/<change-folder name>\` inside this checkout with Slate's generated change-folder form and no \`..\` component.
+Use the form defined in § Level publishing and retained history.
 Require a real directory, not a symbolic link, with a regular \`research-log.md\`.
 Require the path to equal the root folder path in that folder's inventory.
 Check every other change folder's first log line and reject a folder named there as a read-only source.
@@ -4677,18 +4714,35 @@ A stale description fails the "deep enough" test.`),
 				["source-chain", "Follow root and subtree logs and their read-only folder-fork source chains within each recorded last-entry boundary.", "Read only the root log without source boundaries."],
 				["inferred-binding", "never an inferred current branch head", "or an inferred current branch head"],
 				["passed-path", "Pass that folder path, its root research log path, and the inventory to the cleanup worker.", "Let the worker infer its folder path."],
+				["inventory-refusal-record", "Before stopping, the cleanup worker records the inventory-count refusal wherever § Post-close cleanup writes permits a write.", "Stop without recording the inventory-count refusal."],
+				["inventory-refusal-report", "Report the refusal to the user.", "Keep the inventory-count refusal from the user."],
 				["remote-binding", "the remote name and its fetch and push URLs", "only the remote name"],
-				...["either URL differs", "the fetch and push URLs differ from each other"].map((condition) => [`URL-${condition}`, `If either URL differs, or the fetch and push URLs differ from each other, stop, run no remote command, and report to the user.`, `If ${condition}, run remote deletion anyway.`]),
+				["effective-fetch", 'With publishing enabled, obtain the effective fetch URL with `git remote get-url --all "<remote>"`.', "Read the raw remote fetch configuration."],
+				["effective-push", 'With publishing enabled, obtain the effective push URL with `git remote get-url --push --all "<remote>"`.', 'Obtain only the first push URL with `git remote get-url --push "<remote>"`.'],
+				["single-effective-URL", "Require each command to return exactly one URL, not raw configuration values.", "Accept multiple URLs or raw configuration values."],
+				["URL-read-refusal", "If either command fails or returns zero or multiple URLs, run no remote command.", "Continue remote deletion after a failed or multiple-URL read."],
+				["URL-read-record", "Before stopping, the cleanup worker records that refusal wherever § Post-close cleanup writes permits a write.", "Stop without recording the URL-read refusal."],
+				["URL-read-report", "Report that refusal to the user.", "Keep the URL-read refusal from the user."],
+				["userinfo-removal", "Remove any userinfo from each URL before recording or comparing it.", "Record and compare URLs with embedded credentials."],
+				["userinfo-identical", "Apply this removal identically to recorded and current values.", "Remove userinfo only from current values."],
+				["credential-ban", "Never record a credential.", "Record credentials in the inventory."],
+				["URL-mismatch-record", "Before stopping, the cleanup worker records the URL mismatch wherever § Post-close cleanup writes permits a write.", "Stop without recording the URL mismatch."],
+				["URL-mismatch-report", "Report the mismatch to the user.", "Keep the URL mismatch from the user."],
+				...["either URL differs", "the fetch and push URLs differ from each other"].map((condition) => [`URL-${condition}`, `If either URL differs, or the fetch and push URLs differ from each other, run no remote command.`, `If ${condition}, run remote deletion anyway.`]),
 				["check-ref-format", 'Require each name to pass `git check-ref-format "<ref>"` before use.', "Use unchecked names."],
 				["prefix-slash", "Require the prefix `refs/heads/slate-retained/<change>/`", "Require the prefix `refs/heads/slate-retained/<change>`"],
 				["namespace-old", "A name under `<change>-old/` does not match that prefix.", "A name under `<change>-old/` matches that prefix."],
 				["unlisted", "Never delete an unlisted name or a name outside the recorded namespace.", "Delete unlisted names outside the recorded namespace."],
 				...["pull request branch", "local level branch", "default branch"].map((name) => [`excluded-${name}`, "Never delete a pull request branch, a local level branch, or the default branch.", `Delete the ${name}.`]),
-				...["track1-pre-squash", "track2-pre-squash", "track1-before-squash", "track03-preserve", "track04-preserve-7248ab2", "backup-pre-rebase"].map((name) => [`backup-${name}`, `\`${name}\``, "an eligible backup"]),
 				...["prune", "mirror", "pattern", "all-branches"].map((kind) => [`untargeted-${kind}`, "Use no untargeted deletion, including prune, mirror, pattern, or all-branches deletion.", `Use ${kind} deletion.`]),
 				["no-explicit-name", "Every deletion requires an explicit inventory name.", "Delete without an explicit inventory name."],
 				["missing-closure", "Before any deletion, require root-log closure evidence from records before the inventory.", "Delete without root-log closure evidence."],
 				["unmerged-level", "An unmerged level prevents delivery closure and deletion.", "An unmerged level allows closure and deletion."],
+				["closure-refusal-record", "Before stopping, the cleanup worker records the missing closure evidence wherever § Post-close cleanup writes permits a write.", "Stop without recording the missing closure evidence."],
+				["closure-refusal-report", "Report the missing evidence to the user.", "Keep the missing closure evidence from the user."],
+				["preservation-log-check", "Before any deletion, the worker checks each entry's owning logs for a recovery or collision-preservation record.", "Trust inventory marks without checking the owning logs."],
+				["unmarked-preservation", "Treat an unmarked entry with such a record as marked.", "Delete unmarked entries despite preservation records."],
+				["unmarked-discard-choice", "Keep it unless an explicit discard choice precedes the inventory.", "A later or general choice permits discarding an unmarked preserved entry."],
 				["marked-automatic", "Keep those entries unless the user explicitly chooses to discard that commit or state before the inventory.", "Discard marked entries automatically on delivery."],
 				["marked-late-choice", "A choice recorded after the inventory authorizes nothing.", "A choice recorded after the inventory authorizes deletion."],
 				["marked-general-choice", "Delivery alone or a general abandonment deletion choice does not authorize discarding a marked entry.", "A general abandonment choice authorizes discarding marked entries."],
@@ -4709,6 +4763,17 @@ A stale description fails the "deep enough" test.`),
 				["plus-refspec", '":refs/heads/slate-retained/<change>/<name>"', '"+:refs/heads/slate-retained/<change>/<name>"'],
 				["disabled-remote", "With publishing disabled, delete only recorded local copies under the conditional check and run no remote command.", "With publishing disabled, run remote deletion."],
 				["initial-missing", "A mismatch, missing recorded copy on initial comparison, or unexpected reference permits no deletion for that item.", "A missing initial copy confirms prior deletion."],
+				["continuation-exception-scope", "The confirmed-absence continuation below is the only exception for a missing remote copy.", "Every missing copy permits continued deletion."],
+				["continuation-evidence", "An earlier cleanup observation may record the remote copy's confirmed absence for this cleanup.", "Use an unrelated cleanup's absence observation."],
+				["continuation-live-read", "For that both-copy entry, read the remote reference live before continuing.", "Continue from a saved absence observation without a live read."],
+				["continuation-local-checks", "If it is still absent, continue with the local copy under every local check.", "Continue local deletion without the local checks."],
+				["continuation-present-or-failed", "A present remote copy or a failed read permits no continuation and must be reported.", "Continue despite a present remote copy or failed read."],
+				["observation-not-authority", "Observations alone authorize no deletion.", "Observations alone authorize deletion."],
+				["inventory-authority", "The inventory remains the deletion authority.", "The observation replaces inventory authority."],
+				["local-retry-read", "Before any local retry, read the local reference again.", "Retry local deletion without a fresh read."],
+				["local-retry-checks", "Retry only if the fresh read shows the inventory commit and both regular-reference checks pass again.", "Retry at any commit without repeating regular-reference checks."],
+				["local-retry-outcomes", "A missing reference confirms absence, while another commit or a failed read permits no retry.", "Retry against a missing reference, another commit, or a failed read."],
+				["local-retry-report", "Record and report the observed result.", "Leave the local retry result unrecorded and unreported."],
 				["retry-read", "read that remote reference before any retry", "retry before reading that remote reference"],
 				...["Observed absence confirms deletion and must be recorded.", "The inventory commit permits retry under the same full-reference lease and safeguards.", "Another commit permits no retry and must be kept and reported.", "A failed read leaves deletion unresolved, permits no retry, and must be reported."].map((rule, index) => [`retry-outcome-${index}`, rule, "Retry without checking or recording the outcome."]),
 				["local-only", "A local-only entry requires no remote counterpart.", "A local-only entry requires an inferred remote counterpart."],
@@ -4716,6 +4781,14 @@ A stale description fails the "deep enough" test.`),
 				["confirmation", "Record both applicable listings in the root research log.", "Record no confirmation listing."],
 				["deleted-kept-record", "Record each deleted copy's name and old commit, and each kept copy's name and reason.", "Record only a total count."],
 				["unresolved-complete", "A failed confirmation listing or unresolved deletion leaves cleanup incomplete.", "Unresolved deletion is complete."],
+				["incomplete-user-report", "For every incomplete cleanup exit, the cleanup worker reports the result to the user.", "Incomplete cleanup needs no user report."],
+				["incomplete-observation", "Where § Post-close cleanup writes permits a write, record an observation before stopping.", "Stop without a permitted incomplete-cleanup observation."],
+				["incomplete-record-state", "The observation states that cleanup is incomplete.", "Record cleanup as complete."],
+				["interruption-report", "If the session ends before cleanup finishes, the orchestrator reports the interruption and incomplete cleanup to the user.", "The session ends without an interruption report."],
+				["interruption-observation", "Where § Post-close cleanup writes permits a write, the cleanup worker records that incomplete cleanup before the session ends.", "End the session without a permitted incomplete-cleanup observation."],
+				["folder-definition-missing", "Slate's generated change-folder form is `change-<YYYYMMDD>T<HHMMSS>Z-<32 lowercase hexadecimal characters>`.", ""],
+				["folder-uppercase-hex", "32 lowercase hexadecimal characters", "32 hexadecimal characters in either case"],
+				["folder-impossible-date", "The date and time must be valid in UTC (Coordinated Universal Time).", "Accept impossible UTC dates or times."],
 				["abandonment-auto", "Abandonment has no automatic cleanup.", "Abandonment automatically deletes references."],
 				["ordinary", "An ordinary change has no cleanup duty in either publishing setting.", "Every ordinary change must clean up references."],
 				["publishing-authority", "This owner alone permits post-closure retention deletion in both publishing settings, not the publishing-only accepted-history-cleanup block.", "Only the publishing cleanup block permits deletion."],
@@ -4727,6 +4800,7 @@ A stale description fails the "deep enough" test.`),
 				["other-write", "This exception grants no other record write and no source-folder write.", "Rewrite other records and source folders."],
 				["request", "A user request naming a closed change folder is the only later-session exception.", "Later sessions need no user request."],
 				["validation-first", "Before loading the cleanup rule or making any write, validate the user-named folder.", "Validate only after loading the rule and writing."],
+				["folder-definition-pointer", "Use the form defined in § Level publishing and retained history.", "Accept any timestamp or hexadecimal spelling."],
 				...["slate-changes/<change-folder name>", "inside this checkout", "Slate's generated change-folder form", "no `..` component"].map((part) => [`folder-${part}`, part, "any supplied path"]),
 				...["a real directory, not a symbolic link", "a regular `research-log.md`"].map((part) => [`folder-${part}`, part, "any filesystem entry"]),
 				["inventory-path", "Require the path to equal the root folder path in that folder's inventory.", "Accept an inventory path mismatch."],
@@ -4734,13 +4808,32 @@ A stale description fails the "deep enough" test.`),
 				["failure-effect", "On any failure, write nothing, delete nothing, and ask the user.", "Continue after validation failure."],
 				["new-change", "Make no other write in that folder and start no new change for it.", "Start a new change and write any record."],
 			].map(([id, before, after]) => ({ id, unit: cleanupWritesUnit, before, after }));
-			const cleanupMutations = [...cleanupAttacks, ...cleanupWriteAttacks].map(({ id, unit, before, after }) => {
+			const mutateCleanup = (original = recursive) => [...cleanupAttacks, ...cleanupWriteAttacks].map(({ id, unit, before, after }) => {
 				const pattern = literalPattern(before);
-				const source = unit.source.replace(literalPattern(unit.expected), (text) => text.replace(pattern, after));
-				return { id, changed: source !== unit.source && !pattern.test(unit.extract(source).text), rejected: !acceptsLevelUnit(unit, source) };
+				const source = original.replace(literalPattern(unit.expected), (text) => text.replace(pattern, after));
+				return { id, changed: source !== original && !pattern.test(unit.extract(source).text), rejected: !acceptsLevelUnit(unit, source) };
 			});
-			const cleanupOutsideSentence = "Before any deletion, require root-log closure evidence from records before the inventory.";
-			const movedCleanup = recursive.replace(literalPattern(cleanupOutsideSentence), "").replace("<!-- level-history-policy:end -->", `<!-- level-history-policy:end -->\n${cleanupOutsideSentence}`);
+			const cleanupMutations = mutateCleanup();
+			const cleanupControlSentences = [
+				"Before any deletion, require root-log closure evidence from records before the inventory.",
+				"Slate's generated change-folder form is `change-<YYYYMMDD>T<HHMMSS>Z-<32 lowercase hexadecimal characters>`.",
+				"Before stopping, the cleanup worker records the inventory-count refusal wherever § Post-close cleanup writes permits a write.",
+				"Before stopping, the cleanup worker records the URL mismatch wherever § Post-close cleanup writes permits a write.",
+				"Before stopping, the cleanup worker records the missing closure evidence wherever § Post-close cleanup writes permits a write.",
+				"If the session ends before cleanup finishes, the orchestrator reports the interruption and incomplete cleanup to the user.",
+				"For that both-copy entry, read the remote reference live before continuing.",
+			];
+			const cleanupOutsideControls = cleanupControlSentences.map((sentence) => {
+				const source = recursive.replace(literalPattern(sentence), "").replace("<!-- level-history-policy:end -->", `<!-- level-history-policy:end -->\n${sentence}`);
+				return { changed: source !== recursive, retained: source.includes(sentence), outside: !historyUnit.extract(source).text.includes(sentence), rejected: !acceptsLevelUnit(historyUnit, source) };
+			});
+			const cleanupWrapControls = [...cleanupControlSentences, "Use the form defined in § Level publishing and retained history."].map((sentence) => {
+				const source = recursive.replace(literalPattern(sentence), (match) => {
+					const wrapped = sentence.replace(/ /g, "\n  ");
+					return match === wrapped ? sentence.replace(/ /g, "\n\t") : wrapped;
+				});
+				return { changed: source !== recursive, accepted: acceptsLevelUnit(historyUnit, source) && acceptsLevelUnit(cleanupWritesUnit, source), mutations: mutateCleanup(source) };
+			});
 			const wrappedCleanupPointer = workflow.replace(literalPattern(cleanupPointerUnit.expected), (match) => {
 				const wrapped = cleanupPointerUnit.expected.replace(/ /g, "\n  ");
 				return match === wrapped ? cleanupPointerUnit.expected.replace(/ /g, "\n\t") : wrapped;
@@ -4920,9 +5013,10 @@ A later track builds on the accepted boundary before it.`),
 			})));
 			const benignOrderingDocuments = Object.fromEntries(Object.entries(orderingDocuments).map(([id, source]) => [id, `${source}\n<!-- Outside ordering control. -->\n`]));
 			checkAll("contract-level-publishing", "level membership, dependency order, pauses, local retention, approval, delivery, cleanup, rebase mappings, unavailable evidence, and publishing defaults have owned rules and reviewed peer-document pins", [
-				["reviewed peer-document pins reject unreviewed additions while scoped pointers and the word layer discriminate known copies", peerRetentionOwners.every((owner) => !peerPinFailure(owner, owner.source) && acceptsPeerRetention(owner, owner.source)) && pinnedPeerOwners.length === 3 && peerPinRules.length === 6 && peerPinAttacks.length === 252 && peerPinAttacks.every(({ changed, rejected }) => changed && rejected) && reviewedBranchControls.length === 5 && reviewedBranchControls.every(({ changed, accepted }) => changed && accepted) && wordLayerControls.length === 3 && wordLayerControls.every(({ rejected }) => rejected) && peerOutsideControls.every(({ accepted }) => accepted) && peerPlacementNames.length === 7 && peerPlacementVerbs.length === 14 && peerEscapeAttacks.length === 687 && [...peerRetentionAttacks, ...peerEscapeAttacks, ...ownerSentenceCopies, ...pointerAttacks].every(({ changed, rejected }) => changed && rejected), { baseline: peerRetentionOwners.map((owner) => [owner.id, peerPinFailure(owner, owner.source), peerRetentionFailure(owner, owner.source)]), peerPinAttacks: peerPinAttacks.filter(({ changed, rejected }) => !changed || !rejected), reviewedBranchControls, wordLayerControls, peerOutsideControls, peerRetentionAttacks, peerEscapeAttacks, ownerSentenceCopies: ownerSentenceCopies.filter(({ changed, rejected }) => !changed || !rejected), pointerAttacks }],
-				["cleanup safety and bounded-write mutations change the owned input and fail", cleanupMutations.length === 86 && new Set(cleanupMutations.map(({ id }) => id)).size === 86 && cleanupMutations.every(({ changed, rejected }) => changed && rejected), cleanupMutations],
-				["moving closure evidence outside the marker fails while preserving the sentence", movedCleanup !== recursive && movedCleanup.includes(cleanupOutsideSentence) && !historyUnit.extract(movedCleanup).text.includes(cleanupOutsideSentence) && !acceptsLevelUnit(historyUnit, movedCleanup), "outside-marker cleanup control"],
+				["reviewed peer-document pins reject unreviewed additions while scoped pointers and the word layer discriminate known copies", peerRetentionOwners.every((owner) => !peerPinFailure(owner, owner.source) && acceptsPeerRetention(owner, owner.source)) && pinnedPeerOwners.length === 3 && peerPinRules.length === 6 && peerPinAttacks.length === 252 && peerPinAttacks.every(({ changed, rejected }) => changed && rejected) && reviewedBranchControls.length === 5 && reviewedBranchControls.every(({ changed, accepted }) => changed && accepted) && wordLayerControls.length === 3 && wordLayerControls.every(({ rejected }) => rejected) && peerOutsideControls.every(({ accepted }) => accepted) && peerPlacementNames.length === 7 && peerPlacementVerbs.length === 14 && peerEscapeAttacks.length === 687 && ownerSentenceCopies.length === 1158 && [...peerRetentionAttacks, ...peerEscapeAttacks, ...ownerSentenceCopies, ...pointerAttacks].every(({ changed, rejected }) => changed && rejected), { baseline: peerRetentionOwners.map((owner) => [owner.id, peerPinFailure(owner, owner.source), peerRetentionFailure(owner, owner.source)]), peerPinAttacks: peerPinAttacks.filter(({ changed, rejected }) => !changed || !rejected), reviewedBranchControls, wordLayerControls, peerOutsideControls, peerRetentionAttacks, peerEscapeAttacks, ownerSentenceCopies: ownerSentenceCopies.filter(({ changed, rejected }) => !changed || !rejected), pointerAttacks }],
+				["cleanup safety and bounded-write mutations change the owned input and fail", cleanupMutations.length === 118 && new Set(cleanupMutations.map(({ id }) => id)).size === 118 && cleanupMutations.every(({ changed, rejected }) => changed && rejected), cleanupMutations],
+				["moving cleanup safeguards outside the marker fails while preserving each sentence", cleanupOutsideControls.length === 7 && cleanupOutsideControls.every(({ changed, retained, outside, rejected }) => changed && retained && outside && rejected), cleanupOutsideControls],
+				["cleanup safeguard wrapping passes and all mutations remain discriminating", cleanupWrapControls.length === 8 && cleanupWrapControls.every(({ changed, accepted, mutations }) => changed && accepted && mutations.every(({ changed, rejected }) => changed && rejected)), cleanupWrapControls],
 				["pointer wrapping preserves scope and destination in the required handoff context", wrappedCleanupPointer !== workflow && acceptsLevelUnit(cleanupPointerUnit, wrappedCleanupPointer) && acceptsPeerRetention(peerRetentionOwners.find(({ id }) => id === "lifecycle"), wrappedCleanupPointer), "wrapped cleanup pointer"],
 				["safe creation, updates, remote events, inspection, and RG4 mutations change their intended input and fail", retentionMutations.length === 58 && retentionMutations.every(({ changed, rejected, retained }) => changed && rejected && retained), retentionMutations],
 				["the complete valid stacked example and normal fast-forward policy match in both publishing settings", acceptsLevelUnit(historyUnit, recursive), "independent complete history literal"],
@@ -4930,8 +5024,8 @@ A later track builds on the accepted boundary before it.`),
 				["wrapped inspection passes and keeps all named mutations discriminating", wrappedRetention !== recursive && acceptsLevelUnit(historyUnit, wrappedRetention) && wrappedRetentionMutations.every(({ changed, rejected, retained }) => changed && rejected && retained), wrappedRetentionMutations],
 				["the inspection pointer reaches the unique existing privacy subsection", privacyDestination.count === 1 && privacyDestination.text.includes("Record contents can also appear in saved worker sessions and command text."), privacyDestination.count],
 				["every unit matches its independent expectation", levelPolicyUnits.every((unit) => acceptsLevelUnit(unit, unit.source)), levelPolicyUnits.filter((unit) => !acceptsLevelUnit(unit, unit.source)).map(({ id }) => id)],
-				["every rule mutation changes input and fails", levelRuleMutations.every(({ changed, rejected }) => changed && rejected), levelRuleMutations],
-				["every safety sentence removal changes its owned input and fails", safetySentenceRemovals.every(({ changed, rejected }) => changed && rejected), safetySentenceRemovals],
+				["every rule mutation changes input and fails", levelRuleMutations.length === 560 && levelRuleMutations.every(({ changed, rejected }) => changed && rejected), levelRuleMutations],
+				["every safety sentence removal changes its owned input and fails", safetySentenceRemovals.length === 637 && safetySentenceRemovals.filter(({ id }) => id === "history").length === 374 && safetySentenceRemovals.filter(({ id }) => id === "cleanup-writes").length === 18 && safetySentenceRemovals.every(({ changed, rejected }) => changed && rejected), safetySentenceRemovals],
 				["ordering, pause reconciliation, and local retention agree across all four documents", agreesOnOrderAndLocalRetention(), "complete independent history, planning, resume, roadmap, and publishing expectations"],
 				["unsafe pauses, conflicting bases, missing scope or events, and ordinary duties in either publishing setting fail", orderAndRetentionMutations.every(({ changed, rejected }) => changed && rejected), orderAndRetentionMutations],
 				["moving an intact event sentence outside the marker fails", eventMoveRejected(orderingDocuments), "event remains present beyond the protected marker"],

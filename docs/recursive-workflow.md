@@ -339,18 +339,37 @@ Do not push any retention reference to any remote when publishing is disabled.
 **Retention cleanup after root closure.** Cleanup deletes retention references, not change records or delivered content.
 These cleanup duties apply only to nested changes.
 An ordinary change has no cleanup duty in either publishing setting.
+
 A cleanup inventory lists recorded retention references and their latest recorded bindings.
 Record it as the last root-log record before `slate_change close`, after final post-merge comparisons and verified accounting.
 With publishing disabled, record it after final local comparisons and verified final-squash accounting.
 For abandonment, record it after the archival offer and any explicit user choice to delete.
 Require exactly one inventory entry in the root log.
-If there are zero or two or more inventory entries, delete nothing and report to the user.
+If there are zero or two or more inventory entries, delete nothing.
+Before stopping, the cleanup worker records the inventory-count refusal wherever § Post-close cleanup writes permits a write.
+Report the refusal to the user.
 Every authorizing record precedes the inventory, including closure evidence, the abandonment deletion choice, and marked-entry discard choices.
 Read authorization only from those earlier records.
+
 A URL (Uniform Resource Locator) identifies a remote location.
 Include the recorded namespace and, with publishing enabled, the remote name and its fetch and push URLs.
+With publishing enabled, obtain the effective fetch URL with `git remote get-url --all "<remote>"`.
+With publishing enabled, obtain the effective push URL with `git remote get-url --push --all "<remote>"`.
+Require each command to return exactly one URL, not raw configuration values.
+If either command fails or returns zero or multiple URLs, run no remote command.
+Before stopping, the cleanup worker records that refusal wherever § Post-close cleanup writes permits a write.
+Report that refusal to the user.
+
+Userinfo is the user name and password before `@` in a URL.
+Remove any userinfo from each URL before recording or comparing it.
+Apply this removal identically to recorded and current values.
+Never record a credential.
+
 Before any remote command, compare both current URLs with the inventory.
-If either URL differs, or the fetch and push URLs differ from each other, stop, run no remote command, and report to the user.
+If either URL differs, or the fetch and push URLs differ from each other, run no remote command.
+Before stopping, the cleanup worker records the URL mismatch wherever § Post-close cleanup writes permits a write.
+Report the mismatch to the user.
+
 Follow root and subtree logs and their read-only folder-fork source chains within each recorded last-entry boundary.
 Never write to a source folder.
 Check each entry against its owning log's latest recorded binding, never an inferred current branch head.
@@ -360,24 +379,34 @@ Use the full inventory reference name in every command and reject short names.
 Require each name to pass `git check-ref-format "<ref>"` before use.
 Require the prefix `refs/heads/slate-retained/<change>/`, including its trailing slash, for every cleanup name.
 A name under `<change>-old/` does not match that prefix.
+
 Mark entries that preserve an unexpected recovery commit or a collision-preserved state.
 Keep those entries unless the user explicitly chooses to discard that commit or state before the inventory.
 A choice recorded after the inventory authorizes nothing.
 Delivery alone or a general abandonment deletion choice does not authorize discarding a marked entry.
+Before any deletion, the worker checks each entry's owning logs for a recovery or collision-preservation record.
+Treat an unmarked entry with such a record as marked.
+Keep it unless an explicit discard choice precedes the inventory.
+
 Before close, copy the root folder path from the orchestrator's Current research log line into the inventory.
 Pass that folder path, its root research log path, and the inventory to the cleanup worker.
 The worker must not infer the folder from other record text.
 Close the root with `slate_change close` before cleanup in the same session, only after all existing closure conditions hold.
+
 Before any deletion, require root-log closure evidence from records before the inventory.
 Delivered publishing work requires final acceptance, each applicable level merge-result binding, post-merge comparisons, and verified accounting.
 An unmerged level prevents delivery closure and deletion.
 Disabled delivery requires final acceptance, final local comparisons, and verified final-squash accounting instead of level merges.
 Abandonment requires the recorded explicit user deletion choice after the archival offer.
-If closure evidence is missing, delete nothing and report the missing evidence to the user.
+If closure evidence is missing, delete nothing.
+Before stopping, the cleanup worker records the missing closure evidence wherever § Post-close cleanup writes permits a write.
+Report the missing evidence to the user.
+
 The orchestrator dispatches one bounded cleanup worker action.
 That action may delete only authorized inventory references and append cleanup observations under § Post-close cleanup writes.
 It cannot add or amend closure evidence, the inventory, a mark, or a user choice.
 Cleanup acts only on recorded copies, without inferred counterparts or pairing by commit.
+
 A regular reference stores a commit identifier, while a symbolic reference names another reference.
 Before deleting any copy of an entry with a local copy, check that the local inventory reference is regular.
 First confirm existence with `git show-ref --verify "<ref>"`.
@@ -387,10 +416,12 @@ Exit status 1 means not symbolic only after that successful existence check.
 Exit status 0 identifies a symbolic reference, so keep all recorded copies and report it.
 This also forbids deleting a symbolic reference that resolves to an excluded branch at the inventory commit.
 For any other exit status, delete nothing and report the failed check.
+
 Compare each recorded local copy with its inventory commit.
 With publishing enabled, read each recorded remote copy live and compare it with its inventory commit.
 A remote-tracking reference is an earlier local observation, not a live remote read.
-Delete only when all applicable comparisons match.
+Delete only when all applicable comparisons match, except for the confirmed-absence continuation below.
+
 For both-copy entries, delete the explicitly named remote reference first.
 A delete refspec names the remote reference to remove.
 A full-reference lease names that same complete reference and its expected inventory commit.
@@ -403,6 +434,7 @@ git push "--force-with-lease=refs/heads/slate-retained/<change>/<name>:<inventor
 The lease reference must equal the deleted reference.
 Forbid `--force`, a `+` refspec, a bare lease, and a tracking-ref lease.
 Read back remote absence before deleting a recorded local copy of that entry.
+
 Repeat both the existence and regular-reference checks immediately before local deletion.
 Delete locally with `git update-ref --no-deref -d "<ref>" "<inventory-commit>"` in either publishing setting.
 The expected old commit is mandatory, and deletion must never dereference a symbolic target.
@@ -410,31 +442,55 @@ A remote-only entry uses the same leased deletion and absence read-back.
 A local-only entry requires no remote counterpart.
 A one-sided entry is complete when its recorded copy is deleted and absence is confirmed.
 With publishing disabled, delete only recorded local copies under the conditional check and run no remote command.
+
 Never delete an unlisted name or a name outside the recorded namespace.
 Never delete a pull request branch, a local level branch, or the default branch.
-Keep `track1-pre-squash`, `track2-pre-squash`, `track1-before-squash`, `track03-preserve`, `track04-preserve-7248ab2`, and `backup-pre-rebase` outside cleanup.
 Use no untargeted deletion, including prune, mirror, pattern, or all-branches deletion.
 Every deletion requires an explicit inventory name.
+
 A mismatch, missing recorded copy on initial comparison, or unexpected reference permits no deletion for that item.
 Keep remaining copies unchanged, record the observation, and report to the user.
 Never delete against an unexpected commit or substitute a pull request branch for a missing retention copy.
+The confirmed-absence continuation below is the only exception for a missing remote copy.
+
+An earlier cleanup observation may record the remote copy's confirmed absence for this cleanup.
+For that both-copy entry, read the remote reference live before continuing.
+If it is still absent, continue with the local copy under every local check.
+A present remote copy or a failed read permits no continuation and must be reported.
+Observations alone authorize no deletion.
+The inventory remains the deletion authority.
+
 After a failed or unclear remote deletion, read that remote reference before any retry.
 Observed absence confirms deletion and must be recorded.
 The inventory commit permits retry under the same full-reference lease and safeguards.
 Another commit permits no retry and must be kept and reported.
 A failed read leaves deletion unresolved, permits no retry, and must be reported.
 A failed local conditional deletion leaves the remaining local copy unchanged and must be reported.
+Before any local retry, read the local reference again.
+Retry only if the fresh read shows the inventory commit and both regular-reference checks pass again.
+A missing reference confirms absence, while another commit or a failed read permits no retry.
+Record and report the observed result.
+
 After deletion, list the remote namespace when publishing is enabled and the local inventory names in either setting.
 Record both applicable listings in the root research log.
 Record each deleted copy's name and old commit, and each kept copy's name and reason.
 Report the result to the user.
 Cleanup is complete when no recorded copy remains except reported kept copies.
 A failed confirmation listing or unresolved deletion leaves cleanup incomplete.
+For every incomplete cleanup exit, the cleanup worker reports the result to the user.
+Where § Post-close cleanup writes permits a write, record an observation before stopping.
+The observation states that cleanup is incomplete.
+
 A cleanup failure reopens nothing and changes no acceptance, delivery accounting, or merge record.
 Kept references keep history reachable, including when the session ends before cleanup finishes.
+If the session ends before cleanup finishes, the orchestrator reports the interruption and incomplete cleanup to the user.
+Where § Post-close cleanup writes permits a write, the cleanup worker records that incomplete cleanup before the session ends.
+
 A later session may finish only on a user request naming the closed change folder.
 Before loading the rule or writing, validate that folder under § Post-close cleanup writes.
-Require `slate-changes/<change-folder name>` inside this checkout, a Slate-generated name, and no `..` component.
+Require `slate-changes/<change-folder name>` inside this checkout with Slate's generated change-folder form and no `..` component.
+Slate's generated change-folder form is `change-<YYYYMMDD>T<HHMMSS>Z-<32 lowercase hexadecimal characters>`.
+The date and time must be valid in UTC (Coordinated Universal Time).
 Require a real directory, not a symbolic link, and a regular `research-log.md`.
 Require the folder path to equal the root folder path in its inventory.
 No other change folder's first log line may name it as a read-only source.
@@ -443,9 +499,11 @@ Only a validated request loads this rule and grants append-only cleanup observat
 Dispatch the same bounded worker with the user-named path and recorded inventory.
 Use the same closure evidence, comparisons, safeguards, safe-write steps, and confirmation records.
 Make no other folder write, write no source folder, and start no new change for cleanup.
+
 Abandonment has no automatic cleanup.
 After the existing archival offer, ask whether to delete retention references.
 Without an explicit recorded user choice and root closure, delete nothing.
+
 `slate_change close` itself deletes nothing.
 The until-root-closure retention lifetimes stay unchanged.
 This owner alone permits post-closure retention deletion in both publishing settings, not the publishing-only accepted-history-cleanup block.
@@ -638,13 +696,16 @@ Cleanup records are observation entries for comparisons, listings, deleted and k
 They never add or amend closure evidence, the inventory, a mark, or a user choice.
 Use the existing temporary start copy, separate temporary append texts, `>>`, whole-record comparison, and retry inspection steps.
 This exception grants no other record write and no source-folder write.
+
 A user request naming a closed change folder is the only later-session exception.
 Before loading the cleanup rule or making any write, validate the user-named folder.
 Require `slate-changes/<change-folder name>` inside this checkout with Slate's generated change-folder form and no `..` component.
+Use the form defined in § Level publishing and retained history.
 Require a real directory, not a symbolic link, with a regular `research-log.md`.
 Require the path to equal the root folder path in that folder's inventory.
 Check every other change folder's first log line and reject a folder named there as a read-only source.
 On any failure, write nothing, delete nothing, and ask the user.
+
 Only a validated request loads the cleanup rule and grants observation-only appends in that root log.
 Dispatch the same bounded cleanup worker with the user-named path and recorded inventory.
 Make no other write in that folder and start no new change for it.
