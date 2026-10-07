@@ -4741,7 +4741,10 @@ A stale description fails the "deep enough" test.`),
 			});
 			const cleanupOutsideSentence = "Before any deletion, require root-log closure evidence from records before the inventory.";
 			const movedCleanup = recursive.replace(literalPattern(cleanupOutsideSentence), "").replace("<!-- level-history-policy:end -->", `<!-- level-history-policy:end -->\n${cleanupOutsideSentence}`);
-			const wrappedCleanupPointer = workflow.replace(literalPattern(cleanupPointerUnit.expected), cleanupPointerUnit.expected.replace(/ /g, "\n  "));
+			const wrappedCleanupPointer = workflow.replace(literalPattern(cleanupPointerUnit.expected), (match) => {
+				const wrapped = cleanupPointerUnit.expected.replace(/ /g, "\n  ");
+				return match === wrapped ? cleanupPointerUnit.expected.replace(/ /g, "\n\t") : wrapped;
+			});
 			const inspectionSentence = "Before every retention push, inspect all commits and objects reachable from each reference to be pushed.";
 			const movedInspection = recursive.replace(literalPattern(inspectionSentence), "").replace("<!-- level-history-policy:end -->", `<!-- level-history-policy:end -->\n${inspectionSentence}`);
 			const wrappedRetention = recursive.replace(literalPattern(inspectionSentence), inspectionSentence.replace(/ /g, "\n  "));
