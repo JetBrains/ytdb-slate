@@ -341,12 +341,16 @@ These cleanup duties apply only to nested changes.
 An ordinary change has no cleanup duty in either publishing setting.
 
 A cleanup inventory lists recorded retention references and their latest recorded bindings.
-Record the inventory after all closure conditions hold, including final post-merge comparisons and verified accounting.
+Record the inventory after all closure conditions hold.
+For delivered publishing work, require final acceptance and each applicable level merge-result binding.
+Also require final post-merge comparisons and verified accounting.
+Record every authorizing record before the inventory.
 With publishing disabled, record the inventory after final local comparisons and verified final-squash accounting.
 For abandonment cleanup, record the inventory after the archival offer and the recorded explicit user choice to delete.
 
 Count inventory entries across the root log and its read-only source chain within the recorded boundaries.
 Read the chain in its recorded source order and select its latest inventory.
+Do not select an earlier inventory because its evidence appears valid.
 Require exactly one unambiguous latest inventory after every non-cleanup record and after all closure conditions hold.
 Earlier inventories remain evidence and grant no deletion authority.
 Zero entries or an ambiguous latest inventory permit no deletion.
@@ -361,7 +365,7 @@ No record after an inventory may widen that inventory's deletion authority.
 
 After the inventory, only cleanup observations, the user report, the retry-or-keep choice, and `slate_change close` may follow.
 Any other record voids that inventory's deletion authority.
-Examples include a new track, fix, decision, merge-result binding, abandonment withdrawal, or handoff state summary outside those permitted kinds.
+Examples include a new track, fix, a decision other than the permitted retry-or-keep choice, merge-result binding, abandonment withdrawal, or handoff state summary outside those permitted kinds.
 Check for voiding records before each deletion, on resume, and before each retry.
 If any voiding record exists, delete nothing and report the refusal to the user.
 
@@ -419,6 +423,9 @@ Use the ordinary current-folder rule in § Manual records and safe writes.
 The worker must not infer the folder from other record text.
 No inventory folder-path field or closed-folder write permission is required.
 
+For current closure conditions, copies recorded as deleted under the latest valid inventory leave the kept-reference comparison set.
+Their absence is not a missing-reference pause.
+Keep every other closure condition.
 Before each deletion, require current closure conditions and root-log closure evidence from records before the latest inventory.
 Also recheck that no voiding record follows that inventory.
 Delivered publishing work requires final acceptance, each applicable level merge-result binding, post-merge comparisons, and verified accounting.
@@ -538,15 +545,19 @@ Neither incomplete cleanup nor that choice changes acceptance, accounting, or me
 
 For an applicable cleanup sequence, close follows the required user report and any required choice after that latest report.
 An inventory-count refusal is incomplete cleanup, and a recorded keep choice permits close when closure conditions still hold.
+The inventory condition governs deletion only.
 Recheck closure conditions before every close, including close after complete cleanup.
 
 If the session ends before cleanup finishes, the change stays open.
 Keep remaining references in place.
 Record the interruption and incomplete cleanup under normal write rules and report them to the user.
-The next session follows Resume order and reconciliation and uses the structural-refusal route below.
+The next session follows Resume order and reconciliation and uses the structural-refusal route above.
+Permitted cleanup records include interruption, refusal, and incomplete-state observations.
+They grant no deletion authority.
 Use the current folder and its read-only source chains under normal ownership rules.
 On a folder fork, read inventories through the root log's recorded source boundary.
-Apply the latest-inventory rule across the root log and its read-only source chain within the recorded boundaries.
+On resume, count inventory entries across the root log and its read-only source chain within the recorded boundaries.
+Apply the latest-inventory rule, including its closure conditions and non-cleanup record boundary.
 On resume, check for voiding records before any deletion or retry.
 
 The required handoff state summary voids the inventory like any other non-cleanup record.
