@@ -23,7 +23,7 @@ function fixture(config: unknown = {}, names: NotificationChannel["name"][] = ["
 		},
 	};
 	const dispatcher = new NotificationDispatcher(options);
-	const flush = async () => { for (let i = 0; i < 8; i++) await Promise.resolve(); };
+	const flush = async () => { for (let i = 0; i < 30; i++) await Promise.resolve(); };
 	const advance = async (amount: number) => {
 		time += amount;
 		for (const timer of [...timers]) if (timer.at <= time) { timers.delete(timer); timer.callback(); }
@@ -112,7 +112,7 @@ test("stop evidence suppresses run notifications, including overflow cancellatio
 test("admission freezes permitted text, excludes dialog titles, thinking and tool content, and uses error fallback", async () => {
 	const f = fixture({ detail: "message", push: { enabled: true, server: "https://example.test", topic: "topic" } }, ["native", "push"]);
 	f.dispatcher.message({ role: "assistant", content: [{ type: "text", text: "head" + "é".repeat(100) }, { type: "thinking", text: "secret" }, { type: "toolCall", text: "secret" }] });
-	f.dispatcher.dialog(true); await f.advance(30); f.dispatcher.activity(); f.dispatcher.message({ role: "assistant", content: "later" });
+	f.dispatcher.dialog(true); await f.advance(30); await f.advance(0); f.dispatcher.activity(); f.dispatcher.message({ role: "assistant", content: "later" });
 	await f.advance(0); assert.equal(f.delivered[0]!.body, "project: …" + "é".repeat(100)); assert.equal(f.delivered[1]!.body, "");
 	const error = fixture({ detail: "message" }); error.dispatcher.runStart(); error.dispatcher.message({ role: "assistant", stopReason: "error", errorMessage: "provider\x1b" });
 	error.dispatcher.settled(); await error.advance(30); await error.advance(0); assert.equal(error.delivered[0]!.body, "project: …provider");
@@ -160,12 +160,12 @@ test("one in-flight attempt per channel drops excess without blocking independen
 	let release!: () => void, attempts = 0;
 	f.channels[0]!.prepare = async () => { attempts++; await new Promise<void>((resolve) => { release = resolve; }); return () => {}; };
 	f.settle(); await f.advance(30); await f.advance(0);
-	f.settle(); await f.advance(30); await f.advance(0);
-	assert.equal(attempts, 1); assert.equal(f.delivered.length, 2);
+	f.settle("error"); await f.advance(30); await f.advance(0);
+	assert.equal(attempts, 1); assert.equal(f.delivered.length, 1);
 	release(); await f.flush(); f.channels[0]!.prepare = async () => { attempts++; throw new Error("private error"); };
-	f.settle(); await f.advance(30); await f.advance(0); assert.equal(attempts, 2); assert.equal(f.delivered.length, 3);
+	f.settle(); await f.advance(30); await f.advance(0); assert.equal(attempts, 2); assert.equal(f.delivered.length, 2);
 	f.channels[0]!.prepare = async () => () => { throw new Error("private error"); };
-	f.settle(); await f.advance(30); await f.advance(0); assert.equal(f.delivered.length, 4);
+	f.settle(); await f.advance(30); await f.advance(0); assert.equal(f.delivered.length, 3);
 });
 test("channel slots survive retirement across dispatcher instances until work settles", async () => {
 	for (const name of ["native", "push"] as const) for (const phase of ["preparation", "delivery"]) {
@@ -263,7 +263,7 @@ test("delivery itself holds the channel slot until it finishes", async () => {
 	assert.equal(attempts, 1); release(); await f.flush();
 	f.settle(); await f.advance(30); await f.advance(0); assert.equal(attempts, 2); release(); await f.flush();
 });
-test("admission exceptions report once without content and keep the consumed cooldown", { timeout: 1000 }, async () => {
+test("preparation text failures report once without content and consume no cooldown", { timeout: 1000 }, async () => {
 	const f = fixture({ detail: "message" }); let reads = 0;
 	const arm = () => {
 		f.dispatcher.runStart();
@@ -273,9 +273,9 @@ test("admission exceptions report once without content and keep the consumed coo
 	try {
 		arm(); await f.advance(30); await f.advance(0); assert.equal(reads, 1); assert.equal(f.delivered.length, 0);
 		assert.deepEqual(f.warnings, ["slate: notification admission failed. No delivery was started."]);
-		arm(); await f.advance(30); await f.advance(0); assert.equal(reads, 1, "failed admission does not reopen the cooldown");
-		arm(); await f.advance(30); await f.advance(0); assert.equal(reads, 2); assert.equal(f.warnings.length, 1);
-		f.settle(); await f.advance(30); await f.advance(0); assert.equal(f.delivered.length, 0);
+		arm(); await f.advance(30); await f.advance(0); assert.equal(reads, 2, "preparation failed before admission");
+		arm(); await f.advance(30); await f.advance(0); assert.equal(reads, 3); assert.equal(f.warnings.length, 1);
+		f.settle(); await f.advance(30); await f.advance(0); assert.equal(f.delivered.length, 1);
 		f.settle(); await f.advance(30); await f.advance(0); assert.equal(f.delivered.length, 1);
 		assert.doesNotMatch(f.warnings.join(), /PRIVATE|push|settings|agent|project/);
 	} finally { await f.flush(); f.dispatcher.retire(); }
@@ -285,6 +285,99 @@ test("admission exceptions report once without content and keep the consumed coo
 		d.runStart(); d.message({ role: "assistant", get content(): never { throw new Error("PRIVATE"); } }); d.settled();
 		await throwing.advance(30); await throwing.advance(0); assert.equal(throwing.delivered.length, 0);
 	} finally { await throwing.flush(); d.retire(); throwing.dispatcher.retire(); }
+});
+
+test("pending preparation rechecks every admission condition and leaves cooldown unused", { timeout: 2000 }, async () => {
+	for (const boundary of ["activity", "close", "new-run", "idle", "queued", "recovering", "current", "unchanged"] as const) {
+		const f = fixture({ push: { enabled: true, server: "https://example.test", topic: "topic" } }, ["terminal", "native", "bell", "push"]);
+		let release!: () => void, signal!: AbortSignal;
+		f.channels[0]!.prepare = async (text, observed) => {
+			signal = observed;
+			await new Promise<void>((resolve) => { release = resolve; });
+			return () => { f.delivered.push({ name: "terminal", ...text }); };
+		};
+		try {
+			if (boundary === "close") f.dispatcher.dialog(true); else f.settle();
+			await f.advance(30); await f.advance(0); assert.deepEqual(f.delivered, []);
+			if (boundary === "activity") f.dispatcher.activity();
+			if (boundary === "close") f.dispatcher.dialog(false);
+			if (boundary === "new-run") f.dispatcher.runStart();
+			if (boundary === "idle") f.idle = false;
+			if (boundary === "queued") f.queued = true;
+			if (boundary === "recovering") f.recovering = true;
+			if (boundary === "current") f.current = false;
+			if (["activity", "close", "new-run"].includes(boundary)) assert.equal(signal.aborted, true);
+			release(); await f.flush();
+			assert.equal(f.delivered.length, boundary === "unchanged" ? 4 : 0, boundary);
+			f.idle = f.current = true; f.queued = f.recovering = false;
+			f.channels[0]!.prepare = async (text) => () => { f.delivered.push({ name: "terminal", ...text }); };
+			f.settle(); await f.advance(30); await f.advance(0);
+			assert.equal(f.delivered.length, 4, boundary === "unchanged" ? "admitted wait consumed cooldown" : `${boundary} consumed no cooldown`);
+		} finally { release?.(); await f.flush(); f.dispatcher.retire(); }
+	}
+});
+
+test("two preparing waits of one type share one final cooldown decision", { timeout: 1000 }, async () => {
+	const f = fixture({}, ["terminal", "bell"]);
+	let release!: () => void;
+	f.channels[0]!.prepare = async (text) => {
+		await new Promise<void>((resolve) => { release = resolve; });
+		return () => { f.delivered.push({ name: "terminal", ...text }); };
+	};
+	try {
+		f.settle(); await f.advance(30); await f.advance(0);
+		f.dispatcher.dialog(true); await f.advance(30); await f.advance(0);
+		assert.deepEqual(f.delivered, []);
+		release(); await f.flush(); await f.advance(0); await f.advance(0);
+		assert.equal(f.delivered.length, 2, "the competing wait cannot bypass the first preparation");
+		assert.equal(f.timers.size, 0, "cooldown drops the deferred wait without a retry");
+		f.channels[0]!.prepare = async (text) => () => { f.delivered.push({ name: "terminal", ...text }); };
+		f.settle(); await f.advance(30); await f.advance(0); assert.equal(f.delivered.length, 2);
+		f.settle(); await f.advance(30); await f.advance(0); assert.equal(f.delivered.length, 4);
+	} finally { release?.(); await f.flush(); f.dispatcher.retire(); }
+});
+
+test("cancelled run preparation preserves an expired same-type dialog wait", { timeout: 1000 }, async () => {
+	const f = fixture({ cooldownMs: 0 }, ["terminal", "bell"]);
+	let release!: () => void, preparations = 0, signal!: AbortSignal;
+	f.channels[0]!.prepare = async (text, observed) => {
+		preparations++;
+		if (preparations === 1) { signal = observed; await new Promise<void>((resolve) => { release = resolve; }); }
+		return () => { f.delivered.push({ name: "terminal", ...text }); };
+	};
+	try {
+		f.settle(); await f.advance(30); await f.advance(0);
+		f.dispatcher.dialog(true); await f.advance(30); await f.advance(0);
+		assert.equal(preparations, 1); assert.equal(f.delivered.length, 0);
+		f.dispatcher.runStart(); assert.equal(signal.aborted, true);
+		await f.advance(0); assert.equal(preparations, 1, "cancelled preparation must settle before slot reuse");
+		release(); await f.flush(); await f.advance(0); await f.advance(0);
+		assert.equal(preparations, 2); assert.deepEqual(f.delivered.map((delivery) => delivery.name), ["terminal", "bell"]);
+		assert.equal(f.delivered[0]!.title, "Input needed"); assert.equal(f.timers.size, 0);
+		await f.advance(100); assert.equal(f.delivered.length, 2, "the open dialog sends only once");
+	} finally { release?.(); await f.flush(); f.dispatcher.retire(); }
+});
+
+test("deferred same-type waits recheck failed run admission, activity, closure and retirement", { timeout: 2000 }, async () => {
+	for (const boundary of ["idle", "activity", "close", "retire", "zero-cooldown"] as const) {
+		const f = fixture({ cooldownMs: 0 }); let release!: () => void, preparations = 0;
+		f.channels[0]!.prepare = async (text) => {
+			if (++preparations === 1) await new Promise<void>((resolve) => { release = resolve; });
+			return () => { f.delivered.push({ name: "native", ...text }); };
+		};
+		try {
+			f.settle(); await f.advance(30); await f.advance(0);
+			f.dispatcher.dialog(true); await f.advance(30); await f.advance(0);
+			if (boundary === "idle") f.idle = false;
+			if (boundary === "activity") { f.dispatcher.runStart(); f.dispatcher.activity(); }
+			if (boundary === "close") f.dispatcher.dialog(false);
+			if (boundary === "retire") f.dispatcher.retire();
+			release(); await f.flush(); await f.advance(0); await f.advance(0);
+			assert.equal(f.delivered.length, boundary === "idle" || boundary === "close" ? 1 : boundary === "zero-cooldown" ? 2 : 0, boundary);
+			if (boundary === "activity") { await f.advance(29); assert.deepEqual(f.delivered, []); await f.advance(1); await f.advance(0); assert.equal(f.delivered.length, 1); }
+			await f.advance(100); assert.equal(f.timers.size, 0);
+		} finally { release?.(); await f.flush(); f.dispatcher.retire(); }
+	}
 });
 
 test("default timers deliver in background and pending waits do not keep Node alive", { timeout: 5000 }, async (t) => {

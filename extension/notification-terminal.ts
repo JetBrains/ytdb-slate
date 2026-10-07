@@ -1,6 +1,7 @@
 import type { NotificationProtocol, NotificationSettings } from "./notification-config.ts";
 import type { NotificationChannel } from "./notification-dispatcher.ts";
 import { notificationSequences, wrapNotificationSequence } from "./notification-protocols.ts";
+import { queryTmuxClients, selectTmuxNotificationProtocols } from "./notification-tmux.ts";
 
 type Environment = Readonly<Record<string, string | undefined>>;
 type Output = Pick<NodeJS.WriteStream, "isTTY" | "write" | "on" | "removeListener">;
@@ -27,6 +28,7 @@ export interface TerminalNotificationOptions {
 	readonly mode: string;
 	readonly settings: Pick<NotificationSettings, "sequences">;
 	readonly environment?: Environment;
+	readonly projectDirectory?: string;
 	readonly output?: Output;
 	readonly warn: (message: string) => void;
 	/** A bounded tmux client selector can supply automatic choices. Explicit lists bypass it. */
@@ -50,29 +52,35 @@ async function writeNotificationBuffers(output: Output, buffers: readonly Buffer
 /** Use pi's frame stream only. The dispatcher invokes delivery outside event and render handlers. */
 export function createTerminalNotificationChannels(options: TerminalNotificationOptions): readonly NotificationChannel[] {
 	const output = options.output ?? process.stdout, environment = options.environment ?? process.env;
+	const selectAutomatic = options.selectAutomatic ?? (async (env: Environment, signal: AbortSignal) =>
+		env.TMUX ? selectTmuxNotificationProtocols(await queryTmuxClients(env, signal, options.projectDirectory)) ?? automaticNotificationProtocols(env) : automaticNotificationProtocols(env));
 	let suppressionReported = false;
 	const usable = (signal: AbortSignal) => options.mode === "tui" && output.isTTY === true && !signal.aborted;
 	return [
 		{ name: "terminal", async prepare(text, signal) {
 			let buffers: Buffer[] = [];
 			if (usable(signal)) {
+				const env: Environment = Object.freeze(Object.fromEntries([
+					"TMUX", "TMUX_PANE", "PATH", "STY", "ZELLIJ", "TERM", "TERM_PROGRAM", "LC_TERMINAL",
+					"KITTY_WINDOW_ID", "KONSOLE_VERSION", "WT_SESSION", "VTE_VERSION", "GNOME_TERMINAL_SCREEN",
+				].map((name) => [name, environment[name]])));
+				if ([env.TMUX, env.STY, env.ZELLIJ].filter(Boolean).length > 1) {
+					if (!suppressionReported) {
+						suppressionReported = true;
+						try { options.warn("slate: terminal notification suppressed. Multiple multiplexer hints leave the route ambiguous."); }
+						catch { /* A failed warning cannot disable the independent bell. */ }
+					}
+					return () => {};
+				}
 				let protocols = options.settings.sequences;
 				if (protocols === "auto") {
-					try { protocols = options.selectAutomatic ? await options.selectAutomatic(environment, signal) : automaticNotificationProtocols(environment); }
-					catch { protocols = automaticNotificationProtocols(environment); }
+					try { protocols = await selectAutomatic(env, signal); }
+					catch { protocols = automaticNotificationProtocols(env); }
 				}
 				if (usable(signal)) {
 					for (const protocol of protocols) for (const sequence of notificationSequences(protocol, text)) {
-						const wrapped = wrapNotificationSequence(sequence, environment);
-						if (wrapped === undefined) {
-							if (!suppressionReported) {
-								suppressionReported = true;
-								try { options.warn("slate: terminal notification suppressed. Multiple multiplexer hints leave the route ambiguous."); }
-								catch { /* A failed warning cannot disable the independent bell. */ }
-							}
-							buffers = [];
-							return () => {};
-						}
+						const wrapped = wrapNotificationSequence(sequence, env);
+						if (wrapped === undefined) return () => {};
 						buffers.push(wrapped);
 					}
 				}

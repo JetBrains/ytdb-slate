@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { test, type TestContext } from "node:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
+import childProcess from "node:child_process";
+import { EventEmitter } from "node:events";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { MainRetryEvidence } from "../extension/logical-model-adapters.ts";
 import extension from "../extension/index.ts";
@@ -17,7 +19,12 @@ import { createLogicalRuntime } from "../extension/logical-model-runtime.ts";
 type Handler = (event: any, ctx: ExtensionContext) => unknown;
 function host(t: TestContext, mode = "tui", state = { orchestratorMode: false, paused: false }) {
 	const cwd = mkdtempSync(join(tmpdir(), "slate-notification-events-"));
-	t.after(() => rmSync(cwd, { recursive: true, force: true }));
+	const environment = { TMUX: process.env.TMUX, STY: process.env.STY, ZELLIJ: process.env.ZELLIJ };
+	delete process.env.TMUX; delete process.env.STY; delete process.env.ZELLIJ;
+	t.after(() => {
+		for (const [name, value] of Object.entries(environment)) { if (value === undefined) delete process.env[name]; else process.env[name] = value; }
+		rmSync(cwd, { recursive: true, force: true });
+	});
 	const events = new Map<string, Handler[]>(), keys = new Set<(...args: any[]) => unknown>();
 	const notices: string[] = [], entries: unknown[] = [], commands = new Map<string, any>();
 	let active = ["read"], signal: AbortSignal | undefined;
@@ -49,6 +56,45 @@ function host(t: TestContext, mode = "tui", state = { orchestratorMode: false, p
 function spy(t: TestContext, name: "activity" | "retire" | "runStart" | "message" | "settled") {
 	return t.mock.method(NotificationDispatcher.prototype, name);
 }
+
+test("real factory routes automatic tmux selection in background without writing notification bytes to runner output", { timeout: 5000 }, async (t) => {
+	const f = host(t), environment = { PATH: process.env.PATH, TMUX_PANE: process.env.TMUX_PANE };
+	const isTTY = Object.getOwnPropertyDescriptor(process.stdout, "isTTY");
+	const fixture = mkdtempSync(join(tmpdir(), "slate-tmux-factory-helper-")), bytes: Buffer[] = [];
+	t.after(() => rmSync(fixture, { recursive: true, force: true }));
+	writeFileSync(join(fixture, "tmux"), "fixture"); chmodSync(join(fixture, "tmux"), 0o755);
+	writeFileSync(join(f.ctx.cwd, "tmux"), "project fixture"); chmodSync(join(f.ctx.cwd, "tmux"), 0o755);
+	process.env.TMUX = "/tmp/fixture,42,1"; process.env.TMUX_PANE = "%42"; process.env.PATH = [f.ctx.cwd, fixture].join(delimiter);
+	Object.defineProperty(process.stdout, "isTTY", { configurable: true, value: true });
+	const originalWrite = process.stdout.write;
+	t.mock.method(process.stdout, "write", ((...args: unknown[]) => {
+		const buffer = args[0];
+		if (Buffer.isBuffer(buffer) && (buffer[0] === 7 || buffer[0] === 27)) {
+			bytes.push(Buffer.from(buffer)); (args[1] as () => void)(); return true;
+		}
+		return Reflect.apply(originalWrite, process.stdout, args);
+	}) as typeof process.stdout.write);
+	const execute = t.mock.method(childProcess, "execFile", ((...args: unknown[]) => {
+		const callback = args[3] as (error: null, stdout: Buffer, stderr: Buffer) => void;
+		queueMicrotask(() => callback(null, Buffer.from("1\t0000010\n2\t0001000\n"), Buffer.alloc(0)));
+		return Object.assign(new EventEmitter(), { unref() {}, stdin: { destroy() {} }, stdout: { unref() {} }, stderr: { unref() {} }, kill() {} });
+	}) as unknown as typeof childProcess.execFile);
+	mkdirSync(join(f.ctx.cwd, ".pi"));
+	writeFileSync(join(f.ctx.cwd, ".pi", "slate.json"), JSON.stringify({ notifications: { minimumDelayMs: 0, cooldownMs: 0 } }));
+	try {
+		extension(f.pi); await f.emit("session_start"); await f.emit("ui_prompt_start");
+		assert.equal(execute.mock.callCount(), 0); assert.equal(bytes.length, 0, "event handling starts neither query nor write");
+		for (let i = 0; i < 100 && bytes.length < 2; i++) await new Promise((resolve) => setTimeout(resolve, 5));
+		assert.equal(execute.mock.callCount(), 1);
+		assert.equal(execute.mock.calls[0]!.arguments[0], join(fixture, "tmux"), "ctx.cwd excludes the competing project helper");
+		assert.deepEqual(bytes.map((buffer) => buffer.toString()), ["\x1bPtmux;\x1b\x1b]777;notify;Input needed;\x07\x1b\\", "\x07"]);
+		await f.emit("session_shutdown");
+	} finally {
+		await f.emit("session_shutdown");
+		if (isTTY) Object.defineProperty(process.stdout, "isTTY", isTTY); else Reflect.deleteProperty(process.stdout, "isTTY");
+		for (const [name, value] of Object.entries(environment)) { if (value === undefined) delete process.env[name]; else process.env[name] = value; }
+	}
+});
 
 test("real factory observes input before paused refusal and bash before later handlers", { timeout: 5000 }, async (t) => {
 	const f = host(t, "tui", { orchestratorMode: true, paused: true });

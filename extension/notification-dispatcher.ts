@@ -26,8 +26,8 @@ export interface NotificationDispatcherOptions {
 	readonly schedule?: (delay: number, callback: () => void) => () => void;
 	readonly warn?: (message: string) => void;
 }
-interface Wait { readonly kind: "run" | "dialog"; readonly event: NotificationEvent; readonly since: number; cancel?: () => void }
-interface Attempt { readonly controller: AbortController; cancel: () => void; started: boolean }
+interface Wait { readonly kind: "run" | "dialog"; readonly event: NotificationEvent; readonly since: number; cancel?: () => void; preparing?: boolean; deferred?: boolean; resume?: () => void }
+interface Attempt { readonly controller: AbortController; cancel: () => void; started: boolean; accepted?: boolean }
 // A retired session keeps its process-wide channel slot until its started work settles.
 const inFlightAttempts = new Map<NotificationChannel["name"], Attempt>();
 const schedule = (delay: number, callback: () => void): (() => void) => {
@@ -68,6 +68,7 @@ export class NotificationDispatcher {
 	#lastMessage?: NotificationMessage;
 	readonly #signals = new Set<AbortSignal>();
 	readonly #cooldowns = new Map<NotificationEvent, number>();
+	readonly #preparing = new Map<NotificationEvent, Wait>();
 	readonly #attempts = new Map<NotificationChannel["name"], Attempt>();
 
 	constructor(options: NotificationDispatcherOptions) {
@@ -85,12 +86,19 @@ export class NotificationDispatcher {
 		catch { return true; }
 	}
 	/** Record activity time without reading or retaining terminal input. */
-	activity(): void { if (!this.#retired) this.#activity = this.#now(); }
+	activity(): void {
+		if (this.#retired) return;
+		this.#activity = this.#now();
+		for (const wait of [this.#run, this.#dialog]) if (wait?.preparing) {
+			this.#cancel(wait.kind);
+			this.#arm(wait.kind, wait.event);
+		}
+	}
 	#cancel(kind: "run" | "dialog"): void {
 		const wait = kind === "run" ? this.#run : this.#dialog;
-		wait?.cancel?.();
 		if (kind === "run") this.#run = undefined;
 		else this.#dialog = undefined;
+		wait?.cancel?.();
 	}
 	runStart(signal?: AbortSignal): void {
 		if (!this.#current()) return;
@@ -142,7 +150,7 @@ export class NotificationDispatcher {
 			const remaining = this.#options.settings.minimumDelayMs - (this.#now() - Math.max(wait.since, this.#activity));
 			if (remaining > 0) { wait.cancel = this.#schedule(remaining, expire); return; }
 			// Extension message transforms can supply throwing getters. Timer failures stay local.
-			try { this.#admit(wait); } catch {
+			try { this.#prepare(wait); } catch {
 				this.#cancel(kind);
 				if (!this.#admissionFailureReported) {
 					this.#admissionFailureReported = true;
@@ -151,46 +159,99 @@ export class NotificationDispatcher {
 				}
 			}
 		};
+		wait.resume = expire;
 		wait.cancel = this.#schedule(this.#options.settings.minimumDelayMs, expire);
 	}
-	#admit(wait: Wait): void {
-		this.#cancel(wait.kind);
-		const options = this.#options, settings = options.settings, now = this.#now();
+	#finishPreparation(wait: Wait): void {
+		if (this.#preparing.get(wait.event) !== wait) return;
+		this.#preparing.delete(wait.event);
+		wait.preparing = false;
+		if (this.#retired) return;
+		for (const pending of [this.#run, this.#dialog]) if (pending?.deferred && pending.event === wait.event) {
+			pending.deferred = false;
+			pending.cancel = this.#schedule(0, pending.resume!);
+		}
+	}
+	#eligible(wait: Wait): boolean {
+		const options = this.#options, now = this.#now();
 		try {
-			if (!this.#current() || (wait.kind === "run"
-				? !options.idle() || options.queued() || this.#recovering()
-				: this.#starts <= this.#ends)) return;
-		} catch { return; }
-		if (now - (this.#cooldowns.get(wait.event) ?? -Infinity) < settings.cooldownMs) return;
+			return (wait.kind === "run" ? this.#run : this.#dialog) === wait && this.#current() &&
+				now - Math.max(wait.since, this.#activity) >= options.settings.minimumDelayMs &&
+				now - (this.#cooldowns.get(wait.event) ?? -Infinity) >= options.settings.cooldownMs &&
+				(wait.kind === "run" ? options.idle() && !options.queued() && !this.#recovering() : this.#starts > this.#ends);
+		} catch { return false; }
+	}
+	#prepare(wait: Wait): void {
+		if (!this.#eligible(wait)) { this.#cancel(wait.kind); return; }
+		const options = this.#options, settings = options.settings;
 		const channels = options.channels.filter((channel) => channel.name === "push" ? settings.push.enabled : settings[channel.name]);
-		if (channels.length === 0) return;
-		// Admission is synchronous. All channels share this fixed choice and cooldown.
-		this.#cooldowns.set(wait.event, now);
+		if (channels.length === 0) { this.#cancel(wait.kind); return; }
+		// Keep same-type waits pending until the earlier preparation settles, including after cancellation.
+		if (this.#preparing.has(wait.event)) { wait.deferred = true; return; }
 		const message = wait.kind === "run" ? this.#runMessage : this.#lastMessage;
 		const needsMessage = channels.some((channel) => channel.name === "push" ? settings.pushDetail === "message" : channel.name !== "bell" && settings.detail === "message");
 		const tail = needsMessage ? messageTail(message, wait.event === "error") : "";
 		const general = notificationText(wait.event, settings.detail, options.cwd, tail);
 		const push = notificationText(wait.event, settings.pushDetail, options.cwd, tail);
+		const reserved: Array<{ channel: NotificationChannel; attempt: Attempt }> = [];
 		for (const channel of channels) {
 			if (inFlightAttempts.has(channel.name)) continue;
-			const controller = new AbortController();
-			const attempt: Attempt = { controller, cancel: () => {}, started: false };
+			const attempt: Attempt = { controller: new AbortController(), cancel: () => {}, started: false };
 			inFlightAttempts.set(channel.name, attempt);
 			this.#attempts.set(channel.name, attempt);
-			attempt.cancel = this.#schedule(0, () => {
-				if (attempt.started || inFlightAttempts.get(channel.name) !== attempt) return;
-				if (!this.#current()) { this.#release(channel.name, attempt); return; }
-				attempt.started = true;
-				void (async () => {
+			reserved.push({ channel, attempt });
+		}
+		const cancel = () => {
+			for (const { channel, attempt } of reserved) {
+				attempt.controller.abort();
+				if (!attempt.started) this.#release(channel.name, attempt);
+			}
+		};
+		wait.preparing = true;
+		this.#preparing.set(wait.event, wait);
+		let started = false;
+		const unschedule = this.#schedule(0, () => {
+			if (started) return;
+			if (!this.#eligible(wait)) {
+				if ((wait.kind === "run" ? this.#run : this.#dialog) === wait) this.#cancel(wait.kind);
+				cancel(); this.#finishPreparation(wait); return;
+			}
+			started = true;
+			for (const { attempt } of reserved) attempt.started = true;
+			void (async () => {
+				const prepared = await Promise.all(reserved.map(async ({ channel, attempt }) => {
+					let ready = false;
+					const signal = attempt.controller.signal;
+					signal.addEventListener("abort", () => { if (ready && !attempt.accepted) this.#release(channel.name, attempt); }, { once: true });
 					try {
 						const text = channel.name === "bell" ? Object.freeze({ title: "", body: "" }) : channel.name === "push" ? push : general;
-						const deliver = await channel.prepare(text, controller.signal);
-						if (this.#current() && !controller.signal.aborted) await deliver();
-					} catch { /* Delivery failure never enters session entries or model context. */ }
-					finally { this.#release(channel.name, attempt); }
-				})();
-			});
-		}
+						return await channel.prepare(text, signal);
+					} catch { return undefined; }
+					finally { ready = true; if (signal.aborted) this.#release(channel.name, attempt); }
+				}));
+				// No await separates the final common checks, cooldown and channel starts.
+				if (!this.#eligible(wait)) {
+					if ((wait.kind === "run" ? this.#run : this.#dialog) === wait) this.#cancel(wait.kind);
+					cancel();
+					for (const { channel, attempt } of reserved) this.#release(channel.name, attempt);
+					this.#finishPreparation(wait);
+					return;
+				}
+				if (wait.kind === "run") this.#run = undefined; else this.#dialog = undefined;
+				this.#cooldowns.set(wait.event, this.#now());
+				for (const [index, { channel, attempt }] of reserved.entries()) {
+					attempt.accepted = true;
+					void (async () => {
+						try { if (this.#current() && !attempt.controller.signal.aborted) await prepared[index]?.(); }
+						catch { /* Delivery failure never enters session entries or model context. */ }
+						finally { this.#release(channel.name, attempt); }
+					})();
+				}
+				this.#finishPreparation(wait);
+			})();
+		});
+		wait.cancel = () => { unschedule(); cancel(); if (!started) this.#finishPreparation(wait); };
+		for (const { attempt } of reserved) attempt.cancel = unschedule;
 	}
 	#release(name: NotificationChannel["name"], attempt: Attempt): void {
 		if (inFlightAttempts.get(name) === attempt) inFlightAttempts.delete(name);

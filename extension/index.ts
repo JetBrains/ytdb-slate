@@ -99,7 +99,7 @@ export default function (pi: ExtensionAPI) {
 	const notifications = registerNotificationEvents(pi, {
 		currentLifecycle: () => lifecycleRecoveryOwnership.isCurrentLifecycle(),
 		recovering: () => recovering(),
-		channels: (ctx, settings, warn) => createTerminalNotificationChannels({ mode: ctx.mode, settings, warn }),
+		channels: (ctx, settings, warn) => createTerminalNotificationChannels({ mode: ctx.mode, settings, warn, projectDirectory: ctx.cwd }),
 	});
 
 	// One prompt-cache key and one request throttle belong to this main session.

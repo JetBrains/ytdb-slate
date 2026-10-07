@@ -122,6 +122,7 @@ test("terminal and bell reject noninteractive modes and captured output before a
 		await deliver(f, "terminal"); await deliver(f, "bell"); assert.deepEqual(f.writes, []); assert.equal(queried, false);
 	}
 	const result = spawnSync(process.execPath, ["--input-type=module", "-e", `
+		delete process.env.TMUX; delete process.env.STY; delete process.env.ZELLIJ;
 		import { createTerminalNotificationChannels } from ${JSON.stringify(new URL("../extension/notification-terminal.ts", import.meta.url).href)};
 		const channels = createTerminalNotificationChannels({ mode: "tui", settings: { sequences: ["osc777"] }, warn() {} });
 		for (const channel of channels) await (await channel.prepare({ title: "PRIVATE", body: "PRIVATE" }, new AbortController().signal))();
@@ -153,6 +154,26 @@ test("automatic selector extension point is cancellable and falls back on failur
 	assert.equal(observed, controller.signal); assert.deepEqual(f.writes, []);
 	f.channels = createTerminalNotificationChannels({ ...f.options, selectAutomatic: async () => { throw new Error("PRIVATE query"); } });
 	await deliver(f, "terminal"); assert.deepEqual(normalized(f.writes), expected("osc9").map((s) => `${ESC}Ptmux;${s.replaceAll(ESC, ESC + ESC)}${ST}`));
+});
+
+test("terminal preparation snapshots identity and multiplexer hints before selection", { timeout: 1000 }, async () => {
+	for (const failure of [false, true]) {
+		const environment = { TMUX: "original", TMUX_PANE: "%42", PATH: "/original", TERM_PROGRAM: "iTerm.app", STY: "", ZELLIJ: "" };
+		const f = channels("auto", environment);
+		let release!: () => void, observed!: Readonly<Record<string, string | undefined>>;
+		f.channels = createTerminalNotificationChannels({ ...f.options, selectAutomatic: async (env) => {
+			observed = env; await new Promise<void>((resolve) => { release = resolve; });
+			if (failure) throw new Error("selection failed");
+			return ["osc777"];
+		} });
+		const pending = f.channels[0]!.prepare(text, new AbortController().signal);
+		Object.assign(environment, { TMUX: "changed", TMUX_PANE: "%99", PATH: "/changed", TERM_PROGRAM: "vscode", STY: "screen", ZELLIJ: "zellij" });
+		assert.notEqual(observed, environment); assert.equal(observed.TMUX, "original"); assert.equal(observed.TMUX_PANE, "%42");
+		assert.equal(observed.PATH, "/original"); assert.equal(observed.TERM_PROGRAM, "iTerm.app"); assert.equal(observed.STY, "");
+		release(); await (await pending)();
+		assert.deepEqual(normalized(f.writes), expected(failure ? "osc9" : "osc777").map((s) => `${ESC}Ptmux;${s.replaceAll(ESC, ESC + ESC)}${ST}`));
+		assert.deepEqual(f.warnings, []);
+	}
 });
 
 function dispatcherFixture(f: ReturnType<typeof channels>, config: object = {}) {
