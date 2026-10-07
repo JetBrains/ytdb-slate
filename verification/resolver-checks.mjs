@@ -4287,8 +4287,12 @@ Treat an unmarked entry with such a record as marked.
 Keep it unless an explicit discard choice precedes the inventory.
 Run cleanup in the closing session after every closure condition holds and immediately before \`slate_change close\`. Pass the open change's Current research log path to the cleanup worker as for any record worker.
 Use the ordinary current-folder rule in § Manual records and safe writes. The worker must not infer the folder from other record text. No inventory folder-path field or closed-folder write permission is required.
-For current closure conditions, copies recorded as deleted under the latest valid inventory leave the kept-reference comparison set.
-Their absence is not a missing-reference pause.
+For current closure conditions, exclude each copy recorded as deleted under an inventory that had deletion authority when that deletion ran.
+Require its deletion record in the root log under these cleanup rules.
+Confirm that each excluded copy is still absent.
+Confirmed absence of such a copy is not a missing-reference pause.
+An absent copy without such a deletion record still causes a missing-reference pause.
+This exclusion grants no deletion authority.
 Keep every other closure condition.
 Before each deletion, require current closure conditions and root-log closure evidence from records before the latest inventory.
 Also recheck that no voiding record follows that inventory.
@@ -4389,6 +4393,10 @@ On resume, count inventory entries across the root log and its read-only source 
 Apply the latest-inventory rule, including its closure conditions and non-cleanup record boundary.
 On resume, check for voiding records before any deletion or retry.
 The required handoff state summary voids the inventory like any other non-cleanup record. The first source-naming record after a folder fork also voids the inventory.
+On resume, apply this exclusion even when a later record voids or replaces the inventory that authorized the recorded deletion.
+Read those deletion records through the root log and its read-only source chain within the recorded boundaries.
+A new latest inventory lists only remaining reference copies.
+Confirm absence of the excluded copies before keep-and-close or recording that new inventory.
 Resume therefore permits keep-and-close only when closure conditions still hold. Further deletion requires the orchestrator to record a new latest inventory after every non-cleanup record while all closure conditions hold.
 Repeat every live read before deletion under that new inventory, including the confirmed-absence continuation rule above. A closed folder grants no later-session cleanup route and permits no cleanup record write.
 Abandonment has no automatic cleanup.
@@ -4727,13 +4735,32 @@ A stale description fails the "deep enough" test.`),
 				["resume-no-authority", "They grant no deletion authority."],
 				["resume-inventory-count", "On resume, count inventory entries across the root log and its read-only source chain within the recorded boundaries."],
 				["resume-inventory-boundary", "Apply the latest-inventory rule, including its closure conditions and non-cleanup record boundary."],
-				["deleted-comparison-set", "For current closure conditions, copies recorded as deleted under the latest valid inventory leave the kept-reference comparison set."],
-				["deleted-no-pause", "Their absence is not a missing-reference pause."],
 				["other-closure-conditions", "Keep every other closure condition."],
 			];
-			// Each literal attacks an approved safety condition, not a candidate-derived expectation.
+			const resumeDeletionSentences = [
+				["resume-exclusion", "On resume, apply this exclusion even when a later record voids or replaces the inventory that authorized the recorded deletion."],
+				["resume-record-boundary", "Read those deletion records through the root log and its read-only source chain within the recorded boundaries."],
+				["resume-remaining-copies", "A new latest inventory lists only remaining reference copies."],
+				["resume-absence", "Confirm absence of the excluded copies before keep-and-close or recording that new inventory."],
+			];
+			const recordedDeletionSentences = [
+				["authorized-exclusion", "For current closure conditions, exclude each copy recorded as deleted under an inventory that had deletion authority when that deletion ran."],
+				["root-record", "Require its deletion record in the root log under these cleanup rules."],
+				["continued-absence", "Confirm that each excluded copy is still absent."],
+				["no-pause", "Confirmed absence of such a copy is not a missing-reference pause."],
+				["unrecorded-pause", "An absent copy without such a deletion record still causes a missing-reference pause."],
+				["no-authority", "This exclusion grants no deletion authority."],
+				...resumeDeletionSentences,
+			];
+			// Each literal attacks a required safety condition, not a candidate-derived expectation.
 			const cleanupAttacks = [
 				...restoredCleanupSentences.map(([id, rule]) => [`restored-${id}`, rule, ""]),
+				...recordedDeletionSentences.map(([id, rule]) => [`deleted-${id}`, rule, ""]),
+				["deleted-any-missing", recordedDeletionSentences[0][1], "For current closure conditions, any missing copy leaves the kept-reference comparison set."],
+				["deleted-unauthorized-inventory", recordedDeletionSentences[0][1], "For current closure conditions, exclude copies recorded as deleted under any inventory, including one without deletion authority."],
+				["deleted-latest-only", recordedDeletionSentences[0][1], "For current closure conditions, copies recorded as deleted under the latest valid inventory leave the kept-reference comparison set."],
+				["deleted-no-record", recordedDeletionSentences[1][1], "Exclude deleted copies even without a root-log deletion record."],
+				["deleted-resume-voided", resumeDeletionSentences[0][1], "On resume, exclude deleted copies only while their inventory remains valid."],
 				["after-close", "immediately before `slate_change close`", "immediately after `slate_change close`"],
 				["inventory-early", "Record the inventory after all closure conditions hold.", "Record the inventory before closure conditions hold."],
 				...[0, 2].map((count) => [`inventory-count-${count}`, "Require exactly one unambiguous latest inventory after every non-cleanup record and after all closure conditions hold.", `Require exactly ${count} latest inventories.`]),
@@ -5055,11 +5082,13 @@ A later track builds on the accepted boundary before it.`),
 			})));
 			const benignOrderingDocuments = Object.fromEntries(Object.entries(orderingDocuments).map(([id, source]) => [id, `${source}\n<!-- Outside ordering control. -->\n`]));
 			checkAll("contract-level-publishing", "level membership, dependency order, pauses, local retention, approval, delivery, cleanup, rebase mappings, unavailable evidence, and publishing defaults have owned rules and reviewed peer-document pins", [
-				["reviewed peer-document pins reject unreviewed additions while scoped pointers and the word layer discriminate known copies", peerRetentionOwners.every((owner) => !peerPinFailure(owner, owner.source) && acceptsPeerRetention(owner, owner.source)) && pinnedPeerOwners.length === 3 && peerPinRules.length === 6 && peerPinAttacks.length === 252 && peerPinAttacks.every(({ changed, rejected }) => changed && rejected) && reviewedBranchControls.length === 5 && reviewedBranchControls.every(({ changed, accepted }) => changed && accepted) && wordLayerControls.length === 3 && wordLayerControls.every(({ rejected }) => rejected) && peerOutsideControls.every(({ accepted }) => accepted) && peerPlacementNames.length === 7 && peerPlacementVerbs.length === 14 && peerEscapeAttacks.length === 687 && ownerSentenceCopies.length === 1341 && [...peerRetentionAttacks, ...peerEscapeAttacks, ...ownerSentenceCopies, ...pointerAttacks].every(({ changed, rejected }) => changed && rejected), { baseline: peerRetentionOwners.map((owner) => [owner.id, peerPinFailure(owner, owner.source), peerRetentionFailure(owner, owner.source)]), peerPinAttacks: peerPinAttacks.filter(({ changed, rejected }) => !changed || !rejected), reviewedBranchControls, wordLayerControls, peerOutsideControls, peerRetentionAttacks, peerEscapeAttacks, ownerSentenceCopies: ownerSentenceCopies.filter(({ changed, rejected }) => !changed || !rejected), pointerAttacks }],
+				["reviewed peer-document pins reject unreviewed additions while scoped pointers and the word layer discriminate known copies", peerRetentionOwners.every((owner) => !peerPinFailure(owner, owner.source) && acceptsPeerRetention(owner, owner.source)) && pinnedPeerOwners.length === 3 && peerPinRules.length === 6 && peerPinAttacks.length === 252 && peerPinAttacks.every(({ changed, rejected }) => changed && rejected) && reviewedBranchControls.length === 5 && reviewedBranchControls.every(({ changed, accepted }) => changed && accepted) && wordLayerControls.length === 3 && wordLayerControls.every(({ rejected }) => rejected) && peerOutsideControls.every(({ accepted }) => accepted) && peerPlacementNames.length === 7 && peerPlacementVerbs.length === 14 && peerEscapeAttacks.length === 687 && ownerSentenceCopies.length === 1365 && [...peerRetentionAttacks, ...peerEscapeAttacks, ...ownerSentenceCopies, ...pointerAttacks].every(({ changed, rejected }) => changed && rejected), { baseline: peerRetentionOwners.map((owner) => [owner.id, peerPinFailure(owner, owner.source), peerRetentionFailure(owner, owner.source)]), peerPinAttacks: peerPinAttacks.filter(({ changed, rejected }) => !changed || !rejected), reviewedBranchControls, wordLayerControls, peerOutsideControls, peerRetentionAttacks, peerEscapeAttacks, ownerSentenceCopies: ownerSentenceCopies.filter(({ changed, rejected }) => !changed || !rejected), pointerAttacks }],
 				["closed-folder routes and post-close exceptions fail, including a request with all former folder checks", acceptsCleanupRoutes(recursive) && forbiddenCleanupMutations.length === 4 && wrappedForbiddenCleanupMutations.length === 16 && [...forbiddenCleanupMutations, ...wrappedForbiddenCleanupMutations].every(({ changed, rejected }) => changed && rejected), { forbiddenCleanupMutations, wrappedForbiddenCleanupMutations }],
-				["restored cleanup safety sentences have independent expectations and removal mutations", restoredCleanupSentences.length === 13 && restoredCleanupSentences.every(([id, rule]) => historyUnit.expected.includes(rule) && cleanupMutations.some((mutation) => mutation.id === `restored-${id}` && mutation.changed && mutation.rejected)), restoredCleanupSentences],
+				["restored cleanup safety sentences have independent expectations and removal mutations", restoredCleanupSentences.length === 11 && restoredCleanupSentences.every(([id, rule]) => historyUnit.expected.includes(rule) && cleanupMutations.some((mutation) => mutation.id === `restored-${id}` && mutation.changed && mutation.rejected)), restoredCleanupSentences],
+				["recorded authorized deletions have independent exclusions, absence checks, and removal mutations", recordedDeletionSentences.length === 10 && recordedDeletionSentences.every(([id, rule]) => historyUnit.expected.includes(rule) && cleanupMutations.some((mutation) => mutation.id === `deleted-${id}` && mutation.changed && mutation.rejected)), recordedDeletionSentences],
+				["resume preserves recorded-deletion exclusions and inventories only remaining copies without weakening closure or deletion authority", resumeDeletionSentences.length === 4 && resumeDeletionSentences.every(([, rule]) => historyUnit.extract(recursive).text.includes(rule)) && ["Keep every other closure condition.", "Only the latest valid inventory remains the deletion authority.", "Resume therefore permits keep-and-close only when closure conditions still hold.", "Further deletion requires the orchestrator to record a new latest inventory after every non-cleanup record while all closure conditions hold."].every((rule) => historyUnit.expected.includes(rule) && historyUnit.extract(recursive).text.includes(rule)) && ["deleted-any-missing", "deleted-unauthorized-inventory", "deleted-latest-only", "deleted-no-record", "deleted-resume-voided"].every((id) => cleanupMutations.some((mutation) => mutation.id === id && mutation.changed && mutation.rejected)), resumeDeletionSentences],
 				["each lifecycle cleanup pointer clause rejects weakening", cleanupPointerAttacks.length === 3 && cleanupPointerAttacks.every(({ changed, rejected }) => changed && rejected), cleanupPointerAttacks],
-				["cleanup safety and bounded-write mutations change the owned input and fail", cleanupMutations.length === 184 && new Set(cleanupMutations.map(({ id }) => id)).size === 184 && cleanupMutations.every(({ changed, rejected }) => changed && rejected), cleanupMutations],
+				["cleanup safety and bounded-write mutations change the owned input and fail", cleanupMutations.length === 197 && new Set(cleanupMutations.map(({ id }) => id)).size === 197 && cleanupMutations.every(({ changed, rejected }) => changed && rejected), cleanupMutations],
 				["moving cleanup safeguards outside the marker fails while preserving each sentence", cleanupOutsideControls.length === 7 && cleanupOutsideControls.every(({ changed, retained, outside, rejected }) => changed && retained && outside && rejected), cleanupOutsideControls],
 				["cleanup safeguard wrapping passes and all mutations remain discriminating", cleanupWrapControls.length === 13 && cleanupWrapControls.every(({ changed, accepted, mutations }) => changed && accepted && mutations.every(({ changed, rejected }) => changed && rejected)), cleanupWrapControls],
 				["pointer wrapping preserves scope and destination in the required handoff context", wrappedCleanupPointer !== workflow && acceptsLevelUnit(cleanupPointerUnit, wrappedCleanupPointer) && acceptsPeerRetention(peerRetentionOwners.find(({ id }) => id === "lifecycle"), wrappedCleanupPointer), "wrapped cleanup pointer"],
@@ -5069,8 +5098,8 @@ A later track builds on the accepted boundary before it.`),
 				["wrapped inspection passes and keeps all named mutations discriminating", wrappedRetention !== recursive && acceptsLevelUnit(historyUnit, wrappedRetention) && wrappedRetentionMutations.every(({ changed, rejected, retained }) => changed && rejected && retained), wrappedRetentionMutations],
 				["the inspection pointer reaches the unique existing privacy subsection", privacyDestination.count === 1 && privacyDestination.text.includes("Record contents can also appear in saved worker sessions and command text."), privacyDestination.count],
 				["every unit matches its independent expectation", levelPolicyUnits.every((unit) => acceptsLevelUnit(unit, unit.source)), levelPolicyUnits.filter((unit) => !acceptsLevelUnit(unit, unit.source)).map(({ id }) => id)],
-				["every rule mutation changes input and fails", levelRuleMutations.length === 603 && levelRuleMutations.every(({ changed, rejected }) => changed && rejected), levelRuleMutations],
-				["every safety sentence removal changes its owned input and fails", safetySentenceRemovals.length === 680 && safetySentenceRemovals.filter(({ id }) => id === "history").length === 435 && !safetySentenceRemovals.some(({ id }) => id === "cleanup-writes") && safetySentenceRemovals.every(({ changed, rejected }) => changed && rejected), safetySentenceRemovals],
+				["every rule mutation changes input and fails", levelRuleMutations.length === 611 && levelRuleMutations.every(({ changed, rejected }) => changed && rejected), levelRuleMutations],
+				["every safety sentence removal changes its owned input and fails", safetySentenceRemovals.length === 688 && safetySentenceRemovals.filter(({ id }) => id === "history").length === 443 && !safetySentenceRemovals.some(({ id }) => id === "cleanup-writes") && safetySentenceRemovals.every(({ changed, rejected }) => changed && rejected), safetySentenceRemovals],
 				["ordering, pause reconciliation, and local retention agree across all four documents", agreesOnOrderAndLocalRetention(), "complete independent history, planning, resume, roadmap, and publishing expectations"],
 				["unsafe pauses, conflicting bases, missing scope or events, and ordinary duties in either publishing setting fail", orderAndRetentionMutations.every(({ changed, rejected }) => changed && rejected), orderAndRetentionMutations],
 				["moving an intact event sentence outside the marker fails", eventMoveRejected(orderingDocuments), "event remains present beyond the protected marker"],

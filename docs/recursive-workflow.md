@@ -423,8 +423,12 @@ Use the ordinary current-folder rule in § Manual records and safe writes.
 The worker must not infer the folder from other record text.
 No inventory folder-path field or closed-folder write permission is required.
 
-For current closure conditions, copies recorded as deleted under the latest valid inventory leave the kept-reference comparison set.
-Their absence is not a missing-reference pause.
+For current closure conditions, exclude each copy recorded as deleted under an inventory that had deletion authority when that deletion ran.
+Require its deletion record in the root log under these cleanup rules.
+Confirm that each excluded copy is still absent.
+Confirmed absence of such a copy is not a missing-reference pause.
+An absent copy without such a deletion record still causes a missing-reference pause.
+This exclusion grants no deletion authority.
 Keep every other closure condition.
 Before each deletion, require current closure conditions and root-log closure evidence from records before the latest inventory.
 Also recheck that no voiding record follows that inventory.
@@ -562,6 +566,10 @@ On resume, check for voiding records before any deletion or retry.
 
 The required handoff state summary voids the inventory like any other non-cleanup record.
 The first source-naming record after a folder fork also voids the inventory.
+On resume, apply this exclusion even when a later record voids or replaces the inventory that authorized the recorded deletion.
+Read those deletion records through the root log and its read-only source chain within the recorded boundaries.
+A new latest inventory lists only remaining reference copies.
+Confirm absence of the excluded copies before keep-and-close or recording that new inventory.
 Resume therefore permits keep-and-close only when closure conditions still hold.
 Further deletion requires the orchestrator to record a new latest inventory after every non-cleanup record while all closure conditions hold.
 Repeat every live read before deletion under that new inventory, including the confirmed-absence continuation rule above.
