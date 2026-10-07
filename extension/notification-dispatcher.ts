@@ -24,6 +24,7 @@ export interface NotificationDispatcherOptions {
 	readonly recovering: () => boolean;
 	readonly now?: () => number;
 	readonly schedule?: (delay: number, callback: () => void) => () => void;
+	readonly warn?: (message: string) => void;
 }
 interface Wait { readonly kind: "run" | "dialog"; readonly event: NotificationEvent; readonly since: number; cancel?: () => void }
 interface Attempt { readonly controller: AbortController; cancel: () => void; started: boolean }
@@ -55,6 +56,7 @@ export class NotificationDispatcher {
 	readonly #now: () => number;
 	readonly #schedule: NonNullable<NotificationDispatcherOptions["schedule"]>;
 	#retired = false;
+	#admissionFailureReported = false;
 	#activity: number;
 	#run?: Wait;
 	#dialog?: Wait;
@@ -140,7 +142,14 @@ export class NotificationDispatcher {
 			const remaining = this.#options.settings.minimumDelayMs - (this.#now() - Math.max(wait.since, this.#activity));
 			if (remaining > 0) { wait.cancel = this.#schedule(remaining, expire); return; }
 			// Extension message transforms can supply throwing getters. Timer failures stay local.
-			try { this.#admit(wait); } catch { this.#cancel(kind); }
+			try { this.#admit(wait); } catch {
+				this.#cancel(kind);
+				if (!this.#admissionFailureReported) {
+					this.#admissionFailureReported = true;
+					try { (this.#options.warn ?? console.warn)("slate: notification admission failed. No delivery was started."); }
+					catch { /* A failed diagnostic cannot affect the agent. */ }
+				}
+			}
 		};
 		wait.cancel = this.#schedule(this.#options.settings.minimumDelayMs, expire);
 	}

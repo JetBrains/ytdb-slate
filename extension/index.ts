@@ -46,6 +46,7 @@ import { registerSlateHandoff, sanitizeContextBudget } from "./handoff.ts";
 import { createLogicalRuntime, type LogicalRuntime } from "./logical-model-runtime.ts";
 import { registerSlateMode } from "./mode.ts";
 import { registerNotificationEvents } from "./notification-events.ts";
+import { createTerminalNotificationChannels } from "./notification-terminal.ts";
 import {
 	sanitizeCacheKeyEnabled,
 	sanitizeWorkflowConfig,
@@ -98,6 +99,7 @@ export default function (pi: ExtensionAPI) {
 	const notifications = registerNotificationEvents(pi, {
 		currentLifecycle: () => lifecycleRecoveryOwnership.isCurrentLifecycle(),
 		recovering: () => recovering(),
+		channels: (ctx, settings, warn) => createTerminalNotificationChannels({ mode: ctx.mode, settings, warn }),
 	});
 
 	// One prompt-cache key and one request throttle belong to this main session.

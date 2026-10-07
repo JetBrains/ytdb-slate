@@ -86,7 +86,7 @@ The project must be trusted before Slate reads this file. Start a new session af
 | `router.models` | object | shipped six-model pool | Ordinary membership and definitions. `include` replaces the starting membership, including with an empty list. `add` accepts complete new definitions. `replace` changes selected fields. `exclude` applies last. Within each model definition, lists and provider maps replace shipped fields. The home and project configuration files merge first. |
 | `router.compressor.models` | array of `{ model, effort }` | `[{"model":"claude-sonnet-5.5","effort":"medium"}]` | Independent ordered compressor list. An explicit empty list blocks work. |
 
-Notification settings define permissions and text policy. Slate validates these settings at session start. Slate registers no notification tool or delivery channel.
+Notification settings define permissions and text policy. Slate validates these settings at session start. Slate sends terminal sequences and a separate bell after eligible main-session waits. Both channels require interactive mode and terminal standard output. Slate registers no notification tool. Native and push delivery channels are not registered.
 
 Invalid values produce generic warnings that name the setting and its home or project source without showing supplied values. Invalid channel values use the channel defaults, combined with home permission for project values. Invalid detail falls back to `generic`. Invalid intervals use their defaults. Invalid sequence selection uses `auto`. Invalid or incomplete push destinations disable push.
 

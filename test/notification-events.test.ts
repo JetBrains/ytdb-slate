@@ -126,6 +126,22 @@ function policy(t: TestContext) {
 	return { ...f, events, config, delivered, timers, advance, setRecovering: (value: boolean) => { recovering = value; }, loseOwner: () => { current = false; } };
 }
 
+test("event adapter routes admission failures to visible content-free diagnostics", { timeout: 1000 }, async (t) => {
+	for (const hasUI of [true, false]) {
+		const f = policy(t), consoleWarnings: string[] = [];
+		Object.assign(f.ctx, { hasUI });
+		const warning = t.mock.method(console, "warn", (message: string) => { consoleWarnings.push(message); });
+		try {
+			await f.emit("agent_start");
+			await f.emit("turn_end", { message: { role: "assistant", stopReason: "stop", get content(): never { throw new Error("PRIVATE text and push settings"); } } });
+			await f.emit("agent_settled"); await f.advance(30); await f.advance(0);
+			assert.deepEqual(f.delivered, []);
+			assert.deepEqual(hasUI ? f.notices : consoleWarnings, ["slate: notification admission failed. No delivery was started."]);
+			assert.deepEqual(hasUI ? consoleWarnings : f.notices, []);
+		} finally { f.events.retire(); warning.mock.restore(); }
+	}
+});
+
 test("registered terminal listener handles one large paste with one timestamp and no retained key data", { timeout: 5000 }, async (t) => {
 	const originalActivity = NotificationDispatcher.prototype.activity;
 	const f = policy(t), activity = spy(t, "activity");
@@ -348,6 +364,43 @@ function factoryRecovery(t: TestContext) {
 	};
 	return { ...f, turn, switches: () => switches, submissions: () => submissions, failSwitch: () => { failSwitch = true; } };
 }
+
+test("real factory connects terminal and bell channels to background writes on pi standard output", { timeout: 5000 }, async (t) => {
+	const f = host(t), agent = join(f.ctx.cwd, "agent");
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	process.env.PI_CODING_AGENT_DIR = agent;
+	const multiplexers = ["TMUX", "STY", "ZELLIJ"].map((key) => [key, process.env[key]] as const);
+	for (const [key] of multiplexers) delete process.env[key];
+	const tty = Object.getOwnPropertyDescriptor(process.stdout, "isTTY");
+	Object.defineProperty(process.stdout, "isTTY", { value: true, configurable: true });
+	t.after(() => {
+		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous;
+		if (tty) Object.defineProperty(process.stdout, "isTTY", tty); else Reflect.deleteProperty(process.stdout, "isTTY");
+		for (const [key, value] of multiplexers) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
+	});
+	mkdirSync(agent);
+	writeFileSync(join(agent, "slate.json"), JSON.stringify({ notifications: { minimumDelayMs: 0, cooldownMs: 0, sequences: ["osc777"] } }));
+	const writes: Buffer[] = [], timers = new Set<() => void>();
+	const originalWrite = process.stdout.write.bind(process.stdout);
+	t.mock.method(process.stdout, "write", ((data: any, ...args: any[]) => {
+		if (!Buffer.isBuffer(data) || (data[0] !== 0x1b && data[0] !== 0x07)) return originalWrite(data, ...args as [any]);
+		writes.push(Buffer.from(data)); const callback = args.find((arg) => typeof arg === "function"); callback?.(); return true;
+	}) as typeof process.stdout.write);
+	t.mock.method(globalThis, "setTimeout", ((callback: () => void) => {
+		timers.add(callback); return { unref() {}, [Symbol.toPrimitive]: () => 0 };
+	}) as unknown as typeof setTimeout);
+	extension(f.pi);
+	try {
+		await f.emit("session_start"); await f.emit("agent_start");
+		await f.emit("turn_end", { message: { role: "assistant", stopReason: "stop", content: [] }, toolResults: [] });
+		await f.emit("agent_settled"); assert.deepEqual(writes, [], "event handling never writes terminal notifications");
+		for (const timer of [...timers]) { timers.delete(timer); timer(); }
+		assert.deepEqual(writes, [], "admission schedules channel work");
+		for (const timer of [...timers]) { timers.delete(timer); timer(); }
+		for (let i = 0; i < 20; i++) await Promise.resolve();
+		assert.deepEqual(writes.map(String), ["\x1b]777;notify;Input needed;\x07", "\x07"]);
+	} finally { await f.emit("session_shutdown"); for (let i = 0; i < 20; i++) await Promise.resolve(); }
+});
 
 test("real factory shares cancellation with failover and clears it before an unstarted fault", { timeout: 5000 }, async (t) => {
 	const f = factoryRecovery(t), evidence = t.mock.method(MainRetryEvidence.prototype, "settle");

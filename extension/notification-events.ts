@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { ContextEditEntry, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { notificationSettings } from "./notification-config.ts";
+import { notificationSettings, type NotificationSettings } from "./notification-config.ts";
 import { NotificationDispatcher, type NotificationChannel, type NotificationDispatcherOptions } from "./notification-dispatcher.ts";
 
 /** Read finalized branch text. Aborted responses and omitted attempts do not count as completed text. */
@@ -24,7 +24,7 @@ function latestCompletedMessage(ctx: ExtensionContext) {
 export function registerNotificationEvents(pi: ExtensionAPI, options: {
 	currentLifecycle: () => boolean;
 	recovering: () => boolean;
-	channels?: readonly NotificationChannel[];
+	channels?: readonly NotificationChannel[] | ((ctx: ExtensionContext, settings: NotificationSettings, warn: (message: string) => void) => readonly NotificationChannel[]);
 	now?: NotificationDispatcherOptions["now"];
 	schedule?: NotificationDispatcherOptions["schedule"];
 }) {
@@ -67,8 +67,11 @@ export function registerNotificationEvents(pi: ExtensionAPI, options: {
 	const start = (config: object, ctx: ExtensionContext, preserveRun = false) => {
 		reset(preserveRun);
 		if (ctx.mode !== "tui" || !options.currentLifecycle()) return;
+		const settings = notificationSettings(config);
+		const warn = (message: string) => { if (ctx.hasUI) ctx.ui.notify(message, "warning"); else console.warn(message); };
+		const channels = typeof options.channels === "function" ? options.channels(ctx, settings, warn) : options.channels ?? [];
 		const owned: NotificationDispatcher = new NotificationDispatcher({
-			mode: ctx.mode, cwd: ctx.cwd, settings: notificationSettings(config), channels: options.channels ?? [],
+			mode: ctx.mode, cwd: ctx.cwd, settings, channels, warn,
 			current: () => dispatcher === owned && options.currentLifecycle(),
 			idle: () => ctx.isIdle(), queued: () => ctx.hasPendingMessages(), recovering: options.recovering,
 			now: options.now, schedule: options.schedule,

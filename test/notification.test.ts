@@ -167,9 +167,9 @@ test("all text detail levels remove controls, limit bytes and expose only permit
 	assert.equal(sanitizeNotificationText(`before${hostile}after`), "beforeafter");
 	assert.equal(truncateNotificationUtf8("😀éX", 5), "😀");
 	assert.equal(truncateNotificationUtf8("😀éX", 6), "😀é");
-	assert.deepEqual(notificationText("input-needed", "generic", "/private/project", "secret"), { title: "Input needed", body: "" });
-	assert.deepEqual(notificationText("input-needed", "project", `/private/pro${hostile}ject`, "secret"), { title: "Input needed", body: "project" });
-	assert.deepEqual(notificationText("error", "message", "/private/project", `message${hostile}`), { title: "Error", body: "project: …message" });
+	assert.deepEqual(notificationText("input-needed", "generic", "/private/project", "secret"), { title: "Input needed", body: "", folder: "", copied: "" });
+	assert.deepEqual(notificationText("input-needed", "project", `/private/pro${hostile}ject`, "secret"), { title: "Input needed", body: "project", folder: "project", copied: "" });
+	assert.deepEqual(notificationText("error", "message", "/private/project", `message${hostile}`), { title: "Error", body: "project: …message", folder: "project", copied: "message" });
 	assert.equal(notificationText("error", "message", "/", "literal").body, "…literal");
 	assert.equal(notificationText("error", "message", "/project", "head" + "😀".repeat(50)).body, "project: …" + "😀".repeat(50));
 	assert.equal(notificationText("error", "message", "/", "head😀" + "é".repeat(99)).body, "…" + "é".repeat(99));

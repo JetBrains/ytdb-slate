@@ -11,9 +11,10 @@ function fixture(config: unknown = {}, names: NotificationChannel["name"][] = ["
 	const timers = new Set<{ at: number; callback: () => void }>();
 	const allCallbacks: Array<() => void> = [];
 	const delivered: Array<{ name: string; title: string; body: string }> = [];
+	const warnings: string[] = [];
 	const channels: NotificationChannel[] = names.map((name) => ({ name, prepare: async (text) => () => { delivered.push({ name, ...text }); } }));
 	const options: NotificationDispatcherOptions = {
-		mode, cwd: "/private/project", settings: resolveNotificationSettings({ minimumDelayMs: 30, cooldownMs: 60, ...config as object }, undefined, () => {}), channels,
+		mode, cwd: "/private/project", warn: (message) => { warnings.push(message); }, settings: resolveNotificationSettings({ minimumDelayMs: 30, cooldownMs: 60, ...config as object }, undefined, () => {}), channels,
 		current: () => current, idle: () => idle, queued: () => queued, recovering: () => recovering,
 		now: () => time, schedule: (delay, callback) => {
 			const timer = { at: time + delay, callback };
@@ -29,7 +30,7 @@ function fixture(config: unknown = {}, names: NotificationChannel["name"][] = ["
 		await flush();
 	};
 	const settle = (stopReason = "stop") => { dispatcher.runStart(); dispatcher.message({ role: "assistant", stopReason, content: "agent" }); dispatcher.settled(); };
-	return { dispatcher, options, channels, delivered, timers, allCallbacks, advance, flush, settle,
+	return { dispatcher, options, channels, delivered, warnings, timers, allCallbacks, advance, flush, settle,
 		set current(value: boolean) { current = value; }, set idle(value: boolean) { idle = value; },
 		set queued(value: boolean) { queued = value; }, set recovering(value: boolean) { recovering = value; } };
 }
@@ -262,6 +263,30 @@ test("delivery itself holds the channel slot until it finishes", async () => {
 	assert.equal(attempts, 1); release(); await f.flush();
 	f.settle(); await f.advance(30); await f.advance(0); assert.equal(attempts, 2); release(); await f.flush();
 });
+test("admission exceptions report once without content and keep the consumed cooldown", { timeout: 1000 }, async () => {
+	const f = fixture({ detail: "message" }); let reads = 0;
+	const arm = () => {
+		f.dispatcher.runStart();
+		f.dispatcher.message({ role: "assistant", stopReason: "stop", get content(): never { reads++; throw new Error("PRIVATE notification push settings"); } });
+		f.dispatcher.settled();
+	};
+	try {
+		arm(); await f.advance(30); await f.advance(0); assert.equal(reads, 1); assert.equal(f.delivered.length, 0);
+		assert.deepEqual(f.warnings, ["slate: notification admission failed. No delivery was started."]);
+		arm(); await f.advance(30); await f.advance(0); assert.equal(reads, 1, "failed admission does not reopen the cooldown");
+		arm(); await f.advance(30); await f.advance(0); assert.equal(reads, 2); assert.equal(f.warnings.length, 1);
+		f.settle(); await f.advance(30); await f.advance(0); assert.equal(f.delivered.length, 0);
+		f.settle(); await f.advance(30); await f.advance(0); assert.equal(f.delivered.length, 1);
+		assert.doesNotMatch(f.warnings.join(), /PRIVATE|push|settings|agent|project/);
+	} finally { await f.flush(); f.dispatcher.retire(); }
+	const throwing = fixture({ detail: "message" });
+	const d = new NotificationDispatcher({ ...throwing.options, warn: () => { throw new Error("PRIVATE diagnostic"); } });
+	try {
+		d.runStart(); d.message({ role: "assistant", get content(): never { throw new Error("PRIVATE"); } }); d.settled();
+		await throwing.advance(30); await throwing.advance(0); assert.equal(throwing.delivered.length, 0);
+	} finally { await throwing.flush(); d.retire(); throwing.dispatcher.retire(); }
+});
+
 test("default timers deliver in background and pending waits do not keep Node alive", { timeout: 5000 }, async (t) => {
 	const f = fixture({ minimumDelayMs: 0 });
 	let complete!: () => void;
