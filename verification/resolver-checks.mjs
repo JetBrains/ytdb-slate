@@ -1897,7 +1897,16 @@ try {
 			};
 			const normalize = (text) => text.trim().replace(/\r\n/g, "\n");
 			const normalizeText = (text) => normalize(text).replace(/\s+/g, " ").trim();
-			const literalPattern = (text) => new RegExp(normalizeText(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+"));
+			const literalPatterns = new Map();
+			const literalPattern = (text) => {
+				let pattern = literalPatterns.get(text);
+				if (!pattern) {
+					pattern = new RegExp(normalizeText(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+"));
+					// No global or sticky flag means reuse cannot advance lastIndex.
+					literalPatterns.set(text, pattern);
+				}
+				return pattern;
+			};
 			const safetyWorkflow = block(workflow, "safety-floor");
 			const safetyReviews = block(reviews, "safety-floor");
 			const floorPhrases = [

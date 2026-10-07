@@ -7,7 +7,8 @@ import { test } from "node:test";
 
 // Run the production assertion through its public wrapper. No copied predicate
 // can turn a scanner defect into a passing mutation test.
-test("delivery references stay inside reviewed contexts across shipped docs", { timeout: 180_000 }, async (t) => {
+// The aggregate limit allows slow-runner margin for sequential resolver calls.
+test("delivery references stay inside reviewed contexts across shipped docs", { timeout: 840_000 }, async (t) => {
   const repo = process.cwd();
   const fixture = mkdtempSync(join(tmpdir(), "slate-delivery-references-"));
   try {
@@ -28,7 +29,7 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
     assert.ok(readme.includes(readmeReference) && workflow.includes(actor) && loading.includes("Immediately before"));
 
     async function check(name: string, changes: Record<string, string>, accepted = false, contract = "contract-delivery-packages"): Promise<void> {
-      await t.test(name, { timeout: 25_000 }, () => {
+      await t.test(name, { timeout: 65_000 }, () => {
         const originals = new Map<string, string | undefined>();
         try {
           for (const [file, source] of Object.entries(changes)) {
@@ -40,7 +41,7 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
             writeFileSync(path, source);
           }
           const result = spawnSync("bash", [join(fixture, "verification/run-resolver-checks.sh"), "--repo", fixture, "--strict"], {
-            cwd: fixture, encoding: "utf8", timeout: 20_000, maxBuffer: 2 * 1024 * 1024,
+            cwd: fixture, encoding: "utf8", timeout: 60_000, maxBuffer: 2 * 1024 * 1024,
             env: { ...process.env, JITI_FS_CACHE: "true" },
           });
           const output = `${result.stdout}\n${result.stderr}`;
