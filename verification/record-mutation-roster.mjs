@@ -148,14 +148,14 @@ export const EXPECTED_MUTATIONS = {
  readers: ["root-authority", "publishing-authority", "delivery-authority", "version-bytes"],
  markers: ["NN", "padded-integer", "padded-dotted", "multiline-hidden", "hidden", "duplicate"],
  recipes: ["common", "nested", "lifecycle", "dispatch"],
- repairs: ["grant", "override-grant-event", "inheritance", "requirement-count", "sibling-identity", "log-before-cell", "automatic-lowering", "investigation-trigger-record", "leftover-repairs", "budget-disclosure"],
+ repairs: ["grant", "override-grant-event", "inheritance", "common-inheritance", "requirement-count", "sibling-identity", "log-before-cell", "automatic-lowering", "investigation-trigger-record", "leftover-repairs", "budget-disclosure"],
  warnings: ["warning-session", "warning-perms", "warning-issue"],
  "common-complete": ["title", "authority", "scope", "section", "hidden-policy", "before-body", "after-body", "harmless-outside"],
  retention: RETENTION,
  "retention-wrapped": RETENTION,
  cleanup: CLEANUP,
  "cleanup-wrapped": Array.from({ length: 13 }, (_, index) => CLEANUP.map((id) => `${index}/${id}`)).flat(),
- "cleanup-routes": ["post-close-write", "closing-exception", "later-session", "validated-closed-folder"],
+ "cleanup-routes": ["post-close-write", "closing-exception", "later-session", "validated-closed-folder", "nested-manual-records"],
  "cleanup-routes-wrapped": combinations(["post-close-write", "closing-exception", "later-session", "validated-closed-folder"], ["<!-- level-history-policy:end -->", "## Identifiers, code ranges, and design markers", "## Manual records and safe writes", "document-end"]),
  "cleanup-outside": numbered("outside", 7),
  "cleanup-pointer": ["For changes that load the nested sections", "retention inventory", "cleanup before close"],
@@ -192,17 +192,22 @@ export function createMutationAudit(expected = EXPECTED_MUTATIONS) {
  };
  return { record, crash, inspect };
 }
-export function mutationAuditControls() {
+export async function loadWithMutationAudit(audit, load) {
+ try { return { module: await load() }; }
+ catch (error) { audit.crash(error); return { error }; }
+}
+export async function mutationAuditControls() {
  const good = { id: "a", changed: true, rejected: true };
- return Object.entries({ valid: [good], missing: [], duplicate: [good, good], skipped: [{ id: "a" }], crashed: [undefined] })
+ return Object.entries({ valid: [good], missing: [], duplicate: [good, good], skipped: [{ id: "a" }], crashed: [undefined], "wrong-protection": [{ ...good, intended: false }] })
   .map(([id, rows]) => {
    const audit = createMutationAudit({ fixture: ["a"] });
    audit.record("fixture", rows);
    return { id, discriminates: audit.inspect().ok === (id === "valid") };
-  }).concat((() => {
+  }).concat(await (async () => {
    const audit = createMutationAudit({ fixture: ["a"] });
-   try { throw new Error("production control"); } catch (error) { audit.crash(error); }
+   const result = await loadWithMutationAudit(audit, () => import('data:text/javascript,throw new Error("production import control")'));
    audit.record("fixture", [good]);
-   return [{ id: "production-throw", discriminates: !audit.inspect().ok }];
+   return [{ id: "production-throw", discriminates: result.error?.message === "production import control"
+    && result.module === undefined && audit.inspect().problems.some(({ crash }) => crash?.includes("production import control")) }];
   })());
 }
