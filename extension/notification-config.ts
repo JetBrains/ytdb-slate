@@ -77,9 +77,11 @@ export function resolveNotificationSettings(home: unknown, project: unknown, war
 	for (const key of ["server", "topic", "token", "username", "password"] as const) {
 		const value = push[key];
 		if (value === undefined) continue;
-		if (typeof value === "string" && value.length > 0 && !/[\u0000-\u001f\u007f-\u009f]/u.test(value)) destination[key] = value;
+		if (typeof value === "string" && value.length > 0 && !/[\u0000-\u001f\u007f-\u009f]/u.test(value)
+			&& (key !== "token" || !/[^\t\x20-\x7e\x80-\xff]/u.test(value))) destination[key] = value;
 		else { invalid(`push.${key}`); valid = false; }
 	}
+	if (destination.username?.includes(":")) { invalid("push.username"); valid = false; }
 	if (destination.server !== undefined) {
 		try {
 			const url = new URL(destination.server);
@@ -87,7 +89,7 @@ export function resolveNotificationSettings(home: unknown, project: unknown, war
 			if ((url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) || url.username || url.password || url.search || url.hash) throw new Error();
 		} catch { invalid("push.server"); valid = false; }
 	}
-	if (destination.topic !== undefined && !/^[a-zA-Z0-9_-]+$/.test(destination.topic)) { invalid("push.topic"); valid = false; }
+	if (destination.topic !== undefined && !/^[a-zA-Z0-9_-]{1,64}$/.test(destination.topic)) { invalid("push.topic"); valid = false; }
 	if ((destination.username === undefined) !== (destination.password === undefined) || (destination.token !== undefined && destination.username !== undefined)) {
 		invalid("push.credentials"); valid = false;
 	}

@@ -135,6 +135,41 @@ test("push validates addresses and authentication without disclosing private val
 	}
 	assert.equal(resolve({ push: { enabled: true, server: destination.server, topic: destination.topic, username: "u", password: "p" } }).settings.push.enabled, true);
 });
+test("push accepts topics from one to 64 characters and rejects longer topics with redacted warnings", () => {
+	for (const length of [1, 64]) {
+		const topic = "a".repeat(length), result = resolve({ push: { ...destination, topic } });
+		assert.equal(result.settings.push.enabled, true);
+		assert.equal(result.settings.push.topic, topic);
+		assert.deepEqual(result.warnings, []);
+	}
+	const topic = "a".repeat(65), result = resolve({ push: { ...destination, topic } });
+	assert.equal(result.settings.push.enabled, false);
+	assert.deepEqual(result.warnings, ["slate: invalid notifications.push.topic in home configuration. Using a safe default."]);
+	assert.ok(!result.warnings.join().includes(topic));
+	const empty = resolve({ push: { ...destination, topic: "" } });
+	assert.equal(empty.settings.push.enabled, false);
+	assert.ok(empty.warnings.includes("slate: invalid notifications.push.topic in home configuration. Using a safe default."));
+});
+test("push rejects invalid header tokens and Basic usernames with redacted warnings", () => {
+	for (const token of ["PRIVATE-\u0100", "PRIVATE-😀"]) {
+		const result = resolve({ push: { ...destination, token } });
+		assert.equal(result.settings.push.enabled, false);
+		assert.deepEqual(result.warnings, ["slate: invalid notifications.push.token in home configuration. Using a safe default."]);
+		assert.ok(!result.warnings.join().includes(token));
+	}
+	const latin1 = resolve({ push: { ...destination, token: "PRIVATE-\u00ff" } });
+	assert.equal(latin1.settings.push.enabled, true);
+	assert.equal(latin1.settings.push.token, "PRIVATE-\u00ff");
+	assert.deepEqual(latin1.warnings, []);
+	const basic = { enabled: true, server: destination.server, topic: destination.topic, password: "PRIVATE-pass" };
+	const invalid = resolve({ push: { ...basic, username: "PRIVATE:user" } });
+	assert.equal(invalid.settings.push.enabled, false);
+	assert.deepEqual(invalid.warnings, ["slate: invalid notifications.push.username in home configuration. Using a safe default."]);
+	assert.doesNotMatch(invalid.warnings.join(), /PRIVATE|private/);
+	const unicode = resolve({ push: { ...basic, username: "name-😀" } });
+	assert.equal(unicode.settings.push.enabled, true);
+	assert.deepEqual(unicode.warnings, []);
+});
 test("loader ignores untrusted projects and replacement cannot manufacture home-only authority", (t) => {
 	const root = mkdtempSync(join(tmpdir(), "slate-notification-")), agent = join(root, "agent"), cwd = join(root, "project");
 	mkdirSync(agent); mkdirSync(join(cwd, ".pi"), { recursive: true });

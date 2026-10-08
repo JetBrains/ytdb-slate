@@ -48,6 +48,7 @@ import { createLogicalRuntime, type LogicalRuntime } from "./logical-model-runti
 import { registerSlateMode } from "./mode.ts";
 import { registerNotificationEvents } from "./notification-events.ts";
 import { createTerminalNotificationChannels } from "./notification-terminal.ts";
+import { createPushNotificationChannel } from "./notification-push.ts";
 import {
 	sanitizeCacheKeyEnabled,
 	sanitizeWorkflowConfig,
@@ -103,6 +104,7 @@ export default function (pi: ExtensionAPI) {
 		channels: (ctx, settings, warn) => [
 			...createTerminalNotificationChannels({ mode: ctx.mode, settings, warn, projectDirectory: ctx.cwd }),
 			createNativeNotificationChannel({ mode: ctx.mode, projectDirectory: ctx.cwd }),
+			createPushNotificationChannel({ mode: ctx.mode, settings }),
 		],
 	});
 
