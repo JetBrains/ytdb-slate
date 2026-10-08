@@ -362,6 +362,13 @@ const DOCTRINE_CONTRACT_IDS = [
 	"contract-recursive-split-pointers",
 	"contract-recursive-delivery",
 	"contract-heading-regions",
+	"contract-common-preservation",
+	"contract-common-headings",
+	"contract-common-export",
+	"contract-common-warning-session",
+	"contract-common-warning-perms",
+	"contract-common-warning-issue",
+	"contract-common-mutations",
 	"contract-recursive-acceptance-transfer",
 	"contract-repair-authorization",
 	"contract-level-publishing",
@@ -3339,6 +3346,85 @@ history as boundary authority. The track table is display-only.`);
 					{ id: unit.id, kind: "duplicate", changed: true, rejected: !acceptsRecordUnit(unit, `${unit.source}\n${unit.source}`) },
 				];
 			});
+			const commonRecords = readFileSync(join(REPO, "docs", "change-records.md"), "utf8");
+			// Independent reviewed pins protect both copies, not just their equality.
+			const commonUnits = [
+				{ id: "identifiers", start: "## Identifiers, code ranges, and design markers", expected: "06a2a0822448a5112173b65c04826364d3a3094f7930ba98ecd7f17300e19ed8" },
+				{ id: "records", start: "## Manual records and safe writes", expected: "8dbdbb6508744b3b4a2fc364dda4709c4e734fe17e032275a1dc8823af765b68" },
+			];
+			const acceptsCommon = (source) => commonUnits.every(({ start, expected }) => {
+				const region = headingUnit(start)(source);
+				return region.count === 1 && region.reason === "content" && recordDigest(region.text) === expected;
+			});
+			const privacyHeading = "### Design authority and privacy";
+			const commonHeadings = [...commonUnits.map(({ start }) => start), privacyHeading];
+			const commonHeadingResults = [commonRecords, recursive].flatMap((source) => commonHeadings.map((start) => ({ start, ...headingUnit(start)(source) })));
+			const commonHeadingAttacks = commonHeadings.flatMap((start) => [
+				{ id: `${start}-missing`, source: commonRecords.replace(`${start}\n`, "") },
+				{ id: `${start}-duplicate`, source: `${commonRecords}\n${start}\n` },
+			]);
+			checkAll("contract-common-headings", "both documents register unique common headings and the privacy subsection with hardened extraction", [
+				["all registered headings have one nonempty region", commonHeadingResults.every(({ count, reason }) => count === 1 && reason === "content"), commonHeadingResults.map(({ start, count, reason }) => ({ start, count, reason }))],
+				["each missing or duplicate heading fails", commonHeadingAttacks.every(({ source }) => source !== commonRecords && commonHeadings.some((start) => headingUnit(start)(source).count !== 1)), commonHeadingAttacks.map(({ id }) => id)],
+				["the privacy subsection remains inside the record body", [commonRecords, recursive].every((source) => headingUnit(commonUnits[1].start)(source).text.includes(privacyHeading)), privacyHeading],
+			]);
+			const commonAttacks = commonUnits.flatMap(({ id, start }) => {
+				const body = headingUnit(start)(commonRecords).rawText;
+				return [
+					{ id: `${id}-missing`, source: commonRecords.replace(`${start}\n`, "") },
+					{ id: `${id}-duplicate`, source: `${commonRecords}\n${start}\n${body}\n` },
+					{ id: `${id}-empty`, source: commonRecords.replace(body, "") },
+					{ id: `${id}-changed`, source: commonRecords.replace(body, `Contradictory common rule.\n${body}`) },
+				].map((attack) => ({ ...attack, changed: attack.source !== commonRecords, rejected: !acceptsCommon(attack.source) }));
+			});
+			const synchronizedCommon = commonRecords.replace("Exclude a publishing bootstrap.", "Include a publishing bootstrap.");
+			const synchronizedRecursive = recursive.replace("Exclude a publishing bootstrap.", "Include a publishing bootstrap.");
+			checkAll("contract-common-preservation", "each complete common body matches its independent reviewed expectation in both documents", [
+				["both bodies retain their complete reviewed policy", acceptsCommon(commonRecords) && acceptsCommon(recursive), commonUnits.map(({ start }) => ({ start, common: recordDigest(headingUnit(start)(commonRecords).text), recursive: recordDigest(headingUnit(start)(recursive).text) }))],
+				["missing, duplicate, empty, and changed bodies fail", commonAttacks.every(({ changed, rejected }) => changed && rejected), commonAttacks.map(({ id, changed, rejected }) => ({ id, changed, rejected }))],
+				["equal synchronized violations cannot pass", synchronizedCommon !== commonRecords && synchronizedRecursive !== recursive && headingUnit(commonUnits[0].start)(synchronizedCommon).text === headingUnit(commonUnits[0].start)(synchronizedRecursive).text && !acceptsCommon(synchronizedCommon) && !acceptsCommon(synchronizedRecursive), "bootstrap range exclusion"],
+				["framing and following-section controls preserve both pins", acceptsCommon(`Additional framing.\n${commonRecords}\n## Unrelated following section\nOutside rule.\n`), "outside-body changes"],
+			]);
+			const expectedCommonPath = join(dirname(paths.TRACK_WORKFLOW_DOC), "change-records.md");
+			const acceptsCommonExport = (exports) => exports.CHANGE_RECORDS_DOC === expectedCommonPath
+				&& exports.RECURSIVE_WORKFLOW_DOC === join(dirname(paths.TRACK_WORKFLOW_DOC), "recursive-workflow.md")
+				&& Object.values(exports).filter((value) => value === expectedCommonPath).length === 1;
+			checkAll("contract-common-export", "one common export resolves beside the unchanged lifecycle and nested exports inside this package", [
+				["the runtime export is unique and package-relative", acceptsCommonExport(paths) && expectedCommonPath === join(REPO, "docs", "change-records.md") && readFileSync(paths.CHANGE_RECORDS_DOC, "utf8") === commonRecords, paths.CHANGE_RECORDS_DOC],
+				["missing, duplicate, and wrong-destination exports fail", !acceptsCommonExport({ ...paths, CHANGE_RECORDS_DOC: undefined }) && !acceptsCommonExport({ ...paths, EXTRA_DOC: expectedCommonPath }) && !acceptsCommonExport({ ...paths, CHANGE_RECORDS_DOC: join(WORK, "change-records.md") }), "export counterfactuals"],
+			]);
+			const commonWarnings = [
+				{ id: "session", text: "Record contents can also appear in saved worker sessions and command text." },
+				{ id: "perms", text: "Pi saves session files with default permissions, which can expose record text to other local users." },
+				{ id: "issue", text: "[Issue #499](https://github.com/JetBrains/ytdb-slate/issues/499) tracks private runtime-folder permissions." },
+			];
+			const acceptsCommonWarning = (source, text) => {
+				const privacy = headingUnit(privacyHeading)(source);
+				return privacy.count === 1 && privacy.text.split(text).length === 2;
+			};
+			const warningAttacks = commonWarnings.map(({ id, text }) => {
+				const source = commonRecords.replace(text, "");
+				const changed = source !== commonRecords;
+				const rejected = !acceptsCommonWarning(source, text);
+				checkAll(`contract-common-warning-${id}`, "the independently expected privacy warning is present once and its removal fails", [
+					["both privacy subsections keep the warning", acceptsCommonWarning(commonRecords, text) && acceptsCommonWarning(recursive, text), text],
+					["warning removal changes the source and fails", changed && rejected && !acceptsCommon(source), { id, changed, rejected }],
+					["restoring the warning passes", acceptsCommonWarning(commonRecords, text) && acceptsCommon(commonRecords), id],
+				]);
+				return { id: `warning-${id}`, changed, rejected };
+			});
+			const expectedCommonAttacks = [
+				"identifiers-missing", "identifiers-duplicate", "identifiers-empty", "identifiers-changed",
+				"records-missing", "records-duplicate", "records-empty", "records-changed",
+				"warning-session", "warning-perms", "warning-issue",
+			];
+			const commonMutationResults = [...commonAttacks, ...warningAttacks];
+			const commonMutationNames = commonMutationResults.map(({ id }) => id);
+			checkAll("contract-common-mutations", "the independent common-body and warning mutation roster runs once without missing or duplicated members", [
+				["exact expected mutation names and order", JSON.stringify(commonMutationNames) === JSON.stringify(expectedCommonAttacks) && new Set(commonMutationNames).size === commonMutationNames.length, commonMutationNames],
+				["each mutation changes its intended input and fails", commonMutationResults.every(({ changed, rejected }) => changed && rejected), commonMutationResults.map(({ id, changed, rejected }) => ({ id, changed, rejected }))],
+			]);
+
 			const toolsSource = readFileSync(join(REPO, "extension", "tools.ts"), "utf8");
 			const noRecipeReferences = (...sources) => sources.every((source) => !/safe-record-recipe|safe-record\.py|runnable recipe/i.test(source));
 			const recordPolicy = recursiveRecordUnits.find((unit) => unit.id === "tool-records-and-recovery");
@@ -6085,6 +6171,7 @@ The accounting covers:`),
 			const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 			const headingCount = (source, name) => (source.match(new RegExp(`^## ${escapeRegex(name)}$`, "gm")) ?? []).length;
 			const targetDocs = [
+				["change-records.md", commonRecords, commonUnits.map(({ start }) => start.slice(3))],
 				["track-workflow.md", workflow, ["Lifecycle and phases", "Track size and split", "Recursive planning and loading", "Focus classes and gates", "Confirmation gate", "Risk planning and reconciliation", "Track intention block and implementer response", "Session handoff and the research log", "Resume order and reconciliation", "Review coverage", "Delivery and termination", "Migration", "Layering richer workflows on top"]],
 				["review-rules.md", reviews, ["Reviewer sets, merge rule and charters", "Findings and output", "Reviewer evidence standards", "Observation files and evidence recovery", "Fix loop and gate verdicts", "Stuck-fix consultation", "Termination and deferred-work routing"]],
 				["blast-radius.md", blast, ["Focus states and track constraints", "Focus areas and their gates", "Optional path declarations", "Lifecycle rules owned by the spine", "Halt and focus re-derivation", "Review coverage and the coverage register", "Commit discipline for drift and boundaries"]],
@@ -6098,7 +6185,7 @@ The accounting covers:`),
 			const metacharHeading = "Focus classes (proved) [gate]";
 			const metacharSource = `## ${metacharHeading}\n`;
 			const defectiveHeadingCount = (source, name) => (source.match(new RegExp(`^## ${name}$`, "gm")) ?? []).length;
-			checkAll("contract-section-targets", "every named level-two target across all seven workflow documents exists exactly once, and missing or duplicate headings fail the predicate", [
+			checkAll("contract-section-targets", "every named level-two target across the registered workflow documents exists exactly once, and missing or duplicate headings fail the predicate", [
 				["all named targets are unique", headingDefects.length === 0, headingDefects],
 				["each newly registered planning target rejects missing and duplicate headings", [[workflow, "Recursive planning and loading"], ...targetDocs.at(-1)[2].map((name) => [recursive, name])].every(([source, name]) => headingCount(source.replace(`## ${name}\n`, ""), name) === 0 && headingCount(`${source}\n## ${name}\n`, name) === 2), "planning and all recursive targets"],
 				["regex escaping handles metacharacters", escapeRegex(metacharHeading) === "Focus classes \\(proved\\) \\[gate\\]", escapeRegex(metacharHeading)],
