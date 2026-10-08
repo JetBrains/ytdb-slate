@@ -159,7 +159,8 @@ test("loader ignores untrusted projects and replacement cannot manufacture home-
 	const reloaded = loadConfig(cwd, true, warn);
 	assert.deepEqual(notificationSettings(reloaded).push, destination);
 	assert.equal(notificationSettings(reloaded).minimumDelayMs, 1);
-	assert.deepEqual(reloaded.notifications, notificationSettings(reloaded));
+	assert.deepEqual(reloaded.notifications, { ...notificationSettings(reloaded), push: { enabled: true } });
+	assert.doesNotMatch(JSON.stringify(reloaded), /private\.example|private-topic|secret-token/);
 	assert.deepEqual(warnings, ["slate: ignoring home-only notification push fields in project configuration."]);
 });
 const hostile = String.fromCodePoint(...Array.from({ length: 32 }, (_, i) => i), ...Array.from({ length: 33 }, (_, i) => 127 + i), 0x61c, 0x200e, 0x200f, 0x2028, 0x2029, 0x202a, 0x202b, 0x202c, 0x202d, 0x202e, 0x2066, 0x2067, 0x2068, 0x2069);

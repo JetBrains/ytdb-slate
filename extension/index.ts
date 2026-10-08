@@ -38,6 +38,7 @@ import { createChangeFolder } from "./artifact-names.ts";
 import { createChangeDirectory } from "./slate-files.ts";
 import { getAgentDir, SettingsManager, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { loadConfig, permitsSlateConfig } from "./config.ts";
+import { createNativeNotificationChannel, stopNativeNotificationHelpers } from "./notification-native.ts";
 import type { CompressorRetryPolicy } from "./logical-model-adapters.ts";
 import { RecoveryOwnership } from "./logical-model-recovery.ts";
 import { createBaseModelTracker, readLiveEffort, type BaseModelTracker } from "./base-model.ts";
@@ -99,7 +100,10 @@ export default function (pi: ExtensionAPI) {
 	const notifications = registerNotificationEvents(pi, {
 		currentLifecycle: () => lifecycleRecoveryOwnership.isCurrentLifecycle(),
 		recovering: () => recovering(),
-		channels: (ctx, settings, warn) => createTerminalNotificationChannels({ mode: ctx.mode, settings, warn, projectDirectory: ctx.cwd }),
+		channels: (ctx, settings, warn) => [
+			...createTerminalNotificationChannels({ mode: ctx.mode, settings, warn, projectDirectory: ctx.cwd }),
+			createNativeNotificationChannel({ mode: ctx.mode, projectDirectory: ctx.cwd }),
+		],
 	});
 
 	// One prompt-cache key and one request throttle belong to this main session.
@@ -196,7 +200,8 @@ export default function (pi: ExtensionAPI) {
 		notifications.start(config, ctx);
 	});
 
-	pi.on("session_shutdown", async () => {
+	pi.on("session_shutdown", async (event) => {
+		if (event.reason === "quit") stopNativeNotificationHelpers();
 		notifications.retire();
 		// Pi creates a new extension factory for replacement sessions. Mark every
 		// callback from this factory obsolete, but keep each active lease until the

@@ -28,8 +28,10 @@ export interface NotificationDispatcherOptions {
 }
 interface Wait { readonly kind: "run" | "dialog"; readonly event: NotificationEvent; readonly since: number; cancel?: () => void; preparing?: boolean; deferred?: boolean; resume?: () => void }
 interface Attempt { readonly controller: AbortController; cancel: () => void; started: boolean; accepted?: boolean }
-// A retired session keeps its process-wide channel slot until its started work settles.
-const inFlightAttempts = new Map<NotificationChannel["name"], Attempt>();
+// Reloaded module copies share opaque slots. Only the owning identity can release a slot.
+const slotKey = Symbol.for("ytdb-slate.notification-channel-slots.v1");
+const slotGlobal = globalThis as typeof globalThis & { [slotKey]?: Map<NotificationChannel["name"], unknown> };
+const inFlightAttempts = slotGlobal[slotKey] ??= new Map<NotificationChannel["name"], unknown>();
 const schedule = (delay: number, callback: () => void): (() => void) => {
 	const timer = setTimeout(callback, Math.min(delay, 2_147_483_647));
 	timer.unref();

@@ -16,6 +16,7 @@ import { registerOrchestratorFailover } from "../extension/failover.ts";
 import { createBaseModelTracker } from "../extension/base-model.ts";
 import { createLogicalRuntime } from "../extension/logical-model-runtime.ts";
 
+const spawnRealChild = childProcess.spawn;
 type Handler = (event: any, ctx: ExtensionContext) => unknown;
 function host(t: TestContext, mode = "tui", state = { orchestratorMode: false, paused: false }) {
 	const cwd = mkdtempSync(join(tmpdir(), "slate-notification-events-"));
@@ -93,6 +94,77 @@ test("real factory routes automatic tmux selection in background without writing
 		await f.emit("session_shutdown");
 		if (isTTY) Object.defineProperty(process.stdout, "isTTY", isTTY); else Reflect.deleteProperty(process.stdout, "isTTY");
 		for (const [name, value] of Object.entries(environment)) { if (value === undefined) delete process.env[name]; else process.env[name] = value; }
+	}
+});
+
+test("real factory registers native by default with general text and respects project disable", { timeout: 5000 }, async (t) => {
+	if (process.platform !== "linux") return;
+	const f = host(t), helper = mkdtempSync(join(tmpdir(), "slate-native-factory-"));
+	const environment = Object.fromEntries(["PATH", "DISPLAY", "WAYLAND_DISPLAY", "DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR", "PI_CODING_AGENT_DIR"].map((key) => [key, process.env[key]]));
+	t.after(() => { for (const [key, value] of Object.entries(environment)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; } rmSync(helper, { recursive: true, force: true }); });
+	writeFileSync(join(helper, "notify-send"), "fixture"); chmodSync(join(helper, "notify-send"), 0o755);
+	process.env.PATH = helper; process.env.DISPLAY = ":1"; process.env.DBUS_SESSION_BUS_ADDRESS = "unix:path=/fake";
+	process.env.PI_CODING_AGENT_DIR = join(helper, "agent"); mkdirSync(process.env.PI_CODING_AGENT_DIR);
+	writeFileSync(join(process.env.PI_CODING_AGENT_DIR, "slate.json"), JSON.stringify({ notifications: { detail: "message", minimumDelayMs: 0, cooldownMs: 0, terminal: false, bell: false } }));
+	const spawn = t.mock.method(childProcess, "spawn", ((..._args: unknown[]) => {
+		const child = Object.assign(new EventEmitter(), { unref() {}, kill() { return true; } });
+		queueMicrotask(() => { child.emit("spawn"); child.emit("exit", 0); }); return child;
+	}) as unknown as typeof childProcess.spawn);
+	extension(f.pi); await f.emit("session_start"); await f.emit("agent_start");
+	await f.emit("turn_end", { message: { role: "assistant", stopReason: "stop", content: "agent <&> $(code)" }, toolResults: [] }); await f.emit("agent_settled");
+	assert.equal(spawn.mock.callCount(), 0, "event handling never spawns a helper");
+	for (let i = 0; i < 100 && spawn.mock.callCount() === 0; i++) await new Promise((done) => setTimeout(done, 5));
+	assert.equal(spawn.mock.callCount(), 1);
+	const call = spawn.mock.calls[0]!.arguments as unknown as [string, string[], childProcess.SpawnOptions];
+	assert.equal(call[0], join(helper, "notify-send"));
+	assert.deepEqual(call[1], ["--app-name=Slate", "--", "Input needed", `${f.ctx.cwd.split("/").at(-1)}: …agent &lt;&amp;&gt; $(code)`]);
+	await f.emit("session_shutdown");
+	const disabled = host(t); mkdirSync(join(disabled.ctx.cwd, ".pi"));
+	writeFileSync(join(disabled.ctx.cwd, ".pi", "slate.json"), JSON.stringify({ notifications: { native: false } }));
+	extension(disabled.pi); await disabled.emit("session_start"); await disabled.emit("ui_prompt_start"); await new Promise((done) => setTimeout(done, 30));
+	assert.equal(spawn.mock.callCount(), 1); await disabled.emit("session_shutdown");
+});
+
+test("real factory stops accepted helpers at quit but not replacement or reload", { timeout: 10000 }, async (t) => {
+	if (process.platform !== "linux") { t.skip("real Linux helper lifecycle requires Linux"); return; }
+	const f = host(t), helper = mkdtempSync(join(tmpdir(), "slate-native-shutdown-"));
+	const environment = Object.fromEntries(["PATH", "DISPLAY", "DBUS_SESSION_BUS_ADDRESS", "PI_CODING_AGENT_DIR"].map((key) => [key, process.env[key]]));
+	const children: childProcess.ChildProcess[] = [];
+	t.after(async () => {
+		for (const child of children) if (child.exitCode === null && child.signalCode === null) {
+			const exit = new Promise<void>((done) => child.once("exit", () => done())); child.kill("SIGKILL"); await exit;
+		}
+		for (const [key, value] of Object.entries(environment)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
+		rmSync(helper, { recursive: true, force: true });
+	});
+	const keepAlive = setInterval(() => {}, 10_000);
+	t.after(() => clearInterval(keepAlive));
+	writeFileSync(join(helper, "notify-send"), "fixture"); chmodSync(join(helper, "notify-send"), 0o755);
+	process.env.PATH = helper; process.env.DISPLAY = ":1"; process.env.DBUS_SESSION_BUS_ADDRESS = "unix:path=/fake";
+	process.env.PI_CODING_AGENT_DIR = join(helper, "agent"); mkdirSync(process.env.PI_CODING_AGENT_DIR);
+	writeFileSync(join(process.env.PI_CODING_AGENT_DIR, "slate.json"), JSON.stringify({ notifications: { minimumDelayMs: 0, cooldownMs: 0, terminal: false, bell: false } }));
+	t.mock.method(childProcess, "spawn", (() => {
+		const child = spawnRealChild(process.execPath, ["-e", "setTimeout(() => {}, 30000)"], { stdio: "ignore" });
+		children.push(child); return child;
+	}) as typeof childProcess.spawn);
+	let release!: () => void, block = false;
+	t.mock.method(ThreadManager.prototype, "disposeAll", async () => { if (block) await new Promise<void>((done) => { release = done; }); });
+	for (const reason of ["new", "resume", "fork", "reload"] as const) {
+		extension(f.pi); await f.emit("session_start"); await f.emit("ui_prompt_start");
+		const count = children.length;
+		for (let i = 0; i < 100 && children.length === count; i++) await new Promise((done) => setTimeout(done, 5));
+		assert.equal(children.length, count + 1);
+		const child = children.at(-1)!;
+		if (child.pid === undefined) await new Promise<void>((done) => child.once("spawn", () => done()));
+		const kill = t.mock.method(child, "kill");
+		await f.emit("session_before_switch"); await f.emit("session_shutdown", { reason });
+		assert.equal(kill.mock.callCount(), 0, `${reason} preserves accepted delivery`); process.kill(child.pid!, 0);
+		const exit = new Promise<void>((done) => child.once("exit", () => done()));
+		block = true; const shutdown = f.emit("session_shutdown", { reason: "quit" });
+		assert.equal(kill.mock.callCount(), 1, "quit stops the retired helper before awaited teardown");
+		assert.deepEqual(kill.mock.calls[0]!.arguments, ["SIGKILL"]);
+		await exit; assert.equal(child.signalCode, "SIGKILL"); release(); await shutdown; block = false;
+		f.events.clear();
 	}
 });
 
@@ -425,7 +497,7 @@ test("real factory connects terminal and bell channels to background writes on p
 		for (const [key, value] of multiplexers) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
 	});
 	mkdirSync(agent);
-	writeFileSync(join(agent, "slate.json"), JSON.stringify({ notifications: { minimumDelayMs: 0, cooldownMs: 0, sequences: ["osc777"] } }));
+	writeFileSync(join(agent, "slate.json"), JSON.stringify({ notifications: { minimumDelayMs: 0, cooldownMs: 0, sequences: ["osc777"], native: false } }));
 	const writes: Buffer[] = [], timers = new Set<() => void>();
 	const originalWrite = process.stdout.write.bind(process.stdout);
 	t.mock.method(process.stdout, "write", ((data: any, ...args: any[]) => {

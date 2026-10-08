@@ -13,7 +13,8 @@
 #     list of permitted variables, and a measured AWS_ACCESS_KEY_ID reached a
 #     real pi child. The offline session simply has nothing to spend it on.
 #   * No network in the checks themselves. Only the checkout, the Node download
-#     and `npm ci` reach out, and those registry reads are unauthenticated.
+#     and dependency setup (`npm ci` and `apt-get`) reach the network.
+#     Package downloads require no secrets.
 #   * No lasting change to the checkout. `npm ci` fills the gitignored
 #     node_modules and nothing else moves — `git status` is clean after a full
 #     local run — and the three harnesses that need scratch space (the load
@@ -136,6 +137,11 @@ jobs:
       # identically without them (finding SE1).
       - name: Install dependencies
         run: npm ci --ignore-scripts
+
+      - name: Install Linux notification read-back prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends dbus libnotify-bin python3-dbus-next
 
       - name: Typecheck
         run: npm run typecheck

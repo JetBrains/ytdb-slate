@@ -52,7 +52,7 @@ The typecheck reads `extension/**/*.ts`, `test/**/*.ts`, `verification/probe.ts`
 
 ### CI (`.github/workflows/ci.yml`)
 
-CI is fast, and it references no secret. Every check uses fabricated inputs and a plain checkout. The checks reach the network for the dependency install only. The packaging guards reach no registry, and they pass when npm runs offline.
+CI is fast, and it references no secret. Every check uses fabricated inputs and a plain checkout. Dependency setup reaches the network for Node, npm dependencies and Linux read-back packages. The checks themselves need no network. The packaging guards reach no registry, and they pass when npm runs offline.
 
 **The checks do NOT prove that no credential reaches a child process.** The load check scrubs the child environment by variable-name pattern, and not by a list of permitted variables, so a credential under a name the pattern list does not cover reaches the child. A gate measured `AWS_ACCESS_KEY_ID` doing exactly that. What holds instead is that a session has nothing to spend a credential on: every session runs with `PI_OFFLINE=1`, without `models.json` and without `auth.json`, and it contacts no provider. The permitted-variable list is the stronger design, and it is deferred.
 
@@ -72,7 +72,9 @@ The workflow uses a read-only token (`permissions: contents: read`). Four events
 
 The Linux jobs keep the five checks below and the stable names `Node 22` and `Node 24`. The full suite runs only on Linux.
 
-The five checks follow. Each command reproduces its check on a laptop after `npm ci --ignore-scripts`; locally `npm test` derives a merge-base with `main`, while CI always passes the event's explicit base SHA:
+The Linux jobs install `dbus`, `libnotify-bin` and `python3-dbus-next` with `apt-get` before the five checks. These packages supply the private D-Bus session, notification helper and Python service module for `test/notification-native-readback.test.ts`. The test fails on Linux when `CI` is true and a prerequisite is missing. A local run without `CI` skips with a visible reason when a prerequisite is missing.
+
+The five checks follow. Each command reproduces its check on a laptop after `npm ci --ignore-scripts` and installation of the Linux read-back prerequisites above; locally `npm test` derives a merge-base with `main`, while CI always passes the event's explicit base SHA:
 
 | check | local command |
 | --- | --- |

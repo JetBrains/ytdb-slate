@@ -105,7 +105,13 @@ export function resolveNotificationSettings(home: unknown, project: unknown, war
 
 /** Bind only source-resolved policy. Copies and replacement objects receive safe defaults. */
 export function bindNotificationSettings(config: object, home: unknown, project: unknown, warn: (message: string) => void): void {
-	policies.set(config, resolveNotificationSettings(home, project, warn));
+	const policy = resolveNotificationSettings(home, project, warn);
+	policies.set(config, policy);
+	// Every ordinary config view is public. Keep destinations and credentials in the private weak map only.
+	if (home !== undefined || project !== undefined) Object.defineProperty(config, "notifications", {
+		value: Object.freeze({ ...policy, push: Object.freeze({ enabled: policy.push.enabled }) }),
+		enumerable: true, configurable: true, writable: true,
+	});
 }
 export function notificationSettings(config: object | undefined): NotificationSettings {
 	return config === undefined ? NOTIFICATION_DEFAULTS : policies.get(config) ?? NOTIFICATION_DEFAULTS;

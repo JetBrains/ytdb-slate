@@ -2,7 +2,7 @@ import { lstatSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { CONFIG_DIR_NAME, getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { SlateConfig } from "./state.ts";
-import { bindNotificationSettings, notificationSettings } from "./notification-config.ts";
+import { bindNotificationSettings } from "./notification-config.ts";
 
 // Only loader-produced home-only views can cross an untrusted-project boundary.
 // JSON fields, prototypes, and copies cannot manufacture this permission.
@@ -74,7 +74,6 @@ export function loadConfig(cwd: string, projectTrusted: boolean, warn: (message:
 	const project = projectTrusted ? readSource(join(cwd, CONFIG_DIR_NAME, "slate.json"), cwd, warn) : undefined;
 	const config = mergeConfig(home.config, project?.config ?? {}) as SlateConfig;
 	bindNotificationSettings(config, home.config.notifications, project?.config.notifications, warn);
-	if (config.notifications !== undefined) config.notifications = notificationSettings(config);
 	// A valid override cannot erase another permitted source's failure.
 	if (home.invalid || project?.invalid) config.router = null;
 	if (!projectTrusted && home.present) homeOnlyConfigs.add(config);
