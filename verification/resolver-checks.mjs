@@ -28,7 +28,7 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { dirname, join, sep } from "node:path";
 import { pathToFileURL } from "node:url";
-import { createMutationAudit, mutationAuditControls } from "./record-mutation-roster.mjs";
+import { createMutationAudit, loadWithMutationAudit, mutationAuditControls } from "./record-mutation-roster.mjs";
 const mutationAudit = createMutationAudit();
 
 const [, , REPO, JITI, WORK, STRICT_ARG] = process.argv;
@@ -57,14 +57,19 @@ const DOCTRINE_LIMITS = Object.freeze({
 	designRuleChars: 600,
 });
 
-// jiti is pi's own TypeScript loader: node's strip-only mode cannot load the
-// modules (state.ts, pulled in by mode.ts, uses a constructor parameter
-// property), so we transpile through the same loader pi uses.
-const { createJiti } = await import(pathToFileURL(JITI).href);
-const jiti = createJiti(import.meta.url);
-const we = await jiti.import(`${REPO}/extension/worker-extensions.ts`);
-const mode = await jiti.import(`${REPO}/extension/mode.ts`);
-const paths = await jiti.import(`${REPO}/extension/paths.ts`);
+// Production initialization records failures before the final audit runs.
+let startupError;
+async function startupImport(load) {
+	const result = await loadWithMutationAudit(mutationAudit, load);
+	startupError ??= result.error;
+	return result.module ?? {};
+}
+// Use pi's TypeScript loader for the same module resolution as the host.
+const { createJiti } = await startupImport(() => import(pathToFileURL(JITI).href));
+const jiti = await startupImport(() => createJiti(import.meta.url));
+const we = await startupImport(() => jiti.import(`${REPO}/extension/worker-extensions.ts`));
+const mode = await startupImport(() => jiti.import(`${REPO}/extension/mode.ts`));
+const paths = await startupImport(() => jiti.import(`${REPO}/extension/paths.ts`));
 // The router and the profile table are imported defensively: a missing or broken
 // module of either must not take the rest of the suite down with it. It becomes
 // one loud FAIL plus explicit NOT RUN lines for the checks it voids.
@@ -72,6 +77,7 @@ async function tryImport(rel) {
 	try {
 		return { module: await jiti.import(`${REPO}/${rel}`) };
 	} catch (error) {
+		mutationAudit.crash(error);
 		return { error };
 	}
 }
@@ -108,7 +114,7 @@ const logicalAdapters = logicalAdaptersLoad.module;
 const logicalRuntime = logicalRuntimeLoad.module;
 const logicalImportCheck = logicalImportCheckLoad.module;
 const tracker = baseLoad.module;
-const checker = await import(pathToFileURL(`${REPO}/extension/writing-check.mjs`).href);
+const checker = await startupImport(() => import(pathToFileURL(`${REPO}/extension/writing-check.mjs`).href));
 const CHECKER_PATH = `${REPO}/extension/writing-check.mjs`;
 
 // ----------------------------------------------------------------- reporting --
@@ -435,11 +441,11 @@ const VOIDABLE = [
 ];
 
 // ------------------------------------------------------------------ fixtures --
-const A = mkpkg("pkgA", ["./extension/index.ts"], ["extension/index.ts"]); // single literal entry, host runs it
-const B = mkpkg("pkgB", ["./extensions/*.ts"], ["extensions/one.ts"]); // globbed manifest
-const C = mkpkg("pkgC", ["./a.ts", "./b.ts"], ["a.ts", "b.ts"]); // b.ts declared but host runs no tool from it
-
 try {
+	if (startupError) throw startupError;
+	const A = mkpkg("pkgA", ["./extension/index.ts"], ["extension/index.ts"]); // single literal entry, host runs it
+	const B = mkpkg("pkgB", ["./extensions/*.ts"], ["extensions/one.ts"]); // globbed manifest
+	const C = mkpkg("pkgC", ["./a.ts", "./b.ts"], ["a.ts", "b.ts"]); // b.ts declared but host runs no tool from it
 	// =========================================================================
 	// Worker-extension resolver (extension/worker-extensions.ts + mode.ts)
 	// =========================================================================
@@ -3250,15 +3256,16 @@ Use its § Session handoff and the research log for ownership.`);
 				{ id: "child-attribution", document: "delivery", owner: regionUnit(/^## Track package\n([\s\S]*?)(?=^## Change package\n)/gm), rules: ["Do not count accepted child work as new implementation."], extract: regionUnit(/^## Packages, attribution, and issues\n([\s\S]*)/gm) },
 			];
 			const commonRelationIds = new Set(["status-trigger", "canonical-grammar", "repair-records", "append-only"]);
-			const recursiveSummariesAgree = (recursiveSource, workflowSource, reviewSource = reviews, deliverySource = deliveryPackages, commonSource = commonRecords) => {
-				return sharedRecursiveRules.every(({ id, rules, extract, document = "workflow", owner = markedUnit("recursive-planning-policy") }) => {
+			const recursiveSummaryResults = (recursiveSource, workflowSource, reviewSource = reviews, deliverySource = deliveryPackages, commonSource = commonRecords) => {
+				return sharedRecursiveRules.map(({ id, rules, extract, document = "workflow", owner = markedUnit("recursive-planning-policy") }) => {
 					const owningUnit = owner({ workflow: workflowSource, reviews: reviewSource, delivery: deliverySource }[document]);
 					const summary = extract(commonRelationIds.has(id) ? commonSource : recursiveSource);
-					return owningUnit.count === 1 && summary.count === 1
+					return { id, bounded: owningUnit.count === 1 && summary.count === 1, agrees: owningUnit.count === 1 && summary.count === 1
 						&& (!protectedRepairOwners[id] || (agreementDigest(owningUnit.text) === protectedRepairOwners[id] && agreementDigest(summary.text) === protectedRepairSummary))
-						&& rules.every((rule) => owningUnit.text.includes(rule) && summary.text.includes(rule));
+						&& rules.every((rule) => owningUnit.text.includes(rule) && summary.text.includes(rule)) };
 				});
 			};
+			const recursiveSummariesAgree = (...sources) => recursiveSummaryResults(...sources).every(({ agrees }) => agrees);
 			const acceptsRecursivePrefix = (source) => {
 				const result = recursivePrefix(source);
 				return result.count === 1 && result.text === recursivePrefixExpected;
@@ -3271,7 +3278,9 @@ Use its § Session handoff and the research log for ownership.`);
 				// Replace the same phrase in raw source without changing heading boundaries.
 				const pattern = new RegExp(rule.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+"), "g");
 				const changed = source.replace(pattern, `Contradicting ${id} rule ${index}.`);
-				return { id, index, side, changed: changed !== source && altered !== normalized, rejected: !recursiveSummariesAgree(side === "summary" ? changed : recursive, side === "owner" && document === "workflow" ? changed : workflow, side === "owner" && document === "reviews" ? changed : reviews, side === "owner" && document === "delivery" ? changed : deliveryPackages, commonSide ? changed : commonRecords) };
+				const results = recursiveSummaryResults(side === "summary" && !commonSide ? changed : recursive, side === "owner" && document === "workflow" ? changed : workflow, side === "owner" && document === "reviews" ? changed : reviews, side === "owner" && document === "delivery" ? changed : deliveryPackages, commonSide ? changed : commonRecords);
+				const target = results.find((result) => result.id === id);
+				return { id, index, side, changed: changed !== source && altered !== normalized, rejected: results.some(({ agrees }) => !agrees), intended: target?.bounded === true && target.agrees === false };
 			})));
 			const retainedPhraseAttacks = [
 				["owner-rounds-contradiction", reviews.replace("Run at most two ordinary fix rounds.", "Run at most two ordinary fix rounds. A review-fix child gets three ordinary rounds."), workflow],
@@ -3300,7 +3309,7 @@ Use its § Session handoff and the research log for ownership.`);
 			checkAll("contract-recursive-owner-agreement", "recursive summaries agree with lifecycle owners, pointer-only sections reject contradictory copies, and the level pull request term is defined", [
 				["the complete implemented recursive prefix matches an independent expectation", acceptsRecursivePrefix(recursive), recursivePrefix(recursive)],
 				["loading, gates, records, repair budgets, child titles, and attribution agree with their owners", recursiveSummariesAgree(recursive, workflow), sharedRecursiveRules.map(({ id, rules }) => ({ id, rules: rules.length }))],
-				["every shared rule rejects a mutation of either its summary or owner", recursiveAgreementAttacks.every(({ changed, rejected }) => changed && rejected), recursiveAgreementAttacks],
+				["every shared rule rejects a mutation of either its summary or owner", recursiveAgreementAttacks.every(({ changed, rejected, intended }) => changed && rejected && intended), recursiveAgreementAttacks],
 				["complete repair owners reject contradictions and hidden rules that retain the expected phrases", retainedPhraseAttacks.every(({ changed, rejected }) => changed && rejected), retainedPhraseAttacks],
 				["contradictory loading, gate, record, sizing, level, budget, migration, small-tree, and glossary edits fail", recursivePrefixAttacks.every(({ changed, rejected }) => changed && rejected), recursivePrefixAttacks],
 				["missing and duplicate prefix boundaries fail closed", !acceptsRecursivePrefix(recursive.replace(recursivePrefixBoundary, "")) && !acceptsRecursivePrefix(`${recursive}\n${recursive}`), "missing and duplicate prefix"],
@@ -3383,7 +3392,7 @@ history as boundary authority. The track table is display-only.`);
 				["every framing and outside-body mutation fails", completeCommonAttacks.every(({ changed, rejected }) => changed && rejected), completeCommonAttacks],
 				["harmless outside text preserves body pins but fails complete protection", acceptsCommon(`Additional framing.\n${commonRecords}`) && !acceptsCompleteCommon(`Additional framing.\n${commonRecords}`), "separate body and complete boundaries"],
 			]);
-			const nestedCommonPins = [commonUnits[0].expected, "8dbdbb6508744b3b4a2fc364dda4709c4e734fe17e032275a1dc8823af765b68"];
+			const nestedCommonPins = ["06a2a0822448a5112173b65c04826364d3a3094f7930ba98ecd7f17300e19ed8", "8dbdbb6508744b3b4a2fc364dda4709c4e734fe17e032275a1dc8823af765b68"];
 			const nestedCommonMatches = (source = recursive) => commonUnits.every(({ start, expected }, index) => {
 				const region = headingUnit(start)(source);
 				const qualified = region.text.replace("loads this document", "loads [recursive-workflow.md](recursive-workflow.md)");
@@ -4045,12 +4054,13 @@ delivery and is never created as an empty register.`);
 					&& repairs.count === 1 && recordDigest(repairs.text) === protectedRepairSummary
 					&& recursiveSummariesAgree(recursiveSource, workflow, reviewSource, deliveryPackages, commonSource)
 					&& acceptsRepairRegister(notesSource)
-					&& [notesSource, recursiveSource, reviewSource].every((source) => !/extra repair[- ]round|extra round|inherited repair budget|(?:child repairs|children) inherit/i.test(source));
+					&& [notesSource, recursiveSource, reviewSource, commonSource].every((source) => !/extra repair[- ]round|extra round|inherited repair budget|(?:child repairs|children) inherit/i.test(source));
 			};
 			const repairAuthorizationAttacks = [
 				["grant", userNotes + "\nAn extra repair-round grant permits another round.", recursive, reviews],
 				["override-grant-event", userNotes.replace("- every user grant of an extra stuck-fix consultation.", "- every user grant of an extra stuck-fix consultation.\n- every user grant of an extra repair round."), recursive, reviews],
 				["inheritance", userNotes, recursive.replace("Each review-fix child starts at round zero.", "All child repairs inherit the affected requirement's round count and consultation budget."), reviews],
+				["common-inheritance", userNotes, recursive, reviews, `${commonRecords}\nChildren inherit the repair budget.\n`],
 				["requirement-count", userNotes, recursive.replace("A split never resets the per-requirement count of failed ordinary rounds.", "A split resets the per-requirement count of failed ordinary rounds."), reviews],
 				["sibling-identity", userNotes, recursive.replace("A split at any depth creates sibling review-fix children under the same affected code track.", "A split of a child creates grandchildren with their own reports."), reviews],
 				["log-before-cell", userNotes, recursive, reviews, commonRecords.replace("A record-only worker first writes a typed entry", "A record-only worker writes the cell first, then a typed entry")],
@@ -4857,7 +4867,6 @@ A stale description fails the "deep enough" test.`),
 				const retained = ["A permitted rebase onto S produces H2'.", "Record its old-to-new rebased-marker mapping in the owning log.", "using a lease on H2 when publishing is enabled"].every((rule) => normalizeText(source).includes(rule));
 				return { id, changed: source !== original && !pattern.test(source), rejected: !acceptsLevelUnit(historyUnit, source), retained: id !== "RG4-reachability" || retained };
 			});
-			const cleanupRecordsUnit = recursiveRecordUnits.find(({ id }) => id === "tool-records-and-recovery");
 			const cleanupPointerUnit = levelPolicyUnits.find(({ id }) => id === "cleanup-pointer");
 			const restoredCleanupSentences = [
 				["inventory-conditions", "Record the inventory after all closure conditions hold."],
@@ -5009,8 +5018,10 @@ A stale description fails the "deep enough" test.`),
 				["later-session", "A later session may clean up a closed change folder."],
 				["validated-closed-folder", "A user request naming a closed change folder permits cleanup after validating its generated path inside this checkout without parent components, real directory and regular log, matching inventory path, and absence from read-only source links."],
 			];
-			const acceptsCleanupRoutes = (source) => acceptsLevelUnit(historyUnit, source) && acceptsRecordUnit(cleanupRecordsUnit, commonRecords) && !/Post-close cleanup writes|After `slate_change close`[^.]*may append|closing session[^.]*post-close[^.]*exception|later session[^.]*may[^.]*closed change folder|user request naming a closed change folder[^.]*permits cleanup/i.test(normalizeText(source));
+			const acceptsCleanupRoutes = (source) => acceptsLevelUnit(historyUnit, source) && nestedCommonMatches(source) && !/Post-close cleanup writes|After `slate_change close`[^.]*may append|closing session[^.]*post-close[^.]*exception|later session[^.]*may[^.]*closed change folder|user request naming a closed change folder[^.]*permits cleanup/i.test(normalizeText(source));
 			const forbiddenCleanupMutations = forbiddenCleanupRoutes.map(([id, rule]) => { const source = `${recursive}\n${rule}\n`; return { id, changed: source !== recursive, rejected: !acceptsCleanupRoutes(source) }; });
+			const changedCleanupRecords = recursive.replace("## Manual records and safe writes\n", "## Manual records and safe writes\n\nA later worker can tidy a closed change folder.\n");
+			forbiddenCleanupMutations.push({ id: "nested-manual-records", changed: changedCleanupRecords !== recursive, rejected: !acceptsCleanupRoutes(changedCleanupRecords) });
 			const forbiddenCleanupPositions = ["<!-- level-history-policy:end -->", "## Identifiers, code ranges, and design markers", "## Manual records and safe writes", "document-end"];
 			const wrappedForbiddenCleanupMutations = forbiddenCleanupRoutes.flatMap(([id, rule]) => forbiddenCleanupPositions.map((position) => {
 				const wrapped = rule.replace(/ /g, "\n\t");
@@ -5242,7 +5253,7 @@ A later track builds on the accepted boundary before it.`),
 			const benignOrderingDocuments = Object.fromEntries(Object.entries(orderingDocuments).map(([id, source]) => [id, `${source}\n<!-- Outside ordering control. -->\n`]));
 			checkAll("contract-level-publishing", "level membership, dependency order, pauses, local retention, approval, delivery, cleanup, rebase mappings, unavailable evidence, and publishing defaults have owned rules and reviewed peer-document pins", [
 				["reviewed peer-document pins reject unreviewed additions while scoped pointers and the word layer discriminate known copies", peerRetentionOwners.every((owner) => !peerPinFailure(owner, owner.source) && acceptsPeerRetention(owner, owner.source)) && pinnedPeerOwners.length === 3 && peerPinRules.length === 6 && peerPinAttacks.length === 252 && peerPinAttacks.every(({ changed, rejected }) => changed && rejected) && reviewedBranchControls.length === 5 && reviewedBranchControls.every(({ changed, accepted }) => changed && accepted) && wordLayerControls.length === 3 && wordLayerControls.every(({ rejected }) => rejected) && peerOutsideControls.every(({ accepted }) => accepted) && peerPlacementNames.length === 7 && peerPlacementVerbs.length === 14 && peerEscapeAttacks.length === 687 && ownerSentenceCopies.length === 1365 && [...peerRetentionAttacks, ...peerEscapeAttacks, ...ownerSentenceCopies, ...pointerAttacks].every(({ changed, rejected }) => changed && rejected), { baseline: peerRetentionOwners.map((owner) => [owner.id, peerPinFailure(owner, owner.source), peerRetentionFailure(owner, owner.source)]), peerPinAttacks: peerPinAttacks.filter(({ changed, rejected }) => !changed || !rejected), reviewedBranchControls, wordLayerControls, peerOutsideControls, peerRetentionAttacks, peerEscapeAttacks, ownerSentenceCopies: ownerSentenceCopies.filter(({ changed, rejected }) => !changed || !rejected), pointerAttacks }],
-				["closed-folder routes and post-close exceptions fail, including a request with all former folder checks", acceptsCleanupRoutes(recursive) && forbiddenCleanupMutations.length === 4 && wrappedForbiddenCleanupMutations.length === 16 && [...forbiddenCleanupMutations, ...wrappedForbiddenCleanupMutations].every(({ changed, rejected }) => changed && rejected), { forbiddenCleanupMutations, wrappedForbiddenCleanupMutations }],
+				["closed-folder routes and post-close exceptions fail, including a request with all former folder checks", acceptsCleanupRoutes(recursive) && forbiddenCleanupMutations.length === 5 && wrappedForbiddenCleanupMutations.length === 16 && [...forbiddenCleanupMutations, ...wrappedForbiddenCleanupMutations].every(({ changed, rejected }) => changed && rejected), { forbiddenCleanupMutations, wrappedForbiddenCleanupMutations }],
 				["restored cleanup safety sentences have independent expectations and removal mutations", restoredCleanupSentences.length === 11 && restoredCleanupSentences.every(([id, rule]) => historyUnit.expected.includes(rule) && cleanupMutations.some((mutation) => mutation.id === `restored-${id}` && mutation.changed && mutation.rejected)), restoredCleanupSentences],
 				["recorded authorized deletions have independent exclusions, absence checks, and removal mutations", recordedDeletionSentences.length === 10 && recordedDeletionSentences.every(([id, rule]) => historyUnit.expected.includes(rule) && cleanupMutations.some((mutation) => mutation.id === `deleted-${id}` && mutation.changed && mutation.rejected)), recordedDeletionSentences],
 				["resume preserves recorded-deletion exclusions and inventories only remaining copies without weakening closure or deletion authority", resumeDeletionSentences.length === 4 && resumeDeletionSentences.every(([, rule]) => historyUnit.extract(recursive).text.includes(rule)) && ["Keep every other closure condition.", "Only the latest valid inventory remains the deletion authority.", "Resume therefore permits keep-and-close only when closure conditions still hold.", "Further deletion requires the orchestrator to record a new latest inventory after every non-cleanup record while all closure conditions hold."].every((rule) => historyUnit.expected.includes(rule) && historyUnit.extract(recursive).text.includes(rule)) && ["deleted-any-missing", "deleted-unauthorized-inventory", "deleted-latest-only", "deleted-no-record", "deleted-resume-voided"].every((id) => cleanupMutations.some((mutation) => mutation.id === id && mutation.changed && mutation.rejected)), resumeDeletionSentences],
@@ -7438,11 +7449,12 @@ The accounting covers:`),
 	// Nothing above should reach here (every section is guarded), but a throw in
 	// the scaffolding itself must still be a loud FAIL with a summary, not a
 	// silent truncation (TS1).
+	mutationAudit.crash(error);
 	check("driver", false, "the driver threw outside every guarded section", error?.stack ?? String(error));
 } finally {
 	const memberAudit = mutationAudit.inspect();
 	check("contract-mutation-members", memberAudit.ok, "independent mutation identities execute once with useful outcomes even after a production crash", memberAudit.problems);
-	const auditControls = mutationAuditControls();
+	const auditControls = await mutationAuditControls();
 	check("contract-mutation-controls", auditControls.every(({ discriminates }) => discriminates), "missing, duplicate, skipped, crashed, and throwing-production controls fail while complete execution passes", auditControls);
 	console.log(`NOTE executed mutation counts: ${JSON.stringify(memberAudit.counts)}`);
 	// TS3: the roster proves the run was COMPLETE. A crashed section, a deleted
