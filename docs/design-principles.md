@@ -180,6 +180,8 @@ required reviews, ordered gates, user authority, or final acceptance.
   reference. Accept the repeated subject and its word cost. Avoid disconnected
   fragments. The configured limit controls the sentence-length finding.
 
+### Built-in focus-area authoring
+
 - **P13 — Research and define built-in focus areas by risk.** *(Repo-local note, not from the report.)* When proposing a new built-in focus area and its reviewer, apply these rules:
 
   0. Research external sources before defining the area or writing reviewer questions. Standards, research papers, and established engineering guides are possible sources. Keep a corpus of findings, meaning a collection of source summaries, in the proposing tracker issue or pull request. Do not ship the corpus. Each entry links its source and states its support for the area and its applicability limits. State what the source does not prove. Copy no source text. Use the corpus as evidence for judgment in rules 1, 2, 3, and 6. The user still approves the area.

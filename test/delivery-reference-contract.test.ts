@@ -7,7 +7,8 @@ import { test } from "node:test";
 
 // Run the production assertion through its public wrapper. No copied predicate
 // can turn a scanner defect into a passing mutation test.
-test("delivery references stay inside reviewed contexts across shipped docs", { timeout: 180_000 }, async (t) => {
+// The aggregate limit allows slow-runner margin for sequential resolver calls.
+test("delivery references stay inside reviewed contexts across shipped docs", { timeout: 840_000 }, async (t) => {
   const repo = process.cwd();
   const fixture = mkdtempSync(join(tmpdir(), "slate-delivery-references-"));
   try {
@@ -27,8 +28,8 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
     const loading = workflow.slice(workflow.indexOf(begin), workflow.indexOf(end) + end.length);
     assert.ok(readme.includes(readmeReference) && workflow.includes(actor) && loading.includes("Immediately before"));
 
-    async function check(name: string, changes: Record<string, string>, accepted = false): Promise<void> {
-      await t.test(name, { timeout: 25_000 }, () => {
+    async function check(name: string, changes: Record<string, string>, accepted = false, contract = "contract-delivery-packages"): Promise<void> {
+      await t.test(name, { timeout: 65_000 }, () => {
         const originals = new Map<string, string | undefined>();
         try {
           for (const [file, source] of Object.entries(changes)) {
@@ -40,14 +41,14 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
             writeFileSync(path, source);
           }
           const result = spawnSync("bash", [join(fixture, "verification/run-resolver-checks.sh"), "--repo", fixture, "--strict"], {
-            cwd: fixture, encoding: "utf8", timeout: 20_000, maxBuffer: 2 * 1024 * 1024,
+            cwd: fixture, encoding: "utf8", timeout: 60_000, maxBuffer: 2 * 1024 * 1024,
             env: { ...process.env, JITI_FS_CACHE: "true" },
           });
           const output = `${result.stdout}\n${result.stderr}`;
           assert.equal(result.error, undefined, output);
           assert.equal(result.signal, null, output);
           assert.equal(result.status, accepted ? 0 : 1, output);
-          assert.match(output, new RegExp(`^CHECK +contract-delivery-packages +${accepted ? "PASS" : "FAIL"}\\b`, "m"));
+          assert.match(output, new RegExp(`^CHECK +${contract} +${accepted ? "PASS" : "FAIL"}\\b`, "m"));
           assert.match(output, /^CHECK +roster +PASS\b/m);
         } finally {
           for (const [path, original] of originals) {
@@ -93,6 +94,21 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
     await check("count-preserving reference order change within one heading", {
       "docs/user-notes.md": notes.replace(combinedPackage, "") + `\n\n${combinedPackage}\n`,
     });
+    for (const [file, heading] of [[workflowFile, "### Delivery history and accounting"], ["docs/user-notes.md", "### Final accounting preparation"]] as const) {
+      const source = readFileSync(join(fixture, file), "utf8");
+      assert.ok(source.includes(heading));
+      await check(`changed accounting subsection: ${file}`, { [file]: source.replace(heading, "### Other accounting") });
+      await check(`duplicated accounting subsection: ${file}`, { [file]: source.replace(heading, `${heading}\n${heading}`) });
+    }
+    for (const [file, rule] of [
+      ["docs/user-notes.md", "- every finding and its disposition."],
+      [workflowFile, "Aim for a delivery body at or below 16,384 UTF-8 bytes."],
+      [workflowFile, "A bootstrap commit created to open a draft pull request uses\n`Bootstrap: <intent title>`."],
+    ] as const) {
+      const source = readFileSync(join(fixture, file), "utf8");
+      assert.ok(source.includes(rule));
+      await check(`removed kept anchor: ${rule}`, { [file]: source.replace(rule, "") }, false, "contract-heading-regions");
+    }
     await check("changed owned loading rule", { [workflowFile]: workflow.replace("Immediately before preparing any track package or final change package", "At session start") });
     await check("moved owned loading unit", { [workflowFile]: workflow.replace(loading, "") + `\n## Early reads\n\n${loading}\n` });
     for (const marker of [begin, end]) {

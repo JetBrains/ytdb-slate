@@ -167,6 +167,9 @@ Read the applicable sections before relying on their rules.
 A lazy plan needs no total descendant count to apply the condition.
 A small tree with a design track still loads the whole document.
 A change with neither triggering track type reads only the named common sections.
+Only changes that load the nested sections have retention-reference duties.
+An ordinary change has no such duty, with publishing enabled or disabled.
+For nested work, use [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for dependency order, pauses, split changes, and branch bases.
 
 The approved plan supplies specific evidence for proportional process.
 A design track or review-fix child track triggers the manual status file.
@@ -390,7 +393,11 @@ The design-track boundary precedes research, expansion, and design work.
 The code-track boundary follows all required planning and pre-implementation gates.
 These include confirmation, scope-exception decisions, and applicable design gates.
 A review-fix child remains inside the affected code track and adds no new handoff boundary.
-Complete the prior ordinary track package and required acceptance before the next ordinary track boundary.
+
+Complete the prior ordinary track package and required acceptance before the next ordinary track boundary, except for a recorded permitted dependency pause.
+A subtree under that pause does not block the named unfinished sibling dependency's boundary until the recorded resume condition holds.
+Use [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for the pause conditions.
+The paused subtree's package and acceptance stay pending and still block its own completion.
 
 The orchestrator pauses dispatch pending an actual handoff and resume or an explicit user decision to continue in the same session. The explicit same-session decision is recorded as a user waiver in the existing override log. A resumed session follows Resume order and reconciliation and does not repeat a boundary request already recorded as completed. Same-track fix rounds do not retrigger the request. Single-track changes are exempt. This workflow rule has no automated runtime enforcement.
 <!-- multi-track-handoff:end -->
@@ -481,6 +488,8 @@ contract. Reviewers receive the approved inputs for their role. Ordinary
 repository and library evidence needed for the assigned work remains available.
 This permission is not a closed changed-file allowlist.
 
+### Commit titles and bodies
+
 Implementation commit titles use `Track <n>: <intent title>`.
 An agentic-review fix commit inside a track uses
 `Track <n> fix round <r>: <intent title>`. The original implementation commit
@@ -492,6 +501,8 @@ commit uses
 For that title, `<r>` starts at 1 and increases by one for each user-review fix
 commit in the track. That section also defines the distinct cumulative
 implementation body.
+
+### Implementer reports and execution
 
 For each code track, the implementer creates
 `track-<number>-implementer-report.md` in the current change folder when the track
@@ -518,6 +529,7 @@ session identifier in saved state. Each code track creates its implementer repor
 there at track start. Append a retained entry immediately when any trigger
 below fires. `slate_change close` clears the current change after delivery or
 abandonment. It deletes no files.
+For changes that load the nested sections, follow [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for retention inventory and cleanup before close.
 
 - a second non-obvious decision.
 - a surprise about repository behaviour.
@@ -562,6 +574,8 @@ Slate saves no open change and reports the failure. If that save fails, Slate
 reports it too. A legacy root `research-log.md` remains read-only. Only the user
 deletes a delivered or abandoned change folder.
 
+### Handoff summary
+
 Before a session handoff, use § Confirmation gate's handoff block for record order and the subtree-entry reference.
 The root state summary names the proved focus
 areas and risk-record location, current track, current implementer
@@ -581,6 +595,10 @@ Resume in this fixed order:
    When the summary names an existing current implementer report, read it there.
    Use [recursive-workflow.md](recursive-workflow.md) § Resume and folder forks
    for tree reconciliation and read-only source boundaries.
+   Before resuming a paused subtree, read its typed `decision` entry in the owning parent research log.
+   Check that its unfinished sibling dependency has completed and its recorded resume condition holds.
+   Confirm the decision records no commits in any open level slice of the paused subtree.
+   A status entry alone authorizes neither pause nor resume.
 3. Inspect marker commits and the current branch state.
 4. Reconcile the declared file list, track table, coverage register, proved
    focus areas, risk record, and live diff.
@@ -686,6 +704,8 @@ and Deviation-delta shape applies. This conditional body rule is also stated in
 [blast-radius.md](blast-radius.md) § Commit discipline for drift and
 boundaries.
 
+### Closed-range corrections
+
 Commit each fix requested during user review separately after the cumulative
 commit. Do not squash a user-review fix into the cumulative commit, because
 folding it back would destroy the exact state the user reviewed. Present each
@@ -709,6 +729,8 @@ commit. Do not squash it. A track with no user-review fix commit adds neither
 this range nor this gate action. Where a marker applies, it comes last because
 it defines the track range. Later feedback follows [user-notes.md](user-notes.md).
 It does not extend the closed range or automatically belong to the next track.
+
+### Delivery history and accounting
 
 A bootstrap commit created to open a draft pull request uses
 `Bootstrap: <intent title>`. It is not part of any track. Re-pin every recorded
@@ -754,7 +776,9 @@ Re-pin affected ranges after a permitted rewrite.
 Never destroy the exact state the user reviewed.
 A later aggregate package does not authorize rewriting earlier user-reviewed ranges.
 
-If marker history is unavailable, pause affected work.
+For changes that load the nested sections, route a missing or wrong-commit retention reference to
+[recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for the user's choice.
+For other unavailable marker history, pause affected work.
 Try to recover the exact recorded history from retained branches, references, or source records.
 A status entry, merge result, or copied marker title cannot replace missing history.
 Never recreate a marker to claim an earlier boundary was proved.
