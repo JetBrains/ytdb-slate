@@ -1,7 +1,7 @@
 # CI — the fast, secret-free checks.
 #
-# Everything here runs against fabricated inputs and a plain checkout, in under
-# one minute of work plus the dependency install. What CI does NOT need is what
+# Everything here runs against fabricated inputs and a plain checkout.
+# What CI does NOT need is what
 # makes it safe to run on every pull request:
 #
 #   * No secret is referenced, and none is needed. The load check starts two
