@@ -95,11 +95,11 @@ const combinations = (ids, kinds) => ids.flatMap((id) => kinds.map((kind) => `${
 const recordUnits = ["identifiers-ranges", "tool-records-and-recovery", "resume-forks", "handoff-pointer", "marker-identity", "resume-order", "general-handoff", "closed-range-feedback"];
 const relations = { loading: 5, nested: 7, records: 3, "status-trigger": 1, "canonical-grammar": 1, "repair-records": 1, "append-only": 2, "resume-entry": 1, "repair-rounds": 1, "repair-consultations": 1, "child-fix-title": 2, "child-attribution": 1 };
 const levelCounts = { "publishing-intro": 6, "level-publishing": 22, "publishing-after-merge": 11, "publishing-creation": 39,
- activation: 5, "accepted-history": 14, "cleanup-retention": 2, history: 443, "cleanup-pointer": 1, "private-set": 12,
+ activation: 5, "accepted-history": 14, "cleanup-retention": 2, history: 443, "cleanup-pointer": 1, "private-set": 14,
  "history-owner-pointers": 1, ready: 10, "ready-history": 5, "ready-description": 1, "merge-acceptance": 6,
  "description-scope": 3, "description-record": 3, table: 2, sync: 6, transfer: 13, "disabled-preservation": 3, configuration: 3 };
-const headingCounts = { "identifiers-ranges": 33, "manual-records": 122, "resume-forks": 21, "handoff-pointer": 3,
- "resume-order": 19, "general-handoff": 3, "closed-range-feedback": 17, repairs: 60, aggregate: 21, sources: 70,
+const headingCounts = { "identifiers-ranges": 33, "manual-records": 137, "resume-forks": 21, "handoff-pointer": 3,
+ "resume-order": 19, "general-handoff": 3, "closed-range-feedback": 17, repairs: 60, aggregate: 21, sources: 71,
  "workflow-accounting": 61, "notes-accounting": 22, "publishing-sync": 6, "public-roadmap": 20, "repair-escalation": 45,
  "repair-rounds-owner": 51, "repair-consultations-owner": 26, "child-fix-title-owner": 7, "P13-authoring": 28 };
 const sentenceIds = (counts) => Object.entries(counts).flatMap(([id, count]) => numbered(id, count));
@@ -120,7 +120,7 @@ const escapeKinds = ["extra-scoped-pointer", "ordinary-pointer", "every-change-p
  `name-only-${name}`, ...["delete", "remove", "drop", "discard", "purge", "prune", "erase", "reset", "move", "rename", "force", "overwrite", "replace", "rewrite"]
  .flatMap((verb) => [`verb-first-${verb}-${name}`, `name-first-${verb}-${name}`])])];
 export const EXPECTED_MUTATIONS = {
- "delivery-rules": sentenceIds({ repairs: 60, aggregate: 21, issues: 14, sources: 70, "workflow-accounting": 61,
+ "delivery-rules": sentenceIds({ repairs: 60, aggregate: 21, issues: 14, sources: 71, "workflow-accounting": 61,
  "notes-accounting": 22, "publishing-sync": 6, "public-workflow": 24, "public-roadmap": 20 }),
  transfer: numbered("transfer", 5),
  "sequential-acceptance": ["subtree-merged-before-root-without-marker-distinction", "root-recreates-earlier-subtree-marker", "root-adds-marker-for-every-accepted-subtree"],
@@ -131,7 +131,7 @@ export const EXPECTED_MUTATIONS = {
  mergeability: sentenceIds({ lifecycle: 5, publishing: 5, focus: 5 }),
  "peer-retention": sentenceIds({ nested: 4, common: 4, publishing: 4, delivery: 4, lifecycle: 4 }),
  "peer-escape": combinations(peers, escapeKinds),
- "owner-copies": sentenceIds({ publishing: 455, delivery: 455, lifecycle: 455 }),
+ "owner-copies": sentenceIds({ publishing: 457, delivery: 457, lifecycle: 457 }),
  "peer-pins": [["publishing", 8, 3], ["delivery", 7, 1], ["lifecycle", 13, 4]].flatMap(([id, headings, contexts]) =>
  [0, 1, 2, 3, 4, 5].flatMap((rule) => [...numbered("heading", headings).map((name) => name.replace("/", "-")),
  "end", "new-heading", ...numbered("context", contexts).map((name) => name.replace("/", "-"))].map((position) => `${id}/${rule}/${position}`))),
@@ -141,6 +141,9 @@ export const EXPECTED_MUTATIONS = {
  "heading-policy": Object.entries(headingCounts).flatMap(([id, count]) => combinations([id], ["missing", "duplicate", "empty",
  "empty-duplicate", "closed-heading-duplicate", "peer-truncation", ...[1, 2, 3, 4, 5].map((index) => `higher-truncation-${index}`),
  ...Array.from({ length: count }, (_, index) => `sentence-${index}`)])),
+ "common-guidance": ["worker-supplied-folder-removed", "action-scratch-scope-narrowed", "lasting-file-in-action-folder", "temporary-owner-transfer-rule-removed", "temporary-content-authority", "folder-privacy-or-publishing-weakened"],
+ "worker-guidance": ["worker-change-preamble-removed", "worker-change-preamble-rules-weakened", "reviewer-preamble-extra-write", "worker-delete-before-check", "worker-delete-without-passed-check", "verification-folder-precedence-removed", "verification-folder-retention-overridden", "alternate-payload-destination", "reviewer-owned-diff-exception-removed"],
+ "report-guidance": ["failed-record-check-report-removed"],
  "record-contract": RECORD,
  "named-rules": RECORD.slice(12),
  "record-units": combinations(recordUnits, ["contradiction", "missing", "duplicate"]),
