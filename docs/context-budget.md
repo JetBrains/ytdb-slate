@@ -291,16 +291,16 @@ Its action path adds `/tmp/action.` and six allocator characters.
 
 | Canonical addition | Block bytes | Separator bytes | Complete bytes | Limit |
 | --- | ---: | ---: | ---: | ---: |
-| Open-change record-writing system | 798 | 2 | 800 | 800 |
-| Open-change review system | 323 | 2 | 325 | 350 |
-| No-change record-writing system | 152 | 2 | 154 | 180 |
+| Open-change record-writing system | 797 | 2 | 799 | 800 |
+| Open-change review system | 311 | 2 | 313 | 350 |
+| No-change record-writing system | 149 | 2 | 151 | 180 |
 | No-change review system | 293 | 2 | 295 | 300 |
-| Open-change task suffix | 162 | 2 | 164 | 180 |
-| No-change task suffix | 0 | 0 | 0 | 0 |
+| Open-change hidden action message | 162 | 0 | 162 | 180 |
+| No-change hidden action message | 0 | 0 | 0 | 0 |
 
-The suffix includes both final line feeds. System blocks have no final line feed.
-Open-change record-writing system totals are 1,344 or 1,897 bytes without or with writing guidance.
-Open-change review system totals are 3,024 or 3,577 bytes without or with writing guidance.
+The message includes both final line feeds. System blocks have no final line feed.
+Open-change record-writing system totals are 1,343 or 1,896 bytes without or with writing guidance.
+Open-change review system totals are 3,012 or 3,565 bytes without or with writing guidance.
 These totals exclude selected review guidance, prompt documents, base Pi text, and provider framing.
 
 The parent-session cache key stays unchanged.
@@ -308,8 +308,11 @@ System blocks vary by change and type group, never by action.
 Otherwise matching inputs share a system prefix within that group and change.
 Across changes, the shared prefix ends before the changed folder name.
 
-The action path appears only in the task suffix, not in generated episode fields or compressor input.
-Compaction preserves the change-level system block but can lose the task's action path.
+Slate delivers the action path only in its generated hidden action message.
+Compression input excludes that message.
+Slate keeps the path out of system guidance and generated episode fields.
+Worker messages, tool results, and compaction summaries can still quote the path.
+Compaction preserves the change-level system block but can lose the hidden action message.
 A worker without that path pauses destination-dependent writes.
 
 Scratch placement excepts required outside-checkout tool folders under their own rules.
