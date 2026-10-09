@@ -309,13 +309,13 @@ test("folder grammar rejects malformed, calendar-invalid, traversal and runtime 
 });
 
 const reportMethodGroups = [
-  ["destination", ["Write no other file under `slate-changes/`."]],
+  ["destination", ["Under `slate-changes/`, write only this report and assigned temporary files."]],
   ["start copy", [
-    "Before its first report write in each action, the implementer copies the report to a temporary file outside `slate-changes/`.",
+    "Before its first report write in each action, the implementer copies the report to a temporary file.",
     "For a new report, that copy is an empty file.",
   ]],
   ["append", [
-    "The implementer writes each new text to its own temporary file outside `slate-changes/`.",
+    "The implementer writes each new text to its own temporary file.",
     "It creates a new report by appending its first temporary file with `>>`.",
     "It appends each temporary file to the report with `>>`.",
   ]],
@@ -323,7 +323,7 @@ const reportMethodGroups = [
     "After its last write, the implementer checks the whole report once with `cat` and `cmp`.",
     "The report must equal the start copy followed by every appended temporary file in order.",
   ]],
-  ["report", ["The implementer reports the check in its final response with the report path, what it compared, and the result."]],
+  ["report", ["In the final response, report the check with the report path, comparison, and result.", "Report a failed record check as a failure."]],
 ] as const;
 
 function assertReportMethod(task: string) {

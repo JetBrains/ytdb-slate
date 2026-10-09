@@ -25,6 +25,7 @@ import { createLogicalRuntime } from "../extension/logical-model-runtime.ts";
 import { SlateStore } from "../extension/state.ts";
 import { ThreadManager } from "../extension/threads.ts";
 import { registerSlateTools } from "../extension/tools.ts";
+import { changeGuidance } from "../extension/worker.ts";
 
 function deferred(): { promise: Promise<void>; resolve(): void } {
 	let resolvePromise!: () => void;
@@ -389,6 +390,7 @@ interface MatrixState {
 	fallbackCalls: number;
 	otherCalls: number;
 	compactionCalls: number;
+	systemCaptures?: string[];
 	compactionHistoryCalls: number;
 	compactionTurnPrefixCalls: number;
 	compactionEvents?: Array<{ phase: "start" | "success"; reason: string; willRetry: boolean }>;
@@ -469,6 +471,11 @@ function matrixProvider(state: MatrixState, provider: string, id: string) {
 		else if (provider === "matrix-fallback") state.fallbackCalls++;
 		else state.otherCalls++;
 		const summarizing = options?.cacheRetention === "none";
+		if (!summarizing && state.systemCaptures) {
+			const messages = (_context as { messages: Array<{ role: string; content: unknown; sections?: Record<string, string | null> }> }).messages;
+			const systems = messages.filter((message) => message.role === "system");
+			state.systemCaptures.push(systems.map((message) => extractContextText({ messages: [message] }) + Object.values(message.sections ?? {}).filter((text) => text !== null).join("\n\n")).join("\n\n"));
+		}
 		let summaryKind: "history" | "turn-prefix" | undefined;
 		if (summarizing) {
 			state.compactionCalls++;
@@ -711,6 +718,7 @@ async function runWorkerRequestMatrixScenario(scenario: MatrixScenario) {
 	const cancelController = new AbortController();
 	const state: MatrixState = {
 		scenario,
+		...(scenario === "compaction" ? { systemCaptures: [] } : {}),
 		compactionEvents: [],
 		startupRunEnded: false,
 		startupRequestSettled: false,
@@ -970,6 +978,10 @@ export default function (pi: ExtensionAPI) {
 		const store = new SlateStore({
 			appendEntry(_customType: string, data: unknown) { snapshots.push(structuredClone(data)); },
 		} as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);
+		if (scenario === "compaction") {
+			store.currentChange = "change-20261008T000000Z-" + "0".repeat(32);
+			mkdirSync(join(project, "slate-changes", store.currentChange), { recursive: true });
+		}
 		manager = new ThreadManager(
 			store,
 			{},
@@ -1254,6 +1266,13 @@ test("production ThreadManager and real Pi workers guard preflight, later-turn, 
 		assert.match(transcript, /\"type\":\"compaction\"/);
 		assert.match(transcript, /matrix history summary/);
 		assert.match(transcript, /matrix turn prefix summary/);
+		const block = changeGuidance("change-20261008T000000Z-" + "0".repeat(32), false);
+		assert.equal(state.systemCaptures?.length, 3, "initial, overflow, and refreshed continuation requests are captured");
+		for (const system of state.systemCaptures ?? []) {
+			assert.equal(system.split(block).length, 2, "the exact change block reaches actual provider system messages once");
+			assert.doesNotMatch(system, /\/tmp\/action\./);
+		}
+		assert.match(transcript, /Action temporary folder: .*\/tmp\/action\./);
 		assert.equal(result.episode.model, "matrix-primary/primary");
 		assert.equal(result.episode.effort, "max");
 		// T8: the ordinary successful outcome and its successful format are unchanged,

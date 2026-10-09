@@ -2944,7 +2944,7 @@ review, track-packet, user-note, blocking track-acceptance, final-acceptance,
 or finding-disposition requirements. Retain the current change folder's
 research log and every implementer report through and after delivery. Only
 the user may delete the change folder.
-Manual records and leftover record temporary files never enter a pull request.`),
+Every path under \`slate-changes/\` stays outside pull requests, including \`tmp/\` and leftover action files.`),
 				},
 				{
 					id: "publishing-after-merge",
@@ -3346,7 +3346,7 @@ A mismatch pauses work. Reconcile it in the log. Use marker commits and Git
 history as boundary authority. The track table is display-only.`);
 			const recursiveRecordUnits = [
 				{ id: "identifiers-ranges", source: commonRecords, start: "## Identifiers, code ranges, and design markers", extract: headingUnit("## Identifiers, code ranges, and design markers"), expected: "06a2a0822448a5112173b65c04826364d3a3094f7930ba98ecd7f17300e19ed8" },
-				{ id: "tool-records-and-recovery", source: commonRecords, start: "## Manual records and safe writes", extract: headingUnit("## Manual records and safe writes"), expected: "12e295235aae2fc57ec1dac7ef2d12ebfeac10f293cee4116283f8294a3f28c9" },
+				{ id: "tool-records-and-recovery", source: commonRecords, start: "## Manual records and safe writes", extract: headingUnit("## Manual records and safe writes"), expected: "8ec25b74e709c2f8a72556947aecee40f0cff2f38947976e9609c0e2436b47e0" },
 				{ id: "resume-forks", source: recursive, start: "## Resume and folder forks", extract: headingUnit("## Resume and folder forks"), expected: "0bf3c8bcc7b36ee0dd8a5a6fd514b73f5e19b5514f5a3a1711034ac2b051729e" },
 				{ id: "handoff-pointer", source: recursive, start: "## Handoff boundaries", extract: headingUnit("## Handoff boundaries"), expected: "fc5ca34c11f5f1defb5989c10af42cbac9af901c102dc18c6c8d1b55a98cd52f" },
 				{ id: "marker-identity", source: workflow, extract: markedUnit("marker-identity-policy"), expected: "ae24e23298695b323c803f31515c87ee8de5777cd0b0a13dba90d747c9df4308" },
@@ -3368,10 +3368,14 @@ history as boundary authority. The track table is display-only.`);
 					{ id: unit.id, kind: "duplicate", changed: true, rejected: !acceptsRecordUnit(unit, `${unit.source}\n${unit.source}`) },
 				];
 			});
+			// The 3.3.5.2 boundary freezes directWriteBlock, common G-TMP text,
+			// placement attacks, system blocks, task suffix, report guidance and figures.
+			// 3.3.5.3 owns review-common-policy.md, all twelve reviewer totals,
+			// review-rules.md input amendments and RG9 common-text mutations.
 			// Independent reviewed pins protect the common owner.
 			const commonUnits = [
 				{ id: "identifiers", start: "## Identifiers, code ranges, and design markers", expected: "06a2a0822448a5112173b65c04826364d3a3094f7930ba98ecd7f17300e19ed8" },
-				{ id: "records", start: "## Manual records and safe writes", expected: "12e295235aae2fc57ec1dac7ef2d12ebfeac10f293cee4116283f8294a3f28c9" },
+				{ id: "records", start: "## Manual records and safe writes", expected: "8ec25b74e709c2f8a72556947aecee40f0cff2f38947976e9609c0e2436b47e0" },
 			];
 			const acceptsCommon = (source) => commonUnits.every(({ start, expected }) => {
 				const region = headingUnit(start)(source);
@@ -3379,7 +3383,7 @@ history as boundary authority. The track table is display-only.`);
 			});
 			const privacyHeading = "### Design authority and privacy";
 			const commonHeadings = [...commonUnits.map(({ start }) => start), privacyHeading];
-			const completeCommonDigest = "3199117504b26ca37d6ae94cefac484ef9cd2d049c514b293da782b68012e3a3";
+			const completeCommonDigest = "e5254e60acf82c0d96dc896b796839c0ed6ca8d75cbf361ca59a37ca8b9a9e50";
 			const acceptsCompleteCommon = (source) => createHash("sha256").update(source).digest("hex") === completeCommonDigest;
 			const completeCommonAttacks = [
 				["title", commonRecords.replace("# Common change records", "# Nested change records")],
@@ -3521,13 +3525,13 @@ Use [change-records.md](change-records.md) § Design authority and privacy.`) },
 				["record-only-task-record-names-removed", "The orchestrator names the records in the worker's task."],
 				["record-only-task-assigned-method-removed", "Each record-only task states the write and check method of these rules for each assigned record."],
 				["record-only-task-source-rule-removed", "When a source folder exists, the task states the read-only source rule."],
-				["start-copy-removed", "the worker copies the record to a temporary file outside `slate-changes/`."],
-				["start-copy-location-inside-records", "copies the record to a temporary file outside `slate-changes/`"],
+				["start-copy-removed", "the worker copies the record to a temporary file in its supplied action folder."],
+				["start-copy-location-inside-records", "copies the record to a temporary file in its supplied action folder"],
 				["start-copy-after-first-write", "Before its first write to a record in an action,"],
 				["new-record-empty-start-copy-removed", "For a record that does not exist yet, that copy is an empty file."],
-				["new-text-temporary-file-removed", "The worker writes each new text to its own temporary file outside `slate-changes/` before it writes the record."],
+				["new-text-temporary-file-removed", "The worker writes each new text to its own temporary file in its supplied action folder before it writes the record."],
 				["new-text-temporary-file-shared", "each new text to its own temporary file"],
-				["new-text-temporary-file-inside-records", "writes each new text to its own temporary file outside `slate-changes/`"],
+				["new-text-temporary-file-inside-records", "writes each new text to its own temporary file in its supplied action folder"],
 				["new-text-temporary-file-after-write", "before it writes the record."],
 				["new-log-first-temporary-append-removed", "A worker creates a new log or report by appending its first temporary file with `>>`."],
 				["new-report-first-temporary-append-removed", "A worker creates a new log or report by appending its first temporary file with `>>`."],
@@ -3607,13 +3611,13 @@ Use [change-records.md](change-records.md) § Design authority and privacy.`) },
 				["record-only-task-record-names-removed", recursive.replace("The orchestrator names the records in the worker's task.", "")],
 				["record-only-task-assigned-method-removed", recursive.replace("Each record-only task states the write and check method of these rules for each assigned record.", "Each record-only task states the method for only one assigned record.")],
 				["record-only-task-source-rule-removed", recursive.replace("When a source folder exists, the task states the read-only source rule.", "")],
-				["start-copy-removed", recursive.replace("the worker copies the record to a temporary file outside `slate-changes/`.", "the worker makes no start copy.")],
-				["start-copy-location-inside-records", recursive.replace("copies the record to a temporary file outside `slate-changes/`", "copies the record to a temporary file inside `slate-changes/`")],
+				["start-copy-removed", recursive.replace("the worker copies the record to a temporary file in its supplied action folder.", "the worker makes no start copy.")],
+				["start-copy-location-inside-records", recursive.replace("copies the record to a temporary file in its supplied action folder", "copies the record to a temporary file beside retained records, outside its action folder")],
 				["start-copy-after-first-write", recursive.replace("Before its first write to a record in an action,", "After its first write to a record in an action,")],
 				["new-record-empty-start-copy-removed", recursive.replace("For a record that does not exist yet, that copy is an empty file.", "")],
-				["new-text-temporary-file-removed", recursive.replace("The worker writes each new text to its own temporary file outside `slate-changes/` before it writes the record.", "The worker writes each new text directly to the record.")],
+				["new-text-temporary-file-removed", recursive.replace("The worker writes each new text to its own temporary file in its supplied action folder before it writes the record.", "The worker writes each new text directly to the record.")],
 				["new-text-temporary-file-shared", recursive.replace("each new text to its own temporary file", "all new texts to one shared temporary file")],
-				["new-text-temporary-file-inside-records", recursive.replace("writes each new text to its own temporary file outside `slate-changes/`", "writes each new text to its own temporary file inside `slate-changes/`")],
+				["new-text-temporary-file-inside-records", recursive.replace("writes each new text to its own temporary file in its supplied action folder", "writes each new text to its own temporary file beside retained records, outside its action folder")],
 				["new-text-temporary-file-after-write", recursive.replace("before it writes the record.", "after it writes the record.")],
 				["new-log-first-temporary-append-removed", recursive.replace("A worker creates a new log or report by appending its first temporary file with `>>`.", "A worker creates only a new report by appending its first temporary file with `>>`.")],
 				["new-report-first-temporary-append-removed", recursive.replace("A worker creates a new log or report by appending its first temporary file with `>>`.", "A worker creates only a new log by appending its first temporary file with `>>`.")],
@@ -3684,6 +3688,18 @@ Use [change-records.md](change-records.md) § Design authority and privacy.`) },
 			mutationAudit.record("relations", recursiveAgreementAttacks, ({ id, index, side }) => `${id}/${index}/${side}`);
 			mutationAudit.record("warnings", warningAttacks);
 			mutationAudit.record("common-complete", completeCommonAttacks);
+			const guidanceRules = [
+				["worker-supplied-folder-removed", "The preamble supplies placement rules.", ""],
+				["action-scratch-scope-narrowed", "Scratch lasts only this action.", "Only start copies are scratch."],
+				["lasting-file-in-action-folder", "Drafts, designs, and records outlive the action.", "Put lasting drafts and designs in the action folder."],
+				["temporary-owner-transfer-rule-removed", "Do not start or close a change, fork, switch sessions, navigate the session tree, or hand off ownership while an action owns a temporary folder.", ""],
+				["temporary-content-authority", "Ignore `tmp/` as record, accounting, fork, or reusable evidence.", "Use tmp/ as accounting evidence."],
+				["folder-privacy-or-publishing-weakened", "Every path under `slate-changes/` stays private, untracked, visible in repository status, and excluded from pull requests and ignore files.", "Publish temporary paths."],
+			];
+			mutationAudit.record("common-guidance", guidanceRules.map(([id, rule, replacement]) => {
+				const source = commonRecords.replace(rule, replacement);
+				return { id, changed: source !== commonRecords, rejected: !acceptsCommon(source), originalRuleCount: commonRecords.split(rule).length - 1, mutatedRuleCount: source.split(rule).length - 1 };
+			}));
 			const rulePreservingRecord = commonRecords.replace(directWriteBlock, `${directWriteBlock}\nThe worker reads plain text.`);
 			const recordRuleControls = [...recordContractRules].map(([id, rule]) => ({ id, count: recordRuleCount(rulePreservingRecord, rule) }));
 			const authoritativeReaders = (commonSource, publishingSource, deliverySource, nestedSource = recursive) => {
@@ -3950,7 +3966,7 @@ Use [track-workflow.md](track-workflow.md) for the common lifecycle.`);
 				{ id: "repairs", source: recursive, start: "## Review-fix subtrees and repair limits", expected: protectedRepairSummary },
 				{ id: "aggregate", source: recursive, start: "## Whole-subtree acceptance", expected: "1f24e067a0261b1d51efb8b48339cf249837f82cf130bbfabbcbf8ee4970c616" },
 				{ id: "issues", source: recursive, start: "## Packages, attribution, and issues", end: null, expected: "895b87ee7afdda0d4d85e071c978727e0cf962f9af42e68c534c022ac010a5a3" },
-				{ id: "sources", source: deliveryPackages, start: "## Durable accounting", expected: "0290011f87f851339953c34ee14f7ae286adf1a53485db60ac6f168781c2c7d1" },
+				{ id: "sources", source: deliveryPackages, start: "## Durable accounting", expected: "1c88b7de207fe30c6c7edbebe5bd97d66c70b15aafdbb671d64dd84667d55cd3" },
 				{ id: "workflow-accounting", source: workflow, start: "### Delivery history and accounting", expected: "f3b0ab0c04dc351736f3b3ffd5f15af737d2e31fb4965d01f82415fa6527ac10" },
 				{ id: "notes-accounting", source: userNotes, start: "### Final accounting preparation", expected: "27a19ef36cc0fc14fbd2c14fc1699d6d3ddeadfe8a284f2d85ab76481faaa352" },
 				{ id: "publishing-sync", source: publishing, start: "## Keeping the PR in sync", expected: "fb386e6f14c2f051a842cd050cc4e2834dea5e2674853cc22794792cd4c1a7cc" },
@@ -4610,6 +4626,8 @@ history rewrites, rebased-marker mappings, range updates, and unavailable histor
 				{
 					id: "private-set", source: commonRecords, extract: headingUnit("### Design authority and privacy"),
 					expected: normalizeText(`The **private set** contains every path under \`slate-changes/\`, saved-session text, and private reasoning.
+Umask limits private creation permissions.
+Same-user processes can still access folders.
 **Private bytes** are bytes from that set.
 A write approves no design and grants no completion or gate authority.
 The owning log records approved design hashes.
@@ -5156,9 +5174,9 @@ A stale description fails the "deep enough" test.`),
 			// Whitespace-only reflow passes because normalizeText collapses whitespace.
 			// HTML comments count. The word layer is best-effort during refresh review.
 			// Known word-layer escapes include "retention branches" and "branches kept for retention".
-			const EXPECTED_PUBLISHING_SHA256 = "83c6f712aa99ab5f9b6d9ef5e71dc41262474ff7abfd20d067d9983c34dbaccc";
-			const EXPECTED_TRACK_WORKFLOW_SHA256 = "50021a5b115e06500cdd9b8d596847cddc391b8e31cb1b69c682e708f5a7b539";
-			const EXPECTED_DELIVERY_PACKAGES_SHA256 = "4068a068778e12f54cd096daa9ea28f68ca69b4c4d0ab03a7789da828c7b08e8";
+			const EXPECTED_PUBLISHING_SHA256 = "689fa7f59aa8fd4a7809a726745431c2275ce82fa42d69aeeffa5cf6ebd5e557";
+			const EXPECTED_TRACK_WORKFLOW_SHA256 = "d1dd674297f63a929e0105c0e43d130223e8069a657493d207674d82c7cedee1";
+			const EXPECTED_DELIVERY_PACKAGES_SHA256 = "97e5e052918072a6a4d0f6c11a1154dc21ae9b618b53186ac6e48580ae4a3ec6";
 			const peerRetentionOwners = [
 				{ id: "nested", source: recursive, units: [historyUnit] },
 				{ id: "common", source: commonRecords, units: [privateSetUnit] },
@@ -5323,7 +5341,7 @@ A later track builds on the accepted boundary before it.`),
 			]);
 			const benignOrderingDocuments = Object.fromEntries(Object.entries(orderingDocuments).map(([id, source]) => [id, `${source}\n<!-- Outside ordering control. -->\n`]));
 			checkAll("contract-level-publishing", "level membership, dependency order, pauses, local retention, approval, delivery, cleanup, rebase mappings, unavailable evidence, and publishing defaults have owned rules and reviewed peer-document pins", [
-				["reviewed peer-document pins reject unreviewed additions while scoped pointers and the word layer discriminate known copies", peerRetentionOwners.every((owner) => !peerPinFailure(owner, owner.source) && acceptsPeerRetention(owner, owner.source)) && pinnedPeerOwners.length === 3 && peerPinRules.length === 6 && peerPinAttacks.length === 252 && peerPinAttacks.every(({ changed, rejected }) => changed && rejected) && reviewedBranchControls.length === 5 && reviewedBranchControls.every(({ changed, accepted }) => changed && accepted) && wordLayerControls.length === 3 && wordLayerControls.every(({ rejected }) => rejected) && peerOutsideControls.every(({ accepted }) => accepted) && peerPlacementNames.length === 7 && peerPlacementVerbs.length === 14 && peerEscapeAttacks.length === 687 && ownerSentenceCopies.length === 1365 && [...peerRetentionAttacks, ...peerEscapeAttacks, ...ownerSentenceCopies, ...pointerAttacks].every(({ changed, rejected }) => changed && rejected), { baseline: peerRetentionOwners.map((owner) => [owner.id, peerPinFailure(owner, owner.source), peerRetentionFailure(owner, owner.source)]), peerPinAttacks: peerPinAttacks.filter(({ changed, rejected }) => !changed || !rejected), reviewedBranchControls, wordLayerControls, peerOutsideControls, peerRetentionAttacks, peerEscapeAttacks, ownerSentenceCopies: ownerSentenceCopies.filter(({ changed, rejected }) => !changed || !rejected), pointerAttacks }],
+				["reviewed peer-document pins reject unreviewed additions while scoped pointers and the word layer discriminate known copies", peerRetentionOwners.every((owner) => !peerPinFailure(owner, owner.source) && acceptsPeerRetention(owner, owner.source)) && pinnedPeerOwners.length === 3 && peerPinRules.length === 6 && peerPinAttacks.length === 252 && peerPinAttacks.every(({ changed, rejected }) => changed && rejected) && reviewedBranchControls.length === 5 && reviewedBranchControls.every(({ changed, accepted }) => changed && accepted) && wordLayerControls.length === 3 && wordLayerControls.every(({ rejected }) => rejected) && peerOutsideControls.every(({ accepted }) => accepted) && peerPlacementNames.length === 7 && peerPlacementVerbs.length === 14 && peerEscapeAttacks.length === 687 && ownerSentenceCopies.length === 1371 && [...peerRetentionAttacks, ...peerEscapeAttacks, ...ownerSentenceCopies, ...pointerAttacks].every(({ changed, rejected }) => changed && rejected), { baseline: peerRetentionOwners.map((owner) => [owner.id, peerPinFailure(owner, owner.source), peerRetentionFailure(owner, owner.source)]), peerPinAttacks: peerPinAttacks.filter(({ changed, rejected }) => !changed || !rejected), reviewedBranchControls, wordLayerControls, peerOutsideControls, peerRetentionAttacks, peerEscapeAttacks, ownerSentenceCopies: ownerSentenceCopies.filter(({ changed, rejected }) => !changed || !rejected), pointerAttacks }],
 				["closed-folder routes and post-close exceptions fail, including a request with all former folder checks", acceptsCleanupRoutes(recursive) && forbiddenCleanupMutations.length === 5 && wrappedForbiddenCleanupMutations.length === 16 && [...forbiddenCleanupMutations, ...wrappedForbiddenCleanupMutations].every(({ changed, rejected }) => changed && rejected), { forbiddenCleanupMutations, wrappedForbiddenCleanupMutations }],
 				["restored cleanup safety sentences have independent expectations and removal mutations", restoredCleanupSentences.length === 11 && restoredCleanupSentences.every(([id, rule]) => historyUnit.expected.includes(rule) && cleanupMutations.some((mutation) => mutation.id === `restored-${id}` && mutation.changed && mutation.rejected)), restoredCleanupSentences],
 				["recorded authorized deletions have independent exclusions, absence checks, and removal mutations", recordedDeletionSentences.length === 10 && recordedDeletionSentences.every(([id, rule]) => historyUnit.expected.includes(rule) && cleanupMutations.some((mutation) => mutation.id === `deleted-${id}` && mutation.changed && mutation.rejected)), recordedDeletionSentences],
@@ -5339,8 +5357,8 @@ A later track builds on the accepted boundary before it.`),
 				["wrapped inspection passes and keeps all named mutations discriminating", wrappedRetention !== recursive && acceptsLevelUnit(historyUnit, wrappedRetention) && wrappedRetentionMutations.every(({ changed, rejected, retained }) => changed && rejected && retained), wrappedRetentionMutations],
 				["the inspection pointer reaches the unique common privacy subsection", acceptsInspectionDestination(recursive, commonRecords), inspectionDestination(recursive, commonRecords).count],
 				["every unit matches its independent expectation", levelPolicyUnits.every((unit) => acceptsLevelUnit(unit, unit.source)), levelPolicyUnits.filter((unit) => !acceptsLevelUnit(unit, unit.source)).map(({ id }) => id)],
-				["every rule mutation changes input and fails", levelRuleMutations.length === 611 && levelRuleMutations.every(({ changed, rejected }) => changed && rejected), levelRuleMutations],
-				["every safety sentence removal changes its owned input and fails", safetySentenceRemovals.length === 688 && safetySentenceRemovals.filter(({ id }) => id === "history").length === 443 && !safetySentenceRemovals.some(({ id }) => id === "cleanup-writes") && safetySentenceRemovals.every(({ changed, rejected }) => changed && rejected), safetySentenceRemovals],
+				["every rule mutation changes input and fails", levelRuleMutations.length === 613 && levelRuleMutations.every(({ changed, rejected }) => changed && rejected), levelRuleMutations],
+				["every safety sentence removal changes its owned input and fails", safetySentenceRemovals.length === 690 && safetySentenceRemovals.filter(({ id }) => id === "history").length === 443 && !safetySentenceRemovals.some(({ id }) => id === "cleanup-writes") && safetySentenceRemovals.every(({ changed, rejected }) => changed && rejected), safetySentenceRemovals],
 				["ordering, pause reconciliation, and local retention agree across all four documents", agreesOnOrderAndLocalRetention(), "complete independent history, planning, resume, roadmap, and publishing expectations"],
 				["unsafe pauses, conflicting bases, missing scope or events, and ordinary duties in either publishing setting fail", orderAndRetentionMutations.every(({ changed, rejected }) => changed && rejected), orderAndRetentionMutations],
 				["moving an intact event sentence outside the marker fails", eventMoveRejected(orderingDocuments), "event remains present beyond the protected marker"],
@@ -5992,7 +6010,7 @@ Record each grant in the override log.`),
 			const reportRule = regionUnit(/^For each code track, the implementer creates\n([\s\S]*?)(?=^Tracks are contiguous)/gm);
 			const forkRule = regionUnit(/^Use a safe write method\. ([\s\S]*?)(?=^### Handoff summary\n)/gm);
 			const expectedReportRule = normalizeText(`\`track-<number>-implementer-report.md\` in the current change folder when the track starts. The dispatch gives the exact path. The report is untracked working material. After a session with a different identifier takes ownership, create a report in the new change folder. If the source folder has this track's report, name it as read-only in the new report's first entry. Continue the work in the new report. The report has four required sections: changes to the high-level design with the reason for each, the low-level design, diagrams where they help, and checks run with their results. The report states the approximate track size in counted lines. Later fix rounds append to that report in the current change folder.`);
-			const expectedForkRule = normalizeText(`Follow the direct-write and retry rules for change records, including implementer reports. Use [change-records.md](change-records.md) § Manual records and safe writes for write methods, record checks, and inspection before retries. Research logs and implementer reports are append-only. A correction is a new entry. Slate checks the folder chain when it creates the change. Keep all manual records and leftover temporary files untracked and visible in repository status. Do not add them to an ignore file or a pull request. Exclude their references and contents from reviewer inputs. Never overwrite a record from a stale in-memory copy. When a session adopts a change owned by a different Pi session identifier, Slate starts a new folder. Its log first names the direct source folder as a read-only earlier log. Each source log's first entry links to its own source. Follow those links to read the full history. The source remains in place without copying. A resume or reload with the same identifier continues the current folder. A /tree move to parent history with a different owner creates a new folder on reload. A handoff makes the successor the owner of the current folder. If folder allocation fails, Slate saves no open change and reports the failure. If that save fails, Slate reports it too. A legacy root \`research-log.md\` remains read-only. Only the user deletes a delivered or abandoned change folder.`);
+			const expectedForkRule = normalizeText(`Follow the direct-write and retry rules for change records, including implementer reports. Use [change-records.md](change-records.md) § Manual records and safe writes for write methods, record checks, and inspection before retries. Research logs and implementer reports are append-only. A correction is a new entry. Slate checks the folder chain when it creates the change. Keep all manual records and leftover temporary files untracked and visible in repository status. Do not add them to an ignore file or a pull request. Exclude their references and contents from reviewer inputs. Use the common record rules for supplied action folders and temporary-reader exclusions. Never overwrite a record from a stale in-memory copy. When a session adopts a change owned by a different Pi session identifier, Slate starts a new folder. Its log first names the direct source folder as a read-only earlier log. Each source log's first entry links to its own source. Follow those links to read the full history. The source remains in place without copying. A resume or reload with the same identifier continues the current folder. A /tree move to parent history with a different owner creates a new folder on reload. A handoff makes the successor the owner of the current folder. If folder allocation fails, Slate saves no open change and reports the failure. If that save fails, Slate reports it too. A legacy root \`research-log.md\` remains read-only. Only the user deletes a delivered or abandoned change folder.`);
 			const acceptsLateRules = (source) => {
 				const report = reportRule(source);
 				const fork = forkRule(source);
@@ -6494,14 +6512,39 @@ The accounting covers:`),
 				["a reminder miss uses the exact warning channel and remains non-fatal", /routeWarn\(\s*["']slate: a worker tool result reached the reminder handler, but the reminder is missing\. Review the worker transcript before you rely on the result\.["']\s*\)\s*;\s*emit\(false\)/.test(reminderDispatchBlock), reminderDispatchBlock],
 			]);
 
+			const canonicalChange = "change-20261008T000000Z-" + "0".repeat(32);
+			const recordBlock = `Change folder: slate-changes/${canonicalChange}\nPut assigned drafts, designs, records, and other lasting files in the change folder under safe-write rules.\nPut scratch files in the task's action folder, except for required outside-checkout folders.\nA project rule or verification tool requiring an outside-checkout folder takes precedence.\nThe tool keeps its own private folder under its own deletion and retention rules.\nThis exception gives no alternate destination for start copies or payloads.\nFor your record-write files:\nDelete your files after your record check passes.\nFor scratch files without a record:\nDelete your scratch files before you finish.\nIf the task names no action folder, create no scratch file in the checkout and pause any record write.`;
+			const reviewBlock = `Change folder: slate-changes/${canonicalChange}\nWrite only your own writing-checker diff in the action folder named in the task. Write nothing else.\nDelete the diff before finishing.\nIf the task names no action folder, create no scratch file in the checkout and pause the checker diff.`;
+			const noRecordBlock = "No change is open. Do not write workflow records.\nIf the task names no action folder, create no scratch file in the checkout and pause any record write.";
+			const noReviewBlock = "No change is open. Do not write workflow records.\nA no-change review is outside the workflow temporary-file rule. Write only your own writing-checker diff in a private operating-system temporary folder outside the checkout.\nDelete the diff and its private folder after use. Write nothing else.";
+			const guidanceStates = [[canonicalChange, false, recordBlock, 800, 800], [canonicalChange, true, reviewBlock, 325, 350], [undefined, false, noRecordBlock, 154, 180], [undefined, true, noReviewBlock, 295, 300]];
+			const preambleMutations = [
+				["worker-change-preamble-removed", recordBlock, recordBlock.split("\n").slice(1).join("\n"), recordBlock.split("\n")[0]],
+				["worker-change-preamble-rules-weakened", recordBlock, recordBlock.replace("in the change folder under safe-write rules", "in the action folder"), "in the change folder under safe-write rules"],
+				["reviewer-preamble-extra-write", reviewBlock, reviewBlock.replace("Write nothing else.", "Write records too."), "Write nothing else."],
+				...["worker-delete-before-check", "worker-delete-without-passed-check"].map((id) => [id, recordBlock, recordBlock.replace("Delete your files after your record check passes.", id === "worker-delete-before-check" ? "Delete your files before your record check." : "Delete your scratch files before finishing unless a record check failed."), "Delete your files after your record check passes."]),
+				["verification-folder-precedence-removed", recordBlock, recordBlock.replace("A project rule or verification tool requiring an outside-checkout folder takes precedence.", "Use only the action folder."), "A project rule or verification tool requiring an outside-checkout folder takes precedence."],
+				["verification-folder-retention-overridden", recordBlock, recordBlock.replace("under its own deletion and retention rules", "under the action deletion rule"), "under its own deletion and retention rules"],
+				["alternate-payload-destination", recordBlock, recordBlock.replace("This exception gives no alternate destination for start copies or payloads.", "Put payloads outside the checkout."), "This exception gives no alternate destination for start copies or payloads."],
+				["reviewer-owned-diff-exception-removed", reviewBlock, reviewBlock.replace("Write only your own writing-checker diff", "Write no writing-checker diff"), "Write only your own writing-checker diff"],
+			];
+			mutationAudit.record("worker-guidance", preambleMutations.map(([id, original, source, rule]) => ({ id, changed: source !== original, rejected: !guidanceStates.some(([, , expected]) => source === expected), originalRuleCount: original.split(rule).length - 1, mutatedRuleCount: source.split(rule).length - 1 })));
+			const reportRule = '"Report a failed record check as a failure."';
+			const reportSource = readFileSync(join(REPO, "extension", "tools.ts"), "utf8");
+			const reportMutation = reportSource.replace(reportRule, '""');
+			mutationAudit.record("report-guidance", [{ id: "failed-record-check-report-removed", changed: reportMutation !== reportSource, rejected: !reportMutation.includes(reportRule), originalRuleCount: reportSource.split(reportRule).length - 1, mutatedRuleCount: reportMutation.split(reportRule).length - 1 }]);
+			const folderBudget = readFileSync(join(REPO, "docs", "context-budget.md"), "utf8");
 			checkAll("worker-preamble", "common worker guidance keeps its exact text, writing guidance is keyed only by trust, and the removed configuration parameter is absent", [
+				["four change guidance states match independent complete expectations and measured limits including separators", guidanceStates.every(([change, review, expected, bytes, limit]) => worker.changeGuidance(change, review) === expected && Buffer.byteLength(worker.changeGuidance(change, review)) + 2 === bytes && bytes <= limit), guidanceStates.map(([change, review]) => Buffer.byteLength(worker.changeGuidance(change, review)) + 2)],
+				["same-group guidance precedes selected instructions and prompt documents without action paths", guidanceStates.every(([change, review, expected]) => JSON.stringify(worker.workerSystemPromptBlocks(true, review, "SELECTED", ["DOC"], worker.changeGuidance(change, review))) === JSON.stringify([worker.workerPreamble(true, review), expected, "SELECTED", "DOC"]) && !expected.includes("/tmp/action.")), guidanceStates],
+				["published system figures match production and keep independent limits", guidanceStates.every(([, review, , bytes, limit], i) => folderBudget.includes(`| ${i < 2 ? "Open-change" : "No-change"} ${review ? "review" : "record-writing"} system | ${bytes - 2} | 2 | ${bytes} | ${limit} |`)), folderBudget.includes("800 | 800")],
 				["untrusted preamble is the 544-byte common text", worker.WORKER_PREAMBLE === commonPreamble && Buffer.byteLength(worker.workerPreamble(false, false)) === 544, worker.workerPreamble(false, false)],
 				["parallel tool guidance appears exactly once across every worker configuration", [worker.workerPreamble(false, false), worker.workerPreamble(true, false), worker.workerPreamble(false, true), worker.workerPreamble(true, true)].every((preamble) => preamble.split(parallelToolRule).length === 2), { base: worker.workerPreamble(false, false), writing: worker.workerPreamble(true, false), reviewer: worker.workerPreamble(false, true), both: worker.workerPreamble(true, true) }],
 				["the two cost-reason sentences appear exactly once across every worker configuration", [worker.workerPreamble(false, false), worker.workerPreamble(true, false), worker.workerPreamble(false, true), worker.workerPreamble(true, true)].every((preamble) => reasonSentences.every((sentence) => preamble.split(sentence).length === 2)), { sentences: reasonSentences, base: worker.workerPreamble(false, false) }],
 				["false trust omits writing guidance with or without the reviewer charter", worker.workerPreamble(false, false) === commonPreamble && !worker.workerPreamble(false, true).includes(currentGuidance), { plain: worker.workerPreamble(false, false), reviewer: worker.workerPreamble(false, true) }],
 				["true trust enables the current 1097-byte preamble with writing guidance", worker.WORKER_WRITING_GUIDANCE === currentGuidance && worker.workerPreamble(true, false) === `${commonPreamble} ${currentGuidance}` && Buffer.byteLength(worker.workerPreamble(true, false)) === 1097, worker.workerPreamble(true, false)],
 				["reviewer variants match the current measured byte boundaries", Buffer.byteLength(worker.workerPreamble(false, true)) === 2699 && Buffer.byteLength(worker.workerPreamble(true, true)) === 3252, { reviewer: Buffer.byteLength(worker.workerPreamble(false, true)), both: Buffer.byteLength(worker.workerPreamble(true, true)) }],
-				["worker prompt uses permitted Slate configuration and passes charter and selected guidance to the system blocks", /const configPermitted = permitsSlateConfig\(opts\.config, trusted\)/.test(workerSource) && /appendSystemPrompt\s*:\s*workerSystemPromptBlocks\(configPermitted\s*,\s*opts\.reviewerCharter\s*===\s*true\s*,\s*opts\.reviewGuidance\s*,\s*promptDocs\)\s*,/.test(workerSource), workerSource.match(/appendSystemPrompt\s*:[^\n]*/)?.[0] ?? "not found"],
+				["worker prompt uses permitted Slate configuration and passes charter and selected guidance to the system blocks", /const configPermitted = permitsSlateConfig\(opts\.config, trusted\)/.test(workerSource) && /appendSystemPrompt\s*:\s*workerSystemPromptBlocks\(configPermitted\s*,\s*opts\.reviewerCharter\s*===\s*true\s*,\s*opts\.reviewGuidance\s*,\s*promptDocs\s*,\s*opts\.changeGuidance\)\s*,/.test(workerSource), workerSource.match(/appendSystemPrompt\s*:[^\n]*/)?.[0] ?? "not found"],
 				["the removed writingCheck parameter and dispatch field are absent", !/writingCheck/.test(workerSource) && !/writingCheck/.test(threadsSource), { worker: workerSource.match(/writingCheck/)?.[0] ?? "absent", threads: threadsSource.match(/writingCheck/)?.[0] ?? "absent" }],
 				["ThreadManager derives the charter switch from effective thread type through the shared judgement-type predicate", /effectiveThreadType\(args\.thread\s*,\s*args\.report\)/.test(threadsSource) && /reviewerCharter\s*:\s*isJudgementThreadType\(type\)/.test(threadsSource) && worker.JUDGEMENT_THREAD_TYPES?.join(",") === "reviewer,adversarial", { typeRead: threadsSource.match(/effectiveThreadType\([^)]*\)/)?.[0] ?? "not found", charter: threadsSource.match(/reviewerCharter\s*:[^,\n]*/)?.[0] ?? "not found", judgementTypes: worker.JUDGEMENT_THREAD_TYPES }],
 				["the dispatch routes an unrecognised-type report through its user-visible warning channel", /report\s*:\s*routeWarn/.test(threadsSource), threadsSource.match(/report\s*:[^,\n]*/)?.[0] ?? "not found"],
@@ -7508,7 +7551,11 @@ The accounting covers:`),
 		const injected = { role: "user", content: "loaded episode text" };
 		const assistant = { role: "assistant", content: "result" };
 		const compacted = { role: "compactionSummary", content: "summary" };
+		const suffix = threads.actionTemporarySuffix("slate-changes/change-20261008T000000Z-" + "0".repeat(32) + "/tmp/action.aaaaaa");
+		const expectedSuffix = "\n\nAction temporary folder: slate-changes/change-20261008T000000Z-" + "0".repeat(32) + "/tmp/action.aaaaaa\nFollow the folder rules in the worker preamble.\n";
 		checkAll("worker-reminder-compression", "episode compression removes every worker reminder while preserving unrelated custom messages and exact prompt filtering", [
+			["canonical suffix matches independent bytes including every line feed and stays under 180", suffix === expectedSuffix && Buffer.byteLength(suffix) === 164 && Buffer.byteLength(suffix) <= 180, suffix],
+			["suffix exclusion removes only the first exact user prompt and preserves failure evidence", (() => { const user = { role: "user", content: "task" + suffix }, tool = { role: "toolResult", content: suffix }, failed = { role: "assistant", stopReason: "error", content: suffix }; return JSON.stringify(threads.messagesForCompression([user, tool, failed, user], "task" + suffix)) === JSON.stringify([tool, failed, user]); })(), "exact user prompt only"],
 			["all reminder copies are removed without an injected prompt", JSON.stringify(threads.messagesForCompression([reminderMessage, assistant, reminderMessage, otherCustom])) === JSON.stringify([assistant, otherCustom]), threads.messagesForCompression([reminderMessage, assistant, reminderMessage, otherCustom])],
 			["all reminder copies and one exact injected prompt are removed together", JSON.stringify(threads.messagesForCompression([compacted, reminderMessage, injected, assistant, reminderMessage, otherCustom], "loaded episode text")) === JSON.stringify([compacted, assistant, otherCustom]), threads.messagesForCompression([compacted, reminderMessage, injected, assistant, reminderMessage, otherCustom], "loaded episode text")],
 			["an unrelated custom type is retained", threads.messagesForCompression([otherCustom, reminderMessage])[0] === otherCustom, threads.messagesForCompression([otherCustom, reminderMessage])],

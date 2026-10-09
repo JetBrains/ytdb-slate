@@ -9,6 +9,7 @@
 import { randomUUID } from "node:crypto";
 import { allocateActionTemporary, finishActionTemporary, retainedActionTemporary, type ActionTemporary } from "./action-temporary.ts";
 import { readFileSync } from "node:fs";
+import { basename } from "node:path";
 import {
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
@@ -43,6 +44,7 @@ import {
 } from "./state.ts";
 import {
 	createWorkerRequestContract,
+	changeGuidance,
 	DEFAULT_WORKER_TOOLS,
 	isJudgementThreadType,
 	openWorkerSession,
@@ -182,7 +184,7 @@ function lastAssistantMessage(messages: unknown[]): WorkerAssistantMsg | undefin
 	return undefined;
 }
 
-/** Remove worker reminders and Slate's injected user prompt from episode input. */
+/** Remove reminders and the first exact generated user prompt, not worker evidence. */
 export function messagesForCompression(messages: unknown[], injectedPrompt?: string): unknown[] {
 	const filtered = messages.filter((message) => !isWorkerReminderMessage(message));
 	if (injectedPrompt === undefined) return filtered;
@@ -202,6 +204,11 @@ export function messagesForCompression(messages: unknown[], injectedPrompt?: str
 		removed = true;
 		return false;
 	});
+}
+
+/** Task-only destination header, including its separator and final line feeds. */
+export function actionTemporarySuffix(path: string): string {
+	return `\n\nAction temporary folder: ${path}\nFollow the folder rules in the worker preamble.\n`;
 }
 
 /** Retry nudge for the in-action failover prompt. */
@@ -341,8 +348,9 @@ export class ThreadManager {
 		const type = parseThreadType(opts.type, true)!
 		const contextEpisodeIds = normalizeContextEpisodeIds(opts.contextEpisodeIds);
 		const accepted: DispatchOptions = { ...opts, reason, type, contextEpisodeIds };
-		const prompt = this.buildPrompt(accepted, ctx.cwd);
+		let prompt = this.buildPrompt(accepted, ctx.cwd);
 		const reviewGuidance = selected === undefined ? undefined : loadImplementationReviewGuidance(selected, this.readReviewFile);
+		const folderGuidance = changeGuidance(capturedChange, isJudgementThreadType(type));
 		// Keep recheck, allocation, owner registration, thread creation and enrollment synchronous.
 		if (this.store.currentChange !== capturedChange || this.store.changeOwnerSessionId !== capturedOwner) {
 			throw new Error("The current change or its session owner changed during action validation. No action was admitted.");
@@ -350,7 +358,10 @@ export class ThreadManager {
 		const temporary = capturedChange === undefined ? undefined : allocateActionTemporary(ctx.cwd, capturedChange);
 		if (temporary) this.store.actionTemporaryOwners.add(temporary);
 		let thread: ThreadRecord;
-		try { thread = this.createThread(accepted); } catch (error) {
+		try {
+			if (temporary) prompt += actionTemporarySuffix(`slate-changes/${capturedChange}/tmp/${basename(temporary.path)}`);
+			thread = this.createThread(accepted);
+		} catch (error) {
 			if (temporary) {
 				const message = retainedActionTemporary(temporary.path, error);
 				this.store.actionTemporaryOwners.delete(temporary);
@@ -358,7 +369,7 @@ export class ThreadManager {
 			}
 			throw error;
 		}
-		return await this.runDispatch(thread, accepted, prompt, ctx, signal, onProgress, admission, initialRoute, reviewGuidance, temporary);
+		return await this.runDispatch(thread, accepted, prompt, ctx, signal, onProgress, admission, initialRoute, reviewGuidance, temporary, folderGuidance);
 	}
 
 	private createThread(opts: DispatchOptions): ThreadRecord {
@@ -423,6 +434,7 @@ export class ThreadManager {
 		report: (message: string) => void;
 		requestContract: WorkerRequestContract;
 		reviewGuidance?: string;
+		changeGuidance?: string;
 		/**
 		 * Report the created worker session to the action that owns it.
 		 *
@@ -466,6 +478,7 @@ export class ThreadManager {
 					extensionToolNames: extensions.toolNames,
 					reviewerCharter: isJudgementThreadType(type),
 					reviewGuidance: args.reviewGuidance,
+					changeGuidance: args.changeGuidance,
 					report: args.report,
 					onCreated: (created) => {
 						opening = created;
@@ -593,6 +606,7 @@ export class ThreadManager {
 		initialRoute?: RecoveryCandidate,
 		reviewGuidance?: string,
 		temporary?: ActionTemporary,
+		changeGuidance?: string,
 	): Promise<DispatchResult> {
 		const episodeId = slateEpisodeId(thread.id)!;
 		// Enroll synchronously before the semaphore can suspend this action. Manager
@@ -614,7 +628,7 @@ export class ThreadManager {
 			const lease = this.logicalRuntime?.ownership.acquire(thread.id);
 			if (lease?.kind === "busy") throw new Error(`Thread ${thread.id} cannot start because its recovery owner is busy.`);
 			try {
-				result = await this.runDispatchInner(thread, opts, prompt, episodeId, ctx, signal, onProgress, admission, initialRoute, reviewGuidance, (close) => { shutdown = close; });
+				result = await this.runDispatchInner(thread, opts, prompt, episodeId, ctx, signal, onProgress, admission, initialRoute, reviewGuidance, (close) => { shutdown = close; }, changeGuidance);
 			} finally {
 				if (lease?.kind === "acquired") lease.lease.release();
 			}
@@ -655,6 +669,7 @@ export class ThreadManager {
 		initialRoute?: RecoveryCandidate,
 		reviewGuidance?: string,
 		registerShutdown?: (close: () => Promise<void>) => void,
+		changeGuidance?: string,
 	): Promise<DispatchResult> {
 		const usage: UsageStats = { turns: 0, input: 0, output: 0, cost: 0, contextTokens: 0 };
 		let workerCostUsd: number | undefined;
@@ -934,6 +949,7 @@ export class ThreadManager {
 					report: routeWarn,
 					requestContract,
 					reviewGuidance,
+					changeGuidance,
 					observeStartupFailure: (detail) => {
 						if (this.teardownStarted) observeCancellation("session teardown");
 						observeStartupFailure();
@@ -1253,7 +1269,7 @@ export class ThreadManager {
 		}
 		const compressionMessages = messagesForCompression(
 			actionMessages,
-			normalizeContextEpisodeIds(opts.contextEpisodeIds).length > 0 ? prompt : undefined,
+			prompt !== opts.task ? prompt : undefined,
 		);
 
 		// Keep facts from the last route that actually reached prompt execution.
