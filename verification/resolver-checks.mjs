@@ -396,6 +396,9 @@ const DOCTRINE_CONTRACT_IDS = [
 	"contract-review-structure",
 	"contract-review-agreement",
 	"contract-review-sizes",
+	"contract-review-destinations",
+	"contract-review-inputs",
+	"contract-common-temporary-rules",
 	"contract-delivery-packages",
 	"contract-review-charters",
 	"contract-size-review-copies",
@@ -3369,7 +3372,7 @@ history as boundary authority. The track table is display-only.`);
 				];
 			});
 			// The 3.3.5.2 boundary freezes directWriteBlock, common G-TMP text,
-			// placement attacks, system blocks, task suffix, report guidance and figures.
+			// placement attacks, system blocks, hidden action message, report guidance and figures.
 			// 3.3.5.3 owns review-common-policy.md, all twelve reviewer totals,
 			// review-rules.md input amendments and RG9 common-text mutations.
 			// Independent reviewed pins protect the common owner.
@@ -3700,6 +3703,23 @@ Use [change-records.md](change-records.md) § Design authority and privacy.`) },
 				const source = commonRecords.replace(rule, replacement);
 				return { id, changed: source !== commonRecords, rejected: !acceptsCommon(source), originalRuleCount: commonRecords.split(rule).length - 1, mutatedRuleCount: source.split(rule).length - 1 };
 			}));
+			const commonTemporaryRules = [
+				["common-verification-folder-precedence-removed", "Required outside-checkout project or verification folders take precedence under each tool's deletion and retention rules.", "Use the action folder even when a verification tool requires another folder."],
+				["common-verification-folder-retention-overridden", "Required outside-checkout project or verification folders take precedence under each tool's deletion and retention rules.", "Required outside-checkout folders take precedence, but workers delete them regardless of tool retention rules."],
+				["common-worker-delete-before-check", "Workers delete their own record-write files only after required checks pass.", "Workers delete their own record-write files before required checks."],
+				["common-worker-delete-without-passed-check", "Workers delete their own record-write files only after required checks pass.", "Workers delete their own record-write files unless a record check failed."],
+			];
+			const commonTemporaryAttacks = commonTemporaryRules.map(([id, rule, replacement]) => {
+				const source = commonRecords.replace(rule, replacement);
+				return { id, changed: source !== commonRecords, rejected: !acceptsCommon(source),
+					intended: !acceptsRecordUnit(recordPolicy, source),
+					originalRuleCount: commonRecords.split(rule).length - 1, mutatedRuleCount: source.split(rule).length - 1 };
+			});
+			mutationAudit.record("common-temporary-rules", commonTemporaryAttacks);
+			checkAll("contract-common-temporary-rules", "common temporary rules preserve verification precedence, tool retention and passed-check deletion", [
+				["the unchanged common and manual-record owners pass", acceptsCommon(commonRecords) && acceptsRecordUnit(recordPolicy, commonRecords), "positive control"],
+				["four single-occurrence violations fail their intended manual-record protection", commonTemporaryAttacks.every(({ changed, rejected, intended, originalRuleCount, mutatedRuleCount }) => changed && rejected && intended && originalRuleCount === 1 && mutatedRuleCount === 0), commonTemporaryAttacks],
+			]);
 			const rulePreservingRecord = commonRecords.replace(directWriteBlock, `${directWriteBlock}\nThe worker reads plain text.`);
 			const recordRuleControls = [...recordContractRules].map(([id, rule]) => ({ id, count: recordRuleCount(rulePreservingRecord, rule) }));
 			const authoritativeReaders = (commonSource, publishingSource, deliverySource, nestedSource = recursive) => {
@@ -5893,12 +5913,12 @@ verbatim retention of every tool result.`);
 			].join("\n");
 			const contextBudget = readFileSync(join(REPO, "docs", "context-budget.md"), "utf8");
 			const expectedInjected = [
-				["Reviewer I", 8575, 8452], ["Concurrency reviewer", 7329, 7206],
-				["Data loss and recovery reviewer", 7524, 7401], ["Security reviewer", 7471, 7348],
-				["Performance reviewer", 7526, 7403], ["Test-quality and structure reviewer", 8780, 8657],
-				["Prose reviewer", 7738, 7615], ["Licensing reviewer", 7469, 7346],
-				["Non-local logic defect reviewer", 8466, 8343], ["Consumer contract break reviewer", 8750, 8627],
-				["Governing-rule defect reviewer", 8859, 8736], ["Unreported failure reviewer", 8391, 8268],
+				["Reviewer I", 8654, 8531], ["Concurrency reviewer", 7408, 7285],
+				["Data loss and recovery reviewer", 7603, 7480], ["Security reviewer", 7550, 7427],
+				["Performance reviewer", 7605, 7482], ["Test-quality and structure reviewer", 8859, 8736],
+				["Prose reviewer", 7817, 7694], ["Licensing reviewer", 7548, 7425],
+				["Non-local logic defect reviewer", 8545, 8422], ["Consumer contract break reviewer", 8829, 8706],
+				["Governing-rule defect reviewer", 8938, 8815], ["Unreported failure reviewer", 8470, 8347],
 			];
 			const docsPrefix = paths.REVIEW_RULES_DOC.slice(0, -"review-rules.md".length);
 			const extensionPrefix = paths.WRITING_CHECKER.slice(0, -"writing-check.mjs".length);
@@ -5910,9 +5930,10 @@ verbatim retention of every tool result.`);
 				.map((match) => [match[1], Number(match[2].replaceAll(",", "")), Number(match[3].replaceAll(",", ""))]);
 			checkAll("contract-review-sizes", "production-rendered per-perspective injected bytes, portable path basis, and published table match exact independent pins", [
 				["all twelve portable sizes are exact and rendered bytes add both installed path prefixes", injected.every(([, rendered, portable], i) => portable === expectedInjected[i][2] && rendered === portable + Buffer.byteLength(docsPrefix, "utf8") + Buffer.byteLength(extensionPrefix, "utf8")), injected],
-				["all twelve published rows match the measured installation and portable pins", JSON.stringify(publishedInjected) === JSON.stringify(expectedInjected), publishedInjected],
+				["all twelve published rows use the declared 123-byte prefix basis and exact portable pins", JSON.stringify(publishedInjected) === JSON.stringify(expectedInjected) && publishedInjected.every(([, rendered, portable]) => rendered === portable + 123) && contextBudget.includes("prefixes totaling 123 UTF-8 bytes") && contextBudget.includes("Prefixes totaling 145 bytes add 22 bytes"), publishedInjected],
+				["policy growth stays within 100 bytes and reviewer-rule growth within 400 bytes", Buffer.byteLength(readFileSync(paths.REVIEW_COMMON_POLICY_DOC, "utf8")) - 2841 === 79 && Buffer.byteLength(reviews) - 22912 <= 400, { policy: 79, reviewRules: Buffer.byteLength(reviews) - 22912 }],
 				["all approved perspective content matches independent snapshots", Object.entries(approvedContentDigests).every(([id, expected]) => hash(roleFiles[id] ?? "") === expected), Object.fromEntries(Object.entries(roleFiles).map(([id, content]) => [id, hash(content)]))],
-				["common and implementation text keep independent approved snapshots", hash(readFileSync(paths.REVIEW_COMMON_POLICY_DOC, "utf8")) === "809e2b2eed0fbbb6f7519b3299b3c75cb8c5e3718b259be0f1e82e3c2e45321f" && hash(readFileSync(paths.REVIEW_IMPLEMENTATION_INPUT_DOC, "utf8")) === "e8bbe7a6b03f175a41cb25af633e8fc32e0bce17c85b4db5061d508bc10b0872", "two shared source files"],
+				["common and implementation text keep independent approved snapshots", hash(readFileSync(paths.REVIEW_COMMON_POLICY_DOC, "utf8")) === "516b56635ce53702dc87f44cd78aa11622da0bd6562bcd91863687f0011f8bc6" && hash(readFileSync(paths.REVIEW_IMPLEMENTATION_INPUT_DOC, "utf8")) === "e8bbe7a6b03f175a41cb25af633e8fc32e0bce17c85b4db5061d508bc10b0872", "two shared source files"],
 			]);
 
 			// Complete owned policy units use independent expectations. Exact equality is
@@ -5948,7 +5969,7 @@ For changes that load the nested sections, follow [recursive-workflow.md](recurs
 				{
 					id: "reviewer-input-contract",
 					source: reviews,
-					extract: regionUnit(/^### Reviewer input contract\n\n([\s\S]*?)(?=^A design-stage adversarial review also judges)/gm),
+					extract: headingUnit("### Reviewer input contract"),
 					expected: normalizeText(`No reviewer may receive or directly read a manual status file, leftover record temporary file, their references or contents, the research log, a research-log reference, a research-log extract, an implementer report, private orchestrator triage, or implementer reasoning. The reviewer must not seek those sources, even when repository tools can reach them. Private orchestrator triage means the orchestrator's private deliberation and implementation rationale. Implementer reasoning means private reasoning produced by an implementer. These are distinct sources.
 
 This restriction applies to a design-stage adversary, Reviewer I, every implementation specialist, an agentic fix gate, a user-review fix-range gate, and a stuck-fix consultation. Ordinary repository and library evidence needed for the assigned work remains available. This permission is not a closed changed-file allowlist.
@@ -5959,7 +5980,13 @@ Reviewer I and implementation specialists receive the approved review range, tra
 
 An agentic fix gate and a user-review fix-range gate receive the compact finding index, fix diff, approved scope context, and ordinary evidence needed to verify the fix. The compact index may contain only finding identifiers, evidence, validated severity, and required disposition. It contains no private orchestrator deliberation or implementer reasoning. Both gates receive no implementer episode or direct private source.
 
-The stuck-fix consultation in § Stuck-fix consultation is the only reviewer role that can receive an implementer episode. Its whole-episode rule does not permit a direct private read or a separately supplied private source.`),
+The stuck-fix consultation in § Stuck-fix consultation is the only reviewer role that can receive an implementer episode. Its whole-episode rule does not permit a direct private read or a separately supplied private source.
+
+The supplied action temporary folder permits only the reviewer's own writing-checker diff and adds no reviewer input. A reviewer never lists tmp/ or reads another action's folder.
+
+A design-stage adversarial review also judges the simplest solution. The review checks the approved high-level design against slate's simplest-solution requirement. That requirement asks for the simplest solution with the fewest changes that keeps every approved goal, the product and implementation quality, and every required gate. The review judges the design as a whole and not one track at a time. This duty adds no artifact, no phase and no gate.
+
+Every reviewer uses the [common review policy](review-common-policy.md) for writing checks, evidence, severity, identifiers, and output format. Resolve its writing-checker path from the installed package as \`../extension/writing-check.mjs\`. Resolve its writing-guidance path as \`writing-guidance.md\` beside the policy. Manual reviews combine this policy with their stage-specific input contract and applicable charter.`),
 				},
 				{
 					id: "stuck-fix-policy",
@@ -5986,6 +6013,63 @@ Record each grant in the override log.`),
 			});
 			const dispatchUnitResults = resolveDispatchUnits();
 			const dispatchUnitById = new Map(dispatchUnitResults.map((result) => [result.id, result]));
+			const reviewerInput = dispatchPolicyUnits.find(({ id }) => id === "reviewer-input-contract");
+			const amendment = "The supplied action temporary folder permits only the reviewer's own writing-checker diff and adds no reviewer input. A reviewer never lists tmp/ or reads another action's folder.";
+			const originalParagraphDigests = [
+				"861dc9144bb1e16eacf358b3fb1815b2e2ae080a206d28c7a3229c5021275d34", "f9f0228001b9e056eb489d5c6c3fee415fcf95ac23df822bd029f27eb0b1f3b3",
+				"97bdc4a6e0c6c02859805227869b9c748580adbd694349c75b79b1793212e0da", "527f29a60ddd3564dfcbde73d357f3c43d867bb0b808b9d3852ddb3b385d48b1",
+				"3d991b3f9e25a2710869ef6bd13c69c1239e1dea6fa4378bb527b01a32384315", "bb64471333eef93ce91baac46799ce3ad4ff1c244b9ce34bc184c44d3c4e405f",
+				"2ddf2a77aff76b073c243ddff077dabcaa939fc205295e5ba3d746a18df6c9ab", "432813aee3332b7e91b0648bc96aa5fe7a5138c5c37c261e51a292cb0805ffa0",
+			];
+			const reviewerRawHash = (text) => createHash("sha256").update(text).digest("hex");
+			const inputParagraphs = (source) => reviewerInput.extract(source).rawText.trim().split(/\n\n/).filter((paragraph) => paragraph !== amendment);
+			const acceptsReviewerInputs = (source) => {
+				const unit = reviewerInput.extract(source), paragraphs = inputParagraphs(source);
+				return unit.count === 1 && unit.text === reviewerInput.expected && paragraphs.length === 8
+					&& paragraphs.every((paragraph, index) => reviewerRawHash(paragraph) === originalParagraphDigests[index]);
+			};
+			const reviewerInputAttacks = [
+				["reviewer-contract-design-grant", reviews.replace(amendment, amendment + " Reviewers may read design records in the supplied folder.")],
+				["reviewer-contract-folder-restriction", reviews.replace(amendment, amendment + " All reviewer evidence must come from that folder.")],
+				["reviewer-contract-outside-range-grant", reviews.replace("Every reviewer uses the [common review policy]", "Reviewer I may directly read private research logs.\n\nEvery reviewer uses the [common review policy]")],
+				["reviewer-reads-other-action", reviews.replace(amendment, amendment + " Reviewers may list tmp/ and read another action's files.")],
+				...inputParagraphs(reviews).map((paragraph, index) => [`reviewer-contract-stage-paragraph-changed/${index}`, reviews.replace(paragraph, paragraph + " Reviewer I may read private triage.")]),
+			].map(([id, source]) => ({ id, changed: source !== reviews, rejected: !acceptsReviewerInputs(source),
+				intended: reviewerInput.extract(source).count === 1 && reviewerInput.extract(source).text !== reviewerInput.expected }));
+			mutationAudit.record("reviewer-inputs", reviewerInputAttacks);
+			checkAll("contract-review-inputs", "the complete input section protects all eight raw paragraphs and destination-only restrictions", [
+				["all eight original paragraphs remain byte-identical and ordered", acceptsReviewerInputs(reviews), inputParagraphs(reviews).map(reviewerRawHash)],
+				["each input attack fails complete section content, including the later grant", reviewerInputAttacks.every(({ changed, rejected, intended }) => changed && rejected && intended), reviewerInputAttacks],
+				["an unrelated appendix preserves the input contract", acceptsReviewerInputs(reviews + "\n## Editorial appendix\n\nNo policy here.\n"), "positive outside control"],
+			]);
+			const commonReview = readFileSync(paths.REVIEW_COMMON_POLICY_DOC, "utf8");
+			const placement = "Write the writing-checker diff only in this action's folder when a change is open.";
+			const fallback = "With no open change, write the checker diff in a private operating-system temporary folder outside the checkout.";
+			const deletion = "Delete it after use.";
+			const hiddenDestination = readFileSync(join(REPO, "extension", "threads.ts"), "utf8").match(/^\s*content: (`Action temporary folder:[^\n]+`),$/m)?.[1];
+			const expectedDestination = '`Action temporary folder: ${path}\\nFollow the folder rules in the worker preamble.\\n`';
+			const acceptsReviewDestination = (source, hidden = hiddenDestination) => reviewerRawHash(source) === "f4ecc72926032964a2bc3ac442755172965cdb33a79da5973b6588e48ee031e1" && hidden === expectedDestination;
+			const reviewerDestinationAttacks = [
+				["reviewer-owned-diff-exception-removed", placement, ""],
+				["reviewer-no-change-fallback-removed", fallback, ""],
+				["reviewer-no-change-deletion-removed", deletion, ""],
+				["reviewer-design-bytes-denied", placement, "Write only tracked-range bytes in every writing-checker diff, including design reviews."],
+			].map(([id, rule, replacement]) => {
+				const source = commonReview.replace(rule, replacement);
+				return { id, changed: source !== commonReview, rejected: !acceptsReviewDestination(source), intended: hash(source) !== hash(commonReview),
+					originalRuleCount: commonReview.split(rule).length - 1, mutatedRuleCount: source.split(rule).length - 1 };
+			});
+			const privateDestination = hiddenDestination + " Research log: slate-changes/private/research-log.md";
+			const destinationInsertion = commonReview.replace(placement, "Write only your own writing-checker diff in the supplied action folder.");
+			reviewerDestinationAttacks.push({ id: "reviewer-action-path-private-reference", changed: privateDestination !== hiddenDestination,
+				rejected: !acceptsReviewDestination(commonReview, privateDestination), intended: privateDestination !== expectedDestination });
+			mutationAudit.record("reviewer-destinations", reviewerDestinationAttacks);
+			checkAll("contract-review-destinations", "both change states allow only the owned diff and the hidden destination adds no private reference", [
+				["the unchanged policy and generated destination pass", acceptsReviewDestination(commonReview) && acceptsReviewerInputs(reviews), "positive control"],
+				["every owned-diff, fallback, deletion, design-byte and private-reference attack fails", reviewerDestinationAttacks.every(({ changed, rejected, intended }) => changed && rejected && intended), reviewerDestinationAttacks],
+				["open-change and no-change grants agree with the common policy", worker.changeGuidance("change-20261008T000000Z-00000000000000000000000000000000", true).includes("Write only your own writing-checker diff in the supplied action folder. Write nothing else.") && worker.changeGuidance(undefined, true).includes("Delete the diff and its private folder after use. Write nothing else."), "both change states"],
+				["rewording is not silently blessed by agreement elsewhere", !acceptsReviewDestination(destinationInsertion), "independent source pin"],
+			]);
 			const policyMutationSources = [
 				["every-to-first", workflow.replace("Every implementation dispatch carries", "The first implementation dispatch carries"), reviews],
 				["every-to-some", workflow.replace("Every implementation dispatch carries", "Some implementation dispatches carry"), reviews],
@@ -6041,7 +6125,7 @@ omitted and why.`);
 				resolveDispatchUnits(workflow, reviews.replace("## Stuck-fix consultation", "## Diagnostic consultation"))[3],
 			];
 			const duplicatedWorkflow = `${workflow}\n\nEvery implementation dispatch carries this focused current-context block:\n\n> ${dispatchReference.trim()}\n\nThe block states the current approved design when one exists, the current task and acceptance condition, assigned findings and compact evidence when fixing, affected code or documents, relevant decisions, and unresolved relevant questions. The orchestrator supplies these inputs through specific section references or bounded excerpts. Implementers and fixers use the supplied current context. The full log remains available for unresolved relevant questions and retention. No implementation dispatch requires reading the entire historical log. This rule does not change reviewer input restrictions.\n\nEvery implementation dispatch either carries a trigger.\n\nStart a change with \`slate_change start\` before the first implementation dispatch. Slate creates \`slate-changes/<change>/research-log.md\` without waiting for a retained trigger. It records the generated folder name and owning Pi session identifier in saved state. Each track creates its implementer report there at track start. Append a retained entry immediately when any trigger below fires. \`slate_change close\` clears the current change after delivery or abandonment. It deletes no files.\n\n- a second non-obvious decision.\n- a surprise about repository behaviour.\n- a NAMED focus area.\n- a session boundary.\n- multiple tracks.\n- a plan-changing ruling.\n- a user request.\n- an unresolved question needed later.\n\nOpen these sections:`;
-			const duplicatedReviews = `${reviews}\n\n### Reviewer input contract\n\n${dispatchUnitById.get("reviewer-input-contract")?.text}\n\nA design-stage adversarial review also judges.\n\n## Stuck-fix consultation\n\n${dispatchUnitById.get("stuck-fix-policy")?.text}\n\n## Termination and deferred-work routing`;
+			const duplicatedReviews = `${reviews}\n\n### Reviewer input contract\n\n${dispatchUnitById.get("reviewer-input-contract")?.text}\n\n## Reviewer sets, merge rule and charters\n\n## Stuck-fix consultation\n\n${dispatchUnitById.get("stuck-fix-policy")?.text}\n\n## Termination and deferred-work routing`;
 			const duplicateUnitOutcomes = resolveDispatchUnits(duplicatedWorkflow, duplicatedReviews);
 			const benignWorkflow = `${workflow}\n\n<!-- resolver benign dispatch-context control -->`;
 			const benignReviews = `${reviews}\n\n## Editorial appendix\n\nThis note changes no dispatch policy.`;

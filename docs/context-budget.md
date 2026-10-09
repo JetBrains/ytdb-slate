@@ -395,18 +395,22 @@ selected file once and does not repeat the shared files.
 
 | selected perspective | rendered injected bytes | path-normalized injected bytes |
 | --- | ---: | ---: |
-| Reviewer I | 8,575 | 8,452 |
-| Concurrency reviewer | 7,329 | 7,206 |
-| Data loss and recovery reviewer | 7,524 | 7,401 |
-| Security reviewer | 7,471 | 7,348 |
-| Performance reviewer | 7,526 | 7,403 |
-| Test-quality and structure reviewer | 8,780 | 8,657 |
-| Prose reviewer | 7,738 | 7,615 |
-| Licensing reviewer | 7,469 | 7,346 |
-| Non-local logic defect reviewer | 8,466 | 8,343 |
-| Consumer contract break reviewer | 8,750 | 8,627 |
-| Governing-rule defect reviewer | 8,859 | 8,736 |
-| Unreported failure reviewer | 8,391 | 8,268 |
+| Reviewer I | 8,654 | 8,531 |
+| Concurrency reviewer | 7,408 | 7,285 |
+| Data loss and recovery reviewer | 7,603 | 7,480 |
+| Security reviewer | 7,550 | 7,427 |
+| Performance reviewer | 7,605 | 7,482 |
+| Test-quality and structure reviewer | 8,859 | 8,736 |
+| Prose reviewer | 7,817 | 7,694 |
+| Licensing reviewer | 7,548 | 7,425 |
+| Non-local logic defect reviewer | 8,545 | 8,422 |
+| Consumer contract break reviewer | 8,829 | 8,706 |
+| Governing-rule defect reviewer | 8,938 | 8,815 |
+| Unreported failure reviewer | 8,470 | 8,347 |
+
+The rendered column uses installed directory prefixes totaling 123 UTF-8 bytes.
+Prefixes totaling 145 bytes add 22 bytes to each rendered row. Portable counts stay unchanged.
+These totals exclude the separate change-level review block and hidden action message.
 
 The focused-reference figure measures one reference copy in one implementation
 dispatch. It excludes the research log and every other task input. Worker history
