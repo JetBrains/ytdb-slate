@@ -7,7 +7,9 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { allocateActionTemporary, finishActionTemporary, retainedActionTemporary, type ActionTemporary } from "./action-temporary.ts";
 import { readFileSync } from "node:fs";
+import { basename } from "node:path";
 import {
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
@@ -42,6 +44,7 @@ import {
 } from "./state.ts";
 import {
 	createWorkerRequestContract,
+	changeGuidance,
 	DEFAULT_WORKER_TOOLS,
 	isJudgementThreadType,
 	openWorkerSession,
@@ -181,9 +184,13 @@ function lastAssistantMessage(messages: unknown[]): WorkerAssistantMsg | undefin
 	return undefined;
 }
 
-/** Remove worker reminders and Slate's injected user prompt from episode input. */
+/** Remove generated hidden context and the first exact loaded-episode prompt. */
 export function messagesForCompression(messages: unknown[], injectedPrompt?: string): unknown[] {
-	const filtered = messages.filter((message) => !isWorkerReminderMessage(message));
+	const filtered = messages.filter((message) => {
+		const candidate = message as { role?: unknown; customType?: unknown } | null;
+		return !isWorkerReminderMessage(message) &&
+			!(candidate?.role === "custom" && candidate.customType === ACTION_TEMPORARY_MESSAGE_TYPE);
+	});
 	if (injectedPrompt === undefined) return filtered;
 	const textOf = (message: unknown): string | undefined => {
 		const candidate = message as { role?: unknown; content?: unknown } | null;
@@ -201,6 +208,17 @@ export function messagesForCompression(messages: unknown[], injectedPrompt?: str
 		removed = true;
 		return false;
 	});
+}
+
+export const ACTION_TEMPORARY_MESSAGE_TYPE = "slate-action-temporary";
+
+/** Slate supplies the action path outside the task and system guidance. */
+export function actionTemporaryMessage(path: string) {
+	return {
+		customType: ACTION_TEMPORARY_MESSAGE_TYPE,
+		content: `Action temporary folder: ${path}\nFollow the folder rules in the worker preamble.\n`,
+		display: false as const,
+	};
 }
 
 /** Retry nudge for the in-action failover prompt. */
@@ -332,6 +350,8 @@ export class ThreadManager {
 		if (!admission) throw new Error("Logical model policy could not admit this action.");
 		const initialRoute = runtime.startRoute(opts.model, admission.snapshot);
 		if (!initialRoute) throw new Error(`Logical model "${sanitizeForNotify(opts.model, 80)}" is not available for ordinary worker actions.`);
+		const capturedChange = this.store.currentChange;
+		const capturedOwner = this.store.changeOwnerSessionId;
 		const validation = await runtime.validateRoute(ctx, initialRoute);
 		if (!validation.ok) throw new Error(`Logical model "${sanitizeForNotify(opts.model, 80)}" cannot start: ${validation.reason}`);
 		if (this.teardownStarted) throw new Error("Slate worker manager teardown started while the action route was being validated. No action was admitted.");
@@ -340,8 +360,27 @@ export class ThreadManager {
 		const accepted: DispatchOptions = { ...opts, reason, type, contextEpisodeIds };
 		const prompt = this.buildPrompt(accepted, ctx.cwd);
 		const reviewGuidance = selected === undefined ? undefined : loadImplementationReviewGuidance(selected, this.readReviewFile);
-		const thread = this.createThread(accepted);
-		return await this.runDispatch(thread, accepted, prompt, ctx, signal, onProgress, admission, initialRoute, reviewGuidance);
+		const folderGuidance = changeGuidance(capturedChange, isJudgementThreadType(type));
+		// Keep recheck, allocation, owner registration, thread creation and enrollment synchronous.
+		if (this.store.currentChange !== capturedChange || this.store.changeOwnerSessionId !== capturedOwner) {
+			throw new Error("The current change or its session owner changed during action validation. No action was admitted.");
+		}
+		const temporary = capturedChange === undefined ? undefined : allocateActionTemporary(ctx.cwd, capturedChange);
+		if (temporary) this.store.actionTemporaryOwners.add(temporary);
+		let thread: ThreadRecord;
+		let actionMessage: ReturnType<typeof actionTemporaryMessage> | undefined;
+		try {
+			if (temporary) actionMessage = actionTemporaryMessage(`slate-changes/${capturedChange}/tmp/${basename(temporary.path)}`);
+			thread = this.createThread(accepted);
+		} catch (error) {
+			if (temporary) {
+				const message = retainedActionTemporary(temporary.path, error);
+				this.store.actionTemporaryOwners.delete(temporary);
+				throw new Error(message, { cause: error });
+			}
+			throw error;
+		}
+		return await this.runDispatch(thread, accepted, prompt, ctx, signal, onProgress, admission, initialRoute, reviewGuidance, temporary, folderGuidance, actionMessage);
 	}
 
 	private createThread(opts: DispatchOptions): ThreadRecord {
@@ -406,6 +445,7 @@ export class ThreadManager {
 		report: (message: string) => void;
 		requestContract: WorkerRequestContract;
 		reviewGuidance?: string;
+		changeGuidance?: string;
 		/**
 		 * Report the created worker session to the action that owns it.
 		 *
@@ -449,6 +489,7 @@ export class ThreadManager {
 					extensionToolNames: extensions.toolNames,
 					reviewerCharter: isJudgementThreadType(type),
 					reviewGuidance: args.reviewGuidance,
+					changeGuidance: args.changeGuidance,
 					report: args.report,
 					onCreated: (created) => {
 						opening = created;
@@ -575,6 +616,9 @@ export class ThreadManager {
 		admission?: RecoveryAdmission,
 		initialRoute?: RecoveryCandidate,
 		reviewGuidance?: string,
+		temporary?: ActionTemporary,
+		changeGuidance?: string,
+		actionMessage?: ReturnType<typeof actionTemporaryMessage>,
 	): Promise<DispatchResult> {
 		const episodeId = slateEpisodeId(thread.id)!;
 		// Enroll synchronously before the semaphore can suspend this action. Manager
@@ -584,6 +628,9 @@ export class ThreadManager {
 		const finalizer = new Promise<void>((resolve) => { finishFinalizer = resolve; });
 		this.actionFinalizers.set(thread.id, finalizer);
 		let acquired = false;
+		let shutdown = async (): Promise<void> => {};
+		let result: DispatchResult | undefined;
+		let failure: { error: unknown } | undefined;
 		try {
 			if (signal?.aborted) this.cancelBeforeStart(thread);
 			await this.semaphore.acquire();
@@ -593,15 +640,33 @@ export class ThreadManager {
 			const lease = this.logicalRuntime?.ownership.acquire(thread.id);
 			if (lease?.kind === "busy") throw new Error(`Thread ${thread.id} cannot start because its recovery owner is busy.`);
 			try {
-				return await this.runDispatchInner(thread, opts, prompt, episodeId, ctx, signal, onProgress, admission, initialRoute, reviewGuidance);
+				result = await this.runDispatchInner(thread, opts, prompt, episodeId, ctx, signal, onProgress, admission, initialRoute, reviewGuidance, (close) => { shutdown = close; }, changeGuidance, actionMessage);
 			} finally {
 				if (lease?.kind === "acquired") lease.lease.release();
 			}
+		} catch (error) {
+			failure = { error };
 		} finally {
-			if (acquired) this.semaphore.release();
-			this.actionFinalizers.delete(thread.id);
-			finishFinalizer();
+			try {
+				let retention: string | undefined;
+				try { await shutdown(); } catch (error) {
+					failure ??= { error };
+					if (temporary) retention = retainedActionTemporary(temporary.path, error);
+				}
+				if (temporary && retention === undefined) retention = await finishActionTemporary(temporary);
+				if (retention !== undefined) {
+					if (failure) failure.error = new Error(`${failure.error instanceof Error ? failure.error.message : String(failure.error)} ${retention}`, { cause: failure.error });
+					else if (result) result = { ...result, warnings: [...result.warnings, retention] };
+				}
+			} finally {
+				if (temporary) this.store.actionTemporaryOwners.delete(temporary);
+				if (acquired) this.semaphore.release();
+				this.actionFinalizers.delete(thread.id);
+				finishFinalizer();
+			}
 		}
+		if (failure) throw failure.error;
+		return result!;
 	}
 
 	private async runDispatchInner(
@@ -615,6 +680,9 @@ export class ThreadManager {
 		admission?: RecoveryAdmission,
 		initialRoute?: RecoveryCandidate,
 		reviewGuidance?: string,
+		registerShutdown?: (close: () => Promise<void>) => void,
+		changeGuidance?: string,
+		actionMessage?: ReturnType<typeof actionTemporaryMessage>,
 	): Promise<DispatchResult> {
 		const usage: UsageStats = { turns: 0, input: 0, output: 0, cost: 0, contextTokens: 0 };
 		let workerCostUsd: number | undefined;
@@ -657,9 +725,13 @@ export class ThreadManager {
 		let session: WorkerSession | undefined;
 		/** The worker session this action opened, kept readable after a failed open. */
 		let startupSession: WorkerSession | undefined;
+		let shutdownPromise: Promise<void> | undefined;
+		const closeOwnedWorker = () => shutdownPromise ??= this.closeWorker(thread.id, session ?? startupSession);
+		registerShutdown?.(closeOwnedWorker);
 		let unsubscribe: (() => void) | undefined;
 		let onAbort: (() => void) | undefined;
 		let messagesBefore = 0;
+		let actionMessageFailure: unknown;
 		let actionCompacted = false;
 		/** The refusal of this action, reported to the caller exactly once. */
 		let reportedRefusal: string | undefined;
@@ -891,6 +963,7 @@ export class ThreadManager {
 					report: routeWarn,
 					requestContract,
 					reviewGuidance,
+					changeGuidance,
 					observeStartupFailure: (detail) => {
 						if (this.teardownStarted) observeCancellation("session teardown");
 						observeStartupFailure();
@@ -903,12 +976,17 @@ export class ThreadManager {
 					observeSession: (created) => {
 						startupSession = created;
 						if (unsubscribe === undefined) unsubscribe = created.subscribe(observeWorkerEvent);
+						// Append after capture and before startup handlers can request a turn.
+						// Pi appends this non-triggering message synchronously while idle.
+						if (actionMessage) void created.sendCustomMessage(actionMessage, { triggerTurn: false })
+							.catch((error: unknown) => { actionMessageFailure = error; });
 					},
 				}));
 			} catch (error) {
 				if (this.teardownStarted) observeCancellation("session teardown");
 				throw error;
 			}
+			if (actionMessageFailure !== undefined) throw new Error("Worker action-folder message could not be delivered.", { cause: actionMessageFailure });
 			if (signal?.aborted === true) throw new DispatchAbort("Logical worker startup was cancelled by the caller.");
 			if (this.live.get(thread.id) !== session) throw new DispatchAbort("Logical worker startup was cancelled during session teardown.");
 			// Worker startup crosses this same request owner. A refusal recorded there
@@ -1155,7 +1233,7 @@ export class ThreadManager {
 			} catch {
 				/* the in-memory removal remains authoritative */
 			} finally {
-				await this.closeWorker(thread.id, session);
+				await closeOwnedWorker();
 			}
 			throw new Error(appendLifecycleWarnings(aborted.message));
 		}
@@ -1180,7 +1258,7 @@ export class ThreadManager {
 			} catch (error) {
 				cancellationSaveError = error;
 			} finally {
-				await this.closeWorker(thread.id, session);
+				await closeOwnedWorker();
 			}
 			if (cancellationSaveError !== undefined) {
 				throw new Error(appendLifecycleWarnings(`Thread ${thread.id} was ${reason}, and Slate could not save that terminal state: ${sanitizeForNotify(cancellationSaveError instanceof Error ? cancellationSaveError.message : String(cancellationSaveError), 200)}.`));
@@ -1210,7 +1288,7 @@ export class ThreadManager {
 		}
 		const compressionMessages = messagesForCompression(
 			actionMessages,
-			normalizeContextEpisodeIds(opts.contextEpisodeIds).length > 0 ? prompt : undefined,
+			prompt !== opts.task ? prompt : undefined,
 		);
 
 		// Keep facts from the last route that actually reached prompt execution.
@@ -1250,7 +1328,7 @@ export class ThreadManager {
 					thread.outcomeReason += `; thread state persistence failed: ${sanitizeForNotify(saveError instanceof Error ? saveError.message : String(saveError), 200)}`;
 				}
 				emit(true, "failed");
-				await this.closeWorker(thread.id, session);
+				await closeOwnedWorker();
 				const saveDetail = saveError === undefined ? "" : ` Slate could not save its terminal thread state: ${sanitizeForNotify(saveError instanceof Error ? saveError.message : String(saveError), 200)}.`;
 				throw new Error(appendLifecycleWarnings(`Thread ${thread.id} failed: ${sanitizeForNotify(reason, 200)}. Slate could not store episode ${episodeId}: ${storageDetail}.${saveDetail}`));
 			}
@@ -1273,7 +1351,7 @@ export class ThreadManager {
 			this.store.workerCostUsd += totalActionCost;
 			let saveError: unknown;
 			try { this.store.save(); } catch (error) { saveError = error; }
-			await this.closeWorker(thread.id, session);
+			await closeOwnedWorker();
 			if (saveError !== undefined) {
 				emit(true, "failed");
 				throw new Error(appendLifecycleWarnings(`Slate stored episode ${episodeId}, but could not save its thread record: ${sanitizeForNotify(saveError instanceof Error ? saveError.message : String(saveError), 200)}.`));
@@ -1414,7 +1492,7 @@ export class ThreadManager {
 			if (saveError !== undefined) {
 				thread.outcomeReason += `; thread state persistence failed: ${sanitizeForNotify(saveError instanceof Error ? saveError.message : String(saveError), 200)}`;
 			}
-			await this.closeWorker(thread.id, session);
+			await closeOwnedWorker();
 			const safeEpisodeId = sanitizeForNotify(episodeId, 80);
 			lines.push(`✗ slate could not store episode ${safeEpisodeId}.`);
 			emit(true, "failed");
@@ -1464,7 +1542,7 @@ export class ThreadManager {
 		} catch (error) {
 			saveError = error;
 		} finally {
-			await this.closeWorker(thread.id, session);
+			await closeOwnedWorker();
 		}
 		if (saveError !== undefined) {
 			emit(true, "failed");

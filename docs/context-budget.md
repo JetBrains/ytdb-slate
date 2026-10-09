@@ -282,6 +282,42 @@ and character counts can differ.
 This separate figure states the worker-session cost without presenting
 it as orchestrator doctrine.
 
+### Change-folder guidance
+
+Each admitted action adds one change-level system block after the preamble.
+Record-writing types share one block. Review types share another.
+The canonical change name uses a date stamp and 32 lowercase hexadecimal characters.
+Its action path adds `/tmp/action.` and six allocator characters.
+
+| Canonical addition | Block bytes | Separator bytes | Complete bytes | Limit |
+| --- | ---: | ---: | ---: | ---: |
+| Open-change record-writing system | 797 | 2 | 799 | 800 |
+| Open-change review system | 311 | 2 | 313 | 350 |
+| No-change record-writing system | 149 | 2 | 151 | 180 |
+| No-change review system | 293 | 2 | 295 | 300 |
+| Open-change hidden action message | 162 | 0 | 162 | 180 |
+| No-change hidden action message | 0 | 0 | 0 | 0 |
+
+The message includes both final line feeds. System blocks have no final line feed.
+Open-change record-writing system totals are 1,343 or 1,896 bytes without or with writing guidance.
+Open-change review system totals are 3,012 or 3,565 bytes without or with writing guidance.
+These totals exclude selected review guidance, prompt documents, base Pi text, and provider framing.
+
+The parent-session cache key stays unchanged.
+System blocks vary by change and type group, never by action.
+Otherwise matching inputs share a system prefix within that group and change.
+Across changes, the shared prefix ends before the changed folder name.
+
+Slate delivers the action path only in its generated hidden action message.
+Compression input excludes that message.
+Slate keeps the path out of system guidance and generated episode fields.
+Worker messages, tool results, and compaction summaries can still quote the path.
+Compaction preserves the change-level system block but can lose the hidden action message.
+A worker without that path pauses destination-dependent writes.
+
+Scratch placement excepts required outside-checkout tool folders under their own rules.
+The record-writing block includes that exception within its 800-byte limit.
+
 ### Implementer task guidance
 
 Slate adds report instructions to an implementer's task message.

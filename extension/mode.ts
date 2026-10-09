@@ -495,6 +495,7 @@ export function registerSlateMode(
 			if (!store.orchestratorMode) throw new Error("slate: change action requires orchestrator mode");
 			if (params.action === "close") {
 				if (!store.currentChange) throw new Error("slate: no change is open");
+				store.assertNoActionTemporaryOwners();
 				const old = store.currentChange;
 				const source = store.sourceChange;
 				const owner = store.changeOwnerSessionId;

@@ -25,6 +25,7 @@ import { createLogicalRuntime } from "../extension/logical-model-runtime.ts";
 import { SlateStore } from "../extension/state.ts";
 import { ThreadManager } from "../extension/threads.ts";
 import { registerSlateTools } from "../extension/tools.ts";
+import { changeGuidance } from "../extension/worker.ts";
 
 function deferred(): { promise: Promise<void>; resolve(): void } {
 	let resolvePromise!: () => void;
@@ -350,7 +351,8 @@ type MatrixScenario =
 	| "included-rejected-call"
 	| "startup-assistant-then-ordinary-success"
 	| "compaction-then-cancel"
-	| "recovery-compaction-refusal";
+	| "recovery-compaction-refusal"
+	| "action-command-args";
 
 interface MatrixState {
 	scenario: MatrixScenario;
@@ -389,6 +391,9 @@ interface MatrixState {
 	fallbackCalls: number;
 	otherCalls: number;
 	compactionCalls: number;
+	systemCaptures?: string[];
+	requestCaptures?: string[];
+	commandArgs?: string;
 	compactionHistoryCalls: number;
 	compactionTurnPrefixCalls: number;
 	compactionEvents?: Array<{ phase: "start" | "success"; reason: string; willRetry: boolean }>;
@@ -469,6 +474,12 @@ function matrixProvider(state: MatrixState, provider: string, id: string) {
 		else if (provider === "matrix-fallback") state.fallbackCalls++;
 		else state.otherCalls++;
 		const summarizing = options?.cacheRetention === "none";
+		if (!summarizing && state.systemCaptures) {
+			const messages = (_context as { messages: Array<{ role: string; content: unknown; sections?: Record<string, string | null> }> }).messages;
+			const systems = messages.filter((message) => message.role === "system");
+			state.systemCaptures.push(systems.map((message) => extractContextText({ messages: [message] }) + Object.values(message.sections ?? {}).filter((text) => text !== null).join("\n\n")).join("\n\n"));
+			state.requestCaptures?.push(extractContextText({ messages: messages.filter((message) => message.role !== "system") }));
+		}
 		let summaryKind: "history" | "turn-prefix" | undefined;
 		if (summarizing) {
 			state.compactionCalls++;
@@ -680,7 +691,7 @@ export default function (pi: ExtensionAPI) {
 	}
 });
 
-async function runWorkerRequestMatrixScenario(scenario: MatrixScenario) {
+async function runWorkerRequestMatrixScenario(scenario: MatrixScenario, openChange = false, task?: string) {
 	const root = mkdtempSync(join(tmpdir(), `slate-worker-matrix-${scenario}-`));
 	const project = join(root, "project");
 	const agent = join(root, "agent");
@@ -711,6 +722,7 @@ async function runWorkerRequestMatrixScenario(scenario: MatrixScenario) {
 	const cancelController = new AbortController();
 	const state: MatrixState = {
 		scenario,
+		...(scenario === "compaction" || openChange ? { systemCaptures: [], requestCaptures: [] } : {}),
 		compactionEvents: [],
 		startupRunEnded: false,
 		startupRequestSettled: false,
@@ -790,6 +802,18 @@ export default function (pi: ExtensionAPI) {
           });
         }
         throw new Error("matrix command exploded");
+      },
+    });
+  }
+  if (state.scenario === "action-command-args") {
+    pi.registerCommand("args", {
+      description: "Capture exact argument bytes and request a reply.",
+      async handler(args) {
+        state.commandArgs = args;
+        await new Promise((resolve) => {
+          state.resolveOrdinaryReply = resolve;
+          pi.sendUserMessage("command reply");
+        });
       },
     });
   }
@@ -907,7 +931,7 @@ export default function (pi: ExtensionAPI) {
     throw new Error("independent shutdown cleanup failed");
   });
   pi.on("agent_end", () => {
-    if (state.scenario === "ordinary-reply-then-command-error" && state.resolveOrdinaryReply) {
+    if ((state.scenario === "ordinary-reply-then-command-error" || state.scenario === "action-command-args") && state.resolveOrdinaryReply) {
       state.resolveOrdinaryReply();
       state.resolveOrdinaryReply = undefined;
     }
@@ -970,6 +994,10 @@ export default function (pi: ExtensionAPI) {
 		const store = new SlateStore({
 			appendEntry(_customType: string, data: unknown) { snapshots.push(structuredClone(data)); },
 		} as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);
+		if (scenario === "compaction" || openChange) {
+			store.currentChange = "change-20261008T000000Z-" + "0".repeat(32);
+			mkdirSync(join(project, "slate-changes", store.currentChange), { recursive: true });
+		}
 		manager = new ThreadManager(
 			store,
 			{},
@@ -982,11 +1010,11 @@ export default function (pi: ExtensionAPI) {
 				model: "matrix",
 				reason: `real Pi ${scenario}`,
 				type: "general",
-				task: scenario === "startup-assistant-then-command-error" || scenario === "startup-unawaited-then-command-error" || scenario === "ordinary-reply-then-command-error"
+				task: task ?? (scenario === "startup-assistant-then-command-error" || scenario === "startup-unawaited-then-command-error" || scenario === "ordinary-reply-then-command-error"
 					? "/boom"
 					: scenario === "startup-assistant-then-ordinary-success" || scenario === "startup-unawaited-then-ordinary-success"
 						? "ordinary action after startup"
-						: `run ${scenario}`,
+						: `run ${scenario}`),
 			},
 			ctx,
 			scenario === "compaction-then-cancel" || scenario === "startup-caller-cancel-completed-tool" || scenario === "startup-caller-cancel-no-fact" || scenario === "startup-caller-cancel-fact-and-failure"
@@ -1170,6 +1198,30 @@ export default function (pi: ExtensionAPI) {
 }
 
 test("production ThreadManager and real Pi workers guard preflight, later-turn, recovery, and compaction requests", { timeout: 60_000 }, async (t) => {
+	await t.test("open-change commands preserve recognition, argument bytes, and hidden provider context", { timeout: 15_000 }, async () => {
+		const boom = await runWorkerRequestMatrixScenario("startup-assistant-then-command-error", true);
+		assert.equal(boom.state.commandRan, true);
+		assert.equal(boom.state.primaryCalls, 1, "only startup requests a provider reply");
+		assert.equal(boom.result.episode.status, "failed");
+		assert.match(boom.result.warnings.join("\n"), /matrix command exploded/);
+		assert.equal(boom.result.episode.task, "/boom");
+		const args = '  quoted "value"\tend\nsecond line  ';
+		const command = await runWorkerRequestMatrixScenario("action-command-args", true, "/args " + args);
+		assert.equal(command.state.commandArgs, args);
+		assert.equal(command.result.episode.status, "ok");
+		assert.equal(command.result.episode.task, "/args " + args);
+		for (const run of [boom, command]) {
+			assert.ok(run.state.requestCaptures!.length > 0);
+			for (const request of run.state.requestCaptures!) assert.match(request, /Action temporary folder: .*\/tmp\/action\./);
+			for (const system of run.state.systemCaptures!) assert.doesNotMatch(system, /Action temporary folder:|\/tmp\/action\./);
+			const entries = run.transcript.split("\n").filter(Boolean).map((line) => JSON.parse(line));
+			const hidden = entries.filter((entry) => entry.type === "custom_message" && entry.customType === "slate-action-temporary");
+			assert.equal(hidden.length, 1);
+			assert.equal(hidden[0].display, false);
+			assert.doesNotMatch(run.episodeBytes, /Action temporary folder:|\/tmp\/action\./);
+			assert.doesNotMatch(run.result.warnings.join("\n"), /reminder is missing/);
+		}
+	});
 	await t.test("hostile before_agent_start effort drift blocks the initial provider call and leaves final attribution absent", { timeout: 10_000 }, async () => {
 		const { result, state } = await runWorkerRequestMatrixScenario("preflight-effort");
 		assert.equal(state.primaryCalls, 0);
@@ -1254,6 +1306,14 @@ test("production ThreadManager and real Pi workers guard preflight, later-turn, 
 		assert.match(transcript, /\"type\":\"compaction\"/);
 		assert.match(transcript, /matrix history summary/);
 		assert.match(transcript, /matrix turn prefix summary/);
+		const block = changeGuidance("change-20261008T000000Z-" + "0".repeat(32), false);
+		assert.equal(state.systemCaptures?.length, 3, "initial, overflow, and refreshed continuation requests are captured");
+		for (const system of state.systemCaptures ?? []) {
+			assert.equal(system.split(block).length, 2, "the exact change block reaches actual provider system messages once");
+			assert.doesNotMatch(system, /\/tmp\/action\./);
+		}
+		assert.match(transcript, /Action temporary folder: .*\/tmp\/action\./);
+		assert.doesNotMatch(result.warnings.join("\n"), /reminder is missing/);
 		assert.equal(result.episode.model, "matrix-primary/primary");
 		assert.equal(result.episode.effort, "max");
 		// T8: the ordinary successful outcome and its successful format are unchanged,

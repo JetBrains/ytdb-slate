@@ -142,8 +142,26 @@ export function workerPreamble(trusted: boolean, reviewerCharter: boolean): stri
 	return reviewerCharter === true ? `${prose}\n${REVIEWER_CHARTER}` : prose;
 }
 
-export function workerSystemPromptBlocks(trusted: boolean, reviewerCharter: boolean, reviewGuidance: string | undefined, promptDocs: string[]): string[] {
-	return [workerPreamble(trusted, reviewerCharter), ...(reviewGuidance === undefined ? [] : [reviewGuidance]), ...promptDocs];
+/** Immutable change-level guidance. Action paths belong in hidden action context. */
+export function changeGuidance(change: string | undefined, review: boolean): string {
+	if (change === undefined) return review
+		? "No change is open. Do not write workflow records.\nA no-change review is outside the workflow temporary-file rule. Write only your own writing-checker diff in a private operating-system temporary folder outside the checkout.\nDelete the diff and its private folder after use. Write nothing else."
+		: "No change is open. Do not write workflow records.\nIf no action folder is supplied, create no scratch file in the checkout and pause any record write.";
+	const header = `Change folder: slate-changes/${change}\n`;
+	return header + (review
+		? "Write only your own writing-checker diff in the supplied action folder. Write nothing else.\nDelete the diff before finishing.\nIf no action folder is supplied, create no scratch file in the checkout and pause the checker diff."
+		: "Put assigned drafts, designs, records, and other lasting files in the change folder under safe-write rules.\n" +
+			"Put scratch files in the supplied action folder, except for required outside-checkout folders.\n" +
+			"A project rule or verification tool requiring an outside-checkout folder takes precedence.\n" +
+			"The tool keeps its own private folder under its own deletion and retention rules.\n" +
+			"This exception gives no alternate destination for start copies or payloads.\n" +
+			"For your record-write files:\nDelete your files after your record check passes.\n" +
+			"For scratch files without a record:\nDelete your scratch files before you finish.\n" +
+			"If no action folder is supplied, create no scratch file in the checkout and pause any record write.");
+}
+
+export function workerSystemPromptBlocks(trusted: boolean, reviewerCharter: boolean, reviewGuidance: string | undefined, promptDocs: string[], changeGuidance?: string): string[] {
+	return [workerPreamble(trusted, reviewerCharter), ...(changeGuidance === undefined ? [] : [changeGuidance]), ...(reviewGuidance === undefined ? [] : [reviewGuidance]), ...promptDocs];
 }
 
 export function threadsDir(cwd: string, runtimeFolder = defaultArtifactFolder()): string {
@@ -434,6 +452,7 @@ export async function openWorkerSession(opts: {
 	extensionToolNames?: string[]; // host-selected names, including tools registered during host session_start
 	reviewerCharter?: boolean; // thread-role decision from ThreadManager; only literal true enables the charter
 	reviewGuidance?: string; // complete selected implementation instructions, loaded before thread creation
+	changeGuidance?: string; // immutable captured change-level rules, without an action path
 	promptCacheKey?: string; // the main session's shared OpenAI Responses cache-routing key
 	requestThrottle?: RequestThrottle; // the main session's shared per-model request throttle
 	requestContract?: WorkerRequestContract; // action-local expected pair and accepted attribution
@@ -521,7 +540,7 @@ export async function openWorkerSession(opts: {
 		noThemes: true,
 		// Writing guidance follows permitted Slate settings. The reviewer
 		// charter is not trust-gated because it is slate's own constant.
-		appendSystemPrompt: workerSystemPromptBlocks(configPermitted, opts.reviewerCharter === true, opts.reviewGuidance, promptDocs),
+		appendSystemPrompt: workerSystemPromptBlocks(configPermitted, opts.reviewerCharter === true, opts.reviewGuidance, promptDocs, opts.changeGuidance),
 	});
 	await loader.reload();
 	const loaded = loader.getExtensions();

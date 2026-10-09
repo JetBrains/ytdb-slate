@@ -1,16 +1,20 @@
 const TEST_ROUTE = { model: "fixture", reason: "test fixture" } as const;
 
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import fs, { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { createChangeFolder } from "../extension/artifact-names.ts";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { spawnSync } from "node:child_process";
+import * as episodeModule from "../extension/episodes.ts";
 import test from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { NO_SESSION_BASELINE, createLogicalRuntime } from "../extension/logical-model-runtime.ts";
 import { registerSlateTools } from "../extension/tools.ts";
-import { sanitizeThreadRecord, SLATE_STATE_FORMAT, SlateStore, type EpisodeRecord, type ThreadRecord } from "../extension/state.ts";
-import { MAX_CONTEXT_EPISODES, messagesForCompression, ThreadManager, type DispatchOptions, type DispatchResult } from "../extension/threads.ts";
-import { WORKER_REQUEST_CONTRACT_ERROR, type WorkerRequestContract } from "../extension/worker.ts";
+import { sanitizeThreadRecord, SLATE_STATE_FORMAT, SlateStore, THREAD_TYPES, type EpisodeRecord, type ThreadRecord } from "../extension/state.ts";
+import { actionTemporaryMessage, ACTION_TEMPORARY_MESSAGE_TYPE, MAX_CONTEXT_EPISODES, messagesForCompression, ThreadManager, type DispatchOptions, type DispatchResult } from "../extension/threads.ts";
+import { changeGuidance, isJudgementThreadType, workerSystemPromptBlocks, WORKER_REQUEST_CONTRACT_ERROR, type WorkerRequestContract } from "../extension/worker.ts";
 import { bindFakeWorkerRequest } from "./worker-request-contract-fixture.ts";
 
 function deferred<T = void>() {
@@ -134,6 +138,254 @@ async function assertNoDurableEpisodeConsumers(
   assert.equal(restored.threads.size, before, `${episodeId}: later context rejection allocates no thread`);
 }
 
+test("action folders join shutdown and completion across terminal outcomes", { timeout: 10_000 }, async (t) => {
+  for (const mode of ["ok", "failed", "throw", "tool-error", "nonempty", "settlement", "shutdown", "storage", "cancel", "startup", "completion", "message-error"]) {
+    const root = mkdtempSync(join(tmpdir(), "slate-action-lifetime-"));
+    const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
+    store.currentChange = createChangeFolder();
+    const folder = join(root, "slate-changes", store.currentChange), tmp = join(folder, "tmp");
+    mkdirSync(folder, { recursive: true });
+    const manager = new ThreadManager(store, { maxConcurrent: 1 }, undefined, fixtureRuntime());
+    const entered = deferred(), release = deferred(), removal = deferred(), finishRemoval = deferred();
+    const controller = new AbortController();
+    let shutdown = false, opens = 0, temporary = "", removals = 0, removalBeforeShutdown = false;
+    const listeners = new Set<(event: Record<string, unknown>) => void>();
+    const session = {
+      messages: [] as unknown[], model: { provider: "test", id: "worker" }, thinkingLevel: "off",
+      subscribe(listener: (event: Record<string, unknown>) => void) { listeners.add(listener); return () => listeners.delete(listener); },
+      setThinkingLevel(level: string) { session.thinkingLevel = level; },
+      async sendCustomMessage(message: unknown, options: unknown) {
+        assert.deepEqual(options, { triggerTurn: false });
+        if (mode === "message-error") throw new Error("message append failed");
+        session.messages.push({ role: "custom", ...message as object });
+      },
+      async prompt() {
+        if (mode === "throw") throw new Error("prompt failed");
+        const message = { role: "assistant", stopReason: mode === "failed" ? "error" : "stop", errorMessage: "billing exhausted", content: [{ type: "text", text: "done" }] };
+        session.messages.push(message);
+        for (const listener of listeners) {
+          listener({ type: "message_end", message });
+          if (mode === "tool-error") listener({ type: "tool_execution_end", toolName: "cmp", isError: true, result: "exit 1" });
+        }
+      },
+      includedOperationFailure() { if (mode === "settlement") throw new Error("post-settlement failure"); return undefined; },
+      closeManagedOperations() {}, async settleManagedOperations() {}, async abort() {},
+      async shutdownWorker() { entered.resolve(); await release.promise; if (mode === "shutdown") throw new Error("shutdown failed"); shutdown = true; },
+    };
+    const internal = manager as any;
+    internal.openWorkerFor = async (args: any) => {
+      opens++; temporary = [...store.actionTemporaryOwners][0]!.path;
+      args.observeSession(session);
+      if (mode === "nonempty") writeFileSync(join(temporary, "start-copy"), "retained evidence");
+      if (mode === "storage") writeFileSync(join(root, ".pi"), "blocked storage");
+      if (mode === "startup") throw new Error("startup failed");
+      bindFakeWorkerRequest(session, args.requestContract); internal.live.set(args.thread.id, session); return { session };
+    };
+    const rmdir = fs.promises.rmdir;
+    t.mock.method(fs.promises, "rmdir", async (path: fs.PathLike) => {
+      removals++;
+      if (opens > 0 && !shutdown) removalBeforeShutdown = true;
+      if (mode === "completion" && String(path) === temporary) { removal.resolve(); await finishRemoval.promise; }
+      return rmdir(path);
+    });
+    try {
+      if (mode === "cancel") controller.abort();
+      let settled = false;
+      const action = manager.dispatch({ ...TEST_ROUTE, type: THREAD_TYPES[opens + ["ok", "failed", "throw", "tool-error", "nonempty"].indexOf(mode)] ?? "general", task: "lifetime" }, { cwd: root, hasUI: false } as ExtensionContext, controller.signal)
+        .then((result) => { settled = true; return result; }, (error: Error) => { settled = true; return error; });
+      if (mode !== "cancel") {
+        await entered.promise;
+        assert.ok(existsSync(temporary)); assert.equal(store.actionTemporaryOwners.size, 1);
+        assert.equal(Object.hasOwn(store.snapshot(), "actionTemporaryOwners"), false);
+        assert.throws(() => store.assertNoActionTemporaryOwners(), /cannot close/);
+        assert.equal(settled, false);
+        release.resolve();
+      }
+      if (mode === "completion") {
+        await removal.promise;
+        const queued = manager.dispatch({ ...TEST_ROUTE, type: "general", task: "queued" }, { cwd: root } as ExtensionContext, undefined).catch((error: Error) => error);
+        while (store.actionTemporaryOwners.size < 2) await new Promise<void>((resolve) => setImmediate(resolve));
+        let disposed = false;
+        const teardown = manager.disposeAll().then(() => { disposed = true; });
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        assert.equal(opens, 1); assert.equal(disposed, false); assert.equal(settled, false);
+        assert.throws(() => store.assertNoActionTemporaryOwners(), /cannot close/);
+        finishRemoval.resolve();
+        await queued; await teardown;
+      }
+      const result = await action;
+      assert.equal(removalBeforeShutdown, false, mode);
+      if (mode === "shutdown") assert.equal(removals, 0, mode);
+      else assert.ok(removals > 0, mode);
+      assert.equal(store.actionTemporaryOwners.size, 0); store.assertNoActionTemporaryOwners();
+      if (mode === "nonempty" || mode === "shutdown") {
+        assert.ok(existsSync(temporary));
+        assert.ok((result instanceof Error ? result.message : result.warnings.join(" ")).includes(temporary));
+        if (mode === "nonempty") {
+          assert.equal(readFileSync(join(temporary, "start-copy"), "utf8"), "retained evidence");
+          assert.ok(!(result instanceof Error));
+          assert.equal(result.episode.task, "lifetime");
+          assert.equal(result.episodeText.includes(temporary), false);
+          assert.doesNotMatch(readFileSync(result.episode.file, "utf8"), /Action temporary folder:|\/tmp\/action\./);
+        }
+      } else assert.deepEqual(readdirSync(tmp), []);
+      if (["settlement", "shutdown", "storage", "cancel"].includes(mode)) assert.ok(result instanceof Error, mode);
+      else { assert.ok(!(result instanceof Error), mode); assert.equal(result.episode.status, ["failed", "throw", "startup", "message-error"].includes(mode) ? "failed" : "ok"); }
+      if (mode === "tool-error") { assert.ok(!(result instanceof Error)); assert.match(result.warnings.join(" "), /cmp \(1\)/); }
+      assert.equal(internal.actionFinalizers.size, 0);
+    } finally { release.resolve(); finishRemoval.resolve(); t.mock.restoreAll(); rmSync(root, { recursive: true, force: true }); }
+  }
+});
+
+test("captured guidance is shared while hidden action messages stay private in both prompt branches", { timeout: 5_000 }, async () => {
+  const root = mkdtempSync(join(tmpdir(), "slate-folder-guidance-"));
+  try {
+    const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
+    const change = "change-20261008T000000Z-" + "0".repeat(32);
+    const episodeFile = join(root, ".pi", "slate", "episodes", "t99.e1.md");
+    mkdirSync(join(root, "slate-changes", change), { recursive: true });
+    mkdirSync(join(root, ".pi", "slate", "episodes"), { recursive: true }); writeFileSync(episodeFile, "PRIOR");
+    store.episodes.set("t99.e1", { id: "t99.e1", threadId: "t99", task: "prior", status: "ok", file: episodeFile, createdAt: 1 });
+    for (const type of THREAD_TYPES) {
+      const systems: string[] = [], paths: string[] = [];
+      for (const open of [true, false]) for (const context of [[], ["t99.e1"]]) {
+        store.currentChange = open ? change : undefined;
+        const manager = new ThreadManager(store, {}, undefined, fixtureRuntime());
+        const internal = manager as any;
+        const session = { messages: [] as unknown[], model: { provider: "test", id: "worker" }, thinkingLevel: "off",
+          subscribe() { return () => {}; }, setThinkingLevel() {}, async abort() {}, dispose() {},
+          async sendCustomMessage(message: unknown, options: unknown) { assert.deepEqual(options, { triggerTurn: false }); session.messages.push({ role: "custom", ...message as object }); },
+          async prompt(prompt: string) {
+            assert.equal(prompt.includes("PRIOR"), context.length > 0);
+            assert.doesNotMatch(prompt, /Action temporary folder:|\/tmp\/action\./);
+            const messages = session.messages as Array<{ customType?: string; content?: string; display?: boolean }>;
+            const hidden = messages.filter((message) => message.customType === ACTION_TEMPORARY_MESSAGE_TYPE);
+            assert.equal(hidden.length, open ? 1 : 0);
+            const path = /Action temporary folder: ([^\n]+)/.exec(hidden[0]?.content ?? "")?.[1];
+            assert.equal(path !== undefined, open);
+            if (path) { paths.push(path); assert.equal(hidden[0]?.display, false); }
+            const assistant = { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "done" }] };
+            const tool = { role: "toolResult", content: [{ type: "text", text: "real failure " + path }], isError: true };
+            const user = { role: "user", content: [{ type: "text", text: prompt }] };
+            assert.deepEqual(messagesForCompression([user, assistant, tool], prompt !== "task" ? prompt : undefined), prompt === "task" ? [user, assistant, tool] : [assistant, tool]);
+            session.messages.push(user, assistant);
+          } };
+        internal.openWorkerFor = async (args: any) => {
+          assert.equal(args.changeGuidance, changeGuidance(open ? change : undefined, isJudgementThreadType(type)));
+          const blocks = workerSystemPromptBlocks(true, isJudgementThreadType(type), args.reviewGuidance, [], args.changeGuidance);
+          assert.doesNotMatch(blocks.join("\n\n"), /\/tmp\/action\./);
+          if (open) systems.push(blocks.join("\n\n"));
+          store.currentChange = undefined;
+          args.observeSession(session);
+          bindFakeWorkerRequest(session, args.requestContract); internal.live.set(args.thread.id, session); return { session };
+        };
+        const result = await manager.dispatch({ ...TEST_ROUTE, type, task: "task", contextEpisodeIds: context }, { cwd: root, hasUI: false } as ExtensionContext, undefined);
+        assert.equal(result.episode.status, "ok"); assert.equal(result.episode.task, "task"); assert.doesNotMatch(readFileSync(result.episode.file, "utf8"), /Action temporary folder:|\/tmp\/action\./);
+        assert.equal(store.actionTemporaryOwners.size, 0);
+      }
+      assert.equal(systems[0], systems[1]); assert.equal(new Set(paths).size, 2, `${type}: ${JSON.stringify(paths)}`);
+    }
+    assert.equal(Buffer.byteLength(actionTemporaryMessage(`slate-changes/${change}/tmp/action.aaaaaa`).content), 162);
+    for (const [review, limit, noChangeLimit] of [[false, 800, 180], [true, 350, 300]] as const) {
+      assert.ok(Buffer.byteLength(changeGuidance(change, review)) + 2 <= limit);
+      assert.ok(Buffer.byteLength(changeGuidance(undefined, review)) + 2 <= noChangeLimit);
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("production dispatch excludes hidden action messages at the compressor boundary in both prompt branches", { timeout: 20_000 }, async () => {
+  if (process.env.SLATE_ACTION_COMPRESSION_CHILD !== "1") {
+    // Keep Jiti source locations outside the native coverage process.
+    const child = spawnSync(process.execPath, ["--test", "--test-name-pattern=production dispatch excludes", fileURLToPath(import.meta.url)], {
+      cwd: process.cwd(), encoding: "utf8", timeout: 15_000,
+      env: { ...process.env, NODE_TEST_CONTEXT: undefined, NODE_V8_COVERAGE: undefined, SLATE_ACTION_COMPRESSION_CHILD: "1" },
+    });
+    assert.equal(child.error, undefined, child.stderr);
+    assert.equal(child.status, 0, child.stdout + child.stderr);
+    return;
+  }
+  const root = mkdtempSync(join(tmpdir(), "slate-action-compression-"));
+  const key = Symbol.for(`slate-action-compression:${process.pid}`);
+  const calls: Array<{ messages: unknown[]; task: string }> = [];
+  const bridge = {
+    ...episodeModule,
+    async compressEpisode(opts: episodeModule.CompressEpisodeOptions) {
+      calls.push({ messages: structuredClone(opts.messages), task: opts.task });
+      const text = "# Episode\n\n## Intent\n" + opts.task;
+      const file = join(root, `${opts.episodeId}.md`);
+      writeFileSync(file, text);
+      return { text, file, compressor: "fixture" };
+    },
+  };
+  (globalThis as any)[key] = bridge;
+  try {
+    const shim = join(root, "compressor.mjs");
+    writeFileSync(shim, `const bridge = globalThis[Symbol.for(${JSON.stringify(Symbol.keyFor(key))})];\n` +
+      ["compressEpisode", "createCompletedFactRecorder", "EpisodePersistenceError", "headerField", "writeFailedEpisode"]
+        .map((name) => `export const ${name} = bridge.${name};`).join("\n"));
+    const repo = resolve(".");
+    const jitiUrl = pathToFileURL(join(repo, "node_modules/@earendil-works/pi-coding-agent/node_modules/jiti/lib/jiti-static.mjs")).href;
+    const { createJiti } = await import(jitiUrl);
+    const loader = createJiti(import.meta.url, { moduleCache: false, fsCache: false, tryNative: false, alias: { "./episodes.ts": shim } });
+    const { ThreadManager: IsolatedManager } = await loader.import(join(repo, "extension/threads.ts")) as { ThreadManager: typeof ThreadManager };
+    const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
+    store.currentChange = createChangeFolder();
+    mkdirSync(join(root, "slate-changes", store.currentChange), { recursive: true });
+    const prior = join(root, ".pi/slate/episodes/t99.e1.md");
+    mkdirSync(join(root, ".pi/slate/episodes"), { recursive: true });
+    writeFileSync(prior, "PRIOR");
+    store.episodes.set("t99.e1", { id: "t99.e1", threadId: "t99", task: "prior", status: "ok", file: prior, createdAt: 1 });
+    for (const contextEpisodeIds of [[], ["t99.e1"]]) for (const rewritten of [false, true]) {
+      const manager = new IsolatedManager(store, {}, undefined, fixtureRuntime());
+      const internal = manager as any;
+      const session = {
+        messages: [] as unknown[], model: { provider: "test", id: "worker" }, thinkingLevel: "off",
+        subscribe() { return () => {}; }, setThinkingLevel() {}, async abort() {}, dispose() {},
+        async sendCustomMessage(message: object) { session.messages.push({ role: "custom", ...message }); },
+        async prompt(prompt: string) {
+          const user = { role: "user", content: prompt };
+          // A history rewrite can move retained context into the action slice.
+          if (rewritten) session.messages.unshift(user);
+          else session.messages.push(user);
+          session.messages.push({ role: "assistant", stopReason: "stop", content: [{ type: "text", text: "completed fact" }] });
+          session.messages.push({ role: "toolResult", content: [{ type: "text", text: "tool fact" }] });
+        },
+      };
+      internal.openWorkerFor = async (args: any) => {
+        args.observeSession(session);
+        bindFakeWorkerRequest(session, args.requestContract);
+        internal.live.set(args.thread.id, session);
+        return { session };
+      };
+      const result = await manager.dispatch({ ...TEST_ROUTE, type: "general", task: "compress action", contextEpisodeIds }, { cwd: root, hasUI: false } as ExtensionContext, undefined);
+      assert.ok(calls.length > 0, JSON.stringify(result));
+      const captured = calls.at(-1)!;
+      assert.equal(captured.task, "compress action");
+      assert.doesNotMatch(JSON.stringify(captured.messages), /Action temporary folder:|\/tmp\/action\./);
+      assert.match(JSON.stringify(captured.messages), /completed fact/);
+      assert.match(JSON.stringify(captured.messages), /tool fact/);
+      assert.equal(session.messages.filter((message) => (message as any).customType === ACTION_TEMPORARY_MESSAGE_TYPE).length, 1);
+      assert.equal(result.episode.task, "compress action");
+    }
+    assert.equal(calls.length, 4, "every production dispatch reaches the compressor stub");
+  } finally { delete (globalThis as any)[key]; rmSync(root, { recursive: true, force: true }); }
+});
+
+test("thread-save failure retains and names its folder before enrollment", { timeout: 1000 }, async () => {
+  const root = mkdtempSync(join(tmpdir(), "slate-action-save-"));
+  try {
+    const store = new SlateStore({ appendEntry() { throw new Error("thread save failed"); } } as unknown as ExtensionAPI);
+    store.currentChange = createChangeFolder();
+    mkdirSync(join(root, "slate-changes", store.currentChange), { recursive: true });
+    const manager = new ThreadManager(store, {}, undefined, fixtureRuntime());
+    await assert.rejects(manager.dispatch({ ...TEST_ROUTE, type: "general", task: "save" }, { cwd: root } as ExtensionContext, undefined), (error: Error) => {
+      const path = join(root, "slate-changes", store.currentChange!, "tmp", readdirSync(join(root, "slate-changes", store.currentChange!, "tmp"))[0]!);
+      assert.ok(error.message.includes(path)); assert.match(error.message, /thread save failed/); return true;
+    });
+    assert.equal(store.actionTemporaryOwners.size, 0); assert.equal(store.threads.size, 0);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("every accepted action creates a distinct single-action thread", async () => {
   const root = mkdtempSync(join(tmpdir(), "slate-single-action-"));
   try {
@@ -146,6 +398,7 @@ test("every accepted action creates a distinct single-action thread", async () =
     assert.equal(store.threads.size, 2);
     assert.equal(first.thread.episodeId, "t1.e1");
     assert.equal(second.thread.episodeId, "t2.e1");
+    assert.equal(existsSync(join(root, "slate-changes")), false);
 
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -354,6 +607,9 @@ test("logical worker recovery retains tool results and records logical and physi
   const root = mkdtempSync(join(tmpdir(), "slate-logical-worker-"));
   try {
     const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
+    store.currentChange = createChangeFolder();
+    const captured = store.currentChange;
+    mkdirSync(join(root, "slate-changes", captured), { recursive: true });
     const runtime = createLogicalRuntime({
       trusted: true,
       projectConfig: { router: { models: { replace: [{ model: "luna-6", providers: { test: "worker", backup: "worker-2" }, preferredProvider: "test" }] } } },
@@ -396,7 +652,13 @@ test("logical worker recovery retains tool results and records logical and physi
       live: Map<string, typeof session>;
       openWorkerFor(args: { thread: ThreadRecord }): Promise<{ session: typeof session; baseline: typeof NO_SESSION_BASELINE }>;
     };
-    internals.openWorkerFor = async (args: any) => { bindFakeWorkerRequest(session, args.requestContract); internals.live.set(args.thread.id, session); return { session, baseline: NO_SESSION_BASELINE }; };
+    internals.openWorkerFor = async (args: any) => {
+      assert.equal(args.changeGuidance, changeGuidance(captured, false));
+      Object.assign(session, { async sendCustomMessage(message: unknown, options: unknown) { assert.deepEqual(options, { triggerTurn: false }); session.messages.push({ role: "custom", ...message as object }); } });
+      args.observeSession(session);
+      store.currentChange = undefined;
+      bindFakeWorkerRequest(session, args.requestContract); internals.live.set(args.thread.id, session); return { session, baseline: NO_SESSION_BASELINE };
+    };
     const model = (provider: string, id: string) => ({
       provider, id, name: id, api: "openai-responses", baseUrl: "https://invalid.example", reasoning: true,
       input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 10_000,
@@ -412,6 +674,9 @@ test("logical worker recovery retains tool results and records logical and physi
     } as unknown as ExtensionContext;
     const result = await manager.dispatch({ model: "luna-6", reason: "contract work", type: "general", task: "perform once" }, ctx, undefined);
     assert.equal(prompts[0], "perform once");
+    assert.equal(session.messages.filter((message) => (message as { customType?: string }).customType === ACTION_TEMPORARY_MESSAGE_TYPE).length, 1);
+    assert.doesNotMatch(prompts[1] ?? "", /Action temporary folder:/);
+    assert.equal(result.episode.task, "perform once");
     assert.equal(prompts.length, 2);
     assert.match(prompts[1] ?? "", /conversation context is intact/i);
     assert.equal(session.messages.filter((message) => message === toolResult).length, 1);
@@ -1024,6 +1289,12 @@ test("episode compression excludes worker reminders and only the injected user p
   assert.deepEqual(messagesForCompression([reminder, assistant, reminder]), [assistant]);
   assert.deepEqual(messagesForCompression([assistant], "loaded episode text"), [assistant]);
   assert.deepEqual(messagesForCompression([injected, assistant]), [injected, assistant]);
+  const hidden = { role: "custom", ...actionTemporaryMessage("slate-changes/change/tmp/action.aaaaaa") };
+  assert.deepEqual(messagesForCompression([hidden, assistant, hidden]), [assistant]);
+  const generated = "loaded episode text\n\n## Action\n\ntask";
+  const user = { role: "user", content: generated }, tool = { role: "toolResult", content: generated }, failure = { role: "assistant", stopReason: "error", content: generated };
+  assert.deepEqual(messagesForCompression([user, tool, failure, user], generated), [tool, failure, user]);
+  assert.deepEqual(messagesForCompression([{ role: "user", content: generated + " changed" }], generated), [{ role: "user", content: generated + " changed" }]);
 });
 
 async function dispatchWithUnpairedToolResult(
