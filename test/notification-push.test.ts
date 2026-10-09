@@ -276,12 +276,16 @@ test("accepted work survives session retirement but timeout retains the slot unt
 	assert.deepEqual(first.warnings, []); assert.deepEqual(next.warnings, []);
 });
 
-test("HTTPS uses the original host and a supplied lookup without pooling", { timeout: 3000 }, async (t) => {
+test("HTTPS uses the original host and a pinned lookup without pooling", { timeout: 3000 }, async (t) => {
 	const f = fakeTransport(t, true);
-	const lookup: NonNullable<http.RequestOptions["lookup"]> = (_hostname, _options, _callback) => {};
-	const channel = createPushNotificationChannel({ mode: "tui", settings: policy("https://original.example/base").settings, lookup });
+	const channel = createPushNotificationChannel({ mode: "tui", settings: policy("https://original.example/base").settings,
+		resolver: { script: `console.log(JSON.stringify([{address:'192.0.2.1',family:4}]))` } });
 	const pending = (await channel.prepare({ title: "T", body: "B" }, new AbortController().signal))();
-	assert.equal(f.calls[0]!.url.hostname, "original.example"); assert.equal(f.calls[0]!.options.lookup, lookup);
+	await until(() => f.calls.length === 1);
+	assert.equal(f.calls[0]!.url.hostname, "original.example");
+	assert.equal((f.calls[0]!.options as https.RequestOptions).servername, "original.example");
+	assert.equal(f.calls[0]!.options.family, 4); assert.equal((f.calls[0]!.options as http.RequestOptions & { autoSelectFamily: boolean }).autoSelectFamily, false);
+	assert.equal(typeof f.calls[0]!.options.lookup, "function");
 	assert.equal(f.calls[0]!.options.agent, false); assert.equal(f.calls[0]!.options.method, "POST");
 	assert.equal((f.calls[0]!.options as https.RequestOptions).rejectUnauthorized, undefined, "Node TLS verification remains enabled by default");
 	f.attach(); f.request.emit("finish"); assert.equal(f.respond(), true); f.close(); await pending;

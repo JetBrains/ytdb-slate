@@ -1,6 +1,7 @@
 import http, { type ClientRequest, type IncomingMessage, type RequestOptions } from "node:http";
 import https from "node:https";
-import type { Socket } from "node:net";
+import { isIP, type Socket } from "node:net";
+import { pinnedPushLookup, resolvePushAddresses, selectPushAddress, type PushResolverOptions } from "./notification-push-resolution.ts";
 import type { NotificationSettings } from "./notification-config.ts";
 import type { NotificationChannel } from "./notification-dispatcher.ts";
 import { sanitizeNotificationText, truncateNotificationUtf8 } from "./notification-protocols.ts";
@@ -11,15 +12,16 @@ export interface PushNotificationOptions {
 	readonly mode: string;
 	/** The private policy returned by notificationSettings(config), not config.notifications. */
 	readonly settings: NotificationSettings;
-	/** Select a connection address without changing the destination host or TLS identity. */
-	readonly lookup?: RequestOptions["lookup"];
+	/** Inject resolution for tests. Address validation still applies. */
+	readonly resolver?: PushResolverOptions;
 }
 
 /** Request finish accepts delivery. Socket close releases the shared delivery slot. */
-function deliver(url: URL, options: RequestOptions, payload: string, signal: AbortSignal): Promise<void> {
+function deliver(url: URL, options: RequestOptions, payload: string, signal: AbortSignal, resolver?: PushResolverOptions): Promise<void> {
 	return new Promise((done) => {
 		let request: ClientRequest | undefined, response: IncomingMessage | undefined, socket: Socket | undefined;
-		let settled = false, stopping = false, accepted = false;
+		let settled = false, stopping = false, accepted = false, resolving = false;
+		const resolution = new AbortController();
 		const finish = () => {
 			if (settled) return;
 			settled = true;
@@ -30,39 +32,55 @@ function deliver(url: URL, options: RequestOptions, payload: string, signal: Abo
 		const stop = () => {
 			if (settled) return;
 			stopping = true;
+			resolution.abort();
 			response?.destroy();
 			request?.destroy();
 			socket?.destroy();
-			if (!request) finish();
+			if (!request && !resolving) finish();
 		};
 		const cancel = () => { if (!accepted) stop(); };
 		const timer = setTimeout(stop, PUSH_ATTEMPT_TIMEOUT_MS);
 		timer.unref();
 		signal.addEventListener("abort", cancel, { once: true });
 		if (signal.aborted) { cancel(); return; }
-		try {
-			const transport = url.protocol === "https:" ? https : http;
-			request = transport.request(url, options, (incoming) => {
-				response = incoming;
-				incoming.on("error", stop);
-				// No redirect, retry, or response buffering. Headers end this attempt for every status.
-				stop();
-			});
-			request.once("socket", (connection) => {
-				socket = connection;
-				connection.unref();
-				connection.once("close", finish);
-				if (stopping) connection.destroy();
-			});
-			request.once("finish", () => {
-				if (stopping) return;
-				accepted = true;
-				signal.removeEventListener("abort", cancel);
-			});
-			request.on("error", stop);
-			request.once("close", () => { if (!socket) finish(); });
-			request.end(payload);
-		} catch { stop(); }
+		const connect = (addresses: unknown) => {
+			resolving = false;
+			try {
+				const address = selectPushAddress(addresses, url.protocol === "http:");
+				if (stopping || !address) { stop(); return; }
+				const transport = url.protocol === "https:" ? https : http;
+				const connectionOptions = { ...options, lookup: pinnedPushLookup(address), family: address.family, autoSelectFamily: false };
+				// The URL still supplies Host and the TLS certificate identity.
+				if (url.protocol === "https:" && !isIP(host)) (connectionOptions as https.RequestOptions).servername = host;
+				request = transport.request(url, connectionOptions, (incoming) => {
+					response = incoming;
+					incoming.on("error", stop);
+					// No redirect, retry, or response buffering. Headers end this attempt for every status.
+					stop();
+				});
+				request.once("socket", (connection) => {
+					socket = connection;
+					connection.unref();
+					connection.once("close", finish);
+					if (stopping) connection.destroy();
+				});
+				request.once("finish", () => {
+					if (stopping) return;
+					accepted = true;
+					signal.removeEventListener("abort", cancel);
+				});
+				request.on("error", stop);
+				request.once("close", () => { if (!socket) finish(); });
+				request.end(payload);
+			} catch { stop(); }
+		};
+		const host = url.hostname.replace(/^\[|\]$/g, "");
+		const family = isIP(host);
+		if (family) connect([{ address: host, family }]);
+		else {
+			resolving = true;
+			void resolvePushAddresses(host, resolution.signal, PUSH_ATTEMPT_TIMEOUT_MS, resolver).then(connect, () => connect(undefined));
+		}
 	});
 }
 
@@ -83,7 +101,7 @@ export function createPushNotificationChannel(options: PushNotificationOptions):
 			else if (push.username !== undefined && push.password !== undefined) {
 				headers.Authorization = `Basic ${Buffer.from(`${push.username}:${push.password}`, "utf8").toString("base64")}`;
 			}
-			return () => deliver(url, { method: "POST", agent: false, headers, lookup: options.lookup }, payload, signal);
+			return () => deliver(url, { method: "POST", agent: false, headers }, payload, signal, options.resolver);
 		} catch { return () => {}; }
 	} };
 }
