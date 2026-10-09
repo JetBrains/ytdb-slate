@@ -7,6 +7,7 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { allocateActionTemporary, finishActionTemporary, retainedActionTemporary, type ActionTemporary } from "./action-temporary.ts";
 import { readFileSync } from "node:fs";
 import {
 	type ExtensionContext,
@@ -332,6 +333,8 @@ export class ThreadManager {
 		if (!admission) throw new Error("Logical model policy could not admit this action.");
 		const initialRoute = runtime.startRoute(opts.model, admission.snapshot);
 		if (!initialRoute) throw new Error(`Logical model "${sanitizeForNotify(opts.model, 80)}" is not available for ordinary worker actions.`);
+		const capturedChange = this.store.currentChange;
+		const capturedOwner = this.store.changeOwnerSessionId;
 		const validation = await runtime.validateRoute(ctx, initialRoute);
 		if (!validation.ok) throw new Error(`Logical model "${sanitizeForNotify(opts.model, 80)}" cannot start: ${validation.reason}`);
 		if (this.teardownStarted) throw new Error("Slate worker manager teardown started while the action route was being validated. No action was admitted.");
@@ -340,8 +343,22 @@ export class ThreadManager {
 		const accepted: DispatchOptions = { ...opts, reason, type, contextEpisodeIds };
 		const prompt = this.buildPrompt(accepted, ctx.cwd);
 		const reviewGuidance = selected === undefined ? undefined : loadImplementationReviewGuidance(selected, this.readReviewFile);
-		const thread = this.createThread(accepted);
-		return await this.runDispatch(thread, accepted, prompt, ctx, signal, onProgress, admission, initialRoute, reviewGuidance);
+		// Keep recheck, allocation, owner registration, thread creation and enrollment synchronous.
+		if (this.store.currentChange !== capturedChange || this.store.changeOwnerSessionId !== capturedOwner) {
+			throw new Error("The current change or its session owner changed during action validation. No action was admitted.");
+		}
+		const temporary = capturedChange === undefined ? undefined : allocateActionTemporary(ctx.cwd, capturedChange);
+		if (temporary) this.store.actionTemporaryOwners.add(temporary);
+		let thread: ThreadRecord;
+		try { thread = this.createThread(accepted); } catch (error) {
+			if (temporary) {
+				const message = retainedActionTemporary(temporary.path, error);
+				this.store.actionTemporaryOwners.delete(temporary);
+				throw new Error(message, { cause: error });
+			}
+			throw error;
+		}
+		return await this.runDispatch(thread, accepted, prompt, ctx, signal, onProgress, admission, initialRoute, reviewGuidance, temporary);
 	}
 
 	private createThread(opts: DispatchOptions): ThreadRecord {
@@ -575,6 +592,7 @@ export class ThreadManager {
 		admission?: RecoveryAdmission,
 		initialRoute?: RecoveryCandidate,
 		reviewGuidance?: string,
+		temporary?: ActionTemporary,
 	): Promise<DispatchResult> {
 		const episodeId = slateEpisodeId(thread.id)!;
 		// Enroll synchronously before the semaphore can suspend this action. Manager
@@ -584,6 +602,9 @@ export class ThreadManager {
 		const finalizer = new Promise<void>((resolve) => { finishFinalizer = resolve; });
 		this.actionFinalizers.set(thread.id, finalizer);
 		let acquired = false;
+		let shutdown = async (): Promise<void> => {};
+		let result: DispatchResult | undefined;
+		let failure: { error: unknown } | undefined;
 		try {
 			if (signal?.aborted) this.cancelBeforeStart(thread);
 			await this.semaphore.acquire();
@@ -593,15 +614,33 @@ export class ThreadManager {
 			const lease = this.logicalRuntime?.ownership.acquire(thread.id);
 			if (lease?.kind === "busy") throw new Error(`Thread ${thread.id} cannot start because its recovery owner is busy.`);
 			try {
-				return await this.runDispatchInner(thread, opts, prompt, episodeId, ctx, signal, onProgress, admission, initialRoute, reviewGuidance);
+				result = await this.runDispatchInner(thread, opts, prompt, episodeId, ctx, signal, onProgress, admission, initialRoute, reviewGuidance, (close) => { shutdown = close; });
 			} finally {
 				if (lease?.kind === "acquired") lease.lease.release();
 			}
+		} catch (error) {
+			failure = { error };
 		} finally {
-			if (acquired) this.semaphore.release();
-			this.actionFinalizers.delete(thread.id);
-			finishFinalizer();
+			try {
+				let retention: string | undefined;
+				try { await shutdown(); } catch (error) {
+					failure ??= { error };
+					if (temporary) retention = retainedActionTemporary(temporary.path, error);
+				}
+				if (temporary && retention === undefined) retention = await finishActionTemporary(temporary);
+				if (retention !== undefined) {
+					if (failure) failure.error = new Error(`${failure.error instanceof Error ? failure.error.message : String(failure.error)} ${retention}`, { cause: failure.error });
+					else if (result) result = { ...result, warnings: [...result.warnings, retention] };
+				}
+			} finally {
+				if (temporary) this.store.actionTemporaryOwners.delete(temporary);
+				if (acquired) this.semaphore.release();
+				this.actionFinalizers.delete(thread.id);
+				finishFinalizer();
+			}
 		}
+		if (failure) throw failure.error;
+		return result!;
 	}
 
 	private async runDispatchInner(
@@ -615,6 +654,7 @@ export class ThreadManager {
 		admission?: RecoveryAdmission,
 		initialRoute?: RecoveryCandidate,
 		reviewGuidance?: string,
+		registerShutdown?: (close: () => Promise<void>) => void,
 	): Promise<DispatchResult> {
 		const usage: UsageStats = { turns: 0, input: 0, output: 0, cost: 0, contextTokens: 0 };
 		let workerCostUsd: number | undefined;
@@ -657,6 +697,9 @@ export class ThreadManager {
 		let session: WorkerSession | undefined;
 		/** The worker session this action opened, kept readable after a failed open. */
 		let startupSession: WorkerSession | undefined;
+		let shutdownPromise: Promise<void> | undefined;
+		const closeOwnedWorker = () => shutdownPromise ??= this.closeWorker(thread.id, session ?? startupSession);
+		registerShutdown?.(closeOwnedWorker);
 		let unsubscribe: (() => void) | undefined;
 		let onAbort: (() => void) | undefined;
 		let messagesBefore = 0;
@@ -1155,7 +1198,7 @@ export class ThreadManager {
 			} catch {
 				/* the in-memory removal remains authoritative */
 			} finally {
-				await this.closeWorker(thread.id, session);
+				await closeOwnedWorker();
 			}
 			throw new Error(appendLifecycleWarnings(aborted.message));
 		}
@@ -1180,7 +1223,7 @@ export class ThreadManager {
 			} catch (error) {
 				cancellationSaveError = error;
 			} finally {
-				await this.closeWorker(thread.id, session);
+				await closeOwnedWorker();
 			}
 			if (cancellationSaveError !== undefined) {
 				throw new Error(appendLifecycleWarnings(`Thread ${thread.id} was ${reason}, and Slate could not save that terminal state: ${sanitizeForNotify(cancellationSaveError instanceof Error ? cancellationSaveError.message : String(cancellationSaveError), 200)}.`));
@@ -1250,7 +1293,7 @@ export class ThreadManager {
 					thread.outcomeReason += `; thread state persistence failed: ${sanitizeForNotify(saveError instanceof Error ? saveError.message : String(saveError), 200)}`;
 				}
 				emit(true, "failed");
-				await this.closeWorker(thread.id, session);
+				await closeOwnedWorker();
 				const saveDetail = saveError === undefined ? "" : ` Slate could not save its terminal thread state: ${sanitizeForNotify(saveError instanceof Error ? saveError.message : String(saveError), 200)}.`;
 				throw new Error(appendLifecycleWarnings(`Thread ${thread.id} failed: ${sanitizeForNotify(reason, 200)}. Slate could not store episode ${episodeId}: ${storageDetail}.${saveDetail}`));
 			}
@@ -1273,7 +1316,7 @@ export class ThreadManager {
 			this.store.workerCostUsd += totalActionCost;
 			let saveError: unknown;
 			try { this.store.save(); } catch (error) { saveError = error; }
-			await this.closeWorker(thread.id, session);
+			await closeOwnedWorker();
 			if (saveError !== undefined) {
 				emit(true, "failed");
 				throw new Error(appendLifecycleWarnings(`Slate stored episode ${episodeId}, but could not save its thread record: ${sanitizeForNotify(saveError instanceof Error ? saveError.message : String(saveError), 200)}.`));
@@ -1414,7 +1457,7 @@ export class ThreadManager {
 			if (saveError !== undefined) {
 				thread.outcomeReason += `; thread state persistence failed: ${sanitizeForNotify(saveError instanceof Error ? saveError.message : String(saveError), 200)}`;
 			}
-			await this.closeWorker(thread.id, session);
+			await closeOwnedWorker();
 			const safeEpisodeId = sanitizeForNotify(episodeId, 80);
 			lines.push(`✗ slate could not store episode ${safeEpisodeId}.`);
 			emit(true, "failed");
@@ -1464,7 +1507,7 @@ export class ThreadManager {
 		} catch (error) {
 			saveError = error;
 		} finally {
-			await this.closeWorker(thread.id, session);
+			await closeOwnedWorker();
 		}
 		if (saveError !== undefined) {
 			emit(true, "failed");
