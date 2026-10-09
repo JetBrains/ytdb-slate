@@ -395,18 +395,18 @@ selected file once and does not repeat the shared files.
 
 | selected perspective | rendered injected bytes | path-normalized injected bytes |
 | --- | ---: | ---: |
-| Reviewer I | 8,654 | 8,531 |
-| Concurrency reviewer | 7,408 | 7,285 |
-| Data loss and recovery reviewer | 7,603 | 7,480 |
-| Security reviewer | 7,550 | 7,427 |
-| Performance reviewer | 7,605 | 7,482 |
-| Test-quality and structure reviewer | 8,859 | 8,736 |
-| Prose reviewer | 7,817 | 7,694 |
-| Licensing reviewer | 7,548 | 7,425 |
-| Non-local logic defect reviewer | 8,545 | 8,422 |
-| Consumer contract break reviewer | 8,829 | 8,706 |
-| Governing-rule defect reviewer | 8,938 | 8,815 |
-| Unreported failure reviewer | 8,470 | 8,347 |
+| Reviewer I | 8,664 | 8,541 |
+| Concurrency reviewer | 7,418 | 7,295 |
+| Data loss and recovery reviewer | 7,613 | 7,490 |
+| Security reviewer | 7,560 | 7,437 |
+| Performance reviewer | 7,615 | 7,492 |
+| Test-quality and structure reviewer | 8,869 | 8,746 |
+| Prose reviewer | 7,827 | 7,704 |
+| Licensing reviewer | 7,558 | 7,435 |
+| Non-local logic defect reviewer | 8,555 | 8,432 |
+| Consumer contract break reviewer | 8,839 | 8,716 |
+| Governing-rule defect reviewer | 8,948 | 8,825 |
+| Unreported failure reviewer | 8,480 | 8,357 |
 
 The rendered column uses installed directory prefixes totaling 123 UTF-8 bytes.
 Prefixes totaling 145 bytes add 22 bytes to each rendered row. Portable counts stay unchanged.

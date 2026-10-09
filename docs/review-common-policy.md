@@ -2,7 +2,7 @@
 
 Review the assigned work without editing the reviewed artifacts. Apply your charter only within its assigned scope. Use the generic reviewer evidence standards supplied with this review.
 
-Before applying your specific charter, run the writing checker on the unified review diff. Write the writing-checker diff only in this action's folder when a change is open. With no open change, write the checker diff in a private operating-system temporary folder outside the checkout. Delete it after use.
+Before applying your charter, run the writing checker on the unified review diff. In a Slate action with an open change, write the checker diff only in the supplied action folder. Otherwise, use a private operating-system temporary folder outside the checkout. Delete only your own diff after use. Write nothing else.
 
 ```bash
 node <installed-writing-checker> --diff <regular-temp-diff> --format text
