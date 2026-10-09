@@ -16,9 +16,9 @@ const base = { task: "review this approved range", type: "reviewer", model: "fix
 function harness(read?: (file: string) => string) {
   const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
   const manager = new ThreadManager(store, {}, undefined, admittedRuntime, undefined, {}, read);
-  const calls: Array<{ opts: DispatchOptions; guidance: string | undefined; folder: string }> = [];
+  const calls: Array<{ opts: DispatchOptions; prompt: string; guidance: string | undefined; folder: string }> = [];
   (manager as unknown as { runDispatch: (...args: unknown[]) => unknown }).runDispatch = (_thread: unknown, opts: unknown, _prompt: unknown, _ctx: unknown, _signal: unknown, _progress: unknown, _admission: unknown, _route: unknown, guidance: unknown, _temporary: unknown, folder: unknown) => {
-    calls.push({ opts: opts as DispatchOptions, guidance: guidance as string | undefined, folder: folder as string });
+    calls.push({ opts: opts as DispatchOptions, prompt: _prompt as string, guidance: guidance as string | undefined, folder: folder as string });
     return _thread;
   };
   return { manager, store, calls };
@@ -99,9 +99,10 @@ test("selected guidance reaches the worker system blocks in selection order, onc
       assert.ok(charter.indexOf("**Design-quality questions**") < charter.indexOf("**Examples of useful evidence**"));
     }
     // These independent duties fail when the source is lost, even if both generated copies agree.
-    assert.match(expected, /Write the writing-checker diff only in this action's folder when a change is open\./);
-    assert.match(expected, /With no open change, write the checker diff in a private operating-system temporary folder outside the checkout\. Delete it after use\./);
-    assert.equal(occurrences(expected, "Write the writing-checker diff only"), 1);
+    assert.match(expected, /In a Slate action with an open change, write the checker diff only in the supplied action folder\./);
+    assert.match(expected, /Otherwise, use a private operating-system temporary folder outside the checkout\./);
+    assert.match(expected, /Delete only your own diff after use\. Write nothing else\./);
+    assert.equal(occurrences(expected, "write the checker diff only"), 1);
     const openRules = changeGuidance("change-20261008T000000Z-00000000000000000000000000000000", true)!;
     const noChangeRules = changeGuidance(undefined, true);
     assert.match(openRules, /Write only your own writing-checker diff in the supplied action folder\. Write nothing else\./);
@@ -109,6 +110,8 @@ test("selected guidance reaches the worker system blocks in selection order, onc
     assert.match(noChangeRules, /Write only your own writing-checker diff in a private operating-system temporary folder outside the checkout/);
     assert.match(noChangeRules, /Delete the diff and its private folder after use\. Write nothing else/);
     assert.equal(calls[0]!.opts.task, base.task);
+    assert.equal(calls[0]!.prompt, base.task);
+    assert.doesNotMatch(calls[0]!.prompt, /research[- ]log|implementer[- ]report|slate-changes\//i);
     const reviewRules = readFileSync(new URL("../docs/review-rules.md", import.meta.url), "utf8");
     assert.match(reviewRules, /The supplied action temporary folder permits only the reviewer's own writing-checker diff and adds no reviewer input\./);
     assert.match(reviewRules, /A reviewer never lists tmp\/ or reads another action's folder\./);

@@ -5913,12 +5913,12 @@ verbatim retention of every tool result.`);
 			].join("\n");
 			const contextBudget = readFileSync(join(REPO, "docs", "context-budget.md"), "utf8");
 			const expectedInjected = [
-				["Reviewer I", 8654, 8531], ["Concurrency reviewer", 7408, 7285],
-				["Data loss and recovery reviewer", 7603, 7480], ["Security reviewer", 7550, 7427],
-				["Performance reviewer", 7605, 7482], ["Test-quality and structure reviewer", 8859, 8736],
-				["Prose reviewer", 7817, 7694], ["Licensing reviewer", 7548, 7425],
-				["Non-local logic defect reviewer", 8545, 8422], ["Consumer contract break reviewer", 8829, 8706],
-				["Governing-rule defect reviewer", 8938, 8815], ["Unreported failure reviewer", 8470, 8347],
+				["Reviewer I", 8664, 8541], ["Concurrency reviewer", 7418, 7295],
+				["Data loss and recovery reviewer", 7613, 7490], ["Security reviewer", 7560, 7437],
+				["Performance reviewer", 7615, 7492], ["Test-quality and structure reviewer", 8869, 8746],
+				["Prose reviewer", 7827, 7704], ["Licensing reviewer", 7558, 7435],
+				["Non-local logic defect reviewer", 8555, 8432], ["Consumer contract break reviewer", 8839, 8716],
+				["Governing-rule defect reviewer", 8948, 8825], ["Unreported failure reviewer", 8480, 8357],
 			];
 			const docsPrefix = paths.REVIEW_RULES_DOC.slice(0, -"review-rules.md".length);
 			const extensionPrefix = paths.WRITING_CHECKER.slice(0, -"writing-check.mjs".length);
@@ -5931,9 +5931,9 @@ verbatim retention of every tool result.`);
 			checkAll("contract-review-sizes", "production-rendered per-perspective injected bytes, portable path basis, and published table match exact independent pins", [
 				["all twelve portable sizes are exact and rendered bytes add both installed path prefixes", injected.every(([, rendered, portable], i) => portable === expectedInjected[i][2] && rendered === portable + Buffer.byteLength(docsPrefix, "utf8") + Buffer.byteLength(extensionPrefix, "utf8")), injected],
 				["all twelve published rows use the declared 123-byte prefix basis and exact portable pins", JSON.stringify(publishedInjected) === JSON.stringify(expectedInjected) && publishedInjected.every(([, rendered, portable]) => rendered === portable + 123) && contextBudget.includes("prefixes totaling 123 UTF-8 bytes") && contextBudget.includes("Prefixes totaling 145 bytes add 22 bytes"), publishedInjected],
-				["policy growth stays within 100 bytes and reviewer-rule growth within 400 bytes", Buffer.byteLength(readFileSync(paths.REVIEW_COMMON_POLICY_DOC, "utf8")) - 2841 === 79 && Buffer.byteLength(reviews) - 22912 <= 400, { policy: 79, reviewRules: Buffer.byteLength(reviews) - 22912 }],
+				["policy growth stays within 100 bytes and reviewer-rule growth within 400 bytes", Buffer.byteLength(readFileSync(paths.REVIEW_COMMON_POLICY_DOC, "utf8")) - 2841 === 89 && Buffer.byteLength(reviews) - 22912 <= 400, { policy: Buffer.byteLength(readFileSync(paths.REVIEW_COMMON_POLICY_DOC, "utf8")) - 2841, reviewRules: Buffer.byteLength(reviews) - 22912 }],
 				["all approved perspective content matches independent snapshots", Object.entries(approvedContentDigests).every(([id, expected]) => hash(roleFiles[id] ?? "") === expected), Object.fromEntries(Object.entries(roleFiles).map(([id, content]) => [id, hash(content)]))],
-				["common and implementation text keep independent approved snapshots", hash(readFileSync(paths.REVIEW_COMMON_POLICY_DOC, "utf8")) === "516b56635ce53702dc87f44cd78aa11622da0bd6562bcd91863687f0011f8bc6" && hash(readFileSync(paths.REVIEW_IMPLEMENTATION_INPUT_DOC, "utf8")) === "e8bbe7a6b03f175a41cb25af633e8fc32e0bce17c85b4db5061d508bc10b0872", "two shared source files"],
+				["common and implementation text keep independent approved snapshots", hash(readFileSync(paths.REVIEW_COMMON_POLICY_DOC, "utf8")) === "bbf3bd833faabba61dad28de933320d88c8cb77ab34c450e361ce77139311227" && hash(readFileSync(paths.REVIEW_IMPLEMENTATION_INPUT_DOC, "utf8")) === "e8bbe7a6b03f175a41cb25af633e8fc32e0bce17c85b4db5061d508bc10b0872", "two shared source files"],
 			]);
 
 			// Complete owned policy units use independent expectations. Exact equality is
@@ -5969,7 +5969,16 @@ For changes that load the nested sections, follow [recursive-workflow.md](recurs
 				{
 					id: "reviewer-input-contract",
 					source: reviews,
-					extract: headingUnit("### Reviewer input contract"),
+					extract: (source) => {
+						const unit = headingUnit("### Reviewer input contract")(source);
+						const start = "### Reviewer input contract\n", end = "## Reviewer sets, merge rule and charters\n";
+						const boundary = source.indexOf(end), body = source.indexOf(start) + start.length;
+						if (unit.count !== 1) return unit;
+						if (!source.includes(start) || source.split(end).length !== 2 || boundary < body)
+							return { count: 0, text: "", rawText: "" };
+						const rawText = source.slice(body, boundary).trim();
+						return { count: 1, text: normalizeText(rawText), rawText };
+					},
 					expected: normalizeText(`No reviewer may receive or directly read a manual status file, leftover record temporary file, their references or contents, the research log, a research-log reference, a research-log extract, an implementer report, private orchestrator triage, or implementer reasoning. The reviewer must not seek those sources, even when repository tools can reach them. Private orchestrator triage means the orchestrator's private deliberation and implementation rationale. Implementer reasoning means private reasoning produced by an implementer. These are distinct sources.
 
 This restriction applies to a design-stage adversary, Reviewer I, every implementation specialist, an agentic fix gate, a user-review fix-range gate, and a stuck-fix consultation. Ordinary repository and library evidence needed for the assigned work remains available. This permission is not a closed changed-file allowlist.
@@ -6023,37 +6032,56 @@ Record each grant in the override log.`),
 			];
 			const reviewerRawHash = (text) => createHash("sha256").update(text).digest("hex");
 			const inputParagraphs = (source) => reviewerInput.extract(source).rawText.trim().split(/\n\n/).filter((paragraph) => paragraph !== amendment);
+			const writeScope = "reviewer does not edit reviewed artifacts. The common review policy permits\nonly the reviewer's own writing-checker diff.";
 			const acceptsReviewerInputs = (source) => {
 				const unit = reviewerInput.extract(source), paragraphs = inputParagraphs(source);
 				return unit.count === 1 && unit.text === reviewerInput.expected && paragraphs.length === 8
+					&& source.split(writeScope).length === 2
 					&& paragraphs.every((paragraph, index) => reviewerRawHash(paragraph) === originalParagraphDigests[index]);
 			};
-			const reviewerInputAttacks = [
-				["reviewer-contract-design-grant", reviews.replace(amendment, amendment + " Reviewers may read design records in the supplied folder.")],
-				["reviewer-contract-folder-restriction", reviews.replace(amendment, amendment + " All reviewer evidence must come from that folder.")],
-				["reviewer-contract-outside-range-grant", reviews.replace("Every reviewer uses the [common review policy]", "Reviewer I may directly read private research logs.\n\nEvery reviewer uses the [common review policy]")],
-				["reviewer-reads-other-action", reviews.replace(amendment, amendment + " Reviewers may list tmp/ and read another action's files.")],
-				...inputParagraphs(reviews).map((paragraph, index) => [`reviewer-contract-stage-paragraph-changed/${index}`, reviews.replace(paragraph, paragraph + " Reviewer I may read private triage.")]),
-			].map(([id, source]) => ({ id, changed: source !== reviews, rejected: !acceptsReviewerInputs(source),
-				intended: reviewerInput.extract(source).count === 1 && reviewerInput.extract(source).text !== reviewerInput.expected }));
+			const reviewerInputAttacksFor = (reviewSource) => [
+				["reviewer-contract-design-grant", amendment, amendment.slice(0, -1) + " and may read design records in the supplied folder."],
+				["reviewer-contract-folder-restriction", amendment, amendment.slice(0, -1) + " and all reviewer evidence must come from that folder."],
+				["reviewer-contract-outside-range-grant", "Every reviewer uses the [common review policy]", "Reviewer I may directly read private research logs.\n\nEvery reviewer follows the [common review policy]"],
+				["reviewer-reads-other-action", amendment, amendment.slice(0, -1) + " and may list tmp/ and read another action's files."],
+				...inputParagraphs(reviews).map((paragraph, index) => [`reviewer-contract-stage-paragraph-changed/${index}`, paragraph, paragraph.slice(0, -1) + " and Reviewer I may read private triage."]),
+				["reviewer-contract-sibling-heading-grant", "\n\n## Reviewer sets, merge rule and charters\n", "\n\n### Reviewer read exceptions\n\nReviewers may read the research log.\n## Reviewer sets, merge rule and charters\n"],
+				["reviewer-write-scope-weakened", writeScope, "reviewer may edit or delete any record and any action folder."],
+			].map(([id, rule, replacement]) => {
+				const source = reviewSource.replace(rule, replacement);
+				return { id, changed: source !== reviewSource, rejected: !acceptsReviewerInputs(source),
+					intended: id === "reviewer-write-scope-weakened" ? source.split(writeScope).length !== 2
+						: reviewerInput.extract(source).text !== reviewerInput.expected,
+					originalRuleCount: reviewSource.split(rule).length - 1, mutatedRuleCount: source.split(rule).length - 1 };
+			});
+			const reviewerInputAttacks = reviewerInputAttacksFor(reviews);
 			mutationAudit.record("reviewer-inputs", reviewerInputAttacks);
 			checkAll("contract-review-inputs", "the complete input section protects all eight raw paragraphs and destination-only restrictions", [
 				["all eight original paragraphs remain byte-identical and ordered", acceptsReviewerInputs(reviews), inputParagraphs(reviews).map(reviewerRawHash)],
-				["each input attack fails complete section content, including the later grant", reviewerInputAttacks.every(({ changed, rejected, intended }) => changed && rejected && intended), reviewerInputAttacks],
-				["an unrelated appendix preserves the input contract", acceptsReviewerInputs(reviews + "\n## Editorial appendix\n\nNo policy here.\n"), "positive outside control"],
+				["each input attack fails complete section content, including the later grant", reviewerInputAttacks.every(({ changed, rejected, intended, originalRuleCount, mutatedRuleCount }) => changed && rejected && intended && originalRuleCount === 1 && mutatedRuleCount === 0), reviewerInputAttacks],
+				["an unrelated appendix preserves the input contract and write scope", acceptsReviewerInputs(reviews + "\n## Editorial appendix\n\nNo policy here.\n"), "positive outside control"],
+				["a duplicated outside-range anchor fails its own occurrence evidence", (() => {
+					const duplicate = reviews + "\n## Editorial appendix\n\nEvery reviewer uses the [common review policy]\n";
+					const row = reviewerInputAttacksFor(duplicate).find(({ id }) => id === "reviewer-contract-outside-range-grant");
+					const audit = createMutationAudit({ fixture: ["reviewer-contract-outside-range-grant"] });
+					audit.record("fixture", [row]);
+					return row.originalRuleCount === 2 && row.mutatedRuleCount === 1 && !audit.inspect().ok;
+				})(), "two-anchor counterexample"],
 			]);
 			const commonReview = readFileSync(paths.REVIEW_COMMON_POLICY_DOC, "utf8");
-			const placement = "Write the writing-checker diff only in this action's folder when a change is open.";
-			const fallback = "With no open change, write the checker diff in a private operating-system temporary folder outside the checkout.";
-			const deletion = "Delete it after use.";
+			const placement = "In a Slate action with an open change, write the checker diff only in the supplied action folder.";
+			const fallback = "Otherwise, use a private operating-system temporary folder outside the checkout.";
+			const deletion = "Delete only your own diff after use.";
 			const hiddenDestination = readFileSync(join(REPO, "extension", "threads.ts"), "utf8").match(/^\s*content: (`Action temporary folder:[^\n]+`),$/m)?.[1];
 			const expectedDestination = '`Action temporary folder: ${path}\\nFollow the folder rules in the worker preamble.\\n`';
-			const acceptsReviewDestination = (source, hidden = hiddenDestination) => reviewerRawHash(source) === "f4ecc72926032964a2bc3ac442755172965cdb33a79da5973b6588e48ee031e1" && hidden === expectedDestination;
+			const acceptsReviewDestination = (source, hidden = hiddenDestination) => reviewerRawHash(source) === "5e88766faf4b58aba0715e704b38619c02cb9a0c851c037700600d554f6a5784" && hidden === expectedDestination;
 			const reviewerDestinationAttacks = [
 				["reviewer-owned-diff-exception-removed", placement, ""],
 				["reviewer-no-change-fallback-removed", fallback, ""],
 				["reviewer-no-change-deletion-removed", deletion, ""],
 				["reviewer-design-bytes-denied", placement, "Write only tracked-range bytes in every writing-checker diff, including design reviews."],
+				["reviewer-manual-fallback-removed", placement, "With an open change, write the checker diff only in the supplied action folder."],
+				["reviewer-extra-write-limit-removed", "Write nothing else.", ""],
 			].map(([id, rule, replacement]) => {
 				const source = commonReview.replace(rule, replacement);
 				return { id, changed: source !== commonReview, rejected: !acceptsReviewDestination(source), intended: hash(source) !== hash(commonReview),
