@@ -96,13 +96,8 @@ jobs:
     # implementation version changes, or required checks remain pending.
     name: ${{ matrix.check_name }}
     runs-on: ubuntu-24.04
-    # A tripwire for a hung step, not a budget. The original four checks total
-    # ~5 s warm; the node:test suite adds ~19 s on Node 24 and ~35 s on Node 22
-    # in the measured local runs. Even a cold npm cache and a slow runner keep a
-    # full job inside a couple of minutes. Anything past 15 minutes is a pi
-    # child waiting on something that will never arrive, and the default is to
-    # let it hold a runner for six hours.
-    timeout-minutes: 15
+    # Bound the complete check job, including Linux terminal read-back tests.
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -141,7 +136,7 @@ jobs:
       - name: Install Linux notification read-back prerequisites
         run: |
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends dbus libnotify-bin python3-dbus-next openssh-client openssh-server
+          sudo apt-get install --yes --no-install-recommends dbus libnotify-bin python3-dbus-next openssh-client openssh-server tmux
 
       - name: Typecheck
         run: npm run typecheck

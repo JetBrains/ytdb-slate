@@ -29,6 +29,22 @@ small-branch-denominator warning policy remain unchanged.
 ## Continuous integration
 
 The full suite runs on Linux under the stable `Node 22` and `Node 24` check names.
+The job has a 20-minute limit on the pinned `ubuntu-24.04` runner image.
+The Linux prerequisite install includes `dbus`, `libnotify-bin`,
+`python3-dbus-next`, `openssh-client`, `openssh-server` and `tmux`.
+
+`test/notification-tmux-readback.test.ts` asserts the tmux 3.4 version series in CI.
+It owns a private server socket, configuration, home directory and client
+pseudoterminals. Client version replies identify all seven known terminals.
+Independent byte expectations check the production query match bits, automatic
+selection, complete pane-device envelopes and the attached client streams.
+The cases cover the four G9 examples, both tie-breaks, fixed send order,
+unidentified clients, visible-window `on`, inactive-window `all`, inactive-window
+`on` silence, default bell delivery to both clients and real-binary query failure.
+Unit tests in `test/notification-tmux.test.ts` cover stalled queries, cancellation,
+nonblocking admission and process exit. Missing prerequisites fail on Linux when
+`CI` is true and produce a visible local skip otherwise. The integration check
+proves byte transport, not terminal interpretation or visible presentation.
 
 ## Why this exists
 
