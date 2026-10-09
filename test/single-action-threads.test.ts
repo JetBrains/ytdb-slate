@@ -145,7 +145,7 @@ test("action folders join shutdown and completion across terminal outcomes", { t
     const manager = new ThreadManager(store, { maxConcurrent: 1 }, undefined, fixtureRuntime());
     const entered = deferred(), release = deferred(), removal = deferred(), finishRemoval = deferred();
     const controller = new AbortController();
-    let shutdown = false, opens = 0, temporary = "";
+    let shutdown = false, opens = 0, temporary = "", removals = 0, removalBeforeShutdown = false;
     const listeners = new Set<(event: Record<string, unknown>) => void>();
     const session = {
       messages: [] as unknown[], model: { provider: "test", id: "worker" }, thinkingLevel: "off",
@@ -175,7 +175,8 @@ test("action folders join shutdown and completion across terminal outcomes", { t
     };
     const rmdir = fs.promises.rmdir;
     t.mock.method(fs.promises, "rmdir", async (path: fs.PathLike) => {
-      if (opens > 0) assert.equal(shutdown, true, mode);
+      removals++;
+      if (opens > 0 && !shutdown) removalBeforeShutdown = true;
       if (mode === "completion" && String(path) === temporary) { removal.resolve(); await finishRemoval.promise; }
       return rmdir(path);
     });
@@ -205,6 +206,9 @@ test("action folders join shutdown and completion across terminal outcomes", { t
         await queued; await teardown;
       }
       const result = await action;
+      assert.equal(removalBeforeShutdown, false, mode);
+      if (mode === "shutdown") assert.equal(removals, 0, mode);
+      else assert.ok(removals > 0, mode);
       assert.equal(store.actionTemporaryOwners.size, 0); store.assertNoActionTemporaryOwners();
       if (mode === "nonempty" || mode === "shutdown") {
         assert.ok(existsSync(temporary));

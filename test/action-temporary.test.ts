@@ -65,6 +65,10 @@ test("allocation reports creation errors and names an unexposed verification fai
     try {
       assert.throws(() => allocateActionTemporary(f.root, f.change), (error: Error) => {
         assert.match(error.message, /injected creation failure|not private/);
+        if (operation === "mkdtempSync") {
+          assert.ok(error.message.includes(`Slate kept action temporary folder ${f.tmp}. Reason:`));
+          assert.ok(fs.statSync(f.tmp).isDirectory());
+        }
         if (created) { assert.ok(error.message.includes(created)); assert.ok(fs.existsSync(created)); }
         return true;
       });
@@ -101,17 +105,28 @@ test("completion keeps bytes and refuses every observed replacement", { timeout:
 });
 
 test("completion performs one exact non-recursive syscall and reports its failures", { timeout: 1000 }, async (t) => {
-  for (const code of ["ENOTEMPTY", "EACCES", "EIO"]) {
+  for (const code of ["ok", "ENOTEMPTY", "EACCES", "EIO"]) {
     const f = lab(t), a = allocateActionTemporary(f.root, f.change);
+    const removals: unknown[][] = [];
+    let listings = 0;
     t.mock.method(fs.promises, "rmdir", async (...args: unknown[]) => {
-      assert.deepEqual(args, [a.path]);
-      throw Object.assign(new Error(code), { code });
+      removals.push(args);
+      if (code !== "ok") throw Object.assign(new Error(code), { code });
     });
-    t.mock.method(fs.promises, "readdir", () => { throw new Error("content traversal"); });
-    const warning = await finishActionTemporary(a);
-    assert.ok(warning?.includes(a.path)); assert.ok(warning?.includes(code));
-    assert.ok(fs.existsSync(a.path));
-    t.mock.restoreAll();
+    const forbidListing = () => { listings++; throw new Error("content traversal"); };
+    t.mock.method(fs.promises, "readdir", forbidListing);
+    t.mock.method(fs, "readdirSync", forbidListing);
+    t.mock.method(fs, "opendirSync", forbidListing);
+    syncBuiltinESMExports();
+    try {
+      const warning = await finishActionTemporary(a);
+      assert.equal(listings, 0);
+      assert.equal(removals.length, 1);
+      assert.deepEqual(removals[0], [a.path]);
+      if (code === "ok") assert.equal(warning, undefined);
+      else { assert.ok(warning?.includes(a.path)); assert.ok(warning?.includes(code)); }
+      assert.ok(fs.existsSync(a.path));
+    } finally { t.mock.restoreAll(); syncBuiltinESMExports(); }
   }
   assert.match((await finishActionTemporary({ change: "invalid", path: "unowned" }))!, /not owned/);
 });

@@ -52,13 +52,19 @@ export function allocateActionTemporary(cwd: string, change: string): ActionTemp
 			if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
 		}
 	}
-	const tmpEntry = directory(tmp);
-	if (createdTmp && process.platform !== "win32" && (tmpEntry.mode & 0o077) !== 0) {
-		throw new Error(retainedActionTemporary(tmp, "New temporary root is not private."));
+	let path: string;
+	try {
+		const tmpEntry = directory(tmp);
+		if (createdTmp && process.platform !== "win32" && (tmpEntry.mode & 0o077) !== 0) {
+			throw new Error("New temporary root is not private.");
+		}
+		chain.push({ path: tmp, dev: tmpEntry.dev, ino: tmpEntry.ino });
+		recheck(chain);
+		path = mkdtempSync(join(tmp, "action."));
+	} catch (error) {
+		if (!createdTmp) throw error;
+		throw new Error(retainedActionTemporary(tmp, error), { cause: error });
 	}
-	chain.push({ path: tmp, dev: tmpEntry.dev, ino: tmpEntry.ino });
-	recheck(chain);
-	const path = mkdtempSync(join(tmp, "action."));
 	try {
 		const action = identity(path);
 		if (process.platform !== "win32" && (directory(path).mode & 0o077) !== 0) {
