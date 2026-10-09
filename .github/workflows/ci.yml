@@ -12,9 +12,9 @@
 #     load check scrubs the child environment by variable-name pattern, not by a
 #     list of permitted variables, and a measured AWS_ACCESS_KEY_ID reached a
 #     real pi child. The offline session simply has nothing to spend it on.
-#   * No network in the checks themselves. Only the checkout, the Node download
-#     and dependency setup (`npm ci` and `apt-get`) reach the network.
-#     Package downloads require no secrets.
+#   * No external network in the checks themselves. The SSH terminal check uses
+#     IPv4 loopback only. The checkout, Node download and dependency setup
+#     (`npm ci` and `apt-get`) reach external services without secrets.
 #   * No lasting change to the checkout. `npm ci` fills the gitignored
 #     node_modules and nothing else moves — `git status` is clean after a full
 #     local run — and the three harnesses that need scratch space (the load
@@ -95,7 +95,7 @@ jobs:
     # The check name is a ruleset interface. Keep it stable when an exact Node
     # implementation version changes, or required checks remain pending.
     name: ${{ matrix.check_name }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # A tripwire for a hung step, not a budget. The original four checks total
     # ~5 s warm; the node:test suite adds ~19 s on Node 24 and ~35 s on Node 22
     # in the measured local runs. Even a cold npm cache and a slow runner keep a
@@ -141,7 +141,7 @@ jobs:
       - name: Install Linux notification read-back prerequisites
         run: |
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends dbus libnotify-bin python3-dbus-next
+          sudo apt-get install --yes --no-install-recommends dbus libnotify-bin python3-dbus-next openssh-client openssh-server
 
       - name: Typecheck
         run: npm run typecheck
