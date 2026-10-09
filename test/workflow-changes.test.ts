@@ -10,6 +10,7 @@ import { createChangeDirectory } from "../extension/slate-files.ts";
 import { ADOPTED_SNAPSHOT_FIELDS, SlateStore, type SlateSnapshot } from "../extension/state.ts";
 import { registerSlateTools } from "../extension/tools.ts";
 import { ThreadManager } from "../extension/threads.ts";
+import { createLogicalRuntime } from "../extension/logical-model-runtime.ts";
 import { workerPreamble, type WorkerSession } from "../extension/worker.ts";
 import { implementerReportName, readOnlyEarlierLogLine, trackIdentifier } from "../extension/record-names.ts";
 import { registerSlateHandoff } from "../extension/handoff.ts";
@@ -547,7 +548,8 @@ test("startup preserves planted versions and temporary record bytes across resum
   createChangeDirectory(f.project, folder);
   const directory = join(f.project, "slate-changes", folder);
   mkdirSync(join(directory, "versions"));
-  const files = ["versions/status.v1.md", "versions/root-design.v2.md", ".slate-record-candidate", ".slate-record-version"];
+  mkdirSync(join(directory, "tmp", "action.leftover"), { recursive: true });
+  const files = ["versions/status.v1.md", "versions/root-design.v2.md", ".slate-record-candidate", ".slate-record-version", "tmp/action.leftover/start-copy"];
   const bytes = files.map((name, index) => { const value = Buffer.from([0, index, 255, 10]); writeFileSync(join(directory, name), value); return value; });
   const state: SlateSnapshot = { format: "single-action-v1", threads: [], episodes: [], currentChange: folder,
     changeOwnerSessionId: "successor", orchestratorMode: true, paused: false, workerCostUsd: 0, carriedCostUsd: 0 };
@@ -557,6 +559,47 @@ test("startup preserves planted versions and temporary record bytes across resum
     if (reason === "handoff") { f.session("successor"); f.handoff(state); }
     await f.start(reason);
     files.forEach((name, index) => assert.deepEqual(readFileSync(join(directory, name)), bytes[index], `${reason}: ${name}`));
+  }
+});
+
+test("close checks live ownership before saving and dispatch rejects captured drift", { timeout: 2000 }, async (t) => {
+  const f = harness(t);
+  let store!: SlateStore;
+  const save = SlateStore.prototype.save;
+  t.mock.method(SlateStore.prototype, "save", function (this: SlateStore) { store = this; save.call(this); });
+  f.branchTo({ format: "single-action-v1", threads: [], episodes: [], orchestratorMode: true, paused: false, workerCostUsd: 0, carriedCostUsd: 0 });
+  await f.start("resume"); await f.action("start");
+  t.mock.restoreAll();
+  const runtime = createLogicalRuntime({ trusted: true });
+  const opts = { model: "luna-6", reason: "close ordering", type: "general" as const, task: "close ordering" };
+  for (const phase of ["validation", "first-yield", "closed"]) {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const route = Object.freeze({ ...runtime, async validateRoute() {
+      if (phase === "validation") await gate;
+      return { ok: true } as const;
+    } });
+    const manager = new ThreadManager(store, {}, undefined, route);
+    const change = store.currentChange;
+    const controller = new AbortController(); controller.abort();
+    if (phase === "closed") await f.action("close");
+    const action = manager.dispatch(opts, f.ctx, controller.signal);
+    const rejected = assert.rejects(action, phase === "validation" ? /changed during action validation/ : /cancelled before/);
+    if (phase === "validation") { await f.action("close"); release(); }
+    if (phase === "first-yield") {
+      await Promise.resolve();
+      const before = f.entries.length;
+      await assert.rejects(f.action("close"), /cannot close/);
+      assert.equal(f.entries.length, before); assert.equal(store.currentChange, change);
+      assert.equal(store.actionTemporaryOwners.size, 1);
+    }
+    await rejected;
+    assert.equal(store.actionTemporaryOwners.size, 0); assert.equal(store.threads.size, 0);
+    if (phase === "validation") {
+      assert.equal(existsSync(join(f.project, "slate-changes", change!, "tmp")), false);
+      await f.action("start");
+    }
+    if (phase === "closed") assert.equal(store.currentChange, undefined);
   }
 });
 

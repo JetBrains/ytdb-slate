@@ -1,14 +1,15 @@
 const TEST_ROUTE = { model: "fixture", reason: "test fixture" } as const;
 
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import fs, { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { createChangeFolder } from "../extension/artifact-names.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { NO_SESSION_BASELINE, createLogicalRuntime } from "../extension/logical-model-runtime.ts";
 import { registerSlateTools } from "../extension/tools.ts";
-import { sanitizeThreadRecord, SLATE_STATE_FORMAT, SlateStore, type EpisodeRecord, type ThreadRecord } from "../extension/state.ts";
+import { sanitizeThreadRecord, SLATE_STATE_FORMAT, SlateStore, THREAD_TYPES, type EpisodeRecord, type ThreadRecord } from "../extension/state.ts";
 import { MAX_CONTEXT_EPISODES, messagesForCompression, ThreadManager, type DispatchOptions, type DispatchResult } from "../extension/threads.ts";
 import { WORKER_REQUEST_CONTRACT_ERROR, type WorkerRequestContract } from "../extension/worker.ts";
 import { bindFakeWorkerRequest } from "./worker-request-contract-fixture.ts";
@@ -134,6 +135,105 @@ async function assertNoDurableEpisodeConsumers(
   assert.equal(restored.threads.size, before, `${episodeId}: later context rejection allocates no thread`);
 }
 
+test("action folders join shutdown and completion across terminal outcomes", { timeout: 10_000 }, async (t) => {
+  for (const mode of ["ok", "failed", "throw", "tool-error", "nonempty", "settlement", "shutdown", "storage", "cancel", "startup", "completion"]) {
+    const root = mkdtempSync(join(tmpdir(), "slate-action-lifetime-"));
+    const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
+    store.currentChange = createChangeFolder();
+    const folder = join(root, "slate-changes", store.currentChange), tmp = join(folder, "tmp");
+    mkdirSync(folder, { recursive: true });
+    const manager = new ThreadManager(store, { maxConcurrent: 1 }, undefined, fixtureRuntime());
+    const entered = deferred(), release = deferred(), removal = deferred(), finishRemoval = deferred();
+    const controller = new AbortController();
+    let shutdown = false, opens = 0, temporary = "";
+    const listeners = new Set<(event: Record<string, unknown>) => void>();
+    const session = {
+      messages: [] as unknown[], model: { provider: "test", id: "worker" }, thinkingLevel: "off",
+      subscribe(listener: (event: Record<string, unknown>) => void) { listeners.add(listener); return () => listeners.delete(listener); },
+      setThinkingLevel(level: string) { session.thinkingLevel = level; },
+      async prompt() {
+        if (mode === "throw") throw new Error("prompt failed");
+        const message = { role: "assistant", stopReason: mode === "failed" ? "error" : "stop", errorMessage: "billing exhausted", content: [{ type: "text", text: "done" }] };
+        session.messages.push(message);
+        for (const listener of listeners) {
+          listener({ type: "message_end", message });
+          if (mode === "tool-error") listener({ type: "tool_execution_end", toolName: "cmp", isError: true, result: "exit 1" });
+        }
+      },
+      includedOperationFailure() { if (mode === "settlement") throw new Error("post-settlement failure"); return undefined; },
+      closeManagedOperations() {}, async settleManagedOperations() {}, async abort() {},
+      async shutdownWorker() { entered.resolve(); await release.promise; if (mode === "shutdown") throw new Error("shutdown failed"); shutdown = true; },
+    };
+    const internal = manager as any;
+    internal.openWorkerFor = async (args: any) => {
+      opens++; temporary = [...store.actionTemporaryOwners][0]!.path;
+      args.observeSession(session);
+      if (mode === "nonempty") writeFileSync(join(temporary, "start-copy"), "retained evidence");
+      if (mode === "storage") writeFileSync(join(root, ".pi"), "blocked storage");
+      if (mode === "startup") throw new Error("startup failed");
+      bindFakeWorkerRequest(session, args.requestContract); internal.live.set(args.thread.id, session); return { session };
+    };
+    const rmdir = fs.promises.rmdir;
+    t.mock.method(fs.promises, "rmdir", async (path: fs.PathLike) => {
+      if (opens > 0) assert.equal(shutdown, true, mode);
+      if (mode === "completion" && String(path) === temporary) { removal.resolve(); await finishRemoval.promise; }
+      return rmdir(path);
+    });
+    try {
+      if (mode === "cancel") controller.abort();
+      let settled = false;
+      const action = manager.dispatch({ ...TEST_ROUTE, type: THREAD_TYPES[opens + ["ok", "failed", "throw", "tool-error", "nonempty"].indexOf(mode)] ?? "general", task: "lifetime" }, { cwd: root, hasUI: false } as ExtensionContext, controller.signal)
+        .then((result) => { settled = true; return result; }, (error: Error) => { settled = true; return error; });
+      if (mode !== "cancel") {
+        await entered.promise;
+        assert.ok(existsSync(temporary)); assert.equal(store.actionTemporaryOwners.size, 1);
+        assert.equal(Object.hasOwn(store.snapshot(), "actionTemporaryOwners"), false);
+        assert.throws(() => store.assertNoActionTemporaryOwners(), /cannot close/);
+        assert.equal(settled, false);
+        release.resolve();
+      }
+      if (mode === "completion") {
+        await removal.promise;
+        const queued = manager.dispatch({ ...TEST_ROUTE, type: "general", task: "queued" }, { cwd: root } as ExtensionContext, undefined).catch((error: Error) => error);
+        while (store.actionTemporaryOwners.size < 2) await new Promise<void>((resolve) => setImmediate(resolve));
+        let disposed = false;
+        const teardown = manager.disposeAll().then(() => { disposed = true; });
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        assert.equal(opens, 1); assert.equal(disposed, false); assert.equal(settled, false);
+        assert.throws(() => store.assertNoActionTemporaryOwners(), /cannot close/);
+        finishRemoval.resolve();
+        await queued; await teardown;
+      }
+      const result = await action;
+      assert.equal(store.actionTemporaryOwners.size, 0); store.assertNoActionTemporaryOwners();
+      if (mode === "nonempty" || mode === "shutdown") {
+        assert.ok(existsSync(temporary));
+        assert.ok((result instanceof Error ? result.message : result.warnings.join(" ")).includes(temporary));
+        if (mode === "nonempty") assert.equal(readFileSync(join(temporary, "start-copy"), "utf8"), "retained evidence");
+      } else assert.deepEqual(readdirSync(tmp), []);
+      if (["settlement", "shutdown", "storage", "cancel"].includes(mode)) assert.ok(result instanceof Error, mode);
+      else { assert.ok(!(result instanceof Error), mode); assert.equal(result.episode.status, ["failed", "throw", "startup"].includes(mode) ? "failed" : "ok"); }
+      if (mode === "tool-error") { assert.ok(!(result instanceof Error)); assert.match(result.warnings.join(" "), /cmp \(1\)/); }
+      assert.equal(internal.actionFinalizers.size, 0);
+    } finally { release.resolve(); finishRemoval.resolve(); t.mock.restoreAll(); rmSync(root, { recursive: true, force: true }); }
+  }
+});
+
+test("thread-save failure retains and names its folder before enrollment", { timeout: 1000 }, async () => {
+  const root = mkdtempSync(join(tmpdir(), "slate-action-save-"));
+  try {
+    const store = new SlateStore({ appendEntry() { throw new Error("thread save failed"); } } as unknown as ExtensionAPI);
+    store.currentChange = createChangeFolder();
+    mkdirSync(join(root, "slate-changes", store.currentChange), { recursive: true });
+    const manager = new ThreadManager(store, {}, undefined, fixtureRuntime());
+    await assert.rejects(manager.dispatch({ ...TEST_ROUTE, type: "general", task: "save" }, { cwd: root } as ExtensionContext, undefined), (error: Error) => {
+      const path = join(root, "slate-changes", store.currentChange!, "tmp", readdirSync(join(root, "slate-changes", store.currentChange!, "tmp"))[0]!);
+      assert.ok(error.message.includes(path)); assert.match(error.message, /thread save failed/); return true;
+    });
+    assert.equal(store.actionTemporaryOwners.size, 0); assert.equal(store.threads.size, 0);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("every accepted action creates a distinct single-action thread", async () => {
   const root = mkdtempSync(join(tmpdir(), "slate-single-action-"));
   try {
@@ -146,6 +246,7 @@ test("every accepted action creates a distinct single-action thread", async () =
     assert.equal(store.threads.size, 2);
     assert.equal(first.thread.episodeId, "t1.e1");
     assert.equal(second.thread.episodeId, "t2.e1");
+    assert.equal(existsSync(join(root, "slate-changes")), false);
 
   } finally {
     rmSync(root, { recursive: true, force: true });
