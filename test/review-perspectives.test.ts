@@ -99,7 +99,21 @@ test("selected guidance reaches the worker system blocks in selection order, onc
       assert.ok(charter.indexOf("**Design-quality questions**") < charter.indexOf("**Examples of useful evidence**"));
     }
     // These independent duties fail when the source is lost, even if both generated copies agree.
+    assert.match(expected, /Write the writing-checker diff only in this action's folder when a change is open\./);
+    assert.match(expected, /With no open change, write the checker diff in a private operating-system temporary folder outside the checkout\. Delete it after use\./);
+    assert.equal(occurrences(expected, "Write the writing-checker diff only"), 1);
+    const openRules = changeGuidance("change-20261008T000000Z-00000000000000000000000000000000", true)!;
+    const noChangeRules = changeGuidance(undefined, true);
+    assert.match(openRules, /Write only your own writing-checker diff in the supplied action folder\. Write nothing else\./);
+    assert.match(openRules, /Delete the diff before finishing/);
+    assert.match(noChangeRules, /Write only your own writing-checker diff in a private operating-system temporary folder outside the checkout/);
+    assert.match(noChangeRules, /Delete the diff and its private folder after use\. Write nothing else/);
+    assert.equal(calls[0]!.opts.task, base.task);
+    const reviewRules = readFileSync(new URL("../docs/review-rules.md", import.meta.url), "utf8");
+    assert.match(reviewRules, /The supplied action temporary folder permits only the reviewer's own writing-checker diff and adds no reviewer input\./);
+    assert.match(reviewRules, /A reviewer never lists tmp\/ or reads another action's folder\./);
     assert.match(expected, /Do not seek these private sources/);
+    assert.doesNotMatch(expected, /may read.*(?:research log|another action)|only.*tracked-range bytes/);
     assert.match(expected, /A design concern is a finding only when evidence links it to a concrete adverse effect/);
     assert.match(expected, /These questions change no trigger, boundary, reviewer count, merge rule, gate, or user authority/);
     if (selected[0] === "Reviewer I") assert.match(expected, /does not absorb an absent specialist charter/);
