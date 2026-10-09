@@ -452,10 +452,10 @@ test("dispatch validates original and changed identifiers through real Pi prepar
     writeFileSync(join(folder, `track-${at128}-research-log.md`), "log", { flag: "wx" });
     assert.equal(readFileSync(join(folder, maxName), "utf8"), "report");
   } finally { rmSync(folder, { recursive: true }); }
-  const recursive = readFileSync(join(process.cwd(), "docs/recursive-workflow.md"), "utf8");
-  assert.match(recursive, /The identifier has at most 128 characters\./);
-  assert.match(recursive, /Each component is at most 9,007,199,254,740,991\./);
-  assert.doesNotMatch(recursive, /safe-record\.py|safe-record-recipe/);
+  const common = readFileSync(join(process.cwd(), "docs/change-records.md"), "utf8");
+  assert.match(common, /The identifier has at most 128 characters\./);
+  assert.match(common, /Each component is at most 9,007,199,254,740,991\./);
+  assert.doesNotMatch(common, /safe-record\.py|safe-record-recipe/);
 });
 
 test("shared identifiers and report names retain exact boundaries", () => {
