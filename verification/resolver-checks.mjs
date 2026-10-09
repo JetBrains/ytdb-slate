@@ -373,6 +373,9 @@ const DOCTRINE_CONTRACT_IDS = [
 	"contract-heading-regions",
 	"contract-common-preservation",
 	"contract-common-complete",
+	"contract-nested-pointers",
+	"contract-nested-complete",
+	"contract-inspection-destination",
 	"contract-mutation-members",
 	"contract-mutation-controls",
 	"contract-common-headings",
@@ -3047,8 +3050,8 @@ Obtain each new track's required approvals before implementation.
 The exception changes neither review requirements nor repair budgets.
 Track numbers remain stable and are never reused.
 
-Every change reads § Identifiers, code ranges, and design markers and § Manual records and safe writes in [recursive-workflow.md](recursive-workflow.md).
-Load its other sections when the current or proposed plan contains a design track or review-fix child track.
+Every change reads [change-records.md](change-records.md) § Identifiers, code ranges, and design markers and § Manual records and safe writes.
+Load [recursive-workflow.md](recursive-workflow.md) when the current or proposed plan contains a design track or review-fix child track.
 A review-fix child track repairs outstanding work under a user-approved split.
 Check the loading condition during planning and again during resume reconciliation.
 Load the document before proposing a review-fix split.
@@ -3154,10 +3157,11 @@ limits, the implementer-requested exception, and the recursive-document loading 
 			// Later tracks own the sections after this boundary. Shared summaries must
 			// also match the lifecycle owner, not merely independent document pins.
 			const loadingRules = [
-				"Every change reads § Identifiers, code ranges, and design markers and § Manual records and safe writes in [recursive-workflow.md](recursive-workflow.md).",
-				"Load its other sections when the current or proposed plan contains a design track or review-fix child track.",
+				"Every change reads [change-records.md](change-records.md) § Identifiers, code ranges, and design markers and § Manual records and safe writes.",
+				"Load [recursive-workflow.md](recursive-workflow.md) when the current or proposed plan contains a design track or review-fix child track.",
 				"Check the loading condition during planning and again during resume reconciliation.",
 				"Load the document before proposing a review-fix split.",
+				"Read the applicable sections before relying on their rules.",
 			];
 			const nestedRules = [
 				"Expand a design track when work reaches it.",
@@ -3343,9 +3347,9 @@ history as boundary authority. The track table is display-only.`);
 			const recursiveRecordUnits = [
 				{ id: "identifiers-ranges", source: commonRecords, start: "## Identifiers, code ranges, and design markers", extract: headingUnit("## Identifiers, code ranges, and design markers"), expected: "06a2a0822448a5112173b65c04826364d3a3094f7930ba98ecd7f17300e19ed8" },
 				{ id: "tool-records-and-recovery", source: commonRecords, start: "## Manual records and safe writes", extract: headingUnit("## Manual records and safe writes"), expected: "12e295235aae2fc57ec1dac7ef2d12ebfeac10f293cee4116283f8294a3f28c9" },
-				{ id: "resume-forks", source: recursive, start: "## Resume and folder forks", extract: headingUnit("## Resume and folder forks"), expected: "ee8952191bf8a044b0c4c124644079ad41a918a51510d10a1d8b1ea6d72e6860" },
+				{ id: "resume-forks", source: recursive, start: "## Resume and folder forks", extract: headingUnit("## Resume and folder forks"), expected: "0bf3c8bcc7b36ee0dd8a5a6fd514b73f5e19b5514f5a3a1711034ac2b051729e" },
 				{ id: "handoff-pointer", source: recursive, start: "## Handoff boundaries", extract: headingUnit("## Handoff boundaries"), expected: "fc5ca34c11f5f1defb5989c10af42cbac9af901c102dc18c6c8d1b55a98cd52f" },
-				{ id: "marker-identity", source: workflow, extract: markedUnit("marker-identity-policy"), expected: "846764c07a6b2c925091bd80f944c888d49994a71f2799b5cd2b8368b415a3c9" },
+				{ id: "marker-identity", source: workflow, extract: markedUnit("marker-identity-policy"), expected: "ae24e23298695b323c803f31515c87ee8de5777cd0b0a13dba90d747c9df4308" },
 				{ id: "resume-order", source: workflow, start: "## Resume order and reconciliation", extract: headingUnit("## Resume order and reconciliation"), expected: recordDigest(resumeOrderExpected) },
 				{ id: "general-handoff", source: workflow, start: "### Handoff summary", extract: headingUnit("### Handoff summary"), expected: "deebae98b03815c0a68bd933d6d910624a5e6206f1c410a7fd9052c1d23fe64f" },
 				{ id: "closed-range-feedback", source: workflow, start: "### Closed-range corrections", extract: headingUnit("### Closed-range corrections"), expected: "07c9e0dd0eb0de15e13b6977f88145a2dec09554e693a2d6bfbe1173f09eb37a" },
@@ -3364,7 +3368,7 @@ history as boundary authority. The track table is display-only.`);
 					{ id: unit.id, kind: "duplicate", changed: true, rejected: !acceptsRecordUnit(unit, `${unit.source}\n${unit.source}`) },
 				];
 			});
-			// Independent reviewed pins protect each owner and the nested reviewed copies.
+			// Independent reviewed pins protect the common owner.
 			const commonUnits = [
 				{ id: "identifiers", start: "## Identifiers, code ranges, and design markers", expected: "06a2a0822448a5112173b65c04826364d3a3094f7930ba98ecd7f17300e19ed8" },
 				{ id: "records", start: "## Manual records and safe writes", expected: "12e295235aae2fc57ec1dac7ef2d12ebfeac10f293cee4116283f8294a3f28c9" },
@@ -3392,13 +3396,56 @@ history as boundary authority. The track table is display-only.`);
 				["every framing and outside-body mutation fails", completeCommonAttacks.every(({ changed, rejected }) => changed && rejected), completeCommonAttacks],
 				["harmless outside text preserves body pins but fails complete protection", acceptsCommon(`Additional framing.\n${commonRecords}`) && !acceptsCompleteCommon(`Additional framing.\n${commonRecords}`), "separate body and complete boundaries"],
 			]);
-			const nestedCommonPins = ["06a2a0822448a5112173b65c04826364d3a3094f7930ba98ecd7f17300e19ed8", "8dbdbb6508744b3b4a2fc364dda4709c4e734fe17e032275a1dc8823af765b68"];
-			const nestedCommonMatches = (source = recursive) => commonUnits.every(({ start, expected }, index) => {
-				const region = headingUnit(start)(source);
-				const qualified = region.text.replace("loads this document", "loads [recursive-workflow.md](recursive-workflow.md)");
-				return region.count === 1 && recordDigest(region.text) === nestedCommonPins[index]
-					&& recordDigest(qualified) === expected && qualified === headingUnit(start)(commonRecords).text;
+			const nestedPointers = [
+				{ id: "identifiers", start: "## Identifiers, code ranges, and design markers", expected: "Use [change-records.md](change-records.md) § Identifiers, code ranges, and design markers." },
+				{ id: "records", start: "## Manual records and safe writes", expected: normalizeText(`Use [change-records.md](change-records.md) § Manual records and safe writes.
+
+### Design authority and privacy
+
+Use [change-records.md](change-records.md) § Design authority and privacy.`) },
+				{ id: "privacy", start: "### Design authority and privacy", expected: "Use [change-records.md](change-records.md) § Design authority and privacy." },
+			];
+			const acceptsNestedPointer = (unit, source, compare = true) => {
+				const region = headingUnit(unit.start)(source);
+				return region.count === 1 && region.reason === "content" && (!compare || region.text === unit.expected);
+			};
+			const acceptsNestedPointers = (source) => nestedPointers.every((unit) => acceptsNestedPointer(unit, source));
+			const nestedPointerAttacks = nestedPointers.flatMap((unit) => {
+				const raw = headingUnit(unit.start)(recursive).rawText;
+				return [
+					["missing", recursive.replace(unit.start + "\n", "")],
+					["duplicate", `${recursive}\n${unit.start}\n${raw}\n`],
+					["empty", recursive.replace(raw, "\n")],
+					["contradictory", recursive.replace(raw, `Do not follow the common rules.\n${raw}`)],
+					["wrong-document", recursive.replace(raw, raw.replaceAll("change-records.md", "track-workflow.md"))],
+					["wrong-section", recursive.replace(raw, raw.replace(/§ [^\n]+/, "§ Terms and scope."))],
+					["added-policy", recursive.replace(raw, `${raw}\nWorkers may skip record checks and publish private bytes.\n`)],
+				].map(([kind, source]) => ({ id: `${unit.id}/${kind}`, changed: source !== recursive, rejected: !acceptsNestedPointer(unit, source) }));
 			});
+			const pointerComparisonControls = nestedPointers.map((unit) => {
+				const raw = headingUnit(unit.start)(recursive).rawText;
+				const source = recursive.replace(raw, raw.replace("Use ", "Ignore "));
+				return { id: unit.id, changed: source !== recursive, rejected: !acceptsNestedPointer(unit, source), disabledAccepts: acceptsNestedPointer(unit, source, false) };
+			});
+			mutationAudit.record("nested-pointers", nestedPointerAttacks);
+			mutationAudit.record("pointer-comparisons", pointerComparisonControls);
+			checkAll("contract-nested-pointers", "three complete compatibility regions point to independently expected common sections", [
+				["every pointer matches its independent complete expectation", acceptsNestedPointers(recursive), nestedPointers],
+				["absence, duplication, empty content, contradictions, wrong destinations, and added policy fail the pointer comparison", nestedPointerAttacks.every(({ changed, rejected }) => changed && rejected), nestedPointerAttacks],
+				["each comparison rejects its changed input and disabling it accepts that violation", pointerComparisonControls.every(({ changed, rejected, disabledAccepts }) => changed && rejected && disabledAccepts), pointerComparisonControls],
+				["outside-region edits preserve the pointer expectations", acceptsNestedPointers(`${recursive}\n## Outside pointer control\nUnrelated text.\n`), "outside control"],
+			]);
+			const completeNestedDigest = "9af8b4396248cf3cc041a343255e9127c9b26a01043f305990aac458f81b6e2a";
+			const acceptsCompleteNested = (source) => createHash("sha256").update(source).digest("hex") === completeNestedDigest;
+			const completeNestedAttacks = [
+				["weaker-record-rule", `${recursive}\n## Additional record guidance\nWorkers may replace earlier log entries.\n`],
+				["privacy-permission", `${recursive}\n## Additional privacy guidance\nWorkers may publish private bytes.\n`],
+			].map(([id, source]) => ({ id, changed: source !== recursive, rejected: !acceptsCompleteNested(source), retained: acceptsNestedPointers(source) }));
+			mutationAudit.record("nested-complete", completeNestedAttacks);
+			checkAll("contract-nested-complete", "the complete nested document matches reviewed bytes beyond the compatibility regions", [
+				["complete reviewed document matches", acceptsCompleteNested(recursive), completeNestedDigest],
+				["new-heading record and privacy violations preserve all pointers but fail complete protection", completeNestedAttacks.every(({ changed, rejected, retained }) => changed && rejected && retained), completeNestedAttacks],
+			]);
 			const commonHeadingResults = [commonRecords, recursive].flatMap((source) => commonHeadings.map((start) => ({ start, ...headingUnit(start)(source) })));
 			const commonHeadingAttacks = commonHeadings.flatMap((start) => [
 				{ id: `${start}-missing`, source: commonRecords.replace(`${start}\n`, "") },
@@ -3407,7 +3454,7 @@ history as boundary authority. The track table is display-only.`);
 			checkAll("contract-common-headings", "both documents register unique common headings and the privacy subsection with hardened extraction", [
 				["all registered headings have one nonempty region", commonHeadingResults.every(({ count, reason }) => count === 1 && reason === "content"), commonHeadingResults.map(({ start, count, reason }) => ({ start, count, reason }))],
 				["each missing or duplicate heading fails", commonHeadingAttacks.every(({ source }) => source !== commonRecords && commonHeadings.some((start) => headingUnit(start)(source).count !== 1)), commonHeadingAttacks.map(({ id }) => id)],
-				["the privacy subsection remains inside the record body", [commonRecords, recursive].every((source) => headingUnit(commonUnits[1].start)(source).text.includes(privacyHeading)), privacyHeading],
+				["the common privacy body and nested privacy pointer stay inside their manual-record regions", headingUnit(commonUnits[1].start)(commonRecords).text.includes(privacyHeading) && headingUnit(commonUnits[1].start)(recursive).text.includes(privacyHeading) && acceptsNestedPointers(recursive), privacyHeading],
 			]);
 			const commonAttacks = commonUnits.flatMap(({ id, start }) => {
 				const body = headingUnit(start)(commonRecords).rawText;
@@ -3418,12 +3465,11 @@ history as boundary authority. The track table is display-only.`);
 					{ id: `${id}-changed`, source: commonRecords.replace(body, `Contradictory common rule.\n${body}`) },
 				].map((attack) => ({ ...attack, changed: attack.source !== commonRecords, rejected: !acceptsCommon(attack.source) }));
 			});
-			const synchronizedCommon = commonRecords.replace("Exclude a publishing bootstrap.", "Include a publishing bootstrap.");
-			const synchronizedRecursive = recursive.replace("Exclude a publishing bootstrap.", "Include a publishing bootstrap.");
-			checkAll("contract-common-preservation", "each complete common body matches its independent reviewed expectation in both documents", [
-				["both bodies retain their complete reviewed policy", acceptsCommon(commonRecords) && nestedCommonMatches(), commonUnits.map(({ start }) => ({ start, common: recordDigest(headingUnit(start)(commonRecords).text), recursive: recordDigest(headingUnit(start)(recursive).text) }))],
+			const changedCommon = commonRecords.replace("Exclude a publishing bootstrap.", "Include a publishing bootstrap.");
+			checkAll("contract-common-preservation", "the common owner retains both independently reviewed bodies and the nested document retains pointers", [
+				["common bodies and nested pointers retain their reviewed content", acceptsCommon(commonRecords) && acceptsNestedPointers(recursive), commonUnits.map(({ start }) => ({ start, common: recordDigest(headingUnit(start)(commonRecords).text) }))],
 				["missing, duplicate, empty, and changed bodies fail", commonAttacks.every(({ changed, rejected }) => changed && rejected), commonAttacks.map(({ id, changed, rejected }) => ({ id, changed, rejected }))],
-				["equal synchronized violations cannot pass", synchronizedCommon !== commonRecords && synchronizedRecursive !== recursive && headingUnit(commonUnits[0].start)(synchronizedCommon).text === headingUnit(commonUnits[0].start)(synchronizedRecursive).text && !acceptsCommon(synchronizedCommon) && !nestedCommonMatches(synchronizedRecursive), "bootstrap range exclusion"],
+				["a changed common rule fails its independent body expectation", changedCommon !== commonRecords && !acceptsCommon(changedCommon), "bootstrap range exclusion"],
 				["framing and following-section controls preserve both pins", acceptsCommon(`Additional framing.\n${commonRecords}\n## Unrelated following section\nOutside rule.\n`), "outside-body changes"],
 			]);
 			const expectedCommonPath = join(dirname(paths.TRACK_WORKFLOW_DOC), "change-records.md");
@@ -3448,7 +3494,7 @@ history as boundary authority. The track table is display-only.`);
 				const changed = source !== commonRecords;
 				const rejected = !acceptsCommonWarning(source, text);
 				checkAll(`contract-common-warning-${id}`, "the independently expected privacy warning is present once and its removal fails", [
-					["both privacy subsections keep the warning", acceptsCommonWarning(commonRecords, text) && acceptsCommonWarning(recursive, text), text],
+					["the common privacy subsection keeps the warning", acceptsCommonWarning(commonRecords, text), text],
 					["warning removal changes the source and fails", changed && rejected && !acceptsCommon(source), { id, changed, rejected }],
 					["restoring the warning passes", acceptsCommonWarning(commonRecords, text) && acceptsCommon(commonRecords), id],
 				]);
@@ -3743,7 +3789,7 @@ Every creation path keeps these safeguards:
 - At creation, if a high-level design exists, read the current authoritative design file for the change root or design track.
   Use its approved plan in the pull request description.
   The files are \`root-design.md\` and \`track-<number>-design.md\` in the current change folder.
-  Here \`<number>\` is the canonical path number defined in [recursive-workflow.md](recursive-workflow.md).
+  Here \`<number>\` is the canonical path number defined in [change-records.md](change-records.md).
   Read the owning log for approval hashes, decisions, and review evidence.
   A copied design in a log is not the authoritative plan.
   Create the pull request only after final design approval, as stated above.
@@ -3902,10 +3948,10 @@ Use [recursive-workflow.md](recursive-workflow.md) for the nested rules.
 Use [track-workflow.md](track-workflow.md) for the common lifecycle.`);
 			const recursiveDeliveryUnits = [
 				{ id: "repairs", source: recursive, start: "## Review-fix subtrees and repair limits", expected: protectedRepairSummary },
-				{ id: "aggregate", source: recursive, start: "## Whole-subtree acceptance", expected: "6e37e0e95c35ed0c3ede6e02f3322f43038d8653d9885ce4b2ac1ed423472b63" },
+				{ id: "aggregate", source: recursive, start: "## Whole-subtree acceptance", expected: "1f24e067a0261b1d51efb8b48339cf249837f82cf130bbfabbcbf8ee4970c616" },
 				{ id: "issues", source: recursive, start: "## Packages, attribution, and issues", end: null, expected: "895b87ee7afdda0d4d85e071c978727e0cf962f9af42e68c534c022ac010a5a3" },
-				{ id: "sources", source: deliveryPackages, start: "## Durable accounting", expected: "efd4e8f172b2bb21f2daec2ccd03db897420167fe0b53e28aec8a5da5f456557" },
-				{ id: "workflow-accounting", source: workflow, start: "### Delivery history and accounting", expected: "bf928762831b7dd3e5082d8f9271c890b9d6c8e31f739271e03a33c960629516" },
+				{ id: "sources", source: deliveryPackages, start: "## Durable accounting", expected: "0290011f87f851339953c34ee14f7ae286adf1a53485db60ac6f168781c2c7d1" },
+				{ id: "workflow-accounting", source: workflow, start: "### Delivery history and accounting", expected: "f3b0ab0c04dc351736f3b3ffd5f15af737d2e31fb4965d01f82415fa6527ac10" },
 				{ id: "notes-accounting", source: userNotes, start: "### Final accounting preparation", expected: "27a19ef36cc0fc14fbd2c14fc1699d6d3ddeadfe8a284f2d85ab76481faaa352" },
 				{ id: "publishing-sync", source: publishing, start: "## Keeping the PR in sync", expected: "fb386e6f14c2f051a842cd050cc4e2834dea5e2674853cc22794792cd4c1a7cc" },
 				{ id: "public-workflow", source: projectReadme, start: "A track is a bounded", end: "## ", endAtLineStart: true, expected: "23f90e859751918fac2f72ad4819c635cf21d88f15e18d100cc0a9944018fbf3" },
@@ -4234,7 +4280,7 @@ With publishing enabled, keep these remote references until root closure.
 Before every retention push, inspect all commits and objects reachable from each reference to be pushed.
 This inspection covers event pushes, preserving-reference pushes, level updates, and retries.
 Inspect reachable history, not only the pushed tree.
-Use [recursive-workflow.md](recursive-workflow.md) § Design authority and privacy for the private-set definition and exposure warnings.
+Use [change-records.md](change-records.md) § Design authority and privacy for the private-set definition and exposure warnings.
 A current untracked file does not prove that ancestor commits contain no private bytes.
 If inspection finds private bytes, do not push and pause.
 Ask the user to choose a permitted rewrite, a limited explicit waiver, or abandonment.
@@ -4431,7 +4477,7 @@ Before any deletion, the worker checks each entry's owning logs for a recovery o
 Treat an unmarked entry with such a record as marked.
 Keep it unless an explicit discard choice precedes the inventory.
 Run cleanup in the closing session after every closure condition holds and immediately before \`slate_change close\`. Pass the open change's Current research log path to the cleanup worker as for any record worker.
-Use the ordinary current-folder rule in § Manual records and safe writes. The worker must not infer the folder from other record text. No inventory folder-path field or closed-folder write permission is required.
+Use the ordinary current-folder rule in [change-records.md](change-records.md) § Manual records and safe writes. The worker must not infer the folder from other record text. No inventory folder-path field or closed-folder write permission is required.
 For current closure conditions, exclude each copy recorded as deleted under an inventory that had deletion authority when that deletion ran.
 Require its deletion record in the root log under these cleanup rules.
 Confirm that each excluded copy is still absent.
@@ -5018,7 +5064,7 @@ A stale description fails the "deep enough" test.`),
 				["later-session", "A later session may clean up a closed change folder."],
 				["validated-closed-folder", "A user request naming a closed change folder permits cleanup after validating its generated path inside this checkout without parent components, real directory and regular log, matching inventory path, and absence from read-only source links."],
 			];
-			const acceptsCleanupRoutes = (source) => acceptsLevelUnit(historyUnit, source) && nestedCommonMatches(source) && !/Post-close cleanup writes|After `slate_change close`[^.]*may append|closing session[^.]*post-close[^.]*exception|later session[^.]*may[^.]*closed change folder|user request naming a closed change folder[^.]*permits cleanup/i.test(normalizeText(source));
+			const acceptsCleanupRoutes = (source) => acceptsLevelUnit(historyUnit, source) && acceptsNestedPointers(source) && !/Post-close cleanup writes|After `slate_change close`[^.]*may append|closing session[^.]*post-close[^.]*exception|later session[^.]*may[^.]*closed change folder|user request naming a closed change folder[^.]*permits cleanup/i.test(normalizeText(source));
 			const forbiddenCleanupMutations = forbiddenCleanupRoutes.map(([id, rule]) => { const source = `${recursive}\n${rule}\n`; return { id, changed: source !== recursive, rejected: !acceptsCleanupRoutes(source) }; });
 			const changedCleanupRecords = recursive.replace("## Manual records and safe writes\n", "## Manual records and safe writes\n\nA later worker can tidy a closed change folder.\n");
 			forbiddenCleanupMutations.push({ id: "nested-manual-records", changed: changedCleanupRecords !== recursive, rejected: !acceptsCleanupRoutes(changedCleanupRecords) });
@@ -5058,8 +5104,33 @@ A stale description fails the "deep enough" test.`),
 			const wrappedRetention = recursive.replace(literalPattern(inspectionSentence), inspectionSentence.replace(/ /g, "\n  "));
 			const retentionMutations = mutateRetention(recursive);
 			const wrappedRetentionMutations = mutateRetention(wrappedRetention);
-			const inspectionCitation = /Use \[([^\]]+)\]\([^)]*\) § Design authority and privacy for the private-set definition and exposure warnings\./.exec(historyUnit.extract(recursive).text);
-			const privacyDestination = headingUnit("### Design authority and privacy")(inspectionCitation?.[1] === "recursive-workflow.md" ? recursive : "");
+			const privateSetUnit = levelPolicyUnits.find(({ id }) => id === "private-set");
+			const inspectionDestination = (nestedSource, commonSource) => {
+				const citations = [...historyUnit.extract(nestedSource).text.matchAll(/Use \[([^\]]+)\]\(([^)]*)\) § ([^.]+) for the private-set definition and exposure warnings\./g)];
+				const citation = citations[0];
+				return headingUnit("### Design authority and privacy")(citations.length === 1 && citation?.[1] === "change-records.md" && citation[2] === "change-records.md" && citation[3] === "Design authority and privacy" ? commonSource : "");
+			};
+			const acceptsInspectionDestination = (nestedSource, commonSource) => {
+				const destination = inspectionDestination(nestedSource, commonSource);
+				return destination.count === 1 && destination.text === privateSetUnit.expected;
+			};
+			const inspectionRule = "Use [change-records.md](change-records.md) § Design authority and privacy for the private-set definition and exposure warnings.";
+			const citationDestinationAttacks = [
+				["label", recursive.replace(inspectionRule, inspectionRule.replace("[change-records.md]", "[recursive-workflow.md]")), commonRecords],
+				["document", recursive.replace(inspectionRule, inspectionRule.replace("(change-records.md)", "(recursive-workflow.md)")), commonRecords],
+				["section", recursive.replace(inspectionRule, inspectionRule.replace("§ Design authority and privacy", "§ Manual records and safe writes")), commonRecords],
+				["missing", recursive.replace(inspectionRule, ""), commonRecords],
+				["duplicate", recursive.replace(inspectionRule, `${inspectionRule}\n${inspectionRule}`), commonRecords],
+				["destination-missing", recursive, commonRecords.replace(privacyHeading, "### Missing privacy")],
+				["destination-duplicate", recursive, `${commonRecords}\n${privacyHeading}\nDuplicate privacy.\n`],
+				["destination-changed", recursive, commonRecords.replace(commonWarnings[0].text, "Workers may publish private bytes.")],
+			].map(([id, nestedSource, commonSource]) => ({ id, changed: nestedSource !== recursive || commonSource !== commonRecords, rejected: !acceptsInspectionDestination(nestedSource, commonSource) }));
+			mutationAudit.record("citation-destination", citationDestinationAttacks);
+			checkAll("contract-inspection-destination", "retention inspection resolves the exact citation label, document, and privacy section against the common owner", [
+				["the citation reaches its independently expected common privacy body", acceptsInspectionDestination(recursive, commonRecords), inspectionDestination(recursive, commonRecords)],
+				["citation and destination violations fail through this resolver", citationDestinationAttacks.every(({ changed, rejected }) => changed && rejected), citationDestinationAttacks],
+				["outside edits preserve the citation and its destination", acceptsInspectionDestination(`${recursive}\n<!-- Outside inspection control. -->`, `${commonRecords}\n## Outside privacy control\nUnrelated text.\n`), "outside controls"],
+			]);
 			mutationAudit.record("retention", retentionMutations);
 			mutationAudit.record("retention-wrapped", wrappedRetentionMutations);
 			mutationAudit.record("cleanup", cleanupMutations);
@@ -5077,7 +5148,6 @@ A stale description fails the "deep enough" test.`),
 				["## Delivery and termination", "For changes that load the nested sections, route a missing or wrong-commit retention reference to [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for the user's choice."],
 				["## Session handoff and the research log", "For changes that load the nested sections, follow [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for retention inventory and cleanup before close."],
 			];
-			const privateSetUnit = levelPolicyUnits.find(({ id }) => id === "private-set");
 			// These pins cover only publishing, delivery, and lifecycle documents.
 			// A pin rejects unreviewed content changes in any wording. It cannot judge content.
 			// A refreshed digest accepts whatever the new text says. The refresh reviewer
@@ -5086,11 +5156,12 @@ A stale description fails the "deep enough" test.`),
 			// Whitespace-only reflow passes because normalizeText collapses whitespace.
 			// HTML comments count. The word layer is best-effort during refresh review.
 			// Known word-layer escapes include "retention branches" and "branches kept for retention".
-			const EXPECTED_PUBLISHING_SHA256 = "d3c039739f5a633c6a7de5b7300a56893acc7ac62344e1f18f77a02ae9526b0e";
-			const EXPECTED_TRACK_WORKFLOW_SHA256 = "88760411b097e09cb27a7ee705dd79ae0218fc2c26e07b1f3131b4316b1fe29d";
-			const EXPECTED_DELIVERY_PACKAGES_SHA256 = "21a47331244a66225b4b59c24555f686656512e61f42b9b7f9546f440c7cd64e";
+			const EXPECTED_PUBLISHING_SHA256 = "83c6f712aa99ab5f9b6d9ef5e71dc41262474ff7abfd20d067d9983c34dbaccc";
+			const EXPECTED_TRACK_WORKFLOW_SHA256 = "50021a5b115e06500cdd9b8d596847cddc391b8e31cb1b69c682e708f5a7b539";
+			const EXPECTED_DELIVERY_PACKAGES_SHA256 = "4068a068778e12f54cd096daa9ea28f68ca69b4c4d0ab03a7789da828c7b08e8";
 			const peerRetentionOwners = [
-				{ id: "nested", source: recursive, units: [historyUnit, { ...privateSetUnit, source: recursive }] },
+				{ id: "nested", source: recursive, units: [historyUnit] },
+				{ id: "common", source: commonRecords, units: [privateSetUnit] },
 				{ id: "publishing", source: publishing, pin: EXPECTED_PUBLISHING_SHA256, units: [levelPolicyUnits.find(({ id }) => id === "ready-history"), publishingMigrationUnits[0]], count: 3, contexts: [
 					["## One draft pull request", "For nested work, use [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for subtree ordering, branch bases, and history slices."],
 					["## Creation", "For nested work, choose its base under [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history."],
@@ -5110,7 +5181,7 @@ A later track builds on the accepted boundary before it.`),
 				}], count: 4, contexts: lifecycleRetentionContexts },
 			];
 			const peerPinFailure = (owner, source) => owner.pin && recordDigest(source) !== owner.pin ? "document-content" : "";
-			const retentionCitationPattern = /§ (?:Level publishing and retained history|Design authority and privacy)|recursive-workflow\.md#(?:level-publishing-and-retained-history|design-authority-and-privacy)/gi;
+			const retentionCitationPattern = /§ (?:Level publishing and retained history|Design authority and privacy)|(?:recursive-workflow|change-records)\.md#(?:level-publishing-and-retained-history|design-authority-and-privacy)/gi;
 			const peerCitationFailure = (owner, source) => {
 				if (!owner.contexts) return "";
 				let remainder = normalizeText(source);
@@ -5138,8 +5209,8 @@ A later track builds on the accepted boundary before it.`),
 				source = normalizeText(source);
 				for (const [, text] of owner.contexts ?? []) source = source.replace(text, "");
 				if (owner.id === "nested") source = source.replace("## Level publishing and retained history", "");
-				if (owner.id !== "nested" && ownerSentences.some((sentence) => source.includes(sentence))) return "owner-sentence";
-				if (owner.id !== "nested" && peerRetentionNames.test(source)) return "retention-name";
+				if (owner.contexts && ownerSentences.some((sentence) => source.includes(sentence))) return "owner-sentence";
+				if (owner.contexts && peerRetentionNames.test(source)) return "retention-name";
 				return peerVocabulary.test(source) ? "vocabulary" : "";
 			};
 			const acceptsPeerRetention = (owner, source) => !peerRetentionFailure(owner, source);
@@ -5172,9 +5243,9 @@ A later track builds on the accepted boundary before it.`),
 				["new-heading-erase", "## Merge notes\n\nAfter merge, erase the branch track-3-reviewed.", "retention-name"],
 				["narrow-private-content", "Only research logs count as private content for any push.", "vocabulary"],
 				["publish-private-path", "Files under slate-changes/ other than the research log may be published.", "vocabulary"],
-				["privacy-citation", "Use [recursive-workflow.md](recursive-workflow.md) § Design authority and privacy for ordinary work.", "citation-count"],
+				["privacy-citation", "Use [change-records.md](change-records.md) § Design authority and privacy for ordinary work.", "citation-count"],
 				["history-fragment", "Use [rules](recursive-workflow.md#level-publishing-and-retained-history) for every change.", "citation-count"],
-				["privacy-fragment", "Use [rules](recursive-workflow.md#design-authority-and-privacy) for every change.", "citation-count"],
+				["privacy-fragment", "Use [rules](change-records.md#design-authority-and-privacy) for every change.", "citation-count"],
 				...peerPlacementNames.flatMap(([name, reason]) => [
 					[`name-only-${name}`, `The name is ${name}.`, reason],
 					...peerPlacementVerbs.flatMap((verb) => [
@@ -5224,7 +5295,7 @@ A later track builds on the accepted boundary before it.`),
 				rejected: peerRetentionFailure(owner, `${owner.source}\n\nAfter merge, delete the track-3-reviewed branch.\n`) === "retention-name",
 			}));
 			const peerOutsideControls = peerRetentionOwners.map((owner) => ({ id: owner.id,
-				accepted: acceptsPeerRetention(owner, `${owner.source}\n<!-- Outside control. -->`)
+				accepted: acceptsPeerRetention(owner, owner.id === "common" ? `<!-- Outside control. -->\n${owner.source}` : `${owner.source}\n<!-- Outside control. -->`)
 					&& acceptsPeerRetention(owner, `${owner.source}\n\n## Unrelated section\n\nThis section contains an unrelated note.\n`),
 			}));
 			const pointerAttacks = peerRetentionOwners.flatMap((owner) => owner.units.filter(({ id }) => !["lifecycle-planning", "history", "private-set", "disabled-preservation", "shared-scheduling", "shared-disabled-preservation", publishingMigrationUnits[0].id].includes(id)).flatMap((unit) => [
@@ -5266,7 +5337,7 @@ A later track builds on the accepted boundary before it.`),
 				["the complete valid stacked example and normal fast-forward policy match in both publishing settings", acceptsLevelUnit(historyUnit, recursive), "independent complete history literal"],
 				["moving inspection outside the marker fails while keeping the sentence present", movedInspection !== recursive && movedInspection.includes(inspectionSentence) && !historyUnit.extract(movedInspection).text.includes(inspectionSentence) && !acceptsLevelUnit(historyUnit, movedInspection), "outside-marker inspection control"],
 				["wrapped inspection passes and keeps all named mutations discriminating", wrappedRetention !== recursive && acceptsLevelUnit(historyUnit, wrappedRetention) && wrappedRetentionMutations.every(({ changed, rejected, retained }) => changed && rejected && retained), wrappedRetentionMutations],
-				["the inspection pointer reaches the unique existing privacy subsection", privacyDestination.count === 1 && privacyDestination.text.includes("Record contents can also appear in saved worker sessions and command text."), privacyDestination.count],
+				["the inspection pointer reaches the unique common privacy subsection", acceptsInspectionDestination(recursive, commonRecords), inspectionDestination(recursive, commonRecords).count],
 				["every unit matches its independent expectation", levelPolicyUnits.every((unit) => acceptsLevelUnit(unit, unit.source)), levelPolicyUnits.filter((unit) => !acceptsLevelUnit(unit, unit.source)).map(({ id }) => id)],
 				["every rule mutation changes input and fails", levelRuleMutations.length === 611 && levelRuleMutations.every(({ changed, rejected }) => changed && rejected), levelRuleMutations],
 				["every safety sentence removal changes its owned input and fails", safetySentenceRemovals.length === 688 && safetySentenceRemovals.filter(({ id }) => id === "history").length === 443 && !safetySentenceRemovals.some(({ id }) => id === "cleanup-writes") && safetySentenceRemovals.every(({ changed, rejected }) => changed && rejected), safetySentenceRemovals],
@@ -5497,7 +5568,7 @@ before investigation starts.
 Record the trigger, proposed scope, user corrections, approved scope, findings,
 evidence, limits, holistic solution, verification plan, and decision as typed
 entries in the affected code track's owning research log.
-Use [recursive-workflow.md](recursive-workflow.md) § Manual records and safe writes for record ownership.
+Use [change-records.md](change-records.md) § Manual records and safe writes for record ownership.
 The investigation must distinguish a symptom
 repair from closure of the full approved requirement. After investigation,
 present a holistic solution for the full requirement and wait for a separate
@@ -5921,7 +5992,7 @@ Record each grant in the override log.`),
 			const reportRule = regionUnit(/^For each code track, the implementer creates\n([\s\S]*?)(?=^Tracks are contiguous)/gm);
 			const forkRule = regionUnit(/^Use a safe write method\. ([\s\S]*?)(?=^### Handoff summary\n)/gm);
 			const expectedReportRule = normalizeText(`\`track-<number>-implementer-report.md\` in the current change folder when the track starts. The dispatch gives the exact path. The report is untracked working material. After a session with a different identifier takes ownership, create a report in the new change folder. If the source folder has this track's report, name it as read-only in the new report's first entry. Continue the work in the new report. The report has four required sections: changes to the high-level design with the reason for each, the low-level design, diagrams where they help, and checks run with their results. The report states the approximate track size in counted lines. Later fix rounds append to that report in the current change folder.`);
-			const expectedForkRule = normalizeText(`Follow the direct-write and retry rules for change records, including implementer reports. Use [recursive-workflow.md](recursive-workflow.md) § Manual records and safe writes for write methods, record checks, and inspection before retries. Research logs and implementer reports are append-only. A correction is a new entry. Slate checks the folder chain when it creates the change. Keep all manual records and leftover temporary files untracked and visible in repository status. Do not add them to an ignore file or a pull request. Exclude their references and contents from reviewer inputs. Never overwrite a record from a stale in-memory copy. When a session adopts a change owned by a different Pi session identifier, Slate starts a new folder. Its log first names the direct source folder as a read-only earlier log. Each source log's first entry links to its own source. Follow those links to read the full history. The source remains in place without copying. A resume or reload with the same identifier continues the current folder. A /tree move to parent history with a different owner creates a new folder on reload. A handoff makes the successor the owner of the current folder. If folder allocation fails, Slate saves no open change and reports the failure. If that save fails, Slate reports it too. A legacy root \`research-log.md\` remains read-only. Only the user deletes a delivered or abandoned change folder.`);
+			const expectedForkRule = normalizeText(`Follow the direct-write and retry rules for change records, including implementer reports. Use [change-records.md](change-records.md) § Manual records and safe writes for write methods, record checks, and inspection before retries. Research logs and implementer reports are append-only. A correction is a new entry. Slate checks the folder chain when it creates the change. Keep all manual records and leftover temporary files untracked and visible in repository status. Do not add them to an ignore file or a pull request. Exclude their references and contents from reviewer inputs. Never overwrite a record from a stale in-memory copy. When a session adopts a change owned by a different Pi session identifier, Slate starts a new folder. Its log first names the direct source folder as a read-only earlier log. Each source log's first entry links to its own source. Follow those links to read the full history. The source remains in place without copying. A resume or reload with the same identifier continues the current folder. A /tree move to parent history with a different owner creates a new folder on reload. A handoff makes the successor the owner of the current folder. If folder allocation fails, Slate saves no open change and reports the failure. If that save fails, Slate reports it too. A legacy root \`research-log.md\` remains read-only. Only the user deletes a delivered or abandoned change folder.`);
 			const acceptsLateRules = (source) => {
 				const report = reportRule(source);
 				const fork = forkRule(source);
@@ -6185,7 +6256,7 @@ Without publishing, request the same explicit aggregate decision directly.
 A root package cannot replace a missing design-track acceptance.
 Root final acceptance remains a separate blocking decision.
 With publishing, follow [delivery-packages.md](delivery-packages.md) § Durable accounting after each decision and before merge.
-Use § Identifiers, code ranges, and design markers for the marker after acceptance.`),
+Use [change-records.md](change-records.md) § Identifiers, code ranges, and design markers for the marker after acceptance.`),
 				reviewedReference("docs/recursive-workflow.md", ["# Recursive workflow", "## Packages, attribution, and issues"], `Use [delivery-packages.md](delivery-packages.md) § Track package for code and design references.
 Use its § Change package for the root's complete level-delivery list.
 Use its § Durable accounting for all record sources and public transfer.
@@ -6271,7 +6342,7 @@ The accounting covers:`),
 			const metacharSource = `## ${metacharHeading}\n`;
 			const defectiveHeadingCount = (source, name) => (source.match(new RegExp(`^## ${name}$`, "gm")) ?? []).length;
 			checkAll("contract-section-targets", "every named level-two target across the registered workflow documents exists exactly once, and missing or duplicate headings fail the predicate", [
-				["all named targets are unique", headingDefects.length === 0, headingDefects],
+				["all named targets and both privacy destinations are unique", headingDefects.length === 0 && [commonRecords, recursive].every((source) => headingUnit(privacyHeading)(source).count === 1), headingDefects],
 				["each newly registered planning target rejects missing and duplicate headings", [[workflow, "Recursive planning and loading"], ...targetDocs.at(-1)[2].map((name) => [recursive, name])].every(([source, name]) => headingCount(source.replace(`## ${name}\n`, ""), name) === 0 && headingCount(`${source}\n## ${name}\n`, name) === 2), "planning and all recursive targets"],
 				["regex escaping handles metacharacters", escapeRegex(metacharHeading) === "Focus classes \\(proved\\) \\[gate\\]", escapeRegex(metacharHeading)],
 				["escaped fabricated heading matches exactly once", headingCount(metacharSource, metacharHeading) === 1, headingCount(metacharSource, metacharHeading)],

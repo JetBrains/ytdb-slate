@@ -83,7 +83,7 @@ Every creation path keeps these safeguards:
 - At creation, if a high-level design exists, read the current authoritative design file for the change root or design track.
   Use its approved plan in the pull request description.
   The files are `root-design.md` and `track-<number>-design.md` in the current change folder.
-  Here `<number>` is the canonical path number defined in [recursive-workflow.md](recursive-workflow.md).
+  Here `<number>` is the canonical path number defined in [change-records.md](change-records.md).
   Read the owning log for approval hashes, decisions, and review evidence.
   A copied design in a log is not the authoritative plan.
   Create the pull request only after final design approval, as stated above.
