@@ -102,6 +102,7 @@ See [`docs/roadmap.md`](docs/roadmap.md) for details.
 These documents define workflow and reference behavior. Slate cites workflow documents by installed path in its numbered system-prompt rules.
 
 - [`docs/blast-radius.md`](docs/blast-radius.md) defines focus areas, proofs, and review coverage.
+- [`docs/change-records.md`](docs/change-records.md) defines identifiers, code ranges, design markers, and safe writes to change records.
 - [`docs/configuration.md`](docs/configuration.md) defines settings, merge rules, and path warnings.
 - [`docs/context-budget.md`](docs/context-budget.md) defines context limits, model overrides, and measured prompt sizes.
 - [`docs/delivery-packages.md`](docs/delivery-packages.md) — the compact track and change package format, read only before package preparation

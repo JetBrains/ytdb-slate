@@ -62,7 +62,7 @@ reporting progress. Name the action the user should take.>
 
 The **Result** states the completed outcome, not an activity log. The
 **References** field identifies a code track's cumulative implementation commit or exact range.
-For code ranges and design markers, use [recursive-workflow.md](recursive-workflow.md)
+For code ranges and design markers, use [change-records.md](change-records.md)
 § Identifiers, code ranges, and design markers.
 A design-track package names its approved design, accepted child ranges, and every subtree level delivery.
 It has no implementation range or extra cumulative commit.
@@ -145,7 +145,7 @@ recommendations** immediately before **Decision** when that field is enabled.
 The **accounting sources** are the owning records behind each package.
 Read the root `research-log.md` and current authoritative `root-design.md` when a root design exists.
 Read every entered design track's `track-<number>-research-log.md` and authoritative `track-<number>-design.md`.
-Here `<number>` is the canonical path number defined in [recursive-workflow.md](recursive-workflow.md).
+Here `<number>` is the canonical path number defined in [change-records.md](change-records.md).
 Read every code track's implementer report and review-fix evidence in the affected track's records.
 Follow each record's read-only source chain within its recorded read boundary.
 Include required conclusions held in any of those records, not only the active log.

@@ -93,7 +93,7 @@ const CLEANUP = [
 const numbered = (id, count) => Array.from({ length: count }, (_, index) => `${id}/${index}`);
 const combinations = (ids, kinds) => ids.flatMap((id) => kinds.map((kind) => `${id}/${kind}`));
 const recordUnits = ["identifiers-ranges", "tool-records-and-recovery", "resume-forks", "handoff-pointer", "marker-identity", "resume-order", "general-handoff", "closed-range-feedback"];
-const relations = { loading: 4, nested: 7, records: 3, "status-trigger": 1, "canonical-grammar": 1, "repair-records": 1, "append-only": 2, "resume-entry": 1, "repair-rounds": 1, "repair-consultations": 1, "child-fix-title": 2, "child-attribution": 1 };
+const relations = { loading: 5, nested: 7, records: 3, "status-trigger": 1, "canonical-grammar": 1, "repair-records": 1, "append-only": 2, "resume-entry": 1, "repair-rounds": 1, "repair-consultations": 1, "child-fix-title": 2, "child-attribution": 1 };
 const levelCounts = { "publishing-intro": 6, "level-publishing": 22, "publishing-after-merge": 11, "publishing-creation": 39,
  activation: 5, "accepted-history": 14, "cleanup-retention": 2, history: 443, "cleanup-pointer": 1, "private-set": 12,
  "history-owner-pointers": 1, ready: 10, "ready-history": 5, "ready-description": 1, "merge-acceptance": 6,
@@ -129,7 +129,7 @@ export const EXPECTED_MUTATIONS = {
  ordering,
  "ordering-wrapped": [0, 1, 2].flatMap((index) => ordering.map((id) => `${index}/${id}`)),
  mergeability: sentenceIds({ lifecycle: 5, publishing: 5, focus: 5 }),
- "peer-retention": sentenceIds({ nested: 4, publishing: 4, delivery: 4, lifecycle: 4 }),
+ "peer-retention": sentenceIds({ nested: 4, common: 4, publishing: 4, delivery: 4, lifecycle: 4 }),
  "peer-escape": combinations(peers, escapeKinds),
  "owner-copies": sentenceIds({ publishing: 455, delivery: 455, lifecycle: 455 }),
  "peer-pins": [["publishing", 8, 3], ["delivery", 7, 1], ["lifecycle", 13, 4]].flatMap(([id, headings, contexts]) =>
@@ -151,6 +151,10 @@ export const EXPECTED_MUTATIONS = {
  repairs: ["grant", "override-grant-event", "inheritance", "common-inheritance", "requirement-count", "sibling-identity", "log-before-cell", "automatic-lowering", "investigation-trigger-record", "leftover-repairs", "budget-disclosure"],
  warnings: ["warning-session", "warning-perms", "warning-issue"],
  "common-complete": ["title", "authority", "scope", "section", "hidden-policy", "before-body", "after-body", "harmless-outside"],
+ "nested-pointers": combinations(["identifiers", "records", "privacy"], ["missing", "duplicate", "empty", "contradictory", "wrong-document", "wrong-section", "added-policy"]),
+ "pointer-comparisons": ["identifiers", "records", "privacy"],
+ "nested-complete": ["weaker-record-rule", "privacy-permission"],
+ "citation-destination": ["label", "document", "section", "missing", "duplicate", "destination-missing", "destination-duplicate", "destination-changed"],
  retention: RETENTION,
  "retention-wrapped": RETENTION,
  cleanup: CLEANUP,
