@@ -1,152 +1,138 @@
 # Slate design principles
 
-Distilled from the Random Labs technical report introducing the Slate
-architecture ("thread weaving") — the open-beta release write-up of the
-Slate agent (published as the npm package `@randomlabs/slate`); no stable
-URL is recorded, so the distillation here is the in-repo source of truth
-for its content. This document records the reasoning behind the
-extension's design so maintainers — and the orchestrator itself, on
-demand — can check changes and behavior against the original intent.
-
-Note: module headers cite ids from design records that are not part of this
-repository — the original implementation plan (ExecPlan: D3–D9, M1–M3), later
-design rounds (higher-numbered D ids, and W ids for named warnings), and
-per-round review findings, whose prefix says which review raised them:
-AD (adversarial), AF (agent-failure), BG (blocker/bug), CN (concurrency),
-CQ (code quality), DF (data fidelity), N (numeric), RG (regression),
-RI (research integrity), SE (security), WB (worker boundary) and WS (worker
-safety). The logical-model source files carry the approved project attribution and retrieval date. The retained research log holds the full private evidence record. This document is the in-repo source for the architecture rationale.
+This document explains the reasons behind the Slate architecture.
+Sections 1 to 3 and principles P1 to P10 adapt the Random Labs technical
+report about the Slate architecture, called "thread weaving".
+Notes marked as repo-local describe this extension and do not come from that report.
 
 ## 1. The problems Slate is built to solve
 
-Three compounding problems in LLM agents — each tractable in isolation; the
-difficulty is that they interact:
+The report describes three interacting problems in agents based on large
+language models (LLMs). Each problem is easier to address on its own.
 
-1. **Long-horizon tasks** — path-dependent tasks whose minimum successful
-   step count exceeds what a minimal tool-calling loop can do. Solving them
-   requires adequate working memory, a strategy/tactics balance, and the
-   ability to integrate information discovered mid-task without losing the
-   overall goal.
-2. **Working memory and the "Dumb Zone"** — models cannot attend uniformly
-   across the context window; retrieval quality degrades non-uniformly as
-   context grows ("context rot"). The usable prefix is working memory; the
-   degraded tail is the Dumb Zone. Context must be managed like scarce RAM.
-3. **Strategy vs tactics** — strategy is open-ended planning toward the
-   goal; tactics are learned local action sequences (run a command, extract
-   X from file Y). The AlphaGo/AlphaZero lineage architected this split
-   explicitly (value network = positional strategy, policy network = move
-   tactics), and probing shows tactical concepts are learned before
-   strategic ones. Software engineering spans the whole spectrum — a good
-   harness lets the model strategize without drowning in tactical detail.
+1. **Long-horizon tasks.** These tasks need more steps than a minimal
+   tool-calling loop can reliably complete. Later steps depend on earlier
+   results. The agent must retain useful information and revise its plan
+   without losing the overall goal.
+2. **Working memory and the "Dumb Zone".** A model's context window holds
+   the text available for its next response. The model does not use all of
+   that text equally well. Retrieval quality can degrade as context grows.
+   The report calls this degradation "context rot" and calls the degraded
+   part of context the "Dumb Zone". The agent must manage how much context
+   it retains.
+3. **Strategy vs tactics.** Strategy is planning toward the overall goal.
+   Tactics are local action sequences, such as running a command or reading
+   a value from a file. The report uses AlphaGo and AlphaZero to illustrate
+   the distinction between evaluating a position and choosing a move.
+   Software work needs both planning and local execution. The harness,
+   meaning the software that manages the model and its tools, must support both.
 
-Supporting concepts:
+The report also uses three supporting concepts:
 
-- **Knowledge overhang** — knowledge a model holds latently but cannot
-  access tactically without scaffolding (plans, chain-of-thought, harness
-  structure). Corollary: the bottleneck in long-horizon agentic work is
-  context management, not model intelligence.
-- **Expressivity** — a harness is expressive when few output operations can
-  reach many end states (a `sed`-only harness can read, write, and search;
-  a `file_read`-only harness can never edit). Rigid task graphs lower
-  expressivity.
-- **Inductive bias** — models default to interfaces they were trained on.
-  The harness builder's job is to make the desired behavior the natural
-  behavior.
+- **Knowledge overhang.** A model may hold knowledge that it cannot apply
+  without help from plans, reasoning steps, or the harness structure.
+  Knowledge overhang motivates the report's emphasis on context management rather than
+  model intelligence alone.
+- **Expressivity.** An expressive harness lets a small set of operations
+  produce many outcomes. For example, `sed` can read, write, and search.
+  A harness with only `file_read` cannot edit. A fixed task graph limits
+  the actions the agent can choose.
+- **Inductive bias.** Models tend to use interfaces that resemble those
+  they encountered during training. The harness should make the intended
+  behavior easy to choose.
 
 ## 2. Why prior approaches fall short
 
-No prior approach solves all of the above simultaneously; each trades one
-or two problems for the others:
+The report identifies limits in earlier approaches. Each approach addresses
+some problems but leaves others unresolved.
 
-- **Compaction** (sliding windows, Claude Code compaction, Amp handoffs) —
-  non-deterministically lossy: important information can vanish
-  unpredictably.
-- **Naive subagents** (Codex/Claude Code) — isolate context well, but
-  synchronize by message passing: the parent only gets a response string,
-  so information fails to cross the context boundary. Works mainly for
-  exploratory search over immutable data.
-- **Markdown plans** — force the model to strategize (tapping the knowledge
-  overhang) but go stale. Three failure modes: underspecified plans,
-  incomplete execution ("declaring victory early"), and forgetting to
-  update the plan when new information arrives.
-- **Direct task decomposition (task trees, gated steps)** — thorough and
-  resistant to early stopping, but rigid: adapting to new information means
-  rewriting the tree, and unintegrated subtask results get orphaned. Low
-  expressivity.
-- **RLM / recursive decomposition** — the right primitives (context by
-  reference, natural decomposition through a familiar interface), but
-  unbounded recursion needs a guard against over-decomposition, and REPL
-  execution yields no intermediate feedback: the model commits to N steps
-  blind and only learns the outcome at the end — no course correction in a
-  mutating environment.
-- **Strategize–delegate–compress stacks (Devin, Manus, Altera/PIANO)** —
-  every compress-and-return boundary risks dropping critical state, and the
-  strict planner/executor split adds inertia and reduces reactivity.
-- **ReAct** — maximally reactive and expressive but has no context
-  isolation, no compaction story, and no parallelism: the single context
-  fills until quality degrades.
+- **Compaction.** Replacing earlier context with a summary can lose
+  important information unpredictably. The report discusses sliding
+  windows, Claude Code compaction, and Amp handoffs.
+- **Naive subagents.** A subagent is an agent that executes work for a
+  parent agent. Subagents can isolate context well. A response string
+  alone may omit facts the parent needs. The issue is the retained content,
+  not the use of text: Slate also returns textual results.
+- **Markdown plans.** Plans encourage strategy but can become stale.
+  A plan may omit necessary detail. Execution may stop before the task is
+  complete. The agent may also fail to update the plan after new findings.
+- **Direct task decomposition.** Task trees and gated steps can encourage
+  complete execution. A fixed tree is harder to adapt when new information
+  arrives. The parent may also fail to integrate a subtask's result.
+- **RLM / recursive decomposition.** Recursive language models (RLMs) can
+  pass references to context and divide work through a familiar interface.
+  Unbounded recursion can divide work too finely. A read-eval-print loop
+  (REPL) that returns feedback only after a batch cannot guide the next
+  step within that batch. Feedback within a batch matters when the environment changes during work.
+- **Strategize–delegate–compress stacks.** These systems separate planning,
+  delegated execution, and compression. The report discusses Devin, Manus,
+  and Altera/PIANO. Compression can omit critical state. A strict separation
+  between planner and executor can also delay adaptation.
+- **ReAct.** This approach interleaves reasoning and actions in one
+  context. The form discussed in the report provides neither separate
+  worker contexts nor parallel execution. Its context can fill until
+  response quality degrades.
 
 ## 3. Slate's answer: threads, episodes, thread weaving
 
-- **Thread** — one worker session that executes one bounded action and ends.
-  A thread has an immutable thread type. The type records the action's purpose
-  and can select Slate-owned guidance. Reviewer and adversarial threads receive
-  the reviewer evidence charter.
-- **Episode** — the compressed, structured record of the steps a thread
-  took to complete one action: important results retained, tactical trace
-  dropped. Episodes — not message passing — are the synchronization
-  primitive. Because a bounded action has a natural completion boundary,
-  compaction happens at meaningful moments instead of arbitrarily
-  mid-stream. This is a tractable form of episodic memory.
-- **Composability** — episodes are inputs: any thread can be initialized
-  with prior episodes (from any thread), inheriting conclusions without
-  inheriting full context. Context-by-reference routing is what
-  distinguishes threads from subagents that return a single string.
-- **Thread weaving** — the orchestrator dispatches, threads execute,
-  episodes compose. Decomposition is implicit and adaptive: the
-  orchestrator never commits to a static plan, but is forced to externalize
-  work as bounded, compressible units. Frequent bounded synchronization
-  gives per-episode feedback, so strategy updates mid-task instead of
-  failing at the end.
-- **OS framing** — the orchestrator is the kernel; threads are processes;
-  episodes are process return values committed into the kernel's working
-  memory; the context window is RAM — scarce and actively managed. Each
-  thread return is a scheduled opportunity to decide what is retained,
-  compressed, or discarded.
+- **Thread.** One worker session executes one bounded action and ends.
+  A thread has an immutable thread type. The type records the action's
+  purpose and can select Slate-owned guidance. Reviewer and adversarial
+  threads receive the reviewer evidence charter, which defines the evidence
+  a reviewer must provide.
+- **Episode.** An episode is a compressed, structured record of one
+  action's results and important steps. Slate compresses the results after
+  the action settles. Pi, the coding-agent host, can also compact a worker's
+  history during an action. Episode compression and in-action history compaction are separate
+  operations.
+- **Composability.** A new thread can receive prior episodes from any
+  thread. The orchestrator passes episode identifiers through the `context`
+  argument. Slate reads the stored episodes into the worker prompt.
+  The worker receives the retained conclusions without the full conversation.
+- **Thread weaving.** The orchestrator is the parent pi session that
+  assigns work and integrates results. It dispatches bounded actions to
+  workers and uses their episodes to decide what comes next. Decomposition
+  can change as new information arrives. Each returned episode lets the
+  orchestrator revise its strategy before choosing more work.
+- **Context management.** Each returned episode is an opportunity to
+  decide what to retain, compress, or discard. The orchestrator and workers
+  have separate contexts. Slate budgets the orchestrator's context and can
+  hand off work to a fresh session.
 
 ## 4. Operating principles
 
-- **P1 — One dispatch, one bounded action.** An action is a tactic-sized
-  unit: clear, completable, verifiable.
-- **P2 — Episodes are the synchronization primitive.** No back-and-forth
-  message passing between orchestrator and workers.
-- **P3 — Compress at completion boundaries.** Compaction is built into the
-  action lifecycle, not applied as emergency lossy surgery.
-- **P4 — Compose context by reference.** Pass episode ids, not restated
-  content; the episode store stays the source of truth.
-- **P5 — Decompose implicitly and adaptively.** No upfront static plan;
-  update strategy after every episode; failed episodes demand adaptation,
-  not blind retry.
+- **P1 — One dispatch, one bounded action.** Each action covers local work
+  with a clear goal, a completion condition, and a way to verify the result.
+- **P2 — Episodes are the synchronization primitive.** The orchestrator
+  receives results as episodes rather than continuing a conversation with
+  the same worker. Some failures return an error without an episode, as §5 explains.
+- **P3 — Compress at completion boundaries.** Episode compression is part
+  of the action lifecycle. Pi may also compact history during an action.
+- **P4 — Compose context by reference.** Pass episode identifiers instead
+  of restating their content. The episode store remains the source of truth.
+- **P5 — Decompose implicitly and adaptively.** Do not treat an initial
+  plan as fixed. Update strategy after every episode. Failed episodes demand
+  adaptation, not blind retry.
 - **P6 — Make desired behavior the natural behavior.** In orchestrator
-  mode, tactical tools are removed, so delegation is the only way to act.
-- **P7 — Guard against over-decomposition.** Workers never receive
-  Slate's dispatch tools (`thread`/`threads`/`episode`), so no worker can
-  spawn a Slate thread — Slate's own recursion stays depth-1. That is a
-  narrow load-time invariant, not a general delegation bound (see the
-  recursion-guard note in §5).
-- **P8 — Per-episode feedback beats blind N-step execution.** Bounded
-  actions return before the next decision, so course correction is always
-  possible.
-- **P9 — Parallelize independent actions.** Independent work streams run as
-  concurrent threads whose episodes are synthesized afterward.
-- **P10 — Treat context as RAM.** Budget it; when the budget is exceeded,
-  pause dispatching and hand off to a fresh session rather than degrading
-  in the Dumb Zone.
-  *(Repo-local note, not from the report.)* Slate's pause stops new USER work:
-  the pi input hook refuses a new user prompt while Slate is paused. Worker
-  dispatches stay open, so the paused orchestrator can save the project state
-  in the research log before it writes the handoff brief. See
-  [context-budget.md](context-budget.md).
+  mode, the parent keeps read-only tools for orientation. File edits and
+  commands require delegation to workers.
+- **P7 — Guard against over-decomposition.** Workers never receive Slate's
+  own tools: `thread`, `threads`, `episode`, and `slate_change`.
+  A worker cannot spawn another Slate thread. This guarantee does not bound other forms of
+  delegation. See the recursion-guard note in §5.
+- **P8 — Per-episode feedback beats blind N-step execution.** Each returned
+  episode gives the orchestrator feedback for choosing the next action.
+- **P9 — Parallelize independent actions.** Run independent actions in
+  concurrent threads. Integrate their episodes afterward.
+- **P10 — Treat context as RAM.** The report compares context with limited
+  random-access memory (RAM). Budget context and hand off to a fresh session
+  when the budget is exceeded.
+
+  *(Repo-local note, not from the report.)* Slate's pause stops new user work.
+  The pi input hook refuses a new user prompt while Slate is paused.
+  Worker dispatches remain available. The paused orchestrator can therefore
+  save project state in the research log before it writes the handoff brief.
+  See [context-budget.md](context-budget.md).
 
 - **P11 — Proportional process.** *(Repo-local note, not from the report.)*
   The current change folder's research log is the sole permitted unconditional-artifact exception for
@@ -199,31 +185,32 @@ required reviews, ordered gates, user authority, or final acceptance.
 
 | Principle | Implementation |
 |---|---|
-| P1 bounded actions | `tools.ts` `thread` tool contract; doctrine rule 1 in `mode.ts` |
-| P2 episodes as sync | `threads.ts` returns one episode for completed or failed work |
-| P3 boundary compression | `episodes.ts` episode compression on action completion |
-| P4 context by reference | `tools.ts` `context` parameter injects prior episodes by id |
-| P5 adaptive decomposition | doctrine rule 6 in `mode.ts`; no plan structure imposed anywhere |
-| P6 natural behavior | `mode.ts` `ORCHESTRATOR_TOOLS` restriction (read-only + slate tools) |
-| P7 over-decomposition guard | `worker.ts` recursion guard — load-scoped barriers keep Slate's `thread`/`threads`/`episode` tools out of every worker (recursion-guard note below) |
-| P8 per-episode feedback | `threads.ts` synchronous dispatch; episode returned to orchestrator |
-| P9 parallelism | `threads.ts` `maxConcurrent` queueing; doctrine rule 2 in `mode.ts` |
-| P10 context as RAM | `handoff.ts` context-budget auto-pause + fresh-session handoff |
-| P11 proportional process | no code home; the shipped workflow documents apply it to gates, artifacts and review actions |
-| P12 reader understanding | `writing-check.mjs` reports sentence-length findings; the writing guidance and review rules apply it to project prose |
+| P1 bounded actions | `tools.ts` defines the `thread` tool contract. Doctrine rule 1 in `mode.ts` requires bounded actions. |
+| P2 episodes as sync | `threads.ts` returns an episode for completed work and many failures. Admission, cancellation, and storage failures can return errors without episodes. |
+| P3 boundary compression | `episodes.ts` compresses results after the action settles. Pi can also compact history during execution. |
+| P4 context by reference | `tools.ts` accepts episode identifiers in `context`. `ThreadManager.buildPrompt` in `threads.ts` loads their stored content. |
+| P5 adaptive decomposition | Doctrine rule 6 in `mode.ts` requires strategy updates after episodes. |
+| P6 natural behavior | `mode.ts` restricts `ORCHESTRATOR_TOOLS` to read-only tools and Slate tools. |
+| P7 over-decomposition guard | `worker-extensions.ts` rejects unsafe load units. `worker.ts` adds collision checks and denies Slate's own tools. See the recursion-guard note below. |
+| P8 per-episode feedback | `threads.ts` provides asynchronous dispatch. The `thread` tool in `tools.ts` awaits it and returns the episode. |
+| P9 parallelism | `threads.ts` queues actions through `maxConcurrent`. Doctrine rule 2 in `mode.ts` requires parallel dispatch. |
+| P10 context as RAM | `handoff.ts` pauses at the context budget and supports handoff to a fresh session. |
+| P11 proportional process | The shipped workflow documents apply it to gates, artifacts, and review actions. It has no code home. |
+| P12 reader understanding | `writing-check.mjs` reports sentence-length findings. The writing guidance and review rules apply it to project prose. |
 | P13 risk-based focus-area authorship | no runtime code home for author research or approval. Focus definitions, reviewer content, the code roster, and structure and agreement checks apply the rule. |
 
-Repo-local note (not from the report): the `maxConcurrent` cap defaults
-to 4. Its failure modes are asymmetric: excess dispatches wait for a
-slot, so a low cap costs only latency, while a cap above the
-provider's effective rate limits turns rate-limit exhaustion into
-FAILED episodes and raises the unattended cost burn rate. Over its
-lifetime a slot covers a multi-turn worker conversation followed by its
-episode-compression call. The default is sized to cover typical
-parallel batches (recon fan-outs, a review wave of a few perspectives)
-while staying safe on common consumer API tiers; wider fan-outs only
-pay tail latency, and projects with higher-tier keys raise the cap in
-`slate.json`.
+Repo-local note (not from the report): `maxConcurrent` defaults to 4.
+The cap must be at least 1. Slate does not enforce that condition.
+A value of 0 or less leaves dispatches waiting indefinitely.
+
+With a positive cap, excess actions wait for a slot.
+The slot covers the worker conversation and episode compression.
+A low positive cap increases wait time. A high cap can exceed provider
+rate limits and cause failed episodes or increase provider spend.
+
+The default aims to support small parallel batches, such as research actions
+or several reviewers. It does not guarantee safety under provider rate limits.
+Projects can adjust the cap in `slate.json` for their workload and provider limits.
 
 Repo-local note (not from the report): **logical-model routing and recovery**
 applies P10 discipline to provider spend. Each bounded action names a provider-free
@@ -237,60 +224,58 @@ and bounded recovery. The orchestrator judges action fit and advisory guidance. 
 track with no proved focus area uses the same ordinary selection rule.
 `model-routing.md` owns the complete configuration and recovery contract.
 
-Repo-local note (not from the report): the P7 guard was originally
-absolute — workers loaded no extensions, so Slate's `thread` tool simply
-never existed for them. The optional `workerExtensions` key (`slate.json`,
-home or trusted project settings — see the [configuration reference](configuration.md)) relaxes that: it
-whitelists extensions the host session has ALREADY loaded and loads them
-into every worker. The guard therefore no longer rests on "workers load
-nothing" but on a narrower, more precise invariant: no worker can ever
-obtain SLATE's dispatch tools (`thread`/`threads`/`episode`).
+Repo-local note (not from the report): the P7 recursion guard denies
+Slate's own tools to every worker. The optional `workerExtensions`
+key selects host extensions to load into workers. Home or trusted project
+settings supply the key in `slate.json`.
+See the [configuration reference](configuration.md).
+Slate also loads its internal worker reminder component, even when the
+extension allowlist is empty. The component supplies no dispatch tools.
 
-Three load-scoped barriers buy that invariant, all applied per LOAD UNIT
-— the owning package directory when the extension is package-originated
-and the package's declared entries provably match what the host loaded
-(BG20, below), otherwise the extension's own entry file:
+Selection applies to a **load unit**, meaning one entry file or one package
+directory that pi loads as a whole. Slate uses a package directory only
+when the declared entries match the entries observed in the host registry.
+Otherwise, Slate selects individual entry files. Three load-time barriers
+limit which host extensions can load:
 
-1. Only whitelisted units load, through pi's resource loader in allowlist
-   mode; a worker's extension set is exactly the allowlist and no
-   non-whitelisted module is ever imported (load errors surface as
-   warnings). Candidates are only what the host session already loaded,
-   enumerated from its tool registry — so an extension registering no
-   tools is invisible, and a host started with extensions disabled yields
-   an empty candidate set.
-2. Any unit that contains Slate's own package root is dropped whatever the
-   patterns say.
-3. Any unit whose tools collide with Slate's `thread`/`threads`/`episode`
-   or with pi's built-ins (`read`/`bash`/`edit`/`write`/`grep`/`find`/`ls`)
-   is dropped WHOLE — pi's registry lets an extension tool overwrite a
-   same-named built-in, so a partial load could shadow the very tools the
-   guard protects.
+1. Only allowlisted host units load through pi's resource loader.
+   Automatic extension discovery is disabled. The internal reminder loads
+   separately as a Slate-owned factory. Loader errors produce warnings.
+   Candidates come from extensions represented in the host tool registry.
+   An extension with no registered tools is not a candidate on its own.
+   A host with no loaded extensions supplies no candidates.
+2. Slate rejects units that its path or package-identity checks identify
+   as Slate itself. Those checks run regardless of the selection patterns.
+3. Slate rejects the whole unit if any registered tool name collides with
+   `thread`, `threads`, `episode`, or `slate_change`, or with a pi built-in tool.
+   The built-ins are `read`, `bash`, `edit`, `write`, `grep`, `find`, and `ls`.
+   Pi allows an extension tool to replace a same-named built-in.
 
-Exclusion has to happen at load time, at unit granularity, rather than by
-loading everything and filtering the tool list afterwards: a
-worker-loaded extension is not tools-only. Its event handlers, tools, and
-flags all go live on load, so once a unit has loaded its side effects have
-already run and dropping its tools afterwards would leave its handlers and
-flags active. Dropping the whole unit before it loads is the only clean
-cut — which is also why barrier 3 rejects a colliding unit entirely
-instead of suppressing just the offending tool. (A package directory is
-handed to pi whole — letting pi's own manifest resolution expand it, so
-no-tool companion entries load alongside the tool-bearing ones — only when
-the manifest's declared entries are ALL literal relative paths AND the
-host loaded every one of them. A glob or override-form entry, or a host
-running only a filtered subset, fails that equivalence check and drops the
-unit to exactly the entry files the host loaded; that fallback loses the
-package's no-tool companion entries, since an entry that registered no
-tool cannot be shown to be running.)
+Exclusion happens before loading the unit. Loading an extension activates
+its event handlers, tools, and flags. Filtering its tools afterward would
+leave its handlers and flags active. Slate therefore rejects a colliding
+unit rather than suppressing only the colliding tool.
+
+The package-directory check is recorded as BG20.
+Every declared entry must be a nonempty literal path, not a glob or override pattern.
+The host tool registry must contain every resolved entry path.
+Pi then resolves the package manifest and loads the directory as a whole.
+
+A glob, an override-form entry, or a filtered host subset fails the check.
+The fallback uses the entry files observed in the host tool registry.
+The fallback cannot include companion entries that register no tools,
+because the registry does not establish that the host loaded them.
 
 The collision barrier runs before a unit loads against the tools in the
 host registry. Slate scans the worker registry again after every selected
 extension completes `session_start`. A tool registered during startup can
-therefore remain eligible when the host selected it, but a startup tool
-that shadows a Slate or pi built-in blocks the action. Slate's dispatch
-tools do not depend on either scan. `createAgentSession` receives an
-`excludeTools` denylist of `thread`, `threads`, and `episode`. Pi applies
-the denylist after the allowlist and on every tool-registry refresh.
+remain eligible if the host selected it. A startup tool that replaces a
+Slate or pi built-in blocks the action.
+
+The exclusion of Slate's own tools does not depend on either scan.
+`createAgentSession` receives an `excludeTools` denylist of
+`thread`, `threads`, `episode`, and `slate_change`.
+Pi applies the denylist after the allowlist and on every tool-registry refresh.
 
 Slate owns the complete worker extension lifecycle. It waits for
 `session_start` before the action. A startup handler failure blocks the
@@ -300,24 +285,23 @@ then disposes the session even when a shutdown handler fails. Host cleanup
 removes workers from the live set before it awaits their shutdown, so an
 overlapping action cannot continue with a session in teardown.
 
-The orchestrator does NOT get the whitelisted tools; orchestrator mode
-keeps its restricted set. Instead its doctrine gains a rule listing each
-whitelisted extension with its tool names and descriptions, so it knows
-what it can delegate. That doctrine rule and the worker allowlists come
-from a single memoized resolution per session, so the two cannot drift.
+Orchestrator mode keeps its restricted tool set. Selecting a worker
+extension does not add that extension's tools to the orchestrator.
+The doctrine instead lists selected extensions with their tool names and
+descriptions. The orchestrator can use the list to choose delegated work.
+The doctrine and worker allowlists use one cached resolution per session.
 
-The invariant bought is exactly that: no worker gets Slate's dispatch
-tools. It is NOT a general recursion or delegation bound, and the accepted
-risks that follow are the operator's to weigh:
+The guarantee is narrow: no worker receives Slate's own tools.
+The guard does not bound all recursion or delegation. Operators must assess
+these accepted risks:
 
-- A whitelisted extension that registers its OWN sub-agent or delegation
-  tool under any other name gives workers unbounded delegation that Slate
-  can neither detect nor bound, outside Slate's episode and cost
-  accounting. Whitelisting such an extension is a deliberate operator
-  decision.
-- Inside a worker a whitelisted extension has the same filesystem and
-  credential reach it has in the host; Slate's read-only settings snapshot
-  blocks pi-settings writes and nothing else.
+- An allowlisted extension may supply a subagent or delegation tool under
+  another name. Slate cannot detect or bound that delegation. The delegated
+  work falls outside Slate's episode and cost accounting. Selecting such an
+  extension is an operator decision.
+- An allowlisted extension has the same filesystem and credential access
+  in a worker as in the host. Slate's read-only settings snapshot blocks
+  pi-settings writes. It provides no broader filesystem or credential isolation.
 - A startup handler can fail. Slate reports the failure, blocks the action,
   and still runs shutdown and disposal.
 - Third-party extensions may ignore the abort signal, so their network
@@ -326,45 +310,111 @@ risks that follow are the operator's to weigh:
   through pi's process-global module cache.
 - Provider-native tool billing may escape Slate's worker cost accounting.
 
-Provider registration uses a separate startup boundary from the `workerExtensions` tool allowlist. After pi constructs a worker and realizes its own extension registrations, Slate copies each host extension provider registration whose provider id is absent from the worker registration union. Native and config registrations share one identity for this comparison. A worker registration therefore wins across both forms. Built-in providers are not members of that union, so a host extension can still redirect a built-in provider.
+Provider registration determines which model providers a session can use.
+It has a separate startup boundary from the `workerExtensions` tool allowlist.
+Pi first constructs the worker and applies its own extension registrations.
+Slate then copies host extension provider registrations whose identifiers
+are absent from the worker's registered-provider list.
 
-The worker keeps its own model runtime. Sharing the host runtime would couple later mutations and lifetime to the host. Copying before worker construction would compare against an incomplete worker roster. Slate instead copies registrations after construction and before route authentication or a request. A failed copy disposes the session and follows the existing failed-episode path. The check proves registration and composition only. It does not authenticate every inherited provider because an unused provider can be intentionally unconfigured.
+The list includes both native provider objects and provider configuration
+registrations. Both forms use the same provider identifier.
+An existing worker registration therefore takes precedence over either host form.
+The list excludes built-in providers. A host extension can therefore
+redirect a built-in provider.
 
-This boundary reuses provider functions and can share nested config objects, native provider objects, credential files, authentication callbacks, and third-party module state. It does not copy host provider event handlers. It also does not synchronize host changes after startup. A later partial worker registration can merge with inherited config under pi rules. The merged result can retain inherited credentials while changing an endpoint. The design accepts this risk and adds no late-registration interceptor. Provider extensions that require host event handlers or isolated internal state need their own worker support.
+The worker keeps its own model runtime, which manages its models and providers.
+Sharing the host runtime would tie later changes and its lifetime to the host.
+Copying before worker construction would compare against an incomplete list.
+Slate copies registrations after construction and before route authentication
+or a request.
+
+A failed copy shuts down the session and fails the action.
+The copy check verifies registration and composition, not authentication
+for every inherited provider. An unused provider can be intentionally unconfigured.
+
+The copy reuses provider functions. It can also share nested configuration
+objects, native provider objects, credential files, authentication callbacks,
+and third-party module state. It does not copy host provider event handlers
+or synchronize host changes after startup.
+
+A later partial worker registration can merge with inherited configuration
+under pi rules. The result can retain inherited credentials while changing
+the endpoint. Slate accepts this risk and does not intercept late registrations.
+Provider extensions that need host event handlers or isolated internal state
+must supply their own worker support.
 
 ## 6. Runtime knowledge: what the orchestrator knows, and when
 
-The orchestrator's knowledge of these principles is two-tier, following
-the load-on-demand discipline the extension itself prescribes:
+Slate separates guidance that the orchestrator always receives from
+rationale that it reads on demand:
 
-- **Tier 1 — always loaded.** The doctrine in `mode.ts` is the operational
-  distillation of P1–P10, the review discipline defined in
-  `review-rules.md`, and a pointer to the focus-area workflow
-  that ships with this package (`track-workflow.md` in this directory),
-  appended to the system prompt every turn while orchestrator mode is on.
+- **Tier 1 — always loaded.** The doctrine is the operational guidance
+  assembled in `mode.ts`. Slate appends it to the system prompt each turn
+  while orchestrator mode is on. The doctrine summarizes P1 to P10 and the
+  review discipline in `review-rules.md`. It also points to the shipped
+  workflow in `track-workflow.md`.
 
-  The size of this always-loaded block matters to the tiering argument. The
-  project uses measurements, not assertions. `context-budget.md` owns the
-  measurements and the configuration table.
+  When Slate configuration is permitted, the doctrine also includes rules
+  for logical models, writing, and design. Configuration is permitted for
+  trusted projects or when the loader supplies home-only configuration.
+  An untrusted project cannot supply these settings.
 
-  The logical-model rule has one row for each ordinary logical model. Its raw count depends on the installed documentation path. `context-budget.md` publishes portable production renders and separates runtime rejection boundaries from regression baselines.
-- **Tier 2 — on demand.** This document. The doctrine carries a short
-  pointer to it (doctrine rule 10); the orchestrator reads it only when
-  reasoning about the architecture itself — explaining slate, modifying
-  the extension, or making a non-obvious routing/compaction decision.
+  [context-budget.md](context-budget.md) records the doctrine measurements
+  and configuration table. The logical-model rule has one row for each
+  ordinary logical model. Its raw character count depends on the installed
+  documentation path. The budget document publishes portable character
+  counts that omit the installed directory prefix. It distinguishes runtime
+  rejection limits from regression baselines used by verification checks.
+- **Tier 2 — on demand.** Doctrine rule 10 points to this document.
+  The rule instructs the orchestrator to read it when explaining or changing
+  Slate, or when making an unusual routing or compaction decision.
+  The rule says to skip the read if the document is already in context.
+  The rule is an instruction, not an enforced restriction on file reads.
 
-The same discipline applies to worker guidance. Slate adds its compact
-reviewer evidence charter only to reviewer and adversarial thread types.
-`prompt-docs.ts` injects configured role guidance (orchestrator via
-`before_agent_start`, workers via `appendSystemPrompt`). Defaults are
-compiled into `prompt-docs.ts`. Home or trusted project settings supply
-documents through the optional `slate.json` keys `orchestratorPromptDocs`
-and `workerPromptDocs`. The loader resolves home paths from the agent directory
-and project paths from the project root. Each role's always-loaded surface carries only its
-own rules; the rest stays on demand.
+Worker guidance follows the same separation. `worker.ts` supplies the
+built-in worker preamble. Slate adds the reviewer evidence charter only to
+reviewer and adversarial thread types. Workers with permitted Slate
+configuration also receive writing guidance.
 
-Injecting this full document every turn would be self-defeating: it would
-spend the working memory the architecture exists to protect, and most of
-its content (prior-approach analysis, background concepts) is rationale,
-not operational instruction. Keeping rationale on demand and rules always
-loaded is itself an application of P10.
+The `prompt-docs.ts` loader reads optional role documents. Both document
+lists default to empty. `mode.ts` adds orchestrator documents through
+`before_agent_start`. `worker.ts` adds worker documents through
+`appendSystemPrompt`.
+
+Home or trusted project settings supply the `orchestratorPromptDocs` and
+`workerPromptDocs` keys in `slate.json`.
+The configuration loader resolves home paths from the agent directory and
+project paths from the project root. Each role receives its own configured documents.
+
+Loading this full document every turn would consume context for background
+analysis rather than operational instructions. Keeping rationale on demand
+and rules always loaded applies P10.
+
+## Record-code key
+
+The key explains the record and finding codes that comments in the shipped extension source (`extension/`) cite.
+Other files, such as tests, verification scripts, issue files and research notes, can use codes that this key does not cover.
+
+| Identifier | Meaning |
+| --- | --- |
+| D3–D9 | Records from the original implementation plan, called ExecPlan |
+| M2–M3 | Records from the original implementation plan, called ExecPlan |
+| AD | Adversarial review finding |
+| AF | Findings from one earlier review round. The round is not recorded in this repository. |
+| BG | Findings from one earlier review round. The round is not recorded in this repository. |
+| CN | Concurrency review finding, as listed in [review-rules.md](review-rules.md) |
+| CQ | Findings from one earlier review round. The round is not recorded in this repository. |
+| FX | Findings from one earlier review round. The round is not recorded in this repository. |
+| PF | Performance review finding, as listed in [review-rules.md](review-rules.md) |
+| RG | Regression-gate finding, as defined in [review-rules.md](review-rules.md) |
+| RI | Findings from one earlier review round. The round is not recorded in this repository. |
+| SC | Findings from one earlier review round. The round is not recorded in this repository. |
+| SE | Security review finding, as listed in [review-rules.md](review-rules.md) |
+| WB | Findings from one earlier review round. The round is not recorded in this repository. |
+| WS | Findings from one earlier review round. The round is not recorded in this repository. |
+
+Finding numbers can repeat in different review rounds.
+The `RI1` comment in `mode.ts` concerns how Slate reports a refused prompt.
+The comment does not establish that RI means research integrity.
+[review-rules.md](review-rules.md) uses RI for Reviewer I, the general implementation reviewer.
+Use the record that raised a finding to identify its review round.
