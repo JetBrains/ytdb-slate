@@ -53,7 +53,12 @@ limit and pin Node 24.18.0. They inherit the read-only workflow permission,
 reuse the Linux action SHAs and install with `npm ci --ignore-scripts`.
 The workflow configures no required-check ruleset.
 
-Both jobs run `node --test test/notification-push-portable.test.ts` directly.
+Both jobs run this portable command with ordinary `spec` output visible:
+
+```text
+node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=./verification/required-case-reporter.ts --test-reporter-destination=stdout test/notification-push-portable.test.ts
+```
+
 The Linux suite also discovers this file. The first case sends one notification
 to a fake ntfy HTTP server through `http://localhost:<port>`. IPv4-first resolver
 ordering selects the `127.0.0.1` listener even when localhost has an IPv6 answer.
@@ -66,11 +71,42 @@ The exact production timer uses a 300 ms deadline. The child must close before
 that deadline plus a 1,000 ms allowance for startup, scheduling and pipe close.
 The parent must not terminate the child. A process probe must report that the
 child is gone. The test does not depend on Windows signal codes.
-Missing prerequisites fail. A required-case wrapper rejects enabled `skip` and
-`todo` options before registration. It replaces the context's `skip` and `todo`
-methods with assertion failures. A file-level completion check requires both
-named cases to finish all assertions. A skip or todo on either case fails the
-command, including runtime calls with or without an early return.
+Missing prerequisites fail. `test/required-case.ts` accepts only `undefined`
+and `false` for `skip` and `todo` options. Runtime `t.skip()` and `t.todo()` calls
+fail the case, even when the body catches their exceptions. Each case body calls
+`complete()` after its last required assertion. A return without that marker
+fails. Wrappers, hooks and `finally` blocks must not declare completion.
+
+`verification/required-case-reporter.ts` checks structured Node result events.
+It requires each selected case to report exactly once as a pass without skip,
+todo or expected-failure directives. Every required file needs one successful
+summary whose test and pass counts equal its roster size. Failed, cancelled,
+skipped and todo counts must all be zero. Missing, renamed, duplicate, filtered,
+empty and not-run cases fail. Zero tests fail.
+
+`verification/required-case-roster.ts` lists required files and names separately
+from the case bodies. Paths use file URLs. Names must be globally unique across
+all entries, including entries for other platforms. An optional `platforms`
+list selects applicable native cases through `process.platform`. A selected
+platform must have at least one required file. Future native read-back cases
+use the same helper and add their file, names and platforms to this roster.
+
+The reporter runs only in the macOS and Windows job commands. The Linux runner
+uses its ordinary reporters without this required-file contract. Linux runs
+the shared helper and `test/required-case-contract.test.ts`. Those contract tests
+exercise the helper, reporter, roster and exact narrow-job command.
+`tsconfig.json` includes the reporter and roster. Node executes their erasable
+TypeScript directly. Linux coverage and the patch gate include only
+`extension/**/*.ts`. The helper, reporter, roster and contract-test lines are
+outside that denominator and receive no coverage credit.
+
+The helper does not track caught assertion failures. The marker proves control
+reached its position, not assertion quality. The reviewed command, roster and
+terminal marker placement remain trusted. Node can attribute helper-registered
+results to the helper file. The reporter therefore does not prove exact
+name-to-file ownership against coordinated swaps. It relies on the pinned Node
+structured-event schema and ordinary process isolation. Re-measure the guard
+before changing Node pins or execution flags.
 These jobs prove push transport and child termination.
 They do not prove native delivery, store read-back, visible presentation or
 Windows terminal write ordering. Re-run the direct command on each available
