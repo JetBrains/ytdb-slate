@@ -32,6 +32,7 @@ import {
 	WRITING_GUIDANCE_DOC,
 } from "./paths.ts";
 import { permitsSlateConfig } from "./config.ts";
+import { classifyRunOutcome } from "./run-outcome.ts";
 import { loadPromptDocs } from "./prompt-docs.ts";
 import {
 	orchestratorCostUsd,
@@ -723,7 +724,7 @@ export function registerSlateMode(
 	// Each assistant response also opens one reminder slot.
 	pi.on("message_end", async (event, ctx) => {
 		if (event.message.role !== "assistant") return;
-		if (!(event.message.stopReason === "aborted" && previousTurnHadTools)) {
+		if (!(classifyRunOutcome(event.message) === "cancelled" && previousTurnHadTools)) {
 			Object.assign(store.writingReminder, rearmWritingReminder(store.writingReminder));
 		}
 		previousTurnHadTools = false;
@@ -815,7 +816,7 @@ export function registerSlateMode(
 	// replaces it. agent_settled confirms an error was the final attempt.
 	pi.on("turn_end", (event, ctx) => {
 		const failedAttempt =
-			event.message.role === "assistant" && event.message.stopReason === "error";
+			event.message.role === "assistant" && classifyRunOutcome(event.message) === "error";
 		if (failedAttempt) {
 			pendingErrorTurn = true;
 			return;

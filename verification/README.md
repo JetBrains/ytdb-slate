@@ -29,6 +29,134 @@ small-branch-denominator warning policy remain unchanged.
 ## Continuous integration
 
 The full suite runs on Linux under the stable `Node 22` and `Node 24` check names.
+Each Linux job has a 20-minute limit on the version-specific `ubuntu-24.04` runner label.
+The Linux prerequisite install includes `dbus`, `libnotify-bin`,
+`python3-dbus-next`, `openssh-client`, `openssh-server` and `tmux`.
+
+`test/notification-tmux-readback.test.ts` asserts the tmux 3.4 version series in CI.
+It owns a private server socket, configuration, home directory and client
+pseudoterminals. Client version replies identify all seven known terminals.
+Independent byte expectations check the production query match bits, automatic
+selection, complete pane-device envelopes and the attached client streams.
+The cases cover the four G9 examples, both tie-breaks, fixed send order,
+unidentified clients, visible-window `on`, inactive-window `all`, inactive-window
+`on` silence, default bell delivery to both clients and real-binary query failure.
+Unit tests in `test/notification-tmux.test.ts` cover stalled queries, cancellation,
+nonblocking admission and process exit. Missing prerequisites fail on Linux when
+`CI` is true and produce a visible local skip otherwise. The integration check
+proves byte transport, not terminal interpretation or visible presentation.
+
+The narrow `macOS notification push` and `Windows notification push` jobs use
+`macos-15` (arm64) and `windows-2025` (x64). These version-specific labels fix the
+operating-system line, not the image revision. Both jobs have a five-minute
+limit and pin Node 24.18.0. They inherit the read-only workflow permission,
+reuse the Linux action SHAs and install with `npm ci --ignore-scripts`.
+The workflow configures no required-check ruleset.
+
+The Windows job runs this portable command with ordinary `spec` output visible:
+
+```text
+node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=./verification/required-case-reporter.ts --test-reporter-destination=stdout test/notification-push-portable.test.ts
+```
+
+The macOS job runs both files in one invocation with the same reporters:
+
+```text
+node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=./verification/required-case-reporter.ts --test-reporter-destination=stdout test/notification-push-portable.test.ts test/notification-native-macos-readback.test.ts
+```
+
+The Linux suite also discovers the portable file. The first case sends one notification
+to a fake ntfy HTTP server through `http://localhost:<port>`. IPv4-first resolver
+ordering selects the `127.0.0.1` listener even when localhost has an IPv6 answer.
+The observing spawn wrapper passes production arguments unchanged to Node and
+checks the exact child script, minimal environment, answer and close.
+The server checks a complete POST to `/`, exact JSON fields, `Connection: close`
+and no additional request during a 250 ms quiet window.
+The second case uses a child-only prelude to stall the lookup callback.
+The exact production timer uses a 300 ms deadline. The child must close before
+that deadline plus a 1,000 ms allowance for startup, scheduling and pipe close.
+The parent must not terminate the child. A process probe must report that the
+child is gone. The test does not depend on Windows signal codes.
+Missing prerequisites fail. `test/required-case.ts` accepts only `undefined`
+and `false` for `skip` and `todo` options. Runtime `t.skip()` and `t.todo()` calls
+fail the case, even when the body catches their exceptions. Each case body calls
+`complete()` after its last required assertion. A return without that marker
+fails. Wrappers, hooks and `finally` blocks must not declare completion.
+
+`verification/required-case-reporter.ts` checks structured Node result events.
+It requires each selected case to report exactly once as a pass without skip,
+todo or expected-failure directives. Every required file needs one successful
+summary whose test and pass counts equal its roster size. Failed, cancelled,
+skipped and todo counts must all be zero. Missing, renamed, duplicate, filtered,
+empty and not-run cases fail. Zero tests fail.
+
+`verification/required-case-roster.ts` lists required files and names separately
+from the case bodies. Paths use file URLs. Names must be globally unique across
+all entries, including entries for other platforms. An optional `platforms`
+list selects applicable native cases through `process.platform`. A selected
+platform must have at least one required file. The macOS native file has one
+required case with `platforms: ["darwin"]`. It registers no case on Linux or
+Windows. The selected roster has two files on macOS and one elsewhere.
+
+The reporter runs only in the macOS and Windows job commands. The Linux runner
+uses its ordinary reporters without this required-file contract. Linux runs
+the shared helper and `test/required-case-contract.test.ts`. Those contract tests
+exercise the helper, reporter, roster and exact narrow-job command.
+`tsconfig.json` includes the reporter and roster. Node executes their erasable
+TypeScript directly. Linux coverage and the patch gate include only
+`extension/**/*.ts`. The helper, reporter, roster and contract-test lines are
+outside that denominator and receive no coverage credit.
+
+The helper does not track caught assertion failures. The marker proves control
+reached its position, not assertion quality. The reviewed command, roster and
+terminal marker placement remain trusted. Node can attribute helper-registered
+results to the helper file. The reporter therefore does not prove exact
+name-to-file ownership against coordinated swaps. It relies on the pinned Node
+structured-event schema and ordinary process isolation. Re-measure the guard
+before changing Node pins or execution flags.
+Both jobs prove push transport and child termination. The macOS job also
+checks native notification retention in the operating system store.
+`test/notification-native-macos-readback.test.ts` uses the exported
+`createNativeNotificationChannel`, then preparation and delivery. The helper
+receives a HOME-only environment. Fixed osascript source reads the title and
+body from trailing arguments after `--`. These arguments carry UTF-8 text.
+
+The native case requires an absolute HOME, osascript, sqlite3 and plutil.
+It tries `~/Library/Group Containers/group.com.apple.usernoted/db2/db` first.
+Only a missing path permits the fallback to
+`$(getconf DARWIN_USER_DIR)com.apple.notificationcenter/db2/db`.
+Access denial, a missing store, a query error or a schema mismatch fails.
+Every sqlite3 child uses `-readonly`, a fresh connection, a one-second busy
+wait and a two-second process timeout. Normal reads include write-ahead log
+(WAL) data. The test never uses an immutable connection or changes the store.
+
+Independent random UUIDs identify the title and body. The baseline query
+requires both markers to be absent in ASCII and UTF-16 big-endian encodings.
+It also records the maximum record ID in that same query. The text includes
+leading `-e ` and `-- `, separators, quotes, backslashes, XML characters,
+accented text, Chinese characters and an emoji.
+After product delivery, polling runs every 500 ms for at most 30 seconds.
+Candidate records must have a higher ID and contain a marker. Bounded plutil
+children extract `req.titl` and `req.body` from each candidate binary plist.
+Extraction requires string values and emits raw UTF-8 without a trailing newline.
+Both fields must equal the sent text exactly. The result reports the retained
+record's `app.identifier` without requiring a particular application identity.
+Every child has a timeout and a one-MiB output cap. Poll children use the
+remaining polling allowance when it is shorter than two seconds.
+
+The case has a 60-second timeout. Its failure diagnostics bound the error,
+`sw_vers`, architecture, tried paths, schema summary and child errors.
+A decoded candidate also supplies its title, body and `app.identifier` to
+those diagnostics.
+The test prints no complete store, takes no screenshot, grants no permission
+and automates no consent. Missing prerequisites fail even outside CI.
+There is no local macOS skip path. The workflow configures no required-check
+ruleset. Hosted evidence must establish store access, notification permission,
+application identity and repeatability on the selected image.
+Store retention does not prove visible presentation. Neither job proves
+Windows native delivery, Windows store read-back or Windows terminal write
+ordering. Re-run the relevant direct command on each available target operating
+system after changes to these tests or their CI jobs.
 
 ## Why this exists
 
@@ -66,7 +194,7 @@ report **NOT RUN**, never PASS.
 bash verification/run-ladder.sh --repo .                  # everything, ~3 min
 bash verification/run-ladder.sh --repo . --only G1,P5a    # a subset
 bash verification/run-ladder.sh --repo . --lab /tmp/mylab
-bash verification/run-ladder.sh --repo . --strict         # CI: any NOT RUN is fatal
+bash verification/run-ladder.sh --repo . --strict         # automation: any NOT RUN is fatal
 bash verification/run-ladder.sh --repo . --setup-only     # guards + fixtures, no pi runs
 bash verification/run-ladder.sh --list-rungs
 bash verification/run-ladder.sh --help
@@ -296,8 +424,8 @@ different mechanism.
 NOT RUN means the rung could not be made meaningful, never that it passed. None is
 fatal on its own, but a run with NOT RUNs has proportionally less coverage — do
 not merge a change to the mechanism on the strength of one. **In automation pass
-`--strict`**, which turns any NOT RUN into a failing run; the table below is then
-the list of things to fix before CI goes green again.
+`--strict`**, which turns any NOT RUN into a failing run. Fix the causes listed
+below, then rerun the strict ladder. The ladder is outside CI.
 
 | NOT RUN reason | what to do |
 | --- | --- |

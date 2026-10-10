@@ -9,7 +9,9 @@ Slate reads two optional configuration files at session start:
 - Home: `<getAgentDir()>/slate.json`, normally `~/.pi/agent/slate.json`. Pi's `PI_CODING_AGENT_DIR` environment variable can select another agent directory.
 - Project: `<cwd>/.pi/slate.json`, read **only when the project is trusted**.
 
-Project values override home values. Objects merge recursively. Arrays, scalar values, and explicit `null` replace the home value. Arrays never append. Slate applies its existing setting validators after the merge.
+Project values override home values. Objects merge recursively. Arrays, scalar values, and explicit `null` replace the home value. Arrays never append. Slate applies its setting validators after the merge.
+
+The `notifications` group has a separate source rule. Only home settings can permit channels and text detail. A trusted project can turn channels off and lower detail. Push destinations and credentials come only from home settings.
 
 A missing file is valid. An unreadable file, invalid JSON, or a root that is not an object produces a warning naming that file. Any such error in a permitted file blocks model routing, even when the other file is valid.
 
@@ -44,6 +46,17 @@ The project must be trusted before Slate reads this file. Start a new session af
 | Key | Type | Default | Semantics |
 | --- | --- | --- | --- |
 | `orchestratorModeDefault` | boolean | `false` | Start fresh interactive sessions with orchestrator mode ON. |
+| `notifications.terminal`, `notifications.native`, `notifications.bell` | boolean | `true` | Channel permissions. A trusted project can turn a channel off but cannot enable a home-disabled channel. Configuration validation does not send notifications. |
+| `notifications.push.enabled` | boolean | `false` | Home permission for phone push. A trusted project can disable it but cannot enable it. Configuration validation does not contact a server. |
+| `notifications.detail` | `generic` \| `project` \| `message` | `generic` | Text permission for terminal and native channels. `generic` permits event text. `project` also permits the folder name. `message` also permits the agent message. A trusted project can only lower the home permission. |
+| `notifications.pushDetail` | `generic` \| `project` \| `message` | `generic` | Independent text permission for push, with the same levels. Only home can raise it. A trusted project can lower it. General detail does not raise push detail. |
+| `notifications.minimumDelayMs` | number | `30000` | Minimum interval since input, in milliseconds. Accept a nonnegative safe integer. A trusted project value wins. |
+| `notifications.cooldownMs` | number | `60000` | Minimum interval between events of the same type, in milliseconds. Accept a nonnegative safe integer. A trusted project value wins. |
+| `notifications.sequences` | `auto` \| string[] | `auto` | An explicit list must contain distinct values from `osc9`, `osc777`, and `osc99`. The list must not be empty. List order is preserved. A trusted project value wins. |
+| `notifications.push.server` | string | — | Accept HTTPS (Hypertext Transfer Protocol Secure) addresses from home configuration for encrypted web traffic. Accept HTTP (Hypertext Transfer Protocol) only for loopback addresses, which refer to this computer. Allow `localhost`, IPv4 (Internet Protocol version 4) addresses starting with `127.`, or `::1`. Reject embedded credentials, query strings, and fragments. An invalid address disables push with a generic warning. Slate ignores project destination and credential fields with one generic warning. |
+| `notifications.push.topic` | string | — | Home-only topic name. Accept ASCII (American Standard Code for Information Interchange) letters `A-Z` and `a-z`, digits `0-9`, `_`, or `-`. Enabled push requires both server and topic. An invalid or missing destination disables push. |
+| `notifications.push.token` | string | — | Home-only authentication token. Do not combine it with username and password. |
+| `notifications.push.username`, `notifications.push.password` | string | — | Home-only authentication pair. Supply both values or neither. Credentials must be nonempty and contain no control characters. Invalid credentials disable push. |
 | `workerTools` | string[] | `["read", "bash", "edit", "write", "grep", "find", "ls"]` | Tools available to worker threads (an empty list also falls back to the default). |
 | `workerExtensions` | string[] | `[]` | Regex patterns (matched **unanchored**) selecting which of the host session's already-loaded extensions also load into every worker thread; each matched extension's tools are added **on top of** `workerTools`. Empty (default) means workers load no project or discovered extensions. Slate still supplies one internal reminder component. The orchestrator keeps its restricted tool set but its doctrine is told what was whitelisted. Invalid patterns are dropped with a warning at session start. |
 | `cacheKeyEnabled` | boolean | `true` | Add one OpenAI Responses prompt cache key to all workers in the current main Slate session. Another main session receives another key. `false` disables key injection. It does not disable request throttling. Provider requests with `cacheRetention: "none"`, including worker summaries, keep that opt-out and receive no forced key. |
@@ -72,6 +85,10 @@ The project must be trusted before Slate reads this file. Start a new session af
 | `reviewPerspectivesPath` | string | — | Review charters, each declaring its own finding-ID prefix. The doctrine references this **path**; the orchestrator reads the file alongside the shipped review rules. |
 | `router.models` | object | shipped six-model pool | Ordinary membership and definitions. `include` replaces the starting membership, including with an empty list. `add` accepts complete new definitions. `replace` changes selected fields. `exclude` applies last. Within each model definition, lists and provider maps replace shipped fields. The home and project configuration files merge first. |
 | `router.compressor.models` | array of `{ model, effort }` | `[{"model":"claude-sonnet-5.5","effort":"medium"}]` | Independent ordered compressor list. An explicit empty list blocks work. |
+
+Notification settings define permissions and text policy. Slate validates these settings at session start. Slate sends terminal sequences and a separate bell after eligible main-session waits. Both channels require interactive mode and terminal standard output. Slate registers no notification tool. Native and push delivery channels are not registered.
+
+Invalid values produce generic warnings that name the setting and its home or project source without showing supplied values. Invalid channel values use the channel defaults, combined with home permission for project values. Invalid detail falls back to `generic`. Invalid intervals use their defaults. Invalid sequence selection uses `auto`. Invalid or incomplete push destinations disable push.
 
 ## Extended example
 
