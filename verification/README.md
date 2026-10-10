@@ -1072,25 +1072,38 @@ through `-e`. A full invocation also starts one separate `pi --version` process
 to enforce the declared pin. `T4`, `T5` and the non-selectable roster audit start
 no session.
 
-Three checks were deleted from this harness, and it no longer proves the sibling
-worktree arrangement. `T6` classified the layout of the checkout. `T7` built a
-scratch sibling package layout and loaded slate through the tracked spelling
-alone. `T8` counted the copies of slate that an ordinary session loaded. Each of
-the three needed the sibling worktree of this repository to be present. A plain
-clone has no sibling, and a continuous-integration checkout has no sibling, so
-the three checks established nothing there. On a developer machine every pi
-session in this checkout already proves the same property by running, because a
-session with no slate extension has no `/slate` command and no dispatch tool. The
-user applied one test. A check earns its place only if it can fail somewhere the
-property is not already proven by use. `T6`, `T7` and `T8` failed that test. The
-user approved removing the goal that the arrangement is proven automatically.
-`T5` passes the test, because `T5` reads a tracked file, so `T5` runs in
-continuous integration and in a plain clone.
+The load harness does not prove the sibling worktree arrangement. `T5` reads the
+tracked package entry and runs in continuous integration and in a plain clone.
+The manual isolated-load smoke test, `pi --no-extensions -e .`, checks the
+explicitly selected worktree, not the sibling arrangement.
 
-Two things establish the arrangement now. Every session in this checkout proves
-it by running. The manual isolated-load smoke test, `pi --no-extensions -e .`,
-proves it on demand. `T5` protects the tracked settings entry itself in
-continuous integration. Nothing automatic proves the sibling arrangement.
+The project-only extension `.pi/extensions/require-main-worktree.ts` checks the
+arrangement at session start in a trusted project started at the checkout root.
+It checks the sibling directory, slate entry and package name, shared resolved
+Git common directory, and checked-out `main` branch in order. The first failed
+worktree condition stops later worktree checks. Registration is always checked:
+`thread` must exist, and `/slate` must come from inside the sibling's real path.
+Each failure reports an error and remedy while the session continues. Starting
+from the `main` worktree itself is supported.
+
+After the worktree conditions pass, a background read-only `git ls-remote` query
+checks remote `main` on `origin`. Session start does not wait for the query.
+The check stays silent when local `main` contains the remote commit. It warns
+about an absent local commit as behind with an unknown count and pull advice.
+It warns about divergence when the commit exists but local `main` does not
+contain it. Query errors, authentication failures and time limits produce
+warnings.
+
+Credential prompts and lazy object fetching are disabled. The remote
+command has a ten-second limit. Each local Git command has a one-second limit.
+Timeout and session shutdown stop the owned child process group. Results after
+shutdown produce no message. Print and JSON modes also receive reports on stderr.
+
+Pi does not discover this project extension from a subdirectory, in an untrusted
+project, or with `--no-extensions`. Verification harnesses and worker sessions
+disable extension discovery, so this check does not run there. The extension
+stays outside the published package and patch-coverage gate. Its unit tests and
+the typecheck cover it. The check proves registration, not tool execution.
 
 Both sessions run offline. Each receives an empty throwaway
 `PI_CODING_AGENT_DIR` under the `mktemp` scratch directory. No session receives

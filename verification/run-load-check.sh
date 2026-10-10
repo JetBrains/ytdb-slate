@@ -58,24 +58,15 @@
 # directions and produced both a false pass and a false failure, so the rules are
 # imported and never guessed. When they cannot be imported, T5 FAILS.
 #
-# THREE CHECKS WERE DELETED HERE, AND THIS HARNESS NO LONGER PROVES THE SIBLING
-# ARRANGEMENT. T6 classified the layout of the checkout. T7 loaded a scratch
-# sibling package layout through the tracked spelling. T8 counted the copies of
-# slate an ordinary session loaded. All three needed the sibling worktree of this
-# repository to be present. A plain clone has no sibling, and a CI checkout has no
-# sibling, so the three checks established nothing there. On a developer machine
-# every pi session in this checkout already proves the same property by running,
-# because a session with no slate extension has no /slate command and no dispatch
-# tool. The user applied one test: a check earns its place only if it can fail
-# somewhere the property is not already proven by use. T6, T7 and T8 failed that
-# test, and the user approved removing the goal that the arrangement is proven
-# automatically. T5 passes the test, because it reads a tracked file and therefore
-# runs in CI and in a plain clone.
-#
-# WHAT ESTABLISHES THE ARRANGEMENT NOW. Every session in this checkout proves it
-# by running. The manual isolated-load smoke test, `pi --no-extensions -e .`,
-# proves it on demand. T5 protects the tracked settings entry itself in CI.
-# Nothing automatic proves the sibling arrangement any more.
+# This harness does not prove the sibling arrangement. T5 protects the tracked
+# settings entry in CI and in a plain clone. The project-only extension
+# .pi/extensions/require-main-worktree.ts checks the sibling and slate registration
+# at session start in a trusted project started at the checkout root. It also
+# queries remote main in the background without changing the repository.
+# It does not load from a subdirectory, in an untrusted project, or with
+# --no-extensions. Both runs here disable discovery, as do worker sessions.
+# The manual isolated-load smoke test checks the explicitly selected worktree,
+# not the sibling arrangement. The project check proves no tool execution.
 # PI_OFFLINE=1 is MANDATORY on BOTH runs, and on the trusted one above
 # all: -a makes pi read .pi/settings.json, and without PI_OFFLINE it
 # npm-installs every package listed there — observed hanging for 60 s and
