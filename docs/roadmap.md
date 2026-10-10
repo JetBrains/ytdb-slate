@@ -50,4 +50,4 @@ Planned asynchronous threads will let the main session continue while worker ses
 
 ## Remote development
 
-Planned integration with pi-agent-dashboard will let a desktop or laptop serve as a remote development workstation ([#417](https://github.com/JetBrains/ytdb-slate/issues/417)).
+Planned remote development will allow you to set up your own infrastructure to steer agents from a laptop, a desktop or a phone through one browser application. The goal is that work becomes a natural part of private life and does not harm it. For example, a developer can spend about two hours on intensive system design work. For the rest of the day, the developer can steer agents at intervals between other activities. A notification will tell the developer when an agent needs attention. A phone will show a light view of the agent state. A laptop or desktop will show the same state in a full view.
