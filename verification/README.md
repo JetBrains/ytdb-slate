@@ -53,13 +53,19 @@ limit and pin Node 24.18.0. They inherit the read-only workflow permission,
 reuse the Linux action SHAs and install with `npm ci --ignore-scripts`.
 The workflow configures no required-check ruleset.
 
-Both jobs run this portable command with ordinary `spec` output visible:
+The Windows job runs this portable command with ordinary `spec` output visible:
 
 ```text
 node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=./verification/required-case-reporter.ts --test-reporter-destination=stdout test/notification-push-portable.test.ts
 ```
 
-The Linux suite also discovers this file. The first case sends one notification
+The macOS job runs both files in one invocation with the same reporters:
+
+```text
+node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=./verification/required-case-reporter.ts --test-reporter-destination=stdout test/notification-push-portable.test.ts test/notification-native-macos-readback.test.ts
+```
+
+The Linux suite also discovers the portable file. The first case sends one notification
 to a fake ntfy HTTP server through `http://localhost:<port>`. IPv4-first resolver
 ordering selects the `127.0.0.1` listener even when localhost has an IPv6 answer.
 The observing spawn wrapper passes production arguments unchanged to Node and
@@ -88,8 +94,9 @@ empty and not-run cases fail. Zero tests fail.
 from the case bodies. Paths use file URLs. Names must be globally unique across
 all entries, including entries for other platforms. An optional `platforms`
 list selects applicable native cases through `process.platform`. A selected
-platform must have at least one required file. Future native read-back cases
-use the same helper and add their file, names and platforms to this roster.
+platform must have at least one required file. The macOS native file has one
+required case with `platforms: ["darwin"]`. It registers no case on Linux or
+Windows. The selected roster has two files on macOS and one elsewhere.
 
 The reporter runs only in the macOS and Windows job commands. The Linux runner
 uses its ordinary reporters without this required-file contract. Linux runs
@@ -107,10 +114,45 @@ results to the helper file. The reporter therefore does not prove exact
 name-to-file ownership against coordinated swaps. It relies on the pinned Node
 structured-event schema and ordinary process isolation. Re-measure the guard
 before changing Node pins or execution flags.
-These jobs prove push transport and child termination.
-They do not prove native delivery, store read-back, visible presentation or
-Windows terminal write ordering. Re-run the direct command on each available
-target operating system after changes to this file or its CI jobs.
+Both jobs prove push transport and child termination. The macOS job also
+checks native notification retention in the operating system store.
+`test/notification-native-macos-readback.test.ts` uses the exported
+`createNativeNotificationChannel`, then preparation and delivery. The helper
+receives only HOME and the product's two text variables.
+
+The native case requires an absolute HOME, osascript, sqlite3 and plutil.
+It tries `~/Library/Group Containers/group.com.apple.usernoted/db2/db` first.
+Only a missing path permits the fallback to
+`$(getconf DARWIN_USER_DIR)com.apple.notificationcenter/db2/db`.
+Access denial, a missing store, a query error or a schema mismatch fails.
+Every sqlite3 child uses `-readonly`, a fresh connection, a one-second busy
+wait and a two-second process timeout. Normal reads include write-ahead log
+(WAL) data. The test never uses an immutable connection or changes the store.
+
+Independent random UUIDs identify the title and body. The baseline query
+requires both markers to be absent in ASCII and UTF-16 big-endian encodings.
+It also records the maximum record ID in that same query. The text includes
+quotes, backslashes, XML characters and a non-ASCII character.
+After product delivery, polling runs every 500 ms for at most 30 seconds.
+Candidate records must have a higher ID and contain a marker. Bounded plutil
+children extract `req.titl` and `req.body` from each candidate binary plist.
+Extraction requires string values and emits raw UTF-8 without a trailing newline.
+Both fields must equal the sent text exactly. The result reports the retained
+record's `app.identifier` without requiring a particular application identity.
+Every child has a timeout and a one-MiB output cap. Poll children use the
+remaining polling allowance when it is shorter than two seconds.
+
+The case has a 60-second timeout. Its failure diagnostics bound the error,
+`sw_vers`, architecture, tried paths, schema summary and child errors.
+The test prints no complete store, takes no screenshot, grants no permission
+and automates no consent. Missing prerequisites fail even outside CI.
+There is no local macOS skip path. The workflow configures no required-check
+ruleset. Hosted evidence must establish store access, notification permission,
+application identity and repeatability on the selected image.
+Store retention does not prove visible presentation. Neither job proves
+Windows native delivery, Windows store read-back or Windows terminal write
+ordering. Re-run the relevant direct command on each available target operating
+system after changes to these tests or their CI jobs.
 
 ## Why this exists
 

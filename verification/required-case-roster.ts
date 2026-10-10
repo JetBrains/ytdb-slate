@@ -8,6 +8,10 @@ export const requiredRoster: RequiredFile[] = [{
 		"portable push sends exactly one ntfy request through the real localhost lookup child",
 		"lookup child self-deadline closes a stalled lookup and leaves no process",
 	],
+}, {
+	file: fileURLToPath(new URL("../test/notification-native-macos-readback.test.ts", import.meta.url)),
+	names: ["macOS native notification retains exact unique text in a new operating system store record"],
+	platforms: ["darwin"],
 }];
 
 /** Validate the whole roster before platform selection. Names are globally unique. */

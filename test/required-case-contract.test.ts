@@ -12,13 +12,24 @@ const source = new URL("../", import.meta.url);
 const jobArgs = ["--test", "--test-reporter=spec", "--test-reporter-destination=stdout",
 	"--test-reporter=./verification/required-case-reporter.ts", "--test-reporter-destination=stdout",
 	"test/notification-push-portable.test.ts"];
+const nativePath = "test/notification-native-macos-readback.test.ts";
+const nativeName = "macOS native notification retains exact unique text in a new operating system store record";
+const macJobArgs = [...jobArgs, nativePath];
 
-function fixture(t: test.TestContext) {
+function fixture(t: test.TestContext, platform = "win32") {
 	const root = mkdtempSync(join(tmpdir(), "slate-required-case-"));
 	t.after(() => rmSync(root, { recursive: true, force: true }));
 	for (const dir of ["test", "verification"]) mkdirSync(join(root, dir));
 	for (const file of ["test/required-case.ts", "verification/required-case-reporter.ts", "verification/required-case-roster.ts"])
 		copyFileSync(new URL(file, source), join(root, file));
+	const reporter = join(root, "verification/required-case-reporter.ts");
+	const original = readFileSync(reporter, "utf8");
+	assert.ok(original.includes("selectRequiredFiles()"));
+	// Fixture selection exercises both job contracts on every host platform.
+	writeFileSync(reporter, original.replace("selectRequiredFiles()", `selectRequiredFiles(undefined, ${JSON.stringify(platform)})`));
+	writeFileSync(join(root, nativePath), platform === "darwin"
+		? prefix + `requiredCase(${JSON.stringify(nativeName)}, {}, async (t, complete) => { complete(); });`
+		: "");
 	return root;
 }
 
@@ -118,7 +129,13 @@ test("required reporter rejects optional, failed, absent and repeated results", 
 });
 
 test("required roster validates global uniqueness before platform selection", () => {
-	assert.equal(selectRequiredFiles().size, 1);
+	assert.equal(selectRequiredFiles().size, process.platform === "darwin" ? 2 : 1);
+	assert.equal(selectRequiredFiles(requiredRoster, "linux").size, 1);
+	assert.equal(selectRequiredFiles(requiredRoster, "win32").size, 1);
+	assert.equal(selectRequiredFiles(requiredRoster, "darwin").size, 2);
+	assert.equal(requiredRoster.length, 2);
+	assert.deepEqual(requiredRoster[1], { file: fileURLToPath(new URL(nativePath, source)),
+		names: [nativeName], platforms: ["darwin"] });
 	const entries = [{ file: "push", names: ["push"] },
 		{ file: "native", names: ["native"], platforms: ["darwin"] }];
 	assert.equal(selectRequiredFiles(entries, "win32").size, 1);
@@ -134,25 +151,40 @@ test("required roster validates global uniqueness before platform selection", ()
 	assert.throws(() => selectRequiredFiles([entries[1]!], "win32"), /no cases/);
 });
 
-test("reviewed job command rejects omission, filtering and optional suites", { timeout: 30000 }, (t) => {
-	const root = fixture(t);
-	const good = bodies("complete();");
-	const workflow = readFileSync(new URL(".github/workflows/ci.yml", source), "utf8");
-	assert.equal(workflow.split(`run: node ${jobArgs.join(" ")}`).length - 1, 2);
-	assert.equal(execute(root, good).status, 0);
-	for (const body of ["", "process.exit(0);", bodies("process.exit(0);"), bodies("complete();", "return;"),
-		good.replace(names[0]!, "renamed"), good.split("\n").slice(0, 2).join("\n"),
-		prefix + 'import { describe } from "node:test"; describe.skip("outer", () => {\n' + good.replace(prefix, "") + '\n});',
-		prefix + 'import { describe } from "node:test"; describe.todo("outer", () => {\n' + good.replace(prefix, "") + '\n});']) {
-		const result = execute(root, body);
-		assert.notEqual(result.status, 0);
-		assert.match(result.output, /REQUIRED CASE VERDICT: FAIL/);
-	}
-	for (const flag of ["--test-name-pattern=^portable push", "--test-skip-pattern=^portable push", "--test-only"]) {
-		assert.notEqual(execute(root, good, [flag, ...jobArgs]).status, 0);
-	}
-	writeFileSync(join(root, "test/unrelated.test.ts"), 'import test from "node:test"; test("other", () => {});');
-	for (const path of ["test/unrelated.test.ts", "test/missing*.test.ts", "test/missing.test.ts"]) {
-		assert.notEqual(execute(root, good, [...jobArgs.slice(0, -1), path]).status, 0);
-	}
-});
+for (const [platform, args] of [["win32", jobArgs], ["darwin", macJobArgs]] as const) {
+	test(`reviewed ${platform} job command rejects omission, filtering and optional suites`, { timeout: 30000 }, (t) => {
+		const root = fixture(t, platform);
+		const good = bodies("complete();");
+		const workflow = readFileSync(new URL(".github/workflows/ci.yml", source), "utf8");
+		const job = workflow.split(`  ${platform === "darwin" ? "macos" : "windows"}-notification-push:`)[1]!.split(/\n  [a-z][a-z-]+:/)[0]!;
+		assert.deepEqual(job.match(/^        run: node .*$/gm), [`        run: node ${args.join(" ")}`]);
+		assert.equal(execute(root, good, args).status, 0);
+		for (const body of ["", "process.exit(0);", bodies("process.exit(0);"), bodies("complete();", "return;"),
+			good.replace(names[0]!, "renamed"), good.split("\n").slice(0, 2).join("\n"),
+			prefix + 'import { describe } from "node:test"; describe.skip("outer", () => {\n' + good.replace(prefix, "") + '\n});',
+			prefix + 'import { describe } from "node:test"; describe.todo("outer", () => {\n' + good.replace(prefix, "") + '\n});']) {
+			const result = execute(root, body, args);
+			assert.notEqual(result.status, 0);
+			assert.match(result.output, /REQUIRED CASE VERDICT: FAIL/);
+		}
+		for (const flag of ["--test-name-pattern=^portable push", "--test-skip-pattern=^portable push", "--test-only"]) {
+			assert.notEqual(execute(root, good, [flag, ...args]).status, 0);
+		}
+		writeFileSync(join(root, "test/unrelated.test.ts"), 'import test from "node:test"; test("other", () => {});');
+		for (const path of ["test/unrelated.test.ts", "test/missing*.test.ts", "test/missing.test.ts"]) {
+			assert.notEqual(execute(root, good, [...jobArgs.slice(0, -1), path, ...args.slice(jobArgs.length)]).status, 0);
+		}
+		if (platform === "darwin") {
+			assert.notEqual(execute(root, good, jobArgs).status, 0, "omitting the native file must fail");
+			const nativeFile = join(root, nativePath), nativeGood = readFileSync(nativeFile, "utf8");
+			for (const nativeBody of ["", "process.exit(0);", nativeGood.replace(nativeName, "renamed native"),
+				nativeGood.replace("complete();", "return;"), nativeGood.replace("{},", "{ skip: true },"),
+				nativeGood + "\n" + nativeGood.replace(prefix, "")]) {
+				writeFileSync(nativeFile, nativeBody);
+				const result = execute(root, good, args);
+				assert.notEqual(result.status, 0);
+				assert.match(result.output, /REQUIRED CASE VERDICT: FAIL/);
+			}
+		}
+	});
+}
