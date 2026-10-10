@@ -54,6 +54,14 @@ function fixture() {
 }
 
 type Fixture = ReturnType<typeof fixture>;
+
+async function awaitBackground<T>(operation: () => Promise<T>): Promise<T> {
+  // The test caller owns the lifetime while it awaits an unreferenced query.
+  const keepAlive = setInterval(() => {}, 1000);
+  try { return await operation(); }
+  finally { clearInterval(keepAlive); }
+}
+
 function harness(f: Fixture, run: ProcessRunner = runProcess, mode: ExtensionContext["mode"] = "tui", root = f.root) {
   const api = new FakeApi();
   api.tools = [{ name: "thread", sourceInfo: { path: join(f.main, "extension/index.ts") } }];
@@ -77,7 +85,7 @@ function harness(f: Fixture, run: ProcessRunner = runProcess, mode: ExtensionCon
     root, run: (request) => run({ ...request, env: { ...request.env, HOME: f.directory,
       GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" } }), stderr: (message) => errors.push(message),
   });
-  return { api, ctx, notifications, errors, idle: monitor.idle,
+  return { api, ctx, notifications, errors, idle: () => awaitBackground(monitor.idle),
     reads: () => contextReads,
     start: () => api.emit("session_start", ctx),
     stop: async () => { await api.emit("session_shutdown", ctx); ended = true; } };
@@ -435,7 +443,7 @@ test("query exit listeners are removed on completion and abort", { timeout: 2000
       cwd: f.directory, env: gitEnvironment(), timeoutMs: 1000, signal: controller.signal, background: true });
     assert.equal(process.listenerCount("exit"), before + 1);
     if (abort) controller.abort();
-    assert.equal((await pending).killed ?? false, abort);
+    assert.equal((await awaitBackground(() => pending)).killed ?? false, abort);
     assert.equal(process.listenerCount("exit"), before);
   }
 });
