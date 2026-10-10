@@ -7,7 +7,7 @@
  * higher-numbered D and W ids, and review findings prefixed by the review that
  * raised them (AD, AF, BG, CN, CQ, DF, N, RG, RI, SE, WB, WS); that doc carries
  * the full key. An orchestrator (the main pi
- * session) dispatches bounded actions to persistent worker threads via the
+ * session) dispatches each bounded action to a new worker thread via the
  * `thread` tool; each completed action returns an episode — a compressed,
  * structured record that the orchestrator composes into further dispatches.
  *
