@@ -15,7 +15,6 @@ export interface NativeNotificationOptions {
 	readonly platform?: NodeJS.Platform;
 	readonly environment?: Environment;
 }
-const macScript = 'display notification (system attribute "SLATE_NOTIFICATION_BODY") with title (system attribute "SLATE_NOTIFICATION_TITLE")';
 // Start-menu discovery supplies a registered application identity, not an invented sender name.
 // Text enters XML only through text nodes. The interpreter receives fixed source only.
 const windowsScript = `
@@ -135,8 +134,10 @@ export function createNativeNotificationChannel(options: NativeNotificationOptio
 			args = ["--app-name=Slate", "--", title, body.replaceAll("\\", "\\\\").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")];
 		} else if (platform === "darwin") {
 			// HOME selects the user's notification preferences. No interpreter search or library overrides cross.
+			// osascript arguments arrive as UTF-8 text. AppleScript system attribute decodes environment values as Mac Roman.
 			if (source.HOME) env.HOME = source.HOME;
-			candidates = ["/usr/bin/osascript"]; args = ["-e", macScript];
+			candidates = ["/usr/bin/osascript"];
+			args = ["-e", "on run argv", "-e", "display notification (item 2 of argv) with title (item 1 of argv)", "-e", "end run", "--", title, body];
 		} else if (platform === "win32") {
 			// SystemRoot loads Windows APIs and the fixed StartLayout module. User folders locate Start-menu identity.
 			for (const key of ["SystemRoot", "WINDIR", "USERPROFILE", "APPDATA", "LOCALAPPDATA"]) if (source[key]) env[key] = source[key];
@@ -144,7 +145,7 @@ export function createNativeNotificationChannel(options: NativeNotificationOptio
 			candidates = [resolve(env.SystemRoot, "System32/WindowsPowerShell/v1.0/powershell.exe")];
 			args = ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(windowsScript, "utf16le").toString("base64")];
 		} else return () => {};
-		if (platform !== "linux") { env.SLATE_NOTIFICATION_TITLE = title; env.SLATE_NOTIFICATION_BODY = body; }
+		if (platform === "win32") { env.SLATE_NOTIFICATION_TITLE = title; env.SLATE_NOTIFICATION_BODY = body; }
 		const resolution = new AbortController();
 		let timer!: ReturnType<typeof setTimeout>, cancel!: () => void;
 		try {

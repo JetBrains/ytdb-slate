@@ -118,7 +118,8 @@ Both jobs prove push transport and child termination. The macOS job also
 checks native notification retention in the operating system store.
 `test/notification-native-macos-readback.test.ts` uses the exported
 `createNativeNotificationChannel`, then preparation and delivery. The helper
-receives only HOME and the product's two text variables.
+receives a HOME-only environment. Fixed osascript source reads the title and
+body from trailing arguments after `--`. These arguments carry UTF-8 text.
 
 The native case requires an absolute HOME, osascript, sqlite3 and plutil.
 It tries `~/Library/Group Containers/group.com.apple.usernoted/db2/db` first.
@@ -132,7 +133,8 @@ wait and a two-second process timeout. Normal reads include write-ahead log
 Independent random UUIDs identify the title and body. The baseline query
 requires both markers to be absent in ASCII and UTF-16 big-endian encodings.
 It also records the maximum record ID in that same query. The text includes
-quotes, backslashes, XML characters and a non-ASCII character.
+leading `-e ` and `-- `, separators, quotes, backslashes, XML characters,
+accented text, Chinese characters and an emoji.
 After product delivery, polling runs every 500 ms for at most 30 seconds.
 Candidate records must have a higher ID and contain a marker. Bounded plutil
 children extract `req.titl` and `req.body` from each candidate binary plist.
@@ -144,6 +146,8 @@ remaining polling allowance when it is shorter than two seconds.
 
 The case has a 60-second timeout. Its failure diagnostics bound the error,
 `sw_vers`, architecture, tried paths, schema summary and child errors.
+A decoded candidate also supplies its title, body and `app.identifier` to
+those diagnostics.
 The test prints no complete store, takes no screenshot, grants no permission
 and automates no consent. Missing prerequisites fail even outside CI.
 There is no local macOS skip path. The workflow configures no required-check

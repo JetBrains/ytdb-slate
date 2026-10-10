@@ -17,6 +17,7 @@ const bounded = (value: unknown) => String(value).slice(0, 2000);
 if (process.platform === "darwin") requiredCase(caseName, { timeout: 60000 }, async (t, complete) => {
 	const tried: string[] = [], childErrors: string[] = [];
 	let store = "not selected", schema = "not read", highest = "not read", polls = 0;
+	let candidate: { id: number; identifier: unknown; title: string; body: string } | undefined;
 	function command(executable: string, args: string[], input?: Buffer, timeout = 2000) {
 		const result = spawnSync(executable, args, {
 			input, encoding: "utf8", timeout, killSignal: "SIGKILL", maxBuffer: outputLimitBytes,
@@ -74,8 +75,8 @@ if (process.platform === "darwin") requiredCase(caseName, { timeout: 60000 }, as
 			assert.ok(columns.some((column) => column.name === name), `notification store schema mismatch: ${table}.${name} is missing`);
 		}
 		const titleMarker = randomUUID(), bodyMarker = randomUUID();
-		const text = { title: `Slate ${titleMarker} "quoted" \\ <&> café`,
-			body: `Read-back ${bodyMarker} "body" \\ <&> café` };
+		const text = { title: `-e Slate ${titleMarker}; "quoted": \\ <&> café 中文 😀`,
+			body: `-- Read-back ${bodyMarker}; "body": \\ <&> café 中文 😀` };
 		// Binary plists can encode string markers as ASCII or UTF-16 big-endian.
 		const markerHex = [titleMarker, bodyMarker].flatMap((marker) => [
 			Buffer.from(marker, "ascii").toString("hex"), Buffer.from(marker, "utf16le").swap16().toString("hex"),
@@ -110,6 +111,7 @@ if (process.platform === "darwin") requiredCase(caseName, { timeout: 60000 }, as
 				const plist = Buffer.from(row.data, "hex");
 				const decode = (key: string) => command("/usr/bin/plutil", ["-extract", key, "raw", "-expect", "string", "-n", "-o", "-", "-"], plist, remaining());
 				const title = decode("req.titl"), body = decode("req.body");
+				candidate = { id: row.id, identifier: row.identifier, title, body };
 				assert.equal(title, text.title, "the new notification record must retain the exact title");
 				assert.equal(body, text.body, "the new notification record must retain the exact body");
 				assert.ok(typeof row.identifier === "string" && row.identifier.length > 0, "the new notification record must have an app.identifier");
@@ -131,6 +133,11 @@ if (process.platform === "darwin") requiredCase(caseName, { timeout: 60000 }, as
 		t.diagnostic(`arch: ${diagnostic("/usr/bin/arch", [])}`);
 		t.diagnostic(bounded(`store=${store} tried=${JSON.stringify(tried)} highest=${highest} polls=${polls}`));
 		t.diagnostic(`schema: ${bounded(schema)}`);
+		if (candidate) {
+			t.diagnostic(`candidate: record=${candidate.id} app.identifier=${bounded(JSON.stringify(candidate.identifier))}`);
+			t.diagnostic(`decoded title: ${bounded(JSON.stringify(candidate.title))}`);
+			t.diagnostic(`decoded body: ${bounded(JSON.stringify(candidate.body))}`);
+		}
 		t.diagnostic(`child errors: ${bounded(childErrors.join("\n"))}`);
 		throw error;
 	}

@@ -55,36 +55,58 @@ test("every native parser receives sanitized text as data and only its minimal e
 			assert.equal(call.executable, "/trusted/bin/notify-send");
 			assert.deepEqual(call.args, ["--app-name=Slate", "--", literal, literal.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")]);
 			assert.deepEqual(call.options.env, { DISPLAY: ":1", WAYLAND_DISPLAY: "wayland-1", DBUS_SESSION_BUS_ADDRESS: "unix:path=/private/bus", XDG_RUNTIME_DIR: "/run/user/1" });
+		} else if (platform === "darwin") {
+			assert.equal(call.executable, "/usr/bin/osascript");
+			assert.deepEqual(call.args, ["-e", "on run argv", "-e", "display notification (item 2 of argv) with title (item 1 of argv)", "-e", "end run", "--", literal, literal]);
+			assert.deepEqual(call.options.env, { HOME: "/home/user" });
 		} else {
 			assert.equal(call.options.env!.SLATE_NOTIFICATION_TITLE, literal);
 			assert.equal(call.options.env!.SLATE_NOTIFICATION_BODY, literal);
 			assert.ok(!call.args.some((arg) => arg.includes(literal)));
-			if (platform === "darwin") {
-				assert.equal(call.executable, "/usr/bin/osascript");
-				assert.deepEqual(call.args, ["-e", 'display notification (system attribute "SLATE_NOTIFICATION_BODY") with title (system attribute "SLATE_NOTIFICATION_TITLE")']);
-				assert.deepEqual(Object.keys(call.options.env!).sort(), ["HOME", "SLATE_NOTIFICATION_BODY", "SLATE_NOTIFICATION_TITLE"]);
-			} else {
-				assert.equal(call.executable, "/Windows/System32/WindowsPowerShell/v1.0/powershell.exe");
-				assert.deepEqual(call.args.slice(0, 4), ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand"]);
-				assert.equal(call.args.length, 5, "no trailing interpreter code arguments");
-				const script = Buffer.from(call.args[4]!, "base64").toString("utf16le");
-				assert.match(script, /Get-StartApps -Name 'Windows PowerShell'/);
-				assert.match(script, /CreateToastNotifier\(\$app.AppID\)\.Show\(\$toast\)/);
-				assert.match(script, /CreateTextNode\(\$env:SLATE_NOTIFICATION_TITLE\)/);
-				assert.match(script, /CreateTextNode\(\$env:SLATE_NOTIFICATION_BODY\)/);
-				assert.match(script, /LoadXml\('<toast>.*<text\/><text\/>/);
-				assert.ok(!script.includes(hostile));
-				assert.deepEqual(Object.keys(call.options.env!).sort(), ["APPDATA", "LOCALAPPDATA", "SLATE_NOTIFICATION_BODY", "SLATE_NOTIFICATION_TITLE", "SystemRoot", "USERPROFILE", "WINDIR"]);
-			}
+			assert.equal(call.executable, "/Windows/System32/WindowsPowerShell/v1.0/powershell.exe");
+			assert.deepEqual(call.args.slice(0, 4), ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand"]);
+			assert.equal(call.args.length, 5, "no trailing interpreter code arguments");
+			const script = Buffer.from(call.args[4]!, "base64").toString("utf16le");
+			assert.match(script, /Get-StartApps -Name 'Windows PowerShell'/);
+			assert.match(script, /CreateToastNotifier\(\$app.AppID\)\.Show\(\$toast\)/);
+			assert.match(script, /CreateTextNode\(\$env:SLATE_NOTIFICATION_TITLE\)/);
+			assert.match(script, /CreateTextNode\(\$env:SLATE_NOTIFICATION_BODY\)/);
+			assert.match(script, /LoadXml\('<toast>.*<text\/><text\/>/);
+			assert.ok(!script.includes(hostile));
+			assert.deepEqual(Object.keys(call.options.env!).sort(), ["APPDATA", "LOCALAPPDATA", "SLATE_NOTIFICATION_BODY", "SLATE_NOTIFICATION_TITLE", "SystemRoot", "USERPROFILE", "WINDIR"]);
 		}
 		f.children[0]!.emit("spawn"); f.children[0]!.emit("exit", 0); await pending;
 		const long = notificationText("error", "message", "/" + "é".repeat(700), "NEWEST");
 		const more = await f.channel.prepare(long, signal), result = more();
 		const last = f.calls.at(-1)!;
-		assert.equal(platform === "linux" ? last.args.at(-1) : last.options.env!.SLATE_NOTIFICATION_BODY, truncateNotificationUtf8(long.body, NATIVE_TEXT_MAX_BYTES));
+		assert.equal(platform === "win32" ? last.options.env!.SLATE_NOTIFICATION_BODY : last.args.at(-1), truncateNotificationUtf8(long.body, NATIVE_TEXT_MAX_BYTES));
 		assert.equal(f.searches.filter((path) => path === f.projectDirectory).length, 1, "successful helper resolution is cached");
 		f.children.at(-1)!.emit("exit", 0); await result;
 		t.mock.restoreAll();
+	}
+});
+
+test("macOS keeps option-shaped fields separate and truncates Unicode text in trailing arguments", { timeout: 2000 }, async (t) => {
+	const f = fixture(t, "darwin"), signal = new AbortController().signal;
+	const values = ["--", "-e", "-l", "-s", "-i", ""];
+	const texts = values.map((title, index) => ({ title, body: values[(index + 1) % values.length]! }));
+	texts.push({ title: "\u0000" + "é".repeat(513) + "尾", body: "\u001b" + "😀".repeat(257) + "尾" });
+	for (const text of texts) {
+		const pending = (await f.channel.prepare(text, signal))();
+		const call = f.calls.at(-1)!;
+		const title = truncateNotificationUtf8(sanitizeNotificationText(text.title), NATIVE_TEXT_MAX_BYTES);
+		const body = truncateNotificationUtf8(sanitizeNotificationText(text.body), NATIVE_TEXT_MAX_BYTES);
+		assert.deepEqual(call.args, ["-e", "on run argv", "-e", "display notification (item 2 of argv) with title (item 1 of argv)", "-e", "end run", "--", title, body]);
+		assert.equal(call.args[6], "--");
+		assert.deepEqual(call.args.slice(-2), [title, body]);
+		assert.deepEqual(call.options.env, { HOME: "/home/user" });
+		assert.ok(Buffer.byteLength(title, "utf8") <= NATIVE_TEXT_MAX_BYTES);
+		assert.ok(Buffer.byteLength(body, "utf8") <= NATIVE_TEXT_MAX_BYTES);
+		if (text.title.startsWith("\u0000")) {
+			assert.equal(title, "é".repeat(512));
+			assert.equal(body, "😀".repeat(256));
+		}
+		f.children.at(-1)!.emit("exit", 0); await pending;
 	}
 });
 
@@ -283,7 +305,10 @@ test("separately evaluated native modules share one blocked filesystem search", 
 			await (await channel.prepare({title:'-option', body:'<&> $(code)'}, new AbortController().signal))();
 			const call = calls.at(-1); assert.equal(call.settings.shell, false); assert.equal(call.settings.cwd, '/');
 			if (platform === 'linux') assert.deepEqual(call.args.slice(-3), ['--', '-option', '&lt;&amp;&gt; $(code)']);
-			else { assert.equal(call.settings.env.SLATE_NOTIFICATION_TITLE, '-option'); assert.equal(call.settings.env.SLATE_NOTIFICATION_BODY, '<&> $(code)'); }
+			else if (platform === 'darwin') {
+				assert.deepEqual(call.args, ['-e', 'on run argv', '-e', 'display notification (item 2 of argv) with title (item 1 of argv)', '-e', 'end run', '--', '-option', '<&> $(code)']);
+				assert.deepEqual(call.settings.env, {HOME:'/home/user'});
+			} else { assert.equal(call.settings.env.SLATE_NOTIFICATION_TITLE, '-option'); assert.equal(call.settings.env.SLATE_NOTIFICATION_BODY, '<&> $(code)'); }
 		}
 		assert.equal(calls.length, 3, 'reload retains all three native routes after search settlement');
 		for (const extra of [{mode:'rpc'}, {platform:'freebsd'}, {platform:'win32', environment:{}}, {environment:{}}])
