@@ -66,8 +66,11 @@ The exact production timer uses a 300 ms deadline. The child must close before
 that deadline plus a 1,000 ms allowance for startup, scheduling and pipe close.
 The parent must not terminate the child. A process probe must report that the
 child is gone. The test does not depend on Windows signal codes.
-Missing prerequisites fail. A file-level completion check requires both named
-cases to finish all assertions. Skipping either case fails the command.
+Missing prerequisites fail. A required-case wrapper rejects enabled `skip` and
+`todo` options before registration. It replaces the context's `skip` and `todo`
+methods with assertion failures. A file-level completion check requires both
+named cases to finish all assertions. A skip or todo on either case fails the
+command, including runtime calls with or without an early return.
 These jobs prove push transport and child termination.
 They do not prove native delivery, store read-back, visible presentation or
 Windows terminal write ordering. Re-run the direct command on each available

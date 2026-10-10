@@ -13,9 +13,19 @@ const deadlineCase = "lookup child self-deadline closes a stalled lookup and lea
 const completedCases = new Set<string>();
 after(() => {
 	for (const name of [pushCase, deadlineCase]) {
-		assert.ok(completedCases.has(name), `${name} must complete without skipping`);
+		assert.ok(completedCases.has(name), `${name} must complete without skip or todo`);
 	}
 });
+
+function requiredCase(name: string, options: test.TestOptions, run: (t: test.TestContext) => Promise<void>) {
+	assert.ok(!options.skip && !options.todo, `${name} must not use skip or todo options`);
+	test(name, options, async (t) => {
+		t.skip = () => { assert.fail(`${name} must not call t.skip()`); };
+		t.todo = () => { assert.fail(`${name} must not call t.todo()`); };
+		await run(t);
+		completedCases.add(name);
+	});
+}
 
 function assertGone(child: ChildProcess) {
 	assert.ok(child.pid, "the resolver must have started");
@@ -32,7 +42,7 @@ function guardChild(t: test.TestContext, child: ChildProcess) {
 	t.after(() => { clearTimeout(timer); kill(); });
 }
 
-test(pushCase, { timeout: 12000 }, async (t) => {
+requiredCase(pushCase, { timeout: 12000 }, async (t) => {
 	assert.equal(canSpawnPushResolver(pushResolverRuntime()), true, "this check requires a plain Node CLI");
 	if (process.platform === "win32") assert.ok(process.env.SystemRoot ?? process.env.SYSTEMROOT, "Windows requires SystemRoot");
 	// The real child receives this order. IPv4 loopback avoids an unavailable IPv6 listener.
@@ -110,10 +120,9 @@ test(pushCase, { timeout: 12000 }, async (t) => {
 	await delay(250);
 	assert.equal(requests.length, 1, "no extra request may arrive during the 250 ms quiet window");
 	assert.equal(starts.length, 1, "no extra resolver may start during the quiet window");
-	completedCases.add(pushCase);
 });
 
-test(deadlineCase, { timeout: 8000 }, async (t) => {
+requiredCase(deadlineCase, { timeout: 8000 }, async (t) => {
 	// Stall only the lookup callback. Keep the exact production timer and self-kill code.
 	const prelude = `require('node:dns').lookup = (host, options, callback) => {
 		process.stdout.write(JSON.stringify({ host, options }) + '\\n');
@@ -156,5 +165,4 @@ test(deadlineCase, { timeout: 8000 }, async (t) => {
 	assert.equal(child.killed, false, "the parent must not terminate the child");
 	// Windows termination does not require a particular signalCode representation.
 	assertGone(child);
-	completedCases.add(deadlineCase);
 });
