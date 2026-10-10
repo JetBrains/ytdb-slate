@@ -62,10 +62,13 @@ checks the exact child script, minimal environment, answer and close.
 The server checks a complete POST to `/`, exact JSON fields, `Connection: close`
 and no additional request during a 250 ms quiet window.
 The second case uses a child-only prelude to stall the lookup callback.
-The exact production timer must terminate the child within five seconds without
-parent termination. A process probe must report that the child is gone.
-The test does not depend on Windows signal codes. Missing prerequisites fail,
-and neither case skips. These jobs prove push transport and child termination.
+The exact production timer uses a 300 ms deadline. The child must close before
+that deadline plus a 1,000 ms allowance for startup, scheduling and pipe close.
+The parent must not terminate the child. A process probe must report that the
+child is gone. The test does not depend on Windows signal codes.
+Missing prerequisites fail. A file-level completion check requires both named
+cases to finish all assertions. Skipping either case fails the command.
+These jobs prove push transport and child termination.
 They do not prove native delivery, store read-back, visible presentation or
 Windows terminal write ordering. Re-run the direct command on each available
 target operating system after changes to this file or its CI jobs.

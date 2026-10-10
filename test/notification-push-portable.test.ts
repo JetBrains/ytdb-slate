@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import test, { after } from "node:test";
 import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
 import { getDefaultResultOrder, setDefaultResultOrder } from "node:dns";
 import http from "node:http";
@@ -7,6 +7,15 @@ import { setTimeout as delay } from "node:timers/promises";
 import { resolveNotificationSettings } from "../extension/notification-config.ts";
 import { createPushNotificationChannel } from "../extension/notification-push.ts";
 import { canSpawnPushResolver, pushResolverRuntime, PUSH_RESOLVER_SCRIPT, selectPushAddress } from "../extension/notification-push-resolution.ts";
+
+const pushCase = "portable push sends exactly one ntfy request through the real localhost lookup child";
+const deadlineCase = "lookup child self-deadline closes a stalled lookup and leaves no process";
+const completedCases = new Set<string>();
+after(() => {
+	for (const name of [pushCase, deadlineCase]) {
+		assert.ok(completedCases.has(name), `${name} must complete without skipping`);
+	}
+});
 
 function assertGone(child: ChildProcess) {
 	assert.ok(child.pid, "the resolver must have started");
@@ -23,7 +32,7 @@ function guardChild(t: test.TestContext, child: ChildProcess) {
 	t.after(() => { clearTimeout(timer); kill(); });
 }
 
-test("portable push sends exactly one ntfy request through the real localhost lookup child", { timeout: 12000 }, async (t) => {
+test(pushCase, { timeout: 12000 }, async (t) => {
 	assert.equal(canSpawnPushResolver(pushResolverRuntime()), true, "this check requires a plain Node CLI");
 	if (process.platform === "win32") assert.ok(process.env.SystemRoot ?? process.env.SYSTEMROOT, "Windows requires SystemRoot");
 	// The real child receives this order. IPv4 loopback avoids an unavailable IPv6 listener.
@@ -101,15 +110,19 @@ test("portable push sends exactly one ntfy request through the real localhost lo
 	await delay(250);
 	assert.equal(requests.length, 1, "no extra request may arrive during the 250 ms quiet window");
 	assert.equal(starts.length, 1, "no extra resolver may start during the quiet window");
+	completedCases.add(pushCase);
 });
 
-test("lookup child self-deadline closes a stalled lookup and leaves no process", { timeout: 8000 }, async (t) => {
+test(deadlineCase, { timeout: 8000 }, async (t) => {
 	// Stall only the lookup callback. Keep the exact production timer and self-kill code.
 	const prelude = `require('node:dns').lookup = (host, options, callback) => {
 		process.stdout.write(JSON.stringify({ host, options }) + '\\n');
 		setInterval(() => {}, 1000);
 	};`;
 	const deadlineMs = 300;
+	// The hosted macOS and Windows baseline is at most 361 ms with startup and pipe close.
+	// Allow 1000 ms for startup, scheduling and pipe close, but reject a 10x deadline.
+	const startupAllowanceMs = 1000;
 	const systemRoot = process.env.SystemRoot ?? process.env.SYSTEMROOT;
 	const start = performance.now();
 	const child = spawn(process.execPath, ["--input-type=commonjs", "-e", prelude + PUSH_RESOLVER_SCRIPT,
@@ -138,8 +151,10 @@ test("lookup child self-deadline closes a stalled lookup and leaves no process",
 	assert.equal(observed.options.all, true);
 	assert.equal(observed.options.order, "ipv4first");
 	assert.ok(elapsed >= deadlineMs - 20, "the child must wait for its own deadline");
-	assert.ok(elapsed < 5000, "the child must close before the parent cleanup timer");
+	assert.ok(elapsed < deadlineMs + startupAllowanceMs,
+		`the child must close within ${deadlineMs} ms plus ${startupAllowanceMs} ms for startup and scheduling (observed ${Math.round(elapsed)} ms)`);
 	assert.equal(child.killed, false, "the parent must not terminate the child");
 	// Windows termination does not require a particular signalCode representation.
 	assertGone(child);
+	completedCases.add(deadlineCase);
 });
