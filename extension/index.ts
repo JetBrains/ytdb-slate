@@ -1,14 +1,14 @@
 /**
  * Slate — thread-weaving agent architecture for pi.
  *
- * Implements the Slate architecture — design rationale and principles in
- * ../docs/design-principles.md — module headers cite ids from records that are
- * NOT in-repo: the original ExecPlan's D3–D9/M1–M3, later design rounds'
- * higher-numbered D and W ids, and review findings prefixed by the review that
- * raised them (AD, AF, BG, CN, CQ, DF, N, RG, RI, SE, WB, WS); that doc carries
- * the full key. An orchestrator (the main pi
+ * Implements the Slate architecture. Design rationale and principles are in
+ * ../docs/design-principles.md. Extension comments cite the original
+ * implementation plan, called ExecPlan (D3–D9, M2–M3), and review findings
+ * (AD, AF, BG, CN, CQ, FX, PF, RG, RI, SC, SE, WB, WS).
+ * The record-code key at the end of that document explains these codes.
+ * An orchestrator (the main pi
  * session) dispatches each bounded action to a new worker thread via the
- * `thread` tool; each completed action returns an episode — a compressed,
+ * `thread` tool. Each completed action returns an episode — a compressed,
  * structured record that the orchestrator composes into further dispatches.
  *
  * Modules:

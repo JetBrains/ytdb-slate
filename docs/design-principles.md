@@ -34,7 +34,7 @@ The report also uses three supporting concepts:
 
 - **Knowledge overhang.** A model may hold knowledge that it cannot apply
   without help from plans, reasoning steps, or the harness structure.
-  This motivates the report's emphasis on context management rather than
+  Knowledge overhang motivates the report's emphasis on context management rather than
   model intelligence alone.
 - **Expressivity.** An expressive harness lets a small set of operations
   produce many outcomes. For example, `sed` can read, write, and search.
@@ -66,7 +66,7 @@ some problems but leaves others unresolved.
   pass references to context and divide work through a familiar interface.
   Unbounded recursion can divide work too finely. A read-eval-print loop
   (REPL) that returns feedback only after a batch cannot guide the next
-  step within that batch. This matters when the environment changes during work.
+  step within that batch. Feedback within a batch matters when the environment changes during work.
 - **Strategize–delegate–compress stacks.** These systems separate planning,
   delegated execution, and compression. The report discusses Devin, Manus,
   and Altera/PIANO. Compression can omit critical state. A strict separation
@@ -372,7 +372,7 @@ rationale that it reads on demand:
   The rule instructs the orchestrator to read it when explaining or changing
   Slate, or when making an unusual routing or compaction decision.
   The rule says to skip the read if the document is already in context.
-  This is an instruction, not an enforced restriction on file reads.
+  The rule is an instruction, not an enforced restriction on file reads.
 
 Worker guidance follows the same separation. `worker.ts` supplies the
 built-in worker preamble. Slate adds the reviewer evidence charter only to
@@ -395,24 +395,28 @@ and rules always loaded applies P10.
 
 ## Record-code key
 
-Code comments and documents cite design and review records outside this repository.
-The key explains the record codes cited in those files:
+The key explains the record and finding codes that comments in the shipped extension source (`extension/`) cite.
+Other files, such as tests, verification scripts, issue files and research notes, can use codes that this key does not cover.
 
 | Identifier | Meaning |
 | --- | --- |
-| D3–D9, M2–M3 | Records from the original implementation plan, called ExecPlan |
+| D3–D9 | Records from the original implementation plan, called ExecPlan |
+| M2–M3 | Records from the original implementation plan, called ExecPlan |
 | AD | Adversarial review finding |
-| AF | Agent-failure review finding |
-| BG | Blocker or bug review finding |
-| CN | Concurrency review finding |
-| CQ | Code-quality review finding |
-| RG | Regression review finding |
-| RI | Review finding. The code citation does not identify the review round. |
-| SE | Security review finding |
-| WB | Worker-boundary review finding |
-| WS | Worker-safety review finding |
+| AF | Findings from one earlier review round. The round is not recorded in this repository. |
+| BG | Findings from one earlier review round. The round is not recorded in this repository. |
+| CN | Concurrency review finding, as listed in [review-rules.md](review-rules.md) |
+| CQ | Findings from one earlier review round. The round is not recorded in this repository. |
+| FX | Findings from one earlier review round. The round is not recorded in this repository. |
+| PF | Performance review finding, as listed in [review-rules.md](review-rules.md) |
+| RG | Regression-gate finding, as defined in [review-rules.md](review-rules.md) |
+| RI | Findings from one earlier review round. The round is not recorded in this repository. |
+| SC | Findings from one earlier review round. The round is not recorded in this repository. |
+| SE | Security review finding, as listed in [review-rules.md](review-rules.md) |
+| WB | Findings from one earlier review round. The round is not recorded in this repository. |
+| WS | Findings from one earlier review round. The round is not recorded in this repository. |
 
-Prefixes identify the review that raised a finding.
+Finding numbers can repeat in different review rounds.
 The `RI1` comment in `mode.ts` concerns how Slate reports a refused prompt.
 The comment does not establish that RI means research integrity.
 [review-rules.md](review-rules.md) uses RI for Reviewer I, the general implementation reviewer.
