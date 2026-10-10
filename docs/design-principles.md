@@ -1,12 +1,9 @@
 # Slate design principles
 
+This document explains the reasons behind the Slate architecture.
 Sections 1 to 3 and principles P1 to P10 adapt the Random Labs technical
 report about the Slate architecture, called "thread weaving".
 Notes marked as repo-local describe this extension and do not come from that report.
-
-The logical-model source files carry the approved project attribution and retrieval date.
-The retained research log holds the full private evidence record.
-This document records the architecture rationale.
 
 ## 1. The problems Slate is built to solve
 
