@@ -29,7 +29,7 @@ small-branch-denominator warning policy remain unchanged.
 ## Continuous integration
 
 The full suite runs on Linux under the stable `Node 22` and `Node 24` check names.
-The job has a 20-minute limit on the pinned `ubuntu-24.04` runner image.
+Each Linux job has a 20-minute limit on the version-specific `ubuntu-24.04` runner label.
 The Linux prerequisite install includes `dbus`, `libnotify-bin`,
 `python3-dbus-next`, `openssh-client`, `openssh-server` and `tmux`.
 
@@ -45,6 +45,30 @@ Unit tests in `test/notification-tmux.test.ts` cover stalled queries, cancellati
 nonblocking admission and process exit. Missing prerequisites fail on Linux when
 `CI` is true and produce a visible local skip otherwise. The integration check
 proves byte transport, not terminal interpretation or visible presentation.
+
+The narrow `macOS notification push` and `Windows notification push` jobs use
+`macos-15` (arm64) and `windows-2025` (x64). These version-specific labels fix the
+operating-system line, not the image revision. Both jobs have a five-minute
+limit and pin Node 24.18.0. They inherit the read-only workflow permission,
+reuse the Linux action SHAs and install with `npm ci --ignore-scripts`.
+The workflow configures no required-check ruleset.
+
+Both jobs run `node --test test/notification-push-portable.test.ts` directly.
+The Linux suite also discovers this file. The first case sends one notification
+to a fake ntfy HTTP server through `http://localhost:<port>`. IPv4-first resolver
+ordering selects the `127.0.0.1` listener even when localhost has an IPv6 answer.
+The observing spawn wrapper passes production arguments unchanged to Node and
+checks the exact child script, minimal environment, answer and close.
+The server checks a complete POST to `/`, exact JSON fields, `Connection: close`
+and no additional request during a 250 ms quiet window.
+The second case uses a child-only prelude to stall the lookup callback.
+The exact production timer must terminate the child within five seconds without
+parent termination. A process probe must report that the child is gone.
+The test does not depend on Windows signal codes. Missing prerequisites fail,
+and neither case skips. These jobs prove push transport and child termination.
+They do not prove native delivery, store read-back, visible presentation or
+Windows terminal write ordering. Re-run the direct command on each available
+target operating system after changes to this file or its CI jobs.
 
 ## Why this exists
 
@@ -82,7 +106,7 @@ report **NOT RUN**, never PASS.
 bash verification/run-ladder.sh --repo .                  # everything, ~3 min
 bash verification/run-ladder.sh --repo . --only G1,P5a    # a subset
 bash verification/run-ladder.sh --repo . --lab /tmp/mylab
-bash verification/run-ladder.sh --repo . --strict         # CI: any NOT RUN is fatal
+bash verification/run-ladder.sh --repo . --strict         # automation: any NOT RUN is fatal
 bash verification/run-ladder.sh --repo . --setup-only     # guards + fixtures, no pi runs
 bash verification/run-ladder.sh --list-rungs
 bash verification/run-ladder.sh --help
@@ -312,8 +336,8 @@ different mechanism.
 NOT RUN means the rung could not be made meaningful, never that it passed. None is
 fatal on its own, but a run with NOT RUNs has proportionally less coverage — do
 not merge a change to the mechanism on the strength of one. **In automation pass
-`--strict`**, which turns any NOT RUN into a failing run; the table below is then
-the list of things to fix before CI goes green again.
+`--strict`**, which turns any NOT RUN into a failing run. Fix the causes listed
+below, then rerun the strict ladder. The ladder is outside CI.
 
 | NOT RUN reason | what to do |
 | --- | --- |
