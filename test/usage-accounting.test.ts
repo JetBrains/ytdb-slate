@@ -1639,7 +1639,7 @@ test("settlement refusal stays primary when the caller cancels after ordinary su
   assert.doesNotMatch(result.thread.outcomeReason ?? "", /cancelled by the caller/);
 });
 
-test("a persistent worker resets its included failure before each action", { timeout: 2000 }, async (t) => {
+test("a reused worker session resets its included failure before each action", { timeout: 2000 }, async (t) => {
   const cwd = temporaryProject(t);
   const ran = model("test", "worker");
   const session = fakeSession(successfulPrompt([{ input: 1, output: 1 }]), ran);
