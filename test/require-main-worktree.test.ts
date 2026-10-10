@@ -13,7 +13,7 @@ import { checkoutRoot, gitEnvironment, registerMainWorktreeCheck, runProcess,
 type Handler = (event: unknown, ctx: ExtensionContext) => unknown;
 class FakeApi {
   readonly handlers = new Map<string, Handler>();
-  tools = [{ name: "thread" }];
+  tools: Array<{ name: string; sourceInfo: { path: string } }> = [];
   commands: Array<{ name: string; source: string; sourceInfo: { path: string } }> = [];
   on(name: string, handler: Handler): void { this.handlers.set(name, handler); }
   getAllTools() { return this.tools; }
@@ -56,6 +56,7 @@ function fixture() {
 type Fixture = ReturnType<typeof fixture>;
 function harness(f: Fixture, run: ProcessRunner = runProcess, mode: ExtensionContext["mode"] = "tui", root = f.root) {
   const api = new FakeApi();
+  api.tools = [{ name: "thread", sourceInfo: { path: join(f.main, "extension/index.ts") } }];
   api.commands = [{ name: "slate", source: "extension", sourceInfo: { path: join(f.main, "extension/index.ts") } }];
   const notifications: Array<{ message: string; level: string }> = [];
   const errors: string[] = [];
@@ -112,6 +113,9 @@ const failures: Array<{ name: string; condition: string; mutate: (f: Fixture, ap
   { name: "wrong branch", condition: "main branch", mutate: (f) => { f.git(f.main, "switch", "-c", "other"); } },
   { name: "detached branch", condition: "main branch", mutate: (f) => { f.git(f.main, "checkout", "--detach"); } },
   { name: "missing thread", condition: "slate registration", mutate: (_f, api) => { api.tools = []; } },
+  { name: "foreign thread source", condition: "slate registration", mutate: (f, api) => {
+    api.tools[0]!.sourceInfo.path = join(f.root, "extension/index.ts");
+  } },
   { name: "missing command", condition: "slate registration", mutate: (_f, api) => { api.commands = []; } },
   { name: "wrong command source", condition: "slate registration", mutate: (f, api) => {
     api.commands[0]!.sourceInfo.path = join(f.root, "extension/index.ts");
@@ -147,6 +151,7 @@ test("relative common directory and real source paths pass in main itself", { ti
   assert.equal(f.git(f.main, "rev-parse", "--git-common-dir"), ".git");
   const alias = join(f.directory, "alias"); symlinkSync(f.main, alias);
   const h = harness(f, remoteRunner, "tui", f.main);
+  h.api.tools[0]!.sourceInfo.path = join(alias, "extension/index.ts");
   h.api.commands[0]!.sourceInfo.path = join(alias, "extension/index.ts");
   await h.start(); await h.idle();
   assert.equal(h.notifications.filter((item) => item.level === "error").length, 0);
@@ -180,18 +185,18 @@ for (const error of ["git missing", "unexpected throw", "killed success"]) {
   });
 }
 
-for (const outcome of ["current", "local ahead", "behind", "diverged", "query failure"]) {
+for (const outcome of ["current", "local ahead", "behind", "behind present", "diverged", "query failure"]) {
   test(`remote outcome: ${outcome}`, { timeout: 1000 }, async (t) => {
     const f = fixture(); t.after(f.dispose);
     if (outcome === "local ahead") f.commit(f.main, "local");
     if (outcome === "behind") f.commit(f.origin, "remote");
-    if (outcome === "diverged") {
+    if (outcome === "diverged" || outcome === "behind present") {
       f.git(f.main, "switch", "-c", "remote-side");
       const sha = f.commit(f.main, "side");
       f.git(f.origin, "checkout", "--detach");
       f.git(f.main, "push", "origin", `${sha}:refs/heads/main`);
       f.git(f.main, "switch", "main");
-      f.commit(f.main, "local-side");
+      if (outcome === "diverged") f.commit(f.main, "local-side");
     }
     if (outcome === "query failure") f.git(f.main, "remote", "set-url", "origin", join(f.directory, "absent"));
     const h = harness(f);
@@ -201,8 +206,12 @@ for (const outcome of ["current", "local ahead", "behind", "diverged", "query fa
       assert.equal(h.notifications.length, 1);
       assert.equal(h.notifications[0]!.level, "warning");
       const expected = outcome === "behind" ? /behind remote main.*count is unknown.*pull/
+        : outcome === "behind present" ? /behind remote main by 1 commit\(s\).*pull/
         : outcome === "diverged" ? /diverged.*before pulling/ : /Remote main query failed:.*not appear to be a git repository/s;
       assert.match(h.notifications[0]!.message, expected);
+      if (outcome === "behind present") {
+        assert.ok(h.notifications[0]!.message.includes(`git -C ${JSON.stringify(f.main)} pull`));
+      }
     }
   });
 }
@@ -243,6 +252,43 @@ test("start does not await remote, shutdown discards completion and rejection", 
   }
 });
 
+for (const cause of ["shutdown", "restart"] as const) {
+  test(`${cause} during a local check stops the old session checks`, { timeout: 2000 }, async (t) => {
+    const f = fixture(); t.after(f.dispose);
+    let ready!: () => void;
+    let finish!: (result: ProcessResult) => void;
+    let oldSignal: AbortSignal | undefined;
+    const entered = new Promise<void>((resolveReady) => { ready = resolveReady; });
+    const pending = new Promise<ProcessResult>((resolveResult) => { finish = resolveResult; });
+    const calls: ProcessRequest[] = [];
+    const h = harness(f, (request) => {
+      calls.push(request);
+      if (!oldSignal && request.cwd === f.main && request.args.includes("rev-parse")) {
+        oldSignal = request.signal;
+        ready();
+        return pending;
+      }
+      return remoteRunner(request);
+    });
+    const starting = h.start();
+    await entered;
+    if (cause === "shutdown") await h.stop();
+    else { await h.start(); await h.idle(); }
+    assert.equal(oldSignal!.aborted, true);
+    const oldCalls = calls.filter((call) => call.signal === oldSignal).length;
+    const reads = h.reads();
+    const notices = [...h.notifications];
+    const errors = [...h.errors];
+    // The injected runner completes successfully even after its signal aborts.
+    finish({ ...success, stdout: ".git" });
+    await starting;
+    assert.equal(calls.filter((call) => call.signal === oldSignal).length, oldCalls);
+    assert.equal(h.reads(), reads);
+    assert.deepEqual(h.notifications, notices);
+    assert.deepEqual(h.errors, errors);
+  });
+}
+
 test("active notification failure is contained and reaches stderr", { timeout: 1000 }, async (t) => {
   const f = fixture(); t.after(f.dispose);
   const h = harness(f, remoteRunner);
@@ -265,6 +311,7 @@ test("every Git request disables helpers and uses fixed read-only arguments", { 
     assert.equal(request.env.GIT_NO_LAZY_FETCH, "1");
     assert.equal(request.env.GIT_TERMINAL_PROMPT, "0");
     assert.equal(request.timeoutMs, request.args.includes("ls-remote") ? 10_000 : 1000);
+    assert.equal(request.background, !["rev-parse", "symbolic-ref"].includes(request.args[4]!));
   }
 });
 
@@ -328,20 +375,69 @@ for (const cause of ["timeout", "shutdown"] as const) {
   });
 }
 
-test("query child, pipes and timer do not keep their parent alive", { timeout: 1000 }, async (t) => {
+test("awaited local child keeps its parent alive until completion", { timeout: 2000 }, (t) => {
   const f = fixture(); t.after(f.dispose);
-  const group = await groupFixture(f.directory);
-  const script = join(f.directory, "parent.mjs");
+  const script = join(f.directory, "local-parent.mjs");
   const moduleUrl = new URL("../.pi/extensions/require-main-worktree.ts", import.meta.url).href;
   writeFileSync(script, `import { runProcess, gitEnvironment } from ${JSON.stringify(moduleUrl)};
-runProcess({command:process.execPath,args:[${JSON.stringify(group.leader)}],cwd:${JSON.stringify(f.directory)},
-env:gitEnvironment(),timeoutMs:10000,signal:new AbortController().signal});`);
-  const parent = spawnSync(process.execPath, [script], { encoding: "utf8", timeout: 500 });
+const result=await runProcess({command:process.execPath,
+args:['-e','setTimeout(()=>{console.error("slow local failure");process.exit(128)},250)'],
+cwd:${JSON.stringify(f.directory)},env:gitEnvironment(),timeoutMs:1000,signal:new AbortController().signal});
+console.log(JSON.stringify(result));`);
+  const parent = spawnSync(process.execPath, [script], { encoding: "utf8", timeout: 1500 });
   assert.equal(parent.status, 0, parent.stderr);
-  while (!existsSync(group.pids)) await delay(5);
-  const pids: number[] = JSON.parse(readFileSync(group.pids, "utf8"));
-  t.after(() => { try { process.kill(-pids[0]!, "SIGKILL"); } catch {} });
-  assert.ok(pids.every(running));
+  const result: ProcessResult = JSON.parse(parent.stdout);
+  assert.equal(result.code, 128);
+  assert.equal(result.stderr.trim(), "slow local failure");
+});
+
+for (const abrupt of [false, true]) {
+  test(abrupt ? "exit without shutdown stops the live query group"
+    : "query child, pipes and timer do not keep their parent alive", { timeout: 3000 }, async (t) => {
+    const f = fixture();
+    // Stop children before removing the file that records their identifiers.
+    t.after(() => {
+      try {
+        const path = join(f.directory, "pids");
+        if (!existsSync(path)) return;
+        const pids: number[] = JSON.parse(readFileSync(path, "utf8"));
+        try { process.kill(-pids[0]!, "SIGKILL"); } catch {}
+        for (const pid of pids) { try { process.kill(pid, "SIGKILL"); } catch {} }
+      } finally { f.dispose(); }
+    });
+    const group = await groupFixture(f.directory);
+    const script = join(f.directory, "parent.mjs");
+    const moduleUrl = new URL("../.pi/extensions/require-main-worktree.ts", import.meta.url).href;
+    writeFileSync(script, `import { runProcess, gitEnvironment } from ${JSON.stringify(moduleUrl)};
+import { existsSync } from 'node:fs';
+import { setTimeout as delay } from 'node:timers/promises';
+runProcess({command:process.execPath,args:[${JSON.stringify(group.leader)}],cwd:${JSON.stringify(f.directory)},
+env:gitEnvironment(),timeoutMs:10000,signal:new AbortController().signal,background:true});
+while(!existsSync(${JSON.stringify(group.pids)})) await delay(5);
+${abrupt ? "process.exit(7);" : ""}`);
+    const parent = spawnSync(process.execPath, [script], { encoding: "utf8", timeout: 1500 });
+    assert.equal(parent.status, abrupt ? 7 : 0, parent.stderr);
+    assert.ok(existsSync(group.pids), "query leader started before parent exit");
+    const pids: number[] = JSON.parse(readFileSync(group.pids, "utf8"));
+    const deadline = Date.now() + 500;
+    while (pids.some(running) && Date.now() < deadline) await delay(5);
+    assert.ok(pids.every((pid) => !running(pid)), "parent exit stopped every query process");
+  });
+}
+
+test("query exit listeners are removed on completion and abort", { timeout: 2000 }, async (t) => {
+  const f = fixture(); t.after(f.dispose);
+  const before = process.listenerCount("exit");
+  for (const abort of [false, true]) {
+    const controller = new AbortController();
+    const pending = runProcess({ command: process.execPath,
+      args: ["-e", abort ? "setInterval(()=>{},1000)" : "process.exit(0)"],
+      cwd: f.directory, env: gitEnvironment(), timeoutMs: 1000, signal: controller.signal, background: true });
+    assert.equal(process.listenerCount("exit"), before + 1);
+    if (abort) controller.abort();
+    assert.equal((await pending).killed ?? false, abort);
+    assert.equal(process.listenerCount("exit"), before);
+  }
 });
 
 test("runner handles missing binaries and pre-aborted requests", { timeout: 1000 }, async (t) => {

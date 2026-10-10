@@ -1082,7 +1082,7 @@ arrangement at session start in a trusted project started at the checkout root.
 It checks the sibling directory, slate entry and package name, shared resolved
 Git common directory, and checked-out `main` branch in order. The first failed
 worktree condition stops later worktree checks. Registration is always checked:
-`thread` must exist, and `/slate` must come from inside the sibling's real path.
+Both `thread` and `/slate` must come from inside the sibling's real path.
 Each failure reports an error and remedy while the session continues. Starting
 from the `main` worktree itself is supported.
 
@@ -1090,14 +1090,17 @@ After the worktree conditions pass, a background read-only `git ls-remote` query
 checks remote `main` on `origin`. Session start does not wait for the query.
 The check stays silent when local `main` contains the remote commit. It warns
 about an absent local commit as behind with an unknown count and pull advice.
-It warns about divergence when the commit exists but local `main` does not
-contain it. Query errors, authentication failures and time limits produce
-warnings.
+When local `main` is an ancestor of the present remote commit, the warning
+reports the behind count and pull advice. Histories with neither tip containing
+the other produce a divergence warning. Query errors, authentication failures
+and time limits produce warnings.
 
 Credential prompts and lazy object fetching are disabled. The remote
 command has a ten-second limit. Each local Git command has a one-second limit.
-Timeout and session shutdown stop the owned child process group. Results after
-shutdown produce no message. Print and JSON modes also receive reports on stderr.
+Timeout and session shutdown stop the owned child process group. Process exit
+also stops live query groups. Awaited startup commands keep pi alive until they
+finish. Background query commands do not. Results after shutdown produce no
+message. Print and JSON modes also receive reports on stderr.
 
 Pi does not discover this project extension from a subdirectory, in an untrusted
 project, or with `--no-extensions`. Verification harnesses and worker sessions

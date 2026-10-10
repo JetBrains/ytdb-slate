@@ -20,6 +20,7 @@ export interface ProcessRequest {
   env: NodeJS.ProcessEnv;
   timeoutMs: number;
   signal: AbortSignal;
+  background?: boolean;
 }
 
 export type ProcessRunner = (request: ProcessRequest) => Promise<ProcessResult>;
@@ -59,6 +60,7 @@ export const runProcess: ProcessRunner = (request) => new Promise((resolveResult
     finished = true;
     clearTimeout(timer);
     request.signal.removeEventListener("abort", cancel);
+    process.removeListener("exit", stopGroup);
     stopGroup();
     child.stdout.destroy();
     child.stderr.destroy();
@@ -69,11 +71,14 @@ export const runProcess: ProcessRunner = (request) => new Promise((resolveResult
     code: null, stdout, stderr, killed: true, timedOut: true,
     error: `time limit of ${request.timeoutMs} ms exceeded`,
   }), request.timeoutMs);
-  timer.unref();
-  child.unref();
-  // Pipe handles also keep the event loop alive unless explicitly unreferenced.
-  (child.stdout as typeof child.stdout & { unref?: () => void }).unref?.();
-  (child.stderr as typeof child.stderr & { unref?: () => void }).unref?.();
+  if (request.background) {
+    // Exit cleanup also covers exits that skip session_shutdown.
+    process.once("exit", stopGroup);
+    timer.unref();
+    child.unref();
+    (child.stdout as typeof child.stdout & { unref?: () => void }).unref?.();
+    (child.stderr as typeof child.stderr & { unref?: () => void }).unref?.();
+  }
   child.stdout.on("data", (data: Buffer) => { stdout = (stdout + data.toString()).slice(0, OUTPUT_LIMIT); });
   child.stderr.on("data", (data: Buffer) => { stderr = (stderr + data.toString()).slice(0, OUTPUT_LIMIT); });
   child.on("error", (error) => finish({ code: null, stdout, stderr, error: errorText(error) }));
@@ -156,12 +161,12 @@ export function registerMainWorktreeCheck(pi: ExtensionAPI, options: CheckOption
         if (session.active) stderr(`${message} Notification failed: ${errorText(error)}`);
       }
     };
-    const git = (cwd: string, args: string[], timeoutMs = options.localLimitMs ?? LOCAL_LIMIT_MS) => run({
+    const git = (cwd: string, args: string[], timeoutMs = options.localLimitMs ?? LOCAL_LIMIT_MS,
+      background = false) => run({
       command: "git", args: ["-c", "credential.helper=", "-c", "credential.interactive=false", ...args],
-      cwd, env: gitEnvironment(), timeoutMs, signal: session.controller.signal,
+      cwd, env: gitEnvironment(), timeoutMs, signal: session.controller.signal, background,
     });
     const check = async (condition: string, remedy: string, operation: () => void | Promise<void>) => {
-      if (!session.active) return false;
       try { await operation(); return session.active; }
       catch (error) {
         report(`Main worktree check failed: ${condition}. ${errorText(error)} Remedy: ${remedy}`, "error");
@@ -189,25 +194,28 @@ export function registerMainWorktreeCheck(pi: ExtensionAPI, options: CheckOption
         throw new Error("The sibling does not have branch main checked out.");
       }
     });
+    if (!session.active) return;
     await check("slate registration", "Load slate from the sibling main worktree through .pi/settings.json.", () => {
-      if (!session.active) return;
-      const hasThread = pi.getAllTools().some((tool) => tool.name === "thread");
+      const hasThread = pi.getAllTools().some((tool) => tool.name === "thread"
+        && containedPath(main, tool.sourceInfo.path));
       if (!session.active) return;
       const command = pi.getCommands().find((command) => command.name === "slate" && command.source === "extension");
       if (!hasThread || !command || !containedPath(main, command.sourceInfo.path)) {
-        throw new Error("The thread tool and /slate command must be registered, with /slate supplied by main.");
+        throw new Error("The thread tool and /slate command must both be registered from main.");
       }
     });
     if (!valid || !session.active) return;
 
     const compareRemote = async () => {
-      const output = requireResult(await git(main, ["ls-remote", "--exit-code", "--refs", "origin", "refs/heads/main"],
+      const query = (args: string[], timeoutMs = options.localLimitMs ?? LOCAL_LIMIT_MS) =>
+        git(main, args, timeoutMs, true);
+      const output = requireResult(await query(["ls-remote", "--exit-code", "--refs", "origin", "refs/heads/main"],
         options.remoteLimitMs ?? REMOTE_LIMIT_MS));
       if (!session.active) return;
       const match = /^([a-f0-9]{40}|[a-f0-9]{64})\s+refs\/heads\/main$/.exec(output);
       if (!match) throw new Error("The remote main response is missing or malformed.");
       const sha = match[1]!;
-      const object = await git(main, ["cat-file", "-e", `${sha}^{commit}`]);
+      const object = await query(["cat-file", "-e", `${sha}^{commit}`]);
       if (!session.active) return;
       if (object.killed || object.timedOut || object.error) requireResult(object);
       if (object.code === 1 || object.code === 128) {
@@ -215,12 +223,22 @@ export function registerMainWorktreeCheck(pi: ExtensionAPI, options: CheckOption
         return;
       }
       requireResult(object);
-      const ancestor = await git(main, ["merge-base", "--is-ancestor", sha, "refs/heads/main"]);
+      const ancestor = await query(["merge-base", "--is-ancestor", sha, "refs/heads/main"]);
       if (!session.active) return;
       if (ancestor.killed || ancestor.timedOut || ancestor.error) requireResult(ancestor);
-      if (ancestor.code === 1) {
+      if (ancestor.code !== 1) { requireResult(ancestor); return; }
+      const behind = await query(["merge-base", "--is-ancestor", "refs/heads/main", sha]);
+      if (!session.active) return;
+      if (behind.killed || behind.timedOut || behind.error) requireResult(behind);
+      if (behind.code === 1) {
         report(`Local main has diverged from remote main. Inspect both histories in ${main} before pulling.`, "warning");
-      } else requireResult(ancestor);
+        return;
+      }
+      requireResult(behind);
+      const count = requireResult(await query(["rev-list", "--count", `refs/heads/main..${sha}`]));
+      if (!session.active) return;
+      if (!/^\d+$/.test(count)) throw new Error("The behind commit count is malformed.");
+      report(`Local main is behind remote main by ${count} commit(s). Run git -C ${JSON.stringify(main)} pull.`, "warning");
     };
     // Attach rejection handling immediately. Session start never awaits the remote.
     background = compareRemote().catch((error: unknown) => {
