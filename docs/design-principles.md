@@ -4,35 +4,6 @@ Sections 1 to 3 and principles P1 to P10 adapt the Random Labs technical
 report about the Slate architecture, called "thread weaving".
 Notes marked as repo-local describe this extension and do not come from that report.
 
-### Record key
-
-Module headers cite design records that are not part of this repository.
-The following key explains their identifiers:
-
-| Identifier | Meaning |
-| --- | --- |
-| ExecPlan: D3–D9, M1–M3 | Records from the original implementation plan |
-| Higher-numbered D identifiers | Later design rounds |
-| W identifiers | Named warnings |
-| AD | Adversarial review finding |
-| AF | Agent-failure review finding |
-| BG | Blocker or bug review finding |
-| CN | Concurrency review finding |
-| CQ | Code-quality review finding |
-| DF | Data-fidelity review finding |
-| N | Numeric review finding |
-| RG | Regression review finding |
-| RI | Review finding. The code citation does not identify the review round. |
-| SE | Security review finding |
-| WB | Worker-boundary review finding |
-| WS | Worker-safety review finding |
-
-Prefixes identify the review that raised a finding.
-The `RI1` comment in `mode.ts` concerns how Slate reports a refused prompt.
-The comment does not establish that RI means research integrity.
-[review-rules.md](review-rules.md) uses RI for Reviewer I, the general implementation reviewer.
-Use the record that raised a finding to identify its review round.
-
 The logical-model source files carry the approved project attribution and retrieval date.
 The retained research log holds the full private evidence record.
 This document records the architecture rationale.
@@ -421,3 +392,28 @@ project paths from the project root. Each role receives its own configured docum
 Loading this full document every turn would consume context for background
 analysis rather than operational instructions. Keeping rationale on demand
 and rules always loaded applies P10.
+
+## Record-code key
+
+Code comments and documents cite design and review records outside this repository.
+The key explains the record codes cited in those files:
+
+| Identifier | Meaning |
+| --- | --- |
+| D3–D9, M2–M3 | Records from the original implementation plan, called ExecPlan |
+| AD | Adversarial review finding |
+| AF | Agent-failure review finding |
+| BG | Blocker or bug review finding |
+| CN | Concurrency review finding |
+| CQ | Code-quality review finding |
+| RG | Regression review finding |
+| RI | Review finding. The code citation does not identify the review round. |
+| SE | Security review finding |
+| WB | Worker-boundary review finding |
+| WS | Worker-safety review finding |
+
+Prefixes identify the review that raised a finding.
+The `RI1` comment in `mode.ts` concerns how Slate reports a refused prompt.
+The comment does not establish that RI means research integrity.
+[review-rules.md](review-rules.md) uses RI for Reviewer I, the general implementation reviewer.
+Use the record that raised a finding to identify its review round.
