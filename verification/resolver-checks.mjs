@@ -361,6 +361,7 @@ const DOCTRINE_CONTRACT_IDS = [
 	"contract-recursive-records",
 	"contract-recursive-split-pointers",
 	"contract-recursive-delivery",
+	"contract-heading-regions",
 	"contract-recursive-acceptance-transfer",
 	"contract-repair-authorization",
 	"contract-level-publishing",
@@ -1896,6 +1897,16 @@ try {
 			};
 			const normalize = (text) => text.trim().replace(/\r\n/g, "\n");
 			const normalizeText = (text) => normalize(text).replace(/\s+/g, " ").trim();
+			const literalPatterns = new Map();
+			const literalPattern = (text) => {
+				let pattern = literalPatterns.get(text);
+				if (!pattern) {
+					pattern = new RegExp(normalizeText(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+"));
+					// No global or sticky flag means reuse cannot advance lastIndex.
+					literalPatterns.set(text, pattern);
+				}
+				return pattern;
+			};
 			const safetyWorkflow = block(workflow, "safety-floor");
 			const safetyReviews = block(reviews, "safety-floor");
 			const floorPhrases = [
@@ -2411,7 +2422,10 @@ The design-track boundary precedes research, expansion, and design work.
 The code-track boundary follows all required planning and pre-implementation gates.
 These include confirmation, scope-exception decisions, and applicable design gates.
 A review-fix child remains inside the affected code track and adds no new handoff boundary.
-Complete the prior ordinary track package and required acceptance before the next ordinary track boundary.
+Complete the prior ordinary track package and required acceptance before the next ordinary track boundary, except for a recorded permitted dependency pause.
+A subtree under that pause does not block the named unfinished sibling dependency's boundary until the recorded resume condition holds.
+Use [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for the pause conditions.
+The paused subtree's package and acceptance stay pending and still block its own completion.
 
 The orchestrator pauses dispatch pending an actual handoff and resume or an explicit user decision to continue in the same session. The explicit same-session decision is recorded as a user waiver in the existing override log. A resumed session follows Resume order and reconciliation and does not repeat a boundary request already recorded as completed. Same-track fix rounds do not retrigger the request. Single-track changes are exempt. This workflow rule has no automated runtime enforcement.`);
 			const phaseHandoffMutationSources = [
@@ -2424,6 +2438,9 @@ The orchestrator pauses dispatch pending an actual handoff and resume or an expl
 				workflow.replace("does not repeat a boundary request already recorded as completed", "repeats every boundary request"),
 				workflow.replace("Same-track fix rounds do not retrigger the request.", "Every same-track fix round retriggers the request."),
 				workflow.replace("A review-fix child remains inside the affected code track and adds no new handoff boundary.", "Each review-fix child has a separate code-track handoff boundary."),
+				workflow.replace(literalPattern("except for a recorded permitted dependency pause"), "except for any unfinished subtree"),
+				workflow.replace(literalPattern(", except for a recorded permitted dependency pause"), ""),
+				workflow.replace(literalPattern("The paused subtree's package and acceptance stay pending and still block its own completion."), "The paused subtree needs no package or acceptance for completion."),
 				workflow.replace("Single-track changes are exempt.", "Single-track changes follow the same rule."),
 				workflow.replace("<!-- multi-track-handoff:end -->", "A same-session continuation needs no additional decision.\n<!-- multi-track-handoff:end -->"),
 			];
@@ -2431,6 +2448,23 @@ The orchestrator pauses dispatch pending an actual handoff and resume or an expl
 				const resolved = resolvePhaseHandoff(source);
 				return { changed: source !== workflow, accepted: resolved.count === 1 && resolved.endCount === 1 && resolved.text === expectedPhaseHandoff, resolved };
 			});
+			const mutateDependencyPause = (source) => [
+				["named-dependency", "the named unfinished sibling dependency's boundary", "any sibling's boundary"],
+				["resume-limit", "boundary until the recorded resume condition holds.", "boundary."],
+			].map(([id, before, after]) => {
+				const pattern = literalPattern(before);
+				const mutated = source.replace(pattern, after);
+				const resolved = resolvePhaseHandoff(mutated);
+				return { id, changed: mutated !== source && !pattern.test(resolved.text),
+					rejected: resolved.count === 1 && resolved.endCount === 1 && resolved.text !== expectedPhaseHandoff };
+			});
+			const dependencyPauseMutationOutcomes = mutateDependencyPause(workflow);
+			const dependencyPauseSentence = "A subtree under that pause does not block the named unfinished sibling dependency's boundary until the recorded resume condition holds.";
+			const wrappedPauseSentence = dependencyPauseSentence.replace(/ /g, "\n  ");
+			const wrappedDependencyPause = workflow.replace(literalPattern(dependencyPauseSentence), (match) =>
+				match === wrappedPauseSentence ? dependencyPauseSentence.replace(/ /g, "\n\t") : wrappedPauseSentence);
+			const wrappedPauseHandoff = resolvePhaseHandoff(wrappedDependencyPause);
+			const wrappedPauseMutations = mutateDependencyPause(wrappedDependencyPause);
 			const phaseHandoffBoundaryMutations = [
 				workflow.replace("<!-- multi-track-handoff:begin -->", ""),
 				workflow.replace("<!-- multi-track-handoff:end -->", ""),
@@ -2557,6 +2591,8 @@ required reviews, ordered gates, user authority, or final acceptance.`;
 				["design-entry rule and boundary mutations fail while an outside edit passes", designEntryMutations.every(({ changed, rejected }) => changed && rejected) && acceptsDesignEntry(`${workflow}\nUnrelated outside-unit text.\n`), designEntryMutations],
 				["multi-track implementation boundaries require state save, handoff request, pause, override, resume de-duplication, and single-track exemption", phaseHandoff.count === 1 && phaseHandoff.endCount === 1 && phaseHandoff.text === expectedPhaseHandoff, { phaseHandoff, expectedPhaseHandoff }],
 				["weakened scope, ordering, logging, resume, fix-round, single-track, and contradictory additions fail through the same validator", phaseHandoffMutationOutcomes.every(({ changed, accepted }) => changed && !accepted), phaseHandoffMutationOutcomes],
+				["named-dependency and until-resume mutations change their intended input and fail", dependencyPauseMutationOutcomes.every(({ changed, rejected }) => changed && rejected), dependencyPauseMutationOutcomes],
+				["whitespace-wrapped dependency pause stays exact and both mutations remain discriminating", wrappedDependencyPause !== workflow && wrappedPauseHandoff.count === 1 && wrappedPauseHandoff.endCount === 1 && wrappedPauseHandoff.text === expectedPhaseHandoff && wrappedPauseMutations.every(({ changed, rejected }) => changed && rejected), { wrappedPauseHandoff, wrappedPauseMutations }],
 				["missing, duplicate, and malformed handoff boundaries fail closed", phaseHandoffBoundaryMutations.every(({ count, endCount, text }) => count !== 1 || endCount !== 1 || text === ""), phaseHandoffBoundaryMutations],
 				["benign text outside the handoff unit preserves its exact expectation", benignPhaseHandoff.every(({ count, endCount, text }) => count === 1 && endCount === 1 && text === expectedPhaseHandoff), benignPhaseHandoff],
 				["proved-area removal needs user approval and rejection preserves all gates", /area remains proved, with all of its gates and reviewers,\s*until the user approves removal/.test(riskLifecycle) && /Rejection preserves the proved area/.test(riskLifecycle), riskLifecycle],
@@ -2630,6 +2666,32 @@ required reviews, ordered gates, user authority, or final acceptance.`;
 			const regionUnit = (pattern) => (source) => {
 				const matches = [...source.matchAll(pattern)].map((match) => normalizeText(match[1] ?? "")).filter((text) => text !== "");
 				return { count: matches.length, text: matches.length === 1 ? matches[0] : "" };
+			};
+			// Owned headings occur at line start outside fenced examples.
+			const headingUnit = (start) => (source) => {
+				const headings = [];
+				let offset = 0;
+				let fence = null;
+				for (const line of source.split(/(?<=\n)/)) {
+					const text = line.replace(/\r?\n$/, "");
+					const delimiter = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(text);
+					if (fence) {
+						if (delimiter && delimiter[1][0] === fence.char && delimiter[1].length >= fence.length && !delimiter[2].trim()) fence = null;
+					} else if (delimiter) {
+						if (delimiter[1][0] !== "`" || !delimiter[2].includes("`")) fence = { char: delimiter[1][0], length: delimiter[1].length };
+					} else {
+						const heading = /^(#{1,6})(?:[ \t]+|$)/.exec(text);
+						if (heading) headings.push({ start: offset, body: offset + line.length, level: heading[1].length, text: text.replace(/^(#{1,6})[ \t]+/, "$1 ").trimEnd().replace(/[ \t]+#+$/, "") });
+					}
+					offset += line.length;
+				}
+				const starts = headings.filter((heading) => heading.text === start);
+				if (starts.length !== 1) return { count: starts.length, text: "", rawText: "", reason: starts.length ? "duplicate" : "missing" };
+				const owner = starts[0];
+				const end = headings.find((heading) => heading.start >= owner.body && heading.level <= owner.level)?.start ?? source.length;
+				const rawText = source.slice(owner.body, end).trim();
+				const text = normalizeText(rawText);
+				return { count: 1, text, rawText, reason: text ? "content" : "empty" };
 			};
 			// Each active copy has its own bounded, independent text expectation. An
 			// addition inside a rule fails even when the required phrases remain.
@@ -2842,7 +2904,7 @@ Design tracks produce the pull requests of their descendant levels.
 A change without design tracks keeps exactly one pull request.
 Do not create separate pull requests for code tracks or review-fix children.
 For nested work, use [recursive-workflow.md](recursive-workflow.md) § Level publishing
-and retained history for subtree ordering, branch bases, history slices, and retention.
+and retained history for subtree ordering, branch bases, and history slices.
 
 The level is the merge unit.
 All checks pass at each child marker.
@@ -2870,7 +2932,7 @@ Verify the observed merge commit's identity and parents against its accepted his
 Record the observed merge-result binding in the reachable description and owning log.
 The merge commit itself supplies that binding, including for the last level.
 The root final package lists every level delivery.
-It distinguishes merged levels from the last accepted level waiting for merge.
+It distinguishes merged levels from every level waiting for merge, including levels held behind an unmerged foundation.
 Close the root change only after all delivery accounting is verified.
 Use track-workflow.md § Session handoff and the research log for closure. Abandonment at any stage also ends with
 \`slate_change close\`, even if no delivery artifact exists. Closing deletes
@@ -2974,6 +3036,9 @@ Read the applicable sections before relying on their rules.
 A lazy plan needs no total descendant count to apply the condition.
 A small tree with a design track still loads the whole document.
 A change with neither triggering track type reads only the named common sections.
+Only changes that load the nested sections have retention-reference duties.
+An ordinary change has no such duty, with publishing enabled or disabled.
+For nested work, use [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for dependency order, pauses, split changes, and branch bases.
 
 The approved plan supplies specific evidence for proportional process.
 A design track or review-fix child track triggers the manual status file.
@@ -3152,7 +3217,7 @@ Use its § Session handoff and the research log for ownership.`);
 			const protectedRepairOwners = Object.freeze({
 				"repair-rounds": "25a681e30d96285c7d65fa9285b46c073a958fe1c9500b206273b64ba28a873b",
 				"repair-consultations": "86f0f04219e871881c7f99263689d848fc78772d2b034e3d359cdc6662f4d780",
-				"child-fix-title": "5aae2e552982b790e7fa15a115415cd7f204704b9ba19e464d592c7de04ec7ed",
+				"child-fix-title": "748f0126285376546b073320e72e044f91970294058931c7a51cafc8d6098edb",
 			});
 			const protectedRepairSummary = "f1bfd2437621d5ba83c8a04619f92b71c5e4e0862e8454957fb7757471e69874";
 			const agreementDigest = (text) => createHash("sha256").update(normalizeText(text)).digest("hex");
@@ -3160,14 +3225,14 @@ Use its § Session handoff and the research log for ownership.`);
 				{ id: "loading", rules: loadingRules, extract: regionUnit(/^## Loading and planning\n([\s\S]*?)(?=^## Nested designs and gates\n)/gm) },
 				{ id: "nested", rules: nestedRules, extract: markedUnit("nested-design-policy") },
 				{ id: "records", rules: recordRules, extract: regionUnit(/^## Proportional process\n([\s\S]*?)(?=^## Recorded-workflow compatibility\n)/gm) },
-				{ id: "status-trigger", rules: ["A design track or review-fix child track triggers the manual status file."], extract: regionUnit(/^## Manual records and safe writes\n([\s\S]*?)(?=^## Resume and folder forks\n)/gm) },
-				{ id: "canonical-grammar", owner: markedUnit("marker-identity-policy"), rules: ["Write positive decimal components without leading zeros, separated by dots."], extract: regionUnit(/^## Identifiers, code ranges, and design markers\n([\s\S]*?)(?=^## Manual records and safe writes\n)/gm) },
-				{ id: "repair-records", owner: markedUnit("multi-track-handoff"), rules: ["For a review-fix subtree, use the affected code track's existing records."], extract: regionUnit(/^## Manual records and safe writes\n([\s\S]*?)(?=^## Resume and folder forks\n)/gm) },
-				{ id: "append-only", owner: regionUnit(/^Use a safe write method\. ([\s\S]*?)(?=^Before a session handoff)/gm), rules: ["Research logs and implementer reports are append-only.", "A correction is a new entry."], extract: regionUnit(/^## Manual records and safe writes\n([\s\S]*?)(?=^## Resume and folder forks\n)/gm) },
-				{ id: "resume-entry", owner: regionUnit(/^## Resume order and reconciliation\n([\s\S]*?)(?=^## Review coverage\n)/gm), rules: ["Before relying on a summary, check that its named subtree entry exists."], extract: regionUnit(/^## Resume and folder forks\n([\s\S]*?)(?=^## Handoff boundaries\n)/gm) },
-				{ id: "repair-rounds", document: "reviews", owner: regionUnit(/^## Fix loop and gate verdicts\n([\s\S]*?)(?=^## Stuck-fix consultation\n)/gm), rules: ["Run at most two ordinary fix rounds."], extract: regionUnit(/^## Review-fix subtrees and repair limits\n([\s\S]*?)(?=^## Whole-subtree acceptance\n)/gm) },
-				{ id: "repair-consultations", document: "reviews", owner: regionUnit(/^## Stuck-fix consultation\n([\s\S]*?)(?=^## Termination and deferred-work routing\n)/gm), rules: ["The ordinary budget permits one consultation."], extract: regionUnit(/^## Review-fix subtrees and repair limits\n([\s\S]*?)(?=^## Whole-subtree acceptance\n)/gm) },
-				{ id: "child-fix-title", owner: regionUnit(/^Implementation commit titles use ([\s\S]*?)(?=^For each code track)/gm), rules: ["`Track <n> fix round <r>: <intent title>`", "`Track <n> user review fix <r>: <intent title>`"], extract: regionUnit(/^## Review-fix subtrees and repair limits\n([\s\S]*?)(?=^## Whole-subtree acceptance\n)/gm) },
+				{ id: "status-trigger", rules: ["A design track or review-fix child track triggers the manual status file."], extract: headingUnit("## Manual records and safe writes") },
+				{ id: "canonical-grammar", owner: markedUnit("marker-identity-policy"), rules: ["Write positive decimal components without leading zeros, separated by dots."], extract: headingUnit("## Identifiers, code ranges, and design markers") },
+				{ id: "repair-records", owner: markedUnit("multi-track-handoff"), rules: ["For a review-fix subtree, use the affected code track's existing records."], extract: headingUnit("## Manual records and safe writes") },
+				{ id: "append-only", owner: regionUnit(/^Use a safe write method\. ([\s\S]*?)(?=^### Handoff summary\n)/gm), rules: ["Research logs and implementer reports are append-only.", "A correction is a new entry."], extract: headingUnit("## Manual records and safe writes") },
+				{ id: "resume-entry", owner: headingUnit("## Resume order and reconciliation"), rules: ["Before relying on a summary, check that its named subtree entry exists."], extract: headingUnit("## Resume and folder forks") },
+				{ id: "repair-rounds", document: "reviews", owner: headingUnit("## Fix loop and gate verdicts"), rules: ["Run at most two ordinary fix rounds."], extract: headingUnit("## Review-fix subtrees and repair limits") },
+				{ id: "repair-consultations", document: "reviews", owner: headingUnit("## Stuck-fix consultation"), rules: ["The ordinary budget permits one consultation."], extract: headingUnit("## Review-fix subtrees and repair limits") },
+				{ id: "child-fix-title", owner: headingUnit("### Commit titles and bodies"), rules: ["`Track <n> fix round <r>: <intent title>`", "`Track <n> user review fix <r>: <intent title>`"], extract: headingUnit("## Review-fix subtrees and repair limits") },
 				{ id: "child-attribution", document: "delivery", owner: regionUnit(/^## Track package\n([\s\S]*?)(?=^## Change package\n)/gm), rules: ["Do not count accepted child work as new implementation."], extract: regionUnit(/^## Packages, attribution, and issues\n([\s\S]*)/gm) },
 			];
 			const recursiveSummariesAgree = (recursiveSource, workflowSource, reviewSource = reviews, deliverySource = deliveryPackages) => {
@@ -3227,15 +3292,38 @@ Use its § Session handoff and the research log for ownership.`);
 			]);
 
 			const recordDigest = (text) => createHash("sha256").update(normalizeText(text)).digest("hex");
+			const resumeOrderExpected = normalizeText(`Resume in this fixed order:
+
+1. Read the initial request and latest state summary.
+   Before relying on a summary, check that its named subtree entry exists.
+   An older summary without a subtree reference still resumes under its recorded workflow.
+2. Read later decisions and the active subtree's records.
+   When the summary names an existing current implementer report, read it there.
+   Use [recursive-workflow.md](recursive-workflow.md) § Resume and folder forks
+   for tree reconciliation and read-only source boundaries.
+   Before resuming a paused subtree, read its typed \`decision\` entry in the owning parent research log.
+   Check that its unfinished sibling dependency has completed and its recorded resume condition holds.
+   Confirm the decision records no commits in any open level slice of the paused subtree.
+   A status entry alone authorizes neither pause nor resume.
+3. Inspect marker commits and the current branch state.
+4. Reconcile the declared file list, track table, coverage register, proved
+   focus areas, risk record, and live diff.
+5. Re-run any stale precondition check.
+6. Apply the user-decision reuse rule before asking any question.
+7. Continue only after answering: **What changed since the last state summary,
+   and does it change focus, scope, or required gates?**
+
+A mismatch pauses work. Reconcile it in the log. Use marker commits and Git
+history as boundary authority. The track table is display-only.`);
 			const recursiveRecordUnits = [
-				{ id: "identifiers-ranges", source: recursive, extract: regionUnit(/^## Identifiers, code ranges, and design markers\n([\s\S]*?)(?=^## Manual records and safe writes\n)/gm), expected: "06a2a0822448a5112173b65c04826364d3a3094f7930ba98ecd7f17300e19ed8" },
-				{ id: "tool-records-and-recovery", source: recursive, extract: regionUnit(/^## Manual records and safe writes\n([\s\S]*?)(?=^## Resume and folder forks\n)/gm), expected: "26f45e8838e2190e04e360cfa94b84500d56213de062d6e2688d1abaa8cc35ae" },
-				{ id: "resume-forks", source: recursive, extract: regionUnit(/^## Resume and folder forks\n([\s\S]*?)(?=^## Handoff boundaries\n)/gm), expected: "ee8952191bf8a044b0c4c124644079ad41a918a51510d10a1d8b1ea6d72e6860" },
-				{ id: "handoff-pointer", source: recursive, extract: regionUnit(/^## Handoff boundaries\n([\s\S]*?)(?=^## Review-fix subtrees and repair limits\n)/gm), expected: "fc5ca34c11f5f1defb5989c10af42cbac9af901c102dc18c6c8d1b55a98cd52f" },
+				{ id: "identifiers-ranges", source: recursive, start: "## Identifiers, code ranges, and design markers", extract: headingUnit("## Identifiers, code ranges, and design markers"), expected: "06a2a0822448a5112173b65c04826364d3a3094f7930ba98ecd7f17300e19ed8" },
+				{ id: "tool-records-and-recovery", source: recursive, start: "## Manual records and safe writes", extract: headingUnit("## Manual records and safe writes"), expected: "8dbdbb6508744b3b4a2fc364dda4709c4e734fe17e032275a1dc8823af765b68" },
+				{ id: "resume-forks", source: recursive, start: "## Resume and folder forks", extract: headingUnit("## Resume and folder forks"), expected: "ee8952191bf8a044b0c4c124644079ad41a918a51510d10a1d8b1ea6d72e6860" },
+				{ id: "handoff-pointer", source: recursive, start: "## Handoff boundaries", extract: headingUnit("## Handoff boundaries"), expected: "fc5ca34c11f5f1defb5989c10af42cbac9af901c102dc18c6c8d1b55a98cd52f" },
 				{ id: "marker-identity", source: workflow, extract: markedUnit("marker-identity-policy"), expected: "846764c07a6b2c925091bd80f944c888d49994a71f2799b5cd2b8368b415a3c9" },
-				{ id: "resume-order", source: workflow, extract: regionUnit(/^## Resume order and reconciliation\n([\s\S]*?)(?=^## Review coverage\n)/gm), expected: "9edb063aea53ffc494d650f1a2306b975bbf31f1700a874ea0fd004bb1d0e244" },
-				{ id: "general-handoff", source: workflow, extract: regionUnit(/^Before a session handoff, ([\s\S]*?)(?=^## Resume order and reconciliation\n)/gm), expected: "7b7447512bbd7bb34344b322c744da57896fd849a7b050ff04ffaead47ed16ae" },
-				{ id: "closed-range-feedback", source: workflow, extract: regionUnit(/^The correction remains a separate commit ([\s\S]*?)(?=^A bootstrap commit)/gm), expected: "bed41eb1f1f38a00f40bc2a217a87454a6c2a1cdf55ac15f0e4fb1ab0ccecd3e" },
+				{ id: "resume-order", source: workflow, start: "## Resume order and reconciliation", extract: headingUnit("## Resume order and reconciliation"), expected: recordDigest(resumeOrderExpected) },
+				{ id: "general-handoff", source: workflow, start: "### Handoff summary", extract: headingUnit("### Handoff summary"), expected: "deebae98b03815c0a68bd933d6d910624a5e6206f1c410a7fd9052c1d23fe64f" },
+				{ id: "closed-range-feedback", source: workflow, start: "### Closed-range corrections", extract: headingUnit("### Closed-range corrections"), expected: "07c9e0dd0eb0de15e13b6977f88145a2dec09554e693a2d6bfbe1173f09eb37a" },
 			];
 			const acceptsRecordUnit = (unit, source) => {
 				const resolved = unit.extract(source);
@@ -3504,6 +3592,12 @@ Every creation path keeps these safeguards:
   A one-level change starts from the repository's default development branch.
   For nested work, choose its base under [recursive-workflow.md](recursive-workflow.md)
   § Level publishing and retained history.
+  Use dependency order for bases, including code before a dependent design subtree.
+  Base that subtree's first level branch on the completed code-containing branch.
+  Base later dependent levels on the latest completed preceding level branch.
+  The user merges the code-containing level pull request only after its level is complete.
+  Every track of that level, including the dependent design subtree, must have its required acceptance.
+  The user then merges the dependent pull requests in dependency order.
 - If the working branch has no diff against the base yet, land a
   bootstrap empty commit so the PR can be created.
 - At creation, if a high-level design exists, read the current authoritative design file for the change root or design track.
@@ -3646,16 +3740,36 @@ The split bypasses no stuck-fix consultation or required fix gate.`) },
 
 			// These pins cover complete owned policies. Source-set pins protect every record kind.
 			const policyRegion = (start, end, endAtLineStart = false) => regionUnit(new RegExp(`^${start.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([\\s\\S]*?)(?=${endAtLineStart ? "^" : ""}${end.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gm"));
+			const roadmapExpected = normalizeText(`The current workflow supports nested planning through design tracks.
+A **design track** plans a nested change with child tracks.
+A **code track** implements bounded approved work.
+A **level** contains sibling tracks created by one split.
+Each level with code tracks has one optional draft pull request.
+A **subtree** contains a track and its descendants.
+Tracks finish in dependency order.
+Design tracks finish first only when tracks do not depend on each other.
+Complete an entered subtree before continuing its siblings, except for a permitted dependency pause.
+A subtree may pause for an unfinished sibling dependency only when none of its open level slices has commits.
+Otherwise change the split before the subtree's first commit.
+A late dependency discovery after commits exist stops work for a user-approved replan.
+Each design track needs explicit acceptance of its whole subtree.
+Root final acceptance covers the whole change.
+Only the user merges pull requests.
+A **review-fix child track** repairs outstanding work under a user-approved split.
+It stays in the affected code track's delivery.
+Each new child starts at round zero with two ordinary rounds and one stuck-fix consultation.
+Use [recursive-workflow.md](recursive-workflow.md) for the nested rules.
+Use [track-workflow.md](track-workflow.md) for the common lifecycle.`);
 			const recursiveDeliveryUnits = [
-				{ id: "repairs", source: recursive, start: "## Review-fix subtrees and repair limits", end: "## Whole-subtree acceptance", expected: protectedRepairSummary },
-				{ id: "aggregate", source: recursive, start: "## Whole-subtree acceptance", end: "## Packages, attribution, and issues", expected: "6e37e0e95c35ed0c3ede6e02f3322f43038d8653d9885ce4b2ac1ed423472b63" },
+				{ id: "repairs", source: recursive, start: "## Review-fix subtrees and repair limits", expected: protectedRepairSummary },
+				{ id: "aggregate", source: recursive, start: "## Whole-subtree acceptance", expected: "6e37e0e95c35ed0c3ede6e02f3322f43038d8653d9885ce4b2ac1ed423472b63" },
 				{ id: "issues", source: recursive, start: "## Packages, attribution, and issues", end: null, expected: "895b87ee7afdda0d4d85e071c978727e0cf962f9af42e68c534c022ac010a5a3" },
-				{ id: "sources", source: deliveryPackages, start: "## Durable accounting", end: "<!-- publishing-disabled-accounting:begin -->", expected: "418a2f29fea42d4de31c49930c9fe726785f36efd1772eccccc1458575102516" },
-				{ id: "workflow-accounting", source: workflow, start: "With draft publishing,", end: "\n\nAim for a delivery body", expected: "9410e62de528ba3d18269213779348a187c5f894bd2d99fa5f529dfa3fc5a4a1" },
-				{ id: "notes-accounting", source: userNotes, start: "Before final acceptance, reconcile", end: "\n\n- every finding", expected: "7efa6f8740078ef4a9f5511b485a4e95e8b0e5f7341d2e278eddfbf27011b500" },
-				{ id: "publishing-sync", source: publishing, start: "## Keeping the PR in sync", end: "## Ready-for-review flip", expected: "fb386e6f14c2f051a842cd050cc4e2834dea5e2674853cc22794792cd4c1a7cc" },
+				{ id: "sources", source: deliveryPackages, start: "## Durable accounting", expected: "efd4e8f172b2bb21f2daec2ccd03db897420167fe0b53e28aec8a5da5f456557" },
+				{ id: "workflow-accounting", source: workflow, start: "### Delivery history and accounting", expected: "bf928762831b7dd3e5082d8f9271c890b9d6c8e31f739271e03a33c960629516" },
+				{ id: "notes-accounting", source: userNotes, start: "### Final accounting preparation", expected: "27a19ef36cc0fc14fbd2c14fc1699d6d3ddeadfe8a284f2d85ab76481faaa352" },
+				{ id: "publishing-sync", source: publishing, start: "## Keeping the PR in sync", expected: "fb386e6f14c2f051a842cd050cc4e2834dea5e2674853cc22794792cd4c1a7cc" },
 				{ id: "public-workflow", source: projectReadme, start: "A track is a bounded", end: "## ", endAtLineStart: true, expected: "23f90e859751918fac2f72ad4819c635cf21d88f15e18d100cc0a9944018fbf3" },
-				{ id: "public-roadmap", source: readFileSync(join(REPO, "docs", "roadmap.md"), "utf8"), start: "## Larger changes", end: "## Developer experience", expected: "ffd9a4e0a96809b60debc7a45d6b0bb09881622889ae571c09bd888a7d09da17" },
+				{ id: "public-roadmap", source: readFileSync(join(REPO, "docs", "roadmap.md"), "utf8"), start: "## Larger changes", expected: recordDigest(roadmapExpected) },
 			].map((unit) => ({ ...unit, extract: unit.end === null
 				? (source) => {
 					// Visible policy after the final marker belongs to the final section.
@@ -3665,7 +3779,7 @@ The split bypasses no stuck-fix consultation or required fix gate.`) },
 					const visibleTail = parts[1].replace(/<!--[^<>]*-->/g, "");
 					return regionUnit(/^## Packages, attribution, and issues([\s\S]*)(?![\s\S])/gm)(parts[0] + marker + visibleTail);
 				}
-				: policyRegion(unit.start, unit.end, unit.endAtLineStart) }));
+				: unit.id === "public-workflow" ? policyRegion(unit.start, unit.end, unit.endAtLineStart) : headingUnit(unit.start) }));
 			const acceptsRecursiveDelivery = (unit, source) => {
 				const resolved = unit.extract(source);
 				return resolved.count === 1 && recordDigest(resolved.text) === unit.expected;
@@ -3710,7 +3824,7 @@ The split bypasses no stuck-fix consultation or required fix gate.`) },
 			checkAll("contract-recursive-delivery", "review-fix identities and budgets, whole-design acceptance, issue purposes, all-record accounting, and public guidance retain their complete owned policies", [
 				["each policy resolves exactly once and matches its independent pin", recursiveDeliveryUnits.every((unit) => acceptsRecursiveDelivery(unit, unit.source)), recursiveDeliveryUnits.map((unit) => ({ id: unit.id, count: unit.extract(unit.source).count, digest: recordDigest(unit.extract(unit.source).text) }))],
 				["every sentence mutation changes input and fails its policy", recursiveDeliveryAttacks.every(({ changed, rejected }) => changed && rejected), recursiveDeliveryAttacks],
-				["missing and duplicate units fail, while outside controls pass", recursiveDeliveryUnits.every((unit) => !acceptsRecursiveDelivery(unit, unit.source.replace(unit.start, "Missing policy anchor")) && !acceptsRecursiveDelivery(unit, `${unit.source}\n${unit.source}`) && acceptsRecursiveDelivery(unit, `${unit.source}\n<!-- Outside policy control. -->`)), "bounded policy controls"],
+				["missing and duplicate units fail, while outside controls pass", recursiveDeliveryUnits.every((unit) => !acceptsRecursiveDelivery(unit, unit.source.replace(unit.start, "Missing policy anchor")) && !acceptsRecursiveDelivery(unit, `${unit.source}\n${unit.source}`) && acceptsRecursiveDelivery(unit, `${unit.source}\n${["sources", "notes-accounting"].includes(unit.id) ? "## Outside accounting control\n" : ""}<!-- Outside policy control. -->`)), "bounded policy controls"],
 				["an unrelated section after public workflow text preserves its pin", publicWorkflowRaw !== "" && publicWorkflowOutsideSection !== projectReadme && acceptsRecursiveDelivery(publicWorkflowUnit, publicWorkflowOutsideSection), "next level-two heading control"],
 				["headings inside public workflow text fail without hiding remaining rules", publicWorkflowHeadingAttacks.every(({ changed, rejected }) => changed && rejected), publicWorkflowHeadingAttacks],
 				["visible contradictions after the final marker fail the complete final section", finalSectionAttacks.every(({ changed, rejected }) => changed && rejected), finalSectionAttacks],
@@ -3723,8 +3837,9 @@ The split bypasses no stuck-fix consultation or required fix gate.`) },
 1. Obtain and record the explicit acceptance decision after its package and prerequisites.
 2. Copy that decision and its aggregate evidence references into the closing level's description.
 3. Add a marker only for each design track newly accepted by this decision. Reuse retained marker references for tracks accepted earlier. Record each track's history references in that description.
-4. Verify the description against all accounting sources after these updates and before handoff for merge.
-5. Hand the updated description to the user for merge. Only the user merges.
+4. For changes that load the nested sections with publishing enabled, complete the retention protocol in [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history.
+5. Verify the description against all accounting sources, including the step 4 results, after these updates and before handoff for merge.
+6. Hand the updated description to the user for merge. Only the user merges.
 
 Repeat the description measurement and size-exception checks after each update.
 A missing acceptance or required conclusion blocks handoff for merge.
@@ -3736,8 +3851,12 @@ Verify every level record and all root-wide accounting before root closure.`);
 			};
 			const transferCopy = "2. Copy that decision and its aggregate evidence references into the closing level's description.";
 			const transferDecision = "1. Obtain and record the explicit acceptance decision after its package and prerequisites.";
+			const transferRetention = "4. For changes that load the nested sections with publishing enabled, complete the retention protocol in [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history.";
+			const transferVerification = "5. Verify the description against all accounting sources, including the step 4 results, after these updates and before handoff for merge.";
 			const transferAttacks = [
 				deliveryPackages.replace(transferCopy, ""),
+				deliveryPackages.replace(transferRetention + "\n", "").replace("3. Add a marker", transferRetention + "\n3. Add a marker"),
+				deliveryPackages.replace(transferRetention + "\n", "").replace(transferVerification, transferVerification + "\n" + transferRetention),
 				deliveryPackages.replace(transferDecision, transferCopy).replace(transferCopy + "\n" + transferCopy, transferCopy + "\n" + transferDecision),
 				deliveryPackages.replace("after these updates and before handoff for merge", "before these updates and after merge"),
 			].map((source) => ({ changed: source !== deliveryPackages, rejected: !acceptsTransfer(source) }));
@@ -3753,7 +3872,7 @@ Verify every level record and all root-wide accounting before root closure.`);
 				["subtree acceptance and merge followed by root acceptance retains earlier markers without creating them again", sequentialAcceptanceAttacks.every(({ changed, rejected }) => changed && rejected), sequentialAcceptanceAttacks],
 				["outside edits preserve the sequence", acceptsTransfer(`${deliveryPackages}\n<!-- Outside transfer control. -->`), "outside control"],
 			]);
-			const repairEscalation = regionUnit(/^## Mandatory escalation set\n([\s\S]*?)(?=^## User note accounting\n)/gm);
+			const repairEscalation = headingUnit("## Mandatory escalation set");
 			const repairEscalationDigest = "b9ebf47c2dceb335adfd3fb1cd694e2e23e6d210f5d962ef5c5c6d709cdc3de4";
 			const repairState = regionUnit(/^(Its plain-text \*\*repair state\*\* column[\s\S]*?)(?=^Create `track-<number>-research-log\.md`)/gm);
 			const repairStateExpected = normalizeText(`Its plain-text **repair state** column shows each code track and review-fix child's repair use.
@@ -3844,7 +3963,9 @@ Re-pin affected ranges after a permitted rewrite.
 Never destroy the exact state the user reviewed.
 A later aggregate package does not authorize rewriting earlier user-reviewed ranges.
 
-If marker history is unavailable, pause affected work.
+For changes that load the nested sections, route a missing or wrong-commit retention reference to
+[recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for the user's choice.
+For other unavailable marker history, pause affected work.
 Try to recover the exact recorded history from retained branches, references, or source records.
 A status entry, merge result, or copied marker title cannot replace missing history.
 Never recreate a marker to claim an earlier boundary was proved.
@@ -3859,22 +3980,49 @@ A change without design tracks is unaffected because its root closes at its merg
 				},
 				{
 					id: "history", source: recursive, extract: markedUnit("level-history-policy"),
-					expected: normalizeText(`Within a level, complete every design-track subtree before starting its code tracks.
-A plan that needs the opposite order must change its split.
-Complete one entered subtree before continuing its sibling tracks.
-Keep one sequential implementation writer.
-Independent research and reviews may run in parallel.
-
+					expected: normalizeText(`Within one level, tracks finish in dependency order.
+A dependency requires another track's result before affected work can finish.
+When tracks do not depend on each other, design tracks finish first.
 All work forms one linear history.
 Each level pull request contains one contiguous slice of that history.
 A contiguous slice is an uninterrupted range of commits.
+When dependency order would break a contiguous level pull request, the planner changes the split.
+Complete an entered subtree before continuing its siblings, except for a permitted dependency pause.
+A subtree may pause for an unfinished sibling dependency only when none of its open level slices has commits.
+A publishing bootstrap commit does not count as a subtree commit for this pause precondition.
+Otherwise the planner changes the split before that subtree's first commit.
+A late dependency discovery after commits exist stops work for a user-approved replan.
+A pause creates no permission to interleave commits in an open slice.
+A pause changes work order, not completion or acceptance.
+The paused subtree keeps its records, pending gates, and accepted evidence.
+Keep one sequential implementation writer.
+Independent research and reviews may run in parallel.
+
+Record the pause as a typed \`decision\` entry in the owning parent research log.
+The entry names the paused subtree, unfinished sibling dependency, and resume condition.
+It records that no open level slice of the subtree has commits.
+Show that decision and pending dependency in \`status.md\` before continuing the sibling.
+Resume reconciliation reads the decision and checks the completed dependency before continuing the subtree.
+A status entry alone does not authorize a pause or resume.
+
+A split change keeps stable track numbers and each new track's required approvals.
+It does not authorize a noncontiguous level delivery.
+It does not reduce reviews, repair budgets, markers, or acceptance.
 Earlier completed descendant work is the foundation, not new work in an upper-level slice.
 A stacked pull request uses another pull request's branch as its base.
-Sibling subtree pull requests stack in completion order by default.
-Upper-level pull requests stack on completed lower-level work by default.
-A user-approved project arrangement may differ.
-It must preserve linear history, contiguous slices, and every gate.
-No new setting is needed to approve that arrangement.
+Use dependency order for branch bases and merges, including when code must finish before a sibling design subtree.
+The code-containing level branch starts from the latest completed history head for that level's dependency order.
+The dependent subtree's first level branch bases on the completed code-containing branch.
+Later dependent level branches base on the latest completed preceding level branch.
+The user merges the code-containing level pull request only after its level is complete.
+Every track of that level, including the dependent design subtree, must have its required acceptance.
+The user then merges the dependent pull requests in dependency order.
+An existing level slice cannot be reopened around an intervening subtree.
+If the plan would require that reopening, change the split before the first affected commit.
+If an enclosing acceptance gate prevents a foundation-first merge, change the split before those commits.
+The branch-base rule waives no enclosing acceptance or final-merge gate.
+This dependency-driven order needs no separate project-arrangement approval.
+A different project arrangement still needs user approval and every existing history safeguard.
 
 Keep branches and accepted marker history available until the root change closes.
 For each delivered level, retain its accepted history boundaries and accepted branch head.
@@ -3882,8 +4030,406 @@ Bind that history to its pull request and observed merge result in the owning re
 The default-branch merge result proves delivery, not track completion.
 A squash merge does not replace accepted marker authority.
 
+The retention rules below apply only to changes that load this document's nested sections.
+Such a change has a current or proposed design track or review-fix child track.
+An ordinary change with neither triggering track type has no retention-reference duty, with publishing enabled or disabled.
+A retention reference is a named Git reference that keeps a recorded commit reachable.
+A binding records its name and exact commit.
+Use \`slate-retained/<change>/<name>\`.
+The \`<change>\` component is a short name recorded in the root research log before the first retention reference.
+The full name must be a valid Git reference name and safe to publish.
+It contains no private data.
+Pass the name to commands as a quoted value.
+The allowed \`<name>\` forms are the level branch name, \`track-<number>-reviewed\`, and \`track-<number>-fix<r>-reviewed\`.
+A level reference uses the level branch name form.
+A level reference moves only under the update rules below.
+A reviewed reference uses the \`track-<number>-reviewed\` or \`track-<number>-fix<r>-reviewed\` form.
+The \`<number>\` component uses the accepted canonical track spelling.
+The \`<r>\` component is one increasing sequence per affected track across every review-fix child and every fix kind.
+Record each allocated value and binding in the owning log.
+The sequence is not a child's local fix-round count.
+A retention reference is never a pull request head branch.
+
+At each user review or acceptance event, create the named reference locally and record its exact commit.
+If that name already has the identical binding, verify it and record the repeated event instead of recreating it.
+Keep every reviewed or accepted head reachable before any later rewrite.
+Never move an existing reviewed binding, even by fast-forward.
+
+With publishing enabled, use only the remote that holds the level pull request branch.
+Remote retention references are branches under \`refs/heads/slate-retained/<change>/\`.
+With publishing enabled, require an empty remote listing for \`slate-retained/<change>/\` before the first retention push.
+With publishing enabled, record the remote, listing, and observation in the root research log.
+A failed listing or existing namespace does not establish uniqueness.
+Pause and ask the user instead of overwriting an existing namespace.
+A resumed change checks its recorded namespace and bindings instead of claiming a new empty namespace.
+The namespace check authorizes no rename or update of existing references.
+
+A reviewed reference is create-only, locally and remotely.
+A create-only update makes an absent reference and never moves an existing one.
+Check local absence before creation and make creation conditional on continued absence.
+A lease makes an update conditional on the remote reference still selecting a specified commit.
+An expected-absent lease requires the remote reference to be absent.
+With publishing enabled, create the remote reviewed reference with an expected-absent lease.
+A plain push does not establish remote create-only behavior.
+Use the same local absence safeguards when first creating a level reference.
+With publishing enabled, use the same remote absence safeguards for that creation.
+A divergent binding under the same reviewed name pauses affected work for a user decision.
+The user may approve another unique name, preserve both states under another kept reference, or choose an explicit evidence waiver.
+A non-waiver choice must preserve every reviewed and accepted head.
+No collision authorizes moving an existing reviewed binding.
+
+A read-back observes the reference on the selected remote after a push.
+With publishing enabled, inspect reachable history at each user review or acceptance event.
+With publishing enabled, then push the event's named references under their creation or update safeguards.
+With publishing enabled, read back each remote reference and check its exact binding.
+Record each result in the owning log.
+Complete this sequence before any later rewrite or reliance on remote retention.
+With publishing enabled, keep these remote references until root closure.
+
+Before every retention push, inspect all commits and objects reachable from each reference to be pushed.
+This inspection covers event pushes, preserving-reference pushes, level updates, and retries.
+Inspect reachable history, not only the pushed tree.
+Use [recursive-workflow.md](recursive-workflow.md) § Design authority and privacy for the private-set definition and exposure warnings.
+A current untracked file does not prove that ancestor commits contain no private bytes.
+If inspection finds private bytes, do not push and pause.
+Ask the user to choose a permitted rewrite, a limited explicit waiver, or abandonment.
+A permitted rewrite removes the private bytes and records a new reviewed binding after its required review.
+It never moves an existing reviewed reference.
+History preservation before a rewrite must not push a commit that holds private bytes.
+A waiver states which exposure or evidence limit the user accepts.
+It grants no unstated publication permission and claims no recovered evidence.
+Keep private reference-to-commit evidence in the owning log locally.
+Public accounting includes only permitted conclusions and history references.
+After inspection, every retention push must name its references explicitly.
+No untargeted push may publish retention references, including all-branches, mirror, or matching pushes.
+The reachable-history inspection duty applies only to retention pushes, not pull request branch pushes.
+A pull request branch push must name its branch explicitly.
+A pull request branch push must publish no retention reference.
+
+A fast-forward update moves a reference to a descendant of its current commit.
+An ancestry check proves that one commit is an ancestor of another commit.
+A moving level reference normally advances by fast-forward from its latest recorded commit.
+Before that update, check locally that the recorded commit is an ancestor of the target head.
+With publishing enabled, the remote update must use a lease on that latest recorded commit.
+Make any local update conditional on the same expected old commit.
+Verify the result and record the successful new binding before relying on it.
+With publishing enabled, verification includes a remote read-back after the inspected push.
+The latest successfully recorded binding governs later comparisons.
+Keep earlier bindings in the owning log.
+
+Only a level reference may select a non-descendant head under the following exception.
+Apply the exception only after a permitted rewrite under [track-workflow.md](track-workflow.md) § Delivery and termination.
+A rebase reapplies commits on a different base commit.
+A stacked level may need a rebase after its foundation merges by squash or rebase.
+Before replacing the level binding, record the rebased-marker mapping in the owning log.
+The mapping names each old and new marker commit and its applicable evidence.
+It grants no new acceptance and waives no required rewrite review.
+Check every reviewed and accepted head reachable from the old level commit.
+An ancestry check must show that each head remains reachable from another recorded retention reference.
+That preserving reference must differ from the level reference selected for replacement.
+Verify each preserving reference against its recorded binding before the replacement.
+With publishing enabled, inspect its reachable history, push it under its safeguards, and read back its exact remote binding.
+With publishing disabled, verify its local binding.
+Keep every preserving reference until root closure.
+A mapping alone is not reachable history.
+Record the old level binding, proposed target, mapping, and ancestry results before the update.
+With publishing enabled, replace only the remote level reference under a lease on its latest recorded commit after reachable-history inspection.
+In either publishing setting, make the local replacement conditional on the same expected old commit.
+Verify and record the successful new level binding before relying on it.
+With publishing enabled, that verification includes a remote read-back.
+This exception permits no replacement of a reviewed reference.
+If any exception condition is unmet, pause and ask the user under the collision rule above.
+Do not move the old reference merely to solve that conflict.
+
+A forced update is any non-fast-forward update or replacement of an existing retention reference, except for the permitted level replacement.
+A checked fast-forward advances a binding and is not a replacement.
+Forbid every forced update outside the exception.
+The Git option \`--force-with-lease\` supplies a lease, not permission to bypass these rules.
+With publishing enabled, use \`--force-with-lease=<ref>:\` for expected-absent remote creation.
+With publishing enabled, use \`--force-with-lease=<ref>:<recorded-commit>\` for an authorized existing remote level update.
+The fast-forward ancestry check or the complete rewrite exception must also pass.
+
+With publishing enabled, after a failed or unclear push, read the remote before trying again.
+For creation, an absent reference permits retry under the original inspection and create-only safeguards.
+For an update, the recorded old commit permits retry only after its original inspection and authorization checks pass again.
+The exact proposed target confirms the completed effect and needs no repeated push.
+Record that observed successful binding before relying on it.
+An absent existing reference or another commit pauses affected work for a user decision.
+Do not retry an update against an unexpected commit.
+A failed read leaves the effect unresolved and does not authorize retry.
+
+**Stacked foundation rewrite example.** H1, H2, S, and H2' label commits.
+The user accepts subtree 3.1 at H1.
+The recorded create-only \`track-3.1-reviewed\` reference selects H1.
+Track 3 has a user review or acceptance event at H2, which descends from H1.
+Code track 3.2 receives blocking acceptance at H2 in this example.
+Record H2 under create-only \`track-3.2-reviewed\` and the moving track 3 level reference.
+With publishing enabled, complete event-time inspection, push, read-back, and recording before rewriting.
+With publishing disabled, create and verify local bindings without a remote operation.
+The user squash-merges 3.1 as S, which differs from H1.
+A permitted rebase onto S produces H2'.
+Record its old-to-new rebased-marker mapping in the owning log.
+Complete every review and evidence-reconciliation duty required by that rewrite.
+H2' does not descend from H2, so a fast-forward is not authorized.
+Verify \`track-3.2-reviewed\` still selects H2 and \`track-3.1-reviewed\` still selects H1.
+Check every reviewed and accepted head reached by H2 against another recorded retention reference.
+An ancestry check proves H2 remains reachable from recorded \`track-3.2-reviewed\` at H2.
+H1 and every other reviewed or accepted head remain reachable under their verified preserving references.
+With publishing enabled, verify those remote bindings after inspection, push, and read-back.
+With publishing disabled, verify their local bindings.
+Replace only the track 3 level reference under the complete exception, using a lease on H2 when publishing is enabled.
+In either setting, make the local replacement conditional on the expected old H2 commit.
+Verify H2' and record it as the successful new level binding, with remote read-back when enabled.
+Later level comparisons use H2', not the earlier H2 binding.
+Keep the H2 and H1 reviewed bindings unchanged through root closure.
+All exception conditions hold, so this example continues without a retention pause.
+
+Before the final ready flip and every merge handoff, complete all required commits and retention checks.
+For an already-ready pull request, repeat the checks without treating another flip as acceptance.
+With publishing enabled, after acceptance markers, push every kept reference under its creation or update safeguards.
+This includes final-marker and recovery-reference pushes, which require the reachable-history inspection above.
+Read back every pushed reference and record each exact result in the owning log before handoff.
+Recheck review-event retention rather than replacing it with the final checks.
+Advance the current level reference through every final marker under the authorized update rules.
+At handoff, that reference and its latest recorded binding must equal the actual pull request head.
+Verify that remote binding by read-back.
+An earlier binding does not satisfy handoff equality.
+Any new commit after a check requires a fresh handoff check.
+
+After merge, compare the host's recorded merged pull request head with the latest level binding used at final handoff.
+Check that the level reference still equals that final-handoff binding.
+Compare every kept reference with its latest recorded binding, including remote copies when publishing is enabled.
+An exact head comparison uses that reference's binding, not a reachable ancestor.
+Earlier level bindings remain historical evidence, not the merge-comparison target.
+Record these comparisons with the merge-result evidence before root closure.
+If the host cannot supply the merged head, pause rather than infer it from a squash commit.
+Branch deletion by the host does not remove retained marker authority.
+Missing evidence or any comparison mismatch pauses affected work for the user-choice route below.
+
+A missing reference or a reference at another commit pauses affected work.
+The user chooses recovery from another kept copy, an explicit evidence waiver, or abandonment.
+Before recovering a wrong-commit reference, record its observed unexpected commit.
+Keep that commit under a new unique reference approved through the collision route unless the user explicitly chooses to discard it.
+Keep that preserving reference until root closure, with inspected push and read-back when publishing is enabled.
+A missing reference has no unexpected commit to record or preserve.
+Resetting a moved reference is a user choice, not an automatic recovery attempt.
+A reset must pass the checked fast-forward rules or the complete permitted level-replacement exception above.
+No choice authorizes a forced update or replacement of an existing reviewed reference.
+Recovery establishes exact recorded evidence under an allowed binding before work relies on it.
+An evidence waiver records its limit and claims no recovered evidence.
+A status entry, merge result, or copied marker title cannot replace lost history.
+Never create a marker to claim an earlier boundary that was not proved.
+
+With publishing disabled, before the final squash, compare the local level reference for the branch being squashed and its latest recorded binding with that branch head.
+Both must equal the complete head, including every marker commit.
+An earlier binding does not satisfy this equality even when the reference still matches it.
+Use the authorized local level-update rules above.
+With publishing disabled, keep these local references until root closure, including through the final squash.
+Check every kept local reference against its latest recorded binding before closure.
+Retention requires no remote operation in this setting.
+Do not push any retention reference to any remote when publishing is disabled.
+
+**Retention cleanup before root closure.** Cleanup deletes retention references, not change records or delivered content.
+These cleanup duties apply only to nested changes.
+An ordinary change has no cleanup duty in either publishing setting.
+A cleanup inventory lists recorded retention references and their latest recorded bindings.
+Record the inventory after all closure conditions hold.
+For delivered publishing work, require final acceptance and each applicable level merge-result binding.
+Also require final post-merge comparisons and verified accounting.
+Record every authorizing record before the inventory.
+With publishing disabled, record the inventory after final local comparisons and verified final-squash accounting.
+For abandonment cleanup, record the inventory after the archival offer and the recorded explicit user choice to delete. Count inventory entries across the root log and its read-only source chain within the recorded boundaries. Read the chain in its recorded source order and select its latest inventory.
+Do not select an earlier inventory because its evidence appears valid.
+Require exactly one unambiguous latest inventory after every non-cleanup record and after all closure conditions hold. Earlier inventories remain evidence and grant no deletion authority.
+Zero entries or an ambiguous latest inventory permit no deletion. Multiple historical inventories permit deletion only when one latest valid inventory is unambiguous. The inventory condition governs deletion only, not close.
+Before stopping, the cleanup worker records the inventory-count refusal under the ordinary safe-write rules of the still-open change folder. Treat that refusal as incomplete cleanup and report it to the user.
+Every authorizing record precedes the latest inventory, including closure evidence, the abandonment deletion choice, and marked-entry discard choices.
+Read authorization only from those earlier records.
+No record after an inventory may widen that inventory's deletion authority.
+After the inventory, only cleanup observations, the user report, the retry-or-keep choice, and \`slate_change close\` may follow. Any other record voids that inventory's deletion authority.
+Examples include a new track, fix, a decision other than the permitted retry-or-keep choice, merge-result binding, abandonment withdrawal, or handoff state summary outside those permitted kinds.
+Check for voiding records before each deletion, on resume, and before each retry. If any voiding record exists, delete nothing and report the refusal to the user.
+This structural refusal offers no retry against the voided inventory. The user may keep the remaining references and close only when closure conditions still hold.
+Alternatively, wait until every closure condition holds again. The orchestrator then records a new inventory after every non-cleanup record.
+Cleanup then uses only that latest inventory and its preceding authorization. A new inventory does not amend an earlier inventory or authorize deletion under it.
+Apply this route to missing or ambiguous latest inventories and missing earlier closure evidence too. Also apply it when current closure conditions no longer hold.
+A URL (Uniform Resource Locator) identifies a remote location.
+Include the recorded namespace and, with publishing enabled, the remote name and its fetch and push URLs.
+With publishing enabled, obtain the effective fetch URL with \`git remote get-url --all "<remote>"\`.
+With publishing enabled, obtain the effective push URL with \`git remote get-url --push --all "<remote>"\`.
+Require each command to return exactly one URL, not raw configuration values.
+If either command fails or returns zero or multiple URLs, run no remote command.
+Before stopping, the cleanup worker records that refusal under the ordinary safe-write rules of the still-open change folder.
+Report that refusal to the user.
+Userinfo is the user name and password before \`@\` in a URL.
+Remove any userinfo from each URL before recording or comparing it.
+Apply this removal identically to recorded and current values.
+Never record a credential.
+Before any remote command, compare both current URLs with the inventory.
+If either URL differs, or the fetch and push URLs differ from each other, run no remote command.
+Before stopping, the cleanup worker records the URL mismatch under the ordinary safe-write rules of the still-open change folder.
+Report the mismatch to the user.
+Follow root and subtree logs and their read-only folder-fork source chains within each recorded last-entry boundary.
+Never write to a source folder.
+Check each entry against its owning log's latest recorded binding, never an inferred current branch head.
+Each entry names its recorded local, remote, or both copies, with each copy's full reference name and inventory commit.
+The inventory commit is that copy's latest recorded binding.
+Use the full inventory reference name in every command and reject short names.
+Require each name to pass \`git check-ref-format "<ref>"\` before use.
+Require the prefix \`refs/heads/slate-retained/<change>/\`, including its trailing slash, for every cleanup name.
+A name under \`<change>-old/\` does not match that prefix.
+Mark entries that preserve an unexpected recovery commit or a collision-preserved state.
+Keep those entries unless the user explicitly chooses to discard that commit or state before the inventory.
+A choice recorded after the inventory authorizes nothing.
+Delivery alone or a general abandonment deletion choice does not authorize discarding a marked entry.
+Before any deletion, the worker checks each entry's owning logs for a recovery or collision-preservation record.
+Treat an unmarked entry with such a record as marked.
+Keep it unless an explicit discard choice precedes the inventory.
+Run cleanup in the closing session after every closure condition holds and immediately before \`slate_change close\`. Pass the open change's Current research log path to the cleanup worker as for any record worker.
+Use the ordinary current-folder rule in § Manual records and safe writes. The worker must not infer the folder from other record text. No inventory folder-path field or closed-folder write permission is required.
+For current closure conditions, exclude each copy recorded as deleted under an inventory that had deletion authority when that deletion ran.
+Require its deletion record in the root log under these cleanup rules.
+Confirm that each excluded copy is still absent.
+Confirmed absence of such a copy is not a missing-reference pause.
+An absent copy without such a deletion record still causes a missing-reference pause.
+This exclusion grants no deletion authority.
+Keep every other closure condition.
+Before each deletion, require current closure conditions and root-log closure evidence from records before the latest inventory.
+Also recheck that no voiding record follows that inventory.
+Delivered publishing work requires final acceptance, each applicable level merge-result binding, post-merge comparisons, and verified accounting.
+An unmerged level prevents delivery closure and deletion.
+Disabled delivery requires final acceptance, final local comparisons, and verified final-squash accounting instead of level merges.
+Abandonment requires the recorded explicit user deletion choice after the archival offer.
+If closure evidence is missing, delete nothing.
+Before stopping, the cleanup worker records the missing closure evidence under the ordinary safe-write rules of the still-open change folder.
+Report the missing evidence to the user.
+The orchestrator dispatches one bounded cleanup worker action.
+That action may only delete authorized inventory references and append permitted cleanup observations in the open root log.
+Permitted cleanup record kinds are comparisons, listings, deleted and kept copies, failures, interruptions, refusals, incomplete-state observations, and the user report.
+The cleanup action writes no other record and no record outside the open root log.
+Use the normal temporary start copy, separate temporary append texts, \`>>\`, whole-record comparison, and retry inspection. Finish the worker and every record write before close.
+It cannot add or amend closure evidence, the inventory, a mark, or a user choice.
+Cleanup acts only on recorded copies, without inferred counterparts or pairing by commit.
+A regular reference stores a commit identifier, while a symbolic reference names another reference.
+Before deleting any copy of an entry with a local copy, check that the local inventory reference is regular.
+First confirm existence with \`git show-ref --verify "<ref>"\`.
+A missing local reference permits no deletion for that entry.
+Only after existence succeeds, run \`git symbolic-ref -q "<ref>"\`.
+Exit status 1 means not symbolic only after that successful existence check.
+Exit status 0 identifies a symbolic reference, so keep all recorded copies and report it.
+This also forbids deleting a symbolic reference that resolves to an excluded branch at the inventory commit.
+For any other exit status, delete nothing and report the failed check.
+Compare each recorded local copy with its inventory commit.
+With publishing enabled, read each recorded remote copy live and compare it with its inventory commit.
+A remote-tracking reference is an earlier local observation, not a live remote read.
+Delete only when all applicable comparisons match, except for the confirmed-absence continuation below.
+For both-copy entries, delete the explicitly named remote reference first.
+A delete refspec names the remote reference to remove.
+A full-reference lease names that same complete reference and its expected inventory commit.
+Use this explicit deletion form, with every placeholder quoted:
+
+\`\`\`sh
+git push "--force-with-lease=refs/heads/slate-retained/<change>/<name>:<inventory-commit>" "<remote>" ":refs/heads/slate-retained/<change>/<name>"
+\`\`\`
+
+The lease reference must equal the deleted reference.
+Forbid \`--force\`, a \`+\` refspec, a bare lease, and a tracking-ref lease.
+Read back remote absence before deleting a recorded local copy of that entry.
+Repeat both the existence and regular-reference checks immediately before local deletion.
+Delete locally with \`git update-ref --no-deref -d "<ref>" "<inventory-commit>"\` in either publishing setting.
+The expected old commit is mandatory, and deletion must never dereference a symbolic target.
+A remote-only entry uses the same leased deletion and absence read-back.
+A local-only entry requires no remote counterpart.
+A one-sided entry is complete when its recorded copy is deleted and absence is confirmed.
+With publishing disabled, delete only recorded local copies under the conditional check and run no remote command.
+Never delete an unlisted name or a name outside the recorded namespace.
+Never delete a pull request branch, a local level branch, or the default branch.
+Use no untargeted deletion, including prune, mirror, pattern, or all-branches deletion.
+Every deletion requires an explicit inventory name.
+A mismatch, missing recorded copy on initial comparison, or unexpected reference permits no deletion for that item.
+Keep remaining copies unchanged, record the observation, and report to the user.
+Never delete against an unexpected commit or substitute a pull request branch for a missing retention copy.
+The confirmed-absence continuation below is the only exception for a missing remote copy.
+An earlier cleanup observation may record the remote copy's confirmed absence for this cleanup.
+For that both-copy entry, read the remote reference live before continuing.
+If it is still absent, continue with the local copy under every local check.
+A present remote copy or a failed read permits no continuation and must be reported.
+Observations alone authorize no deletion.
+Only the latest valid inventory remains the deletion authority.
+After a failed or unclear remote deletion, read that remote reference before any retry.
+Observed absence confirms deletion and must be recorded.
+The inventory commit permits retry under the same full-reference lease and safeguards.
+Another commit permits no retry and must be kept and reported.
+A failed read leaves deletion unresolved, permits no retry, and must be reported.
+A failed local conditional deletion leaves the remaining local copy unchanged and must be reported.
+Before any local retry, read the local reference again.
+Retry only if the fresh read shows the inventory commit and both regular-reference checks pass again.
+A missing reference confirms absence, while another commit or a failed read permits no retry.
+Record and report the observed result.
+After deletion, list the remote namespace when publishing is enabled and the local inventory names in either setting.
+Record both applicable listings in the root research log.
+Record each deleted copy's name and old commit, and each kept copy's name and reason.
+Report the result to the user.
+Cleanup is complete only when no inventoried copy remains and every confirmation listing succeeds. Kept copies, failures, unresolved deletions, or a failed confirmation listing leave cleanup incomplete.
+For every incomplete cleanup exit, report the result to the user. Record an observation under the normal write rules before stopping. The observation states that cleanup is incomplete.
+The orchestrator reports the cleanup result to the user before \`slate_change close\`. For incomplete cleanup without a structural refusal, the user chooses retry or close with the remaining references kept.
+A structural refusal offers only keep or a new inventory after closure conditions hold again. State the kept copies, failures, unresolved deletions, and failed listings in that report.
+Record the explicit choice after the latest cleanup report through an ordinary record-only action. The cleanup worker cannot record or amend that user choice. A choice after the inventory authorizes no deletion.
+A retry uses only the latest valid inventory and its earlier authorization, not the later choice as deletion authority. Before each retry, recheck closure conditions and the absence of voiding records after that inventory.
+Dispatch one bounded cleanup action at a time and repeat every applicable live read before each deletion. Record the retry observations and report the result before close.
+A keep choice ends cleanup. Only close may follow in that cleanup sequence.
+More deletion requires a new user report and a retry choice recorded after that report. The retry still requires a valid latest inventory and all deletion safeguards.
+A structural refusal still requires the new-inventory route before any further deletion. The choice that permits close must follow the latest cleanup report.
+A recorded keep choice permits close with incomplete cleanup only when closure conditions still hold. It claims neither confirmed absence nor successful cleanup. Neither incomplete cleanup nor that choice changes acceptance, accounting, or merge records.
+For an applicable cleanup sequence, close follows the required user report and any required choice after that latest report. An inventory-count refusal is incomplete cleanup, and a recorded keep choice permits close when closure conditions still hold.
+The inventory condition governs deletion only.
+Recheck closure conditions before every close, including close after complete cleanup.
+If the session ends before cleanup finishes, the change stays open. Keep remaining references in place.
+Record the interruption and incomplete cleanup under normal write rules and report them to the user. The next session follows Resume order and reconciliation and uses the structural-refusal route above.
+Permitted cleanup records include interruption, refusal, and incomplete-state observations.
+They grant no deletion authority.
+Use the current folder and its read-only source chains under normal ownership rules. On a folder fork, read inventories through the root log's recorded source boundary.
+On resume, count inventory entries across the root log and its read-only source chain within the recorded boundaries.
+Apply the latest-inventory rule, including its closure conditions and non-cleanup record boundary.
+On resume, check for voiding records before any deletion or retry.
+The required handoff state summary voids the inventory like any other non-cleanup record. The first source-naming record after a folder fork also voids the inventory.
+On resume, apply this exclusion even when a later record voids or replaces the inventory that authorized the recorded deletion.
+Read those deletion records through the root log and its read-only source chain within the recorded boundaries.
+A new latest inventory lists only remaining reference copies.
+Confirm absence of the excluded copies before keep-and-close or recording that new inventory.
+Resume therefore permits keep-and-close only when closure conditions still hold. Further deletion requires the orchestrator to record a new latest inventory after every non-cleanup record while all closure conditions hold.
+Repeat every live read before deletion under that new inventory, including the confirmed-absence continuation rule above. A closed folder grants no later-session cleanup route and permits no cleanup record write.
+Abandonment has no automatic cleanup.
+After the existing archival offer, ask whether to delete retention references.
+Without an explicit recorded user deletion choice before the inventory, delete nothing. If the user declines abandonment cleanup, record that choice and report the kept references before ordinary abandonment close.
+The deletion inventory and worker sequence apply only when the user requests abandonment cleanup. That no-cleanup choice grants no deletion authority.
+\`slate_change close\` itself deletes nothing.
+The cleanup step immediately before close is the only authorized end of the until-root-closure retention lifetime.
+Authorized inventory cleanup after every closure condition holds ends approved retention and is not a rewrite under the reviewed-state rule.
+This owner supplies deletion authority in both publishing settings. The publishing-only accepted-history-cleanup block governs layered peer-review cleanup, not this inventory cleanup.
+
 Use [track-workflow.md](track-workflow.md) § Delivery and termination for permitted
 history rewrites, rebased-marker mappings, range updates, and unavailable history.`),
+				},
+				{
+					id: "cleanup-pointer", source: workflow,
+					extract: regionUnit(/^(For\s+changes\s+that\s+load\s+the\s+nested\s+sections,\s+follow[\s\S]*?retention\s+inventory\s+and\s+cleanup\s+before\s+close\.)/gm),
+					expected: "For changes that load the nested sections, follow [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for retention inventory and cleanup before close.",
+				},
+				{
+					id: "private-set", source: recursive, extract: headingUnit("### Design authority and privacy"),
+					expected: normalizeText(`The **private set** contains every path under \`slate-changes/\`, saved-session text, and private reasoning.
+**Private bytes** are bytes from that set.
+A write approves no design and grants no completion or gate authority.
+The owning log records approved design hashes.
+SHA-256 means Secure Hash Algorithm, 256-bit.
+A hash identifies the exact file bytes.
+Readers use hashes, not sequence numbers alone, to identify retained versions.
+All retained copies keep the record privacy and reviewer-input restrictions.
+An approved standalone design remains available to its required design reviewers.
+Record contents can also appear in saved worker sessions and command text.
+Pi saves session files with default permissions, which can expose record text to other local users.
+[Issue #499](https://github.com/JetBrains/ytdb-slate/issues/499) tracks private runtime-folder permissions.`),
 				},
 				{
 					id: "history-owner-pointers", source: recursive,
@@ -3915,8 +4461,8 @@ Apply that sequence even when the pull request is already ready.`),
   placeholder — plus any notes under it. Preserve required acceptance and
   history references in Delivery accounting.
   A squash merge does not preserve marker commits in the default-branch history.
-  For nested work, keep accepted source markers under
-  [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history.
+  For changes that load the nested sections, complete the retention protocol in
+  [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history before the final ready flip and each merge handoff, and for the comparisons after each merge.
   Motivation and Planned changes remain in the description.`),
 				},
 				{
@@ -3976,6 +4522,15 @@ accounting from the complete accounting source set in
 [delivery-packages.md](delivery-packages.md) § Durable accounting into the description.
 A stale description fails the "deep enough" test.`),
 				},
+				{ id: "transfer", source: deliveryPackages, extract: transferUnit, expected: acceptanceTransferExpected },
+				{
+					id: "disabled-preservation", source: deliveryPackages,
+					extract: regionUnit(/^(3\. After root final acceptance,[\s\S]*?)(?=^4\. Verify the body)/gm),
+					expected: normalizeText(`3. After root final acceptance, create the final squashed delivery commit.
+   Copy every required conclusion from all accounting sources into its body.
+   Before rewriting, preserve accepted source history under
+   [track-workflow.md](track-workflow.md) § Delivery and termination.`),
+				},
 				{
 					id: "configuration", source: configuration,
 					extract: regionUnit(/^(\| `workflow\.draftPRs` \|[^\n]*)$/gm),
@@ -3986,14 +4541,16 @@ A stale description fails the "deep enough" test.`),
 				const result = unit.extract(source);
 				return result.count === 1 && result.text === unit.expected;
 			};
+			// Match the raw marked history body to keep its size independent of the regex compiler stack.
+			const levelPattern = (unit, source) => unit.id === "history" ? block(source, "level-history-policy").text : literalPattern(unit.expected);
 			const levelRuleMutations = levelPolicyUnits.flatMap((unit) => unit.expected.split(/(?<=\.) /).filter((rule) => /[a-z]/i.test(rule)).map((rule, index) => {
 				const pattern = new RegExp(rule.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+"));
-				const source = unit.source.replace(pattern, `Contradicting ${unit.id} rule ${index}.`);
+				const source = unit.source.replace(levelPattern(unit, unit.source), (text) => text.replace(pattern, `Contradicting ${unit.id} rule ${index}.`));
 				return { id: unit.id, index, changed: source !== unit.source, rejected: !acceptsLevelUnit(unit, source) };
 			}));
 			const levelBoundaryControls = levelPolicyUnits.map((unit) => {
 				const resolved = unit.extract(unit.source);
-				const pattern = new RegExp(resolved.text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+"));
+				const pattern = levelPattern(unit, unit.source);
 				return {
 					id: unit.id,
 					missing: !acceptsLevelUnit(unit, unit.source.replace(pattern, "")),
@@ -4024,9 +4581,530 @@ A stale description fails the "deep enough" test.`),
 				return { id: copy.id, ruleIndex, changed: source !== copy.source, rejected: !agreesOnLevelMergeability(copies) };
 			}));
 			const benignLevelMergeabilityCopies = levelMergeabilityCopies.map((copy) => ({ ...copy, source: `${copy.source}\n<!-- Outside-unit control. -->\n` }));
-			checkAll("contract-level-publishing", "level membership, ordering, approval, delivery, retained histories, cleanup, rebase mappings, unavailable evidence, and publishing defaults are mutation-resistant owned rules", [
+			const historyUnit = levelPolicyUnits.find(({ id }) => id === "history");
+			const resumeUnit = recursiveRecordUnits.find(({ id }) => id === "resume-order");
+			const roadmapUnit = recursiveDeliveryUnits.find(({ id }) => id === "public-roadmap");
+			const orderingDocuments = { recursive, workflow, publishing, roadmap: roadmapUnit.source };
+			const sentenceRemovalUnits = [
+				...levelPolicyUnits, recursiveUnits[0],
+				{ ...resumeUnit, expected: resumeOrderExpected },
+				{ ...roadmapUnit, expected: roadmapExpected },
+			];
+			const safetySentenceRemovals = sentenceRemovalUnits.flatMap((unit) => unit.expected.split(/(?<=\.) /).filter((rule) => /[a-z]/i.test(rule)).map((rule, index) => {
+				const pattern = new RegExp(rule.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+"));
+				const source = unit.source.replace(levelPattern(unit, unit.source), (text) => text.replace(pattern, ""));
+				return { id: unit.id, index, changed: source !== unit.source && !unit.extract(source).text.includes(rule), rejected: !acceptsLevelUnit(unit, source) };
+			}));
+			const agreesOnOrderAndLocalRetention = (sources = orderingDocuments) =>
+				acceptsLevelUnit(historyUnit, sources.recursive)
+				&& acceptsRecursiveUnit(recursiveUnits[0], sources.workflow)
+				&& acceptsRecordUnit(resumeUnit, sources.workflow)
+				&& acceptsRecursiveDelivery(roadmapUnit, sources.roadmap)
+				&& [trackSizePublishingUnits[1], publishingMigrationUnits[0]].every((unit) => acceptsLevelUnit(unit, sources.publishing));
+			// These literals express independently reviewed violating policies.
+			const mutateOrderAndRetention = (documents) => [
+				["history", "recursive", "none of its open level slices has commits", "an open level slice already has commits"],
+				["roadmap-pause", "roadmap", "none of its open level slices has commits", "an open level slice already has commits"],
+				["resume-pause", "workflow", "Confirm the decision records no commits in any open level slice of the paused subtree.", "A subtree with commits in an open slice may resume from a status entry."],
+				["design-first-base", "publishing", "Use dependency order for bases, including code before a dependent design subtree.", "Always base code work on completed design subtrees, regardless of dependencies."],
+				["design-first-history", "recursive", "Use dependency order for branch bases and merges, including when code must finish before a sibling design subtree.", "Always stack design subtrees first, even when they depend on code tracks."],
+				["design-first-roadmap", "roadmap", "Design tracks finish first only when tracks do not depend on each other.", "Design tracks always finish first."],
+				["foundation-base", "publishing", "Base that subtree's first level branch on the completed code-containing branch.", "Base that subtree's first level branch on the default branch."],
+				["foundation-merge", "publishing", "The user then merges the dependent pull requests in dependency order.", "The user merges the dependent pull requests before the foundation pull request."],
+				["merge-actor", "publishing", "The user merges the code-containing level pull request only after its level is complete.", "The agent merges the code-containing level pull request only after its level is complete."],
+				...["recursive", "publishing"].flatMap((document) => [
+					[`level-completion-${document}`, document, " only after its level is complete", ""],
+					[`dependent-acceptance-${document}`, document, "Every track of that level, including the dependent design subtree, must have its required acceptance.", "Only the code tracks of that level must have their required acceptance."],
+				]),
+				["pause-decision", "recursive", "Record the pause as a typed `decision` entry in the owning parent research log.", "Record the pause only in status.md."],
+				["pause-resume", "workflow", "Before resuming a paused subtree, read its typed `decision` entry in the owning parent research log.", "Resume using the status entry alone."],
+				["event-review", "recursive", "At each user review or acceptance event,", "At each acceptance event,"],
+				["event-acceptance", "recursive", "At each user review or acceptance event,", "At each user review event,"],
+				["event-trigger", "recursive", "At each user review or acceptance event, create the named reference locally and record its exact commit.", ""],
+				["history-scope", "recursive", "The retention rules below apply only to changes that load this document's nested sections.", ""],
+				["plan-scope", "workflow", "Only changes that load the nested sections have retention-reference duties.", ""],
+				["current-scope", "recursive", "a current or proposed design track or review-fix child track", "a proposed design track or review-fix child track"],
+				["proposed-scope", "recursive", "a current or proposed design track or review-fix child track", "a current design track or review-fix child track"],
+				["design-scope", "recursive", "Such a change has a current or proposed design track or review-fix child track.", "Such a change has a current or proposed review-fix child track."],
+				["review-fix-scope", "recursive", "Such a change has a current or proposed design track or review-fix child track.", "Such a change has a current or proposed design track."],
+				["local-lifetime", "recursive", "including through the final squash", "only before the final squash"],
+				["disabled-remote-duty", "recursive", "Retention requires no remote operation in this setting.", "Disabled publishing still requires remote retention operations."],
+				["ordering-retention-copy", "publishing", "for subtree ordering, branch bases, and history slices.", "for subtree ordering, branch bases, history slices, and retention."],
+				...["enabled", "disabled"].flatMap((setting) => [
+					[`ordinary-history-${setting}`, "recursive", "An ordinary change with neither triggering track type has no retention-reference duty, with publishing enabled or disabled.", `An ordinary change must retain references when publishing is ${setting}.`],
+					[`ordinary-plan-${setting}`, "workflow", "An ordinary change has no such duty, with publishing enabled or disabled.", `An ordinary change must retain references when publishing is ${setting}.`],
+				]),
+			].map(([id, document, before, after]) => {
+				const original = documents[document];
+				const pattern = literalPattern(before);
+				const source = original.replace(pattern, after);
+				return { id, changed: source !== original && !pattern.test(source), rejected: !agreesOnOrderAndLocalRetention({ ...documents, [document]: source }) };
+			});
+			const orderAndRetentionMutations = mutateOrderAndRetention(orderingDocuments);
+			const eventSentence = "At each user review or acceptance event, create the named reference locally and record its exact commit.";
+			const moveEventOutsideMarker = (source) => source.replace(literalPattern(eventSentence), "").replace("<!-- level-history-policy:end -->", `<!-- level-history-policy:end -->\n${eventSentence}`);
+			const eventMoveRejected = (documents) => {
+				const source = moveEventOutsideMarker(documents.recursive);
+				return source !== documents.recursive && source.includes(eventSentence)
+					&& !historyUnit.extract(source).text.includes(eventSentence)
+					&& !agreesOnOrderAndLocalRetention({ ...documents, recursive: source });
+			};
+			const wrappedOrderingControls = [
+				["event", "recursive", eventSentence],
+				["lifecycle-scope", "workflow", "Only changes that load the nested sections have retention-reference duties."],
+				["dependency-base", "publishing", "Base that subtree's first level branch on the completed code-containing branch."],
+			].map(([id, document, sentence]) => {
+				const original = orderingDocuments[document];
+				const wrapped = sentence.replace(/ /g, "\n  ");
+				const source = original.replace(literalPattern(sentence), (match) => match === wrapped ? sentence.replace(/ /g, "\n\t") : wrapped);
+				const documents = { ...orderingDocuments, [document]: source };
+				return { id, changed: source !== original, accepted: agreesOnOrderAndLocalRetention(documents),
+					mutations: mutateOrderAndRetention(documents), eventMoveRejected: eventMoveRejected(documents) };
+			});
+			const retentionAttacks = [
+				["remote-replaced", "use only the remote that holds the level pull request branch", "use any available remote"],
+				["remote-removed", "With publishing enabled, use only the remote that holds the level pull request branch.", ""],
+				["remote-record", "With publishing enabled, record the remote, listing, and observation in the root research log.", "With publishing enabled, record only the listing and observation."],
+				["remote-namespace", "Remote retention references are branches under `refs/heads/slate-retained/<change>/`.", "Remote retention references are tags under `refs/tags/slate-retained/<change>/`."],
+				["local-absence", "make creation conditional on continued absence", "create without an absence condition"],
+				["remote-absence", "With publishing enabled, create the remote reviewed reference with an expected-absent lease.", "With publishing enabled, create it with a plain push."],
+				["remote-creation-qualifier", "With publishing enabled, create the remote reviewed reference with an expected-absent lease.", "Create the remote reviewed reference with an expected-absent lease."],
+				["disabled-push-ban", "Do not push any retention reference to any remote when publishing is disabled.", ""],
+				["normal-ancestry", "check locally that the recorded commit is an ancestor of the target head", "skip the local ancestry check"],
+				["normal-lease", "With publishing enabled, the remote update must use a lease on that latest recorded commit.", "With publishing enabled, use a lease on an earlier commit."],
+				["preserving-self", "That preserving reference must differ from the level reference selected for replacement.", "The replaced level reference may preserve itself."],
+				["preserving-lifetime", "Keep every preserving reference until root closure.", "Delete preserving references after the rewrite."],
+				["latest-binding", "The latest successfully recorded binding governs later comparisons.", "The first binding governs later comparisons."],
+				["tree-only", "inspect all commits and objects reachable from each reference to be pushed", "inspect only the pushed tree"],
+				["untracked-sentence", "A current untracked file does not prove that ancestor commits contain no private bytes.", ""],
+				["no-push-pause", "If inspection finds private bytes, do not push and pause.", "Push private bytes before pausing."],
+				["inspection-pointer", "§ Design authority and privacy for the private-set definition and exposure warnings.", "§ Terms and scope for the exposure warnings."],
+				["explicit-push", "After inspection, every retention push must name its references explicitly.", "Push all references without naming them."],
+				["untargeted-push", "No untargeted push may publish retention references, including all-branches, mirror, or matching pushes.", "Matching pushes may publish retention references."],
+				["pr-branch-explicit-push", "A pull request branch push must name its branch explicitly.", "A pull request branch push may omit its branch name."],
+				["pr-branch-no-retention", "A pull request branch push must publish no retention reference.", "A pull request branch push may publish retention references."],
+				["lease-not-permission", "supplies a lease, not permission to bypass these rules", "authorizes any replacement"],
+				["retry-read", "With publishing enabled, after a failed or unclear push, read the remote before trying again.", "With publishing enabled, retry before reading the remote."],
+				["unresolved-read", "A failed read leaves the effect unresolved and does not authorize retry.", "A failed read authorizes retry."],
+				["event-inspect", "With publishing enabled, inspect reachable history at each user review or acceptance event.", ""],
+				["event-push", "With publishing enabled, then push the event's named references under their creation or update safeguards.", ""],
+				["event-read-back", "With publishing enabled, read back each remote reference and check its exact binding.", ""],
+				["event-record", "Record each result in the owning log.", ""],
+				["event-too-late", "Complete this sequence before any later rewrite or reliance on remote retention.", "Complete this sequence after the next rewrite."],
+				["waiver-publication", "It grants no unstated publication permission and claims no recovered evidence.", "A waiver permits publication of private bytes and claims recovered evidence."],
+				["private-preservation", "History preservation before a rewrite must not push a commit that holds private bytes.", "History preservation may push private bytes before a rewrite."],
+				...["permitted rewrite", "limited explicit waiver", "abandonment"].map((choice) => [`private-choice-${choice}`, "Ask the user to choose a permitted rewrite, a limited explicit waiver, or abandonment.", `Ask the user to choose only ${choice}.`]),
+				["unexpected-record", "Before recovering a wrong-commit reference, record its observed unexpected commit.", "Recover a wrong-commit reference without recording its observed unexpected commit."],
+				["missing-record-duty", "A missing reference has no unexpected commit to record or preserve.", "Before recovering a missing reference, record and preserve its observed unexpected commit."],
+				["reset-update-rules", "A reset must pass the checked fast-forward rules or the complete permitted level-replacement exception above.", "A user reset needs no update authorization checks."],
+				["unexpected-discard", "unless the user explicitly chooses to discard it", "unless the agent chooses to discard it"],
+				["unexpected-preservation", "Keep that commit under a new unique reference approved through the collision route", "Discard that commit without asking the user"],
+				["recovery-force", "No choice authorizes a forced update or replacement of an existing reviewed reference.", "Recovery authorizes replacing a reviewed reference."],
+				["final-inspection", "This includes final-marker and recovery-reference pushes, which require the reachable-history inspection above.", "Final-marker and recovery-reference pushes need no inspection."],
+				["handoff-earlier", "that reference and its latest recorded binding must equal the actual pull request head", "that reference and an earlier binding must equal the actual pull request head"],
+				["disabled-target", "the local level reference for the branch being squashed", "every local level reference"],
+				["disabled-markers", "Both must equal the complete head, including every marker commit.", "Both may equal the head before the final marker."],
+				["disabled-earlier", "An earlier binding does not satisfy this equality even when the reference still matches it.", "An earlier binding satisfies this equality when the reference matches it."],
+				["merge-earlier", "with the latest level binding used at final handoff", "with an earlier reviewed binding"],
+				["merge-inferred", "pause rather than infer it from a squash commit", "infer it from a squash commit"],
+				["exact-binding", "An exact head comparison uses that reference's binding, not a reachable ancestor.", "An exact head comparison may use any reachable ancestor."],
+				...["event pushes", "preserving-reference pushes", "level updates", "retries"].map((site) => [`inspection-site-${site}`, `This inspection covers event pushes, preserving-reference pushes, level updates, and retries.`, `This inspection excludes ${site}.`]),
+				["RG4-reachability", "An ancestry check proves H2 remains reachable from recorded `track-3.2-reviewed` at H2.", "No reference needs to reach H2."],
+				["RG4-mapping", "Record its old-to-new rebased-marker mapping in the owning log.", "Skip the mapping."],
+				["RG4-unrecorded", "An ancestry check proves H2 remains reachable from recorded `track-3.2-reviewed` at H2.", "An ancestry check uses an unrecorded preserving reference for H2."],
+				["RG4-binding", "Verify `track-3.2-reviewed` still selects H2 and `track-3.1-reviewed` still selects H1.", "Verify both reviewed references select H2'."],
+				["RG4-ancestry", "An ancestry check proves H2 remains reachable", "An ancestry check fails to prove H2 remains reachable"],
+				["RG4-reviewed-replacement", "Replace only the track 3 level reference under the complete exception", "Replace the track-3.2-reviewed reference under the complete exception"],
+			];
+			const mutateRetention = (original) => retentionAttacks.map(([id, before, after]) => {
+				const pattern = literalPattern(before);
+				const source = original.replace(pattern, after);
+				const retained = ["A permitted rebase onto S produces H2'.", "Record its old-to-new rebased-marker mapping in the owning log.", "using a lease on H2 when publishing is enabled"].every((rule) => normalizeText(source).includes(rule));
+				return { id, changed: source !== original && !pattern.test(source), rejected: !acceptsLevelUnit(historyUnit, source), retained: id !== "RG4-reachability" || retained };
+			});
+			const cleanupRecordsUnit = recursiveRecordUnits.find(({ id }) => id === "tool-records-and-recovery");
+			const cleanupPointerUnit = levelPolicyUnits.find(({ id }) => id === "cleanup-pointer");
+			const restoredCleanupSentences = [
+				["inventory-conditions", "Record the inventory after all closure conditions hold."],
+				["inventory-acceptance-merges", "For delivered publishing work, require final acceptance and each applicable level merge-result binding."],
+				["inventory-comparisons-accounting", "Also require final post-merge comparisons and verified accounting."],
+				["inventory-earlier-authorization", "Record every authorizing record before the inventory."],
+				["no-earlier-inventory", "Do not select an earlier inventory because its evidence appears valid."],
+				["inventory-deletion-only", "The inventory condition governs deletion only."],
+				["resume-permitted-observations", "Permitted cleanup records include interruption, refusal, and incomplete-state observations."],
+				["resume-no-authority", "They grant no deletion authority."],
+				["resume-inventory-count", "On resume, count inventory entries across the root log and its read-only source chain within the recorded boundaries."],
+				["resume-inventory-boundary", "Apply the latest-inventory rule, including its closure conditions and non-cleanup record boundary."],
+				["other-closure-conditions", "Keep every other closure condition."],
+			];
+			const resumeDeletionSentences = [
+				["resume-exclusion", "On resume, apply this exclusion even when a later record voids or replaces the inventory that authorized the recorded deletion."],
+				["resume-record-boundary", "Read those deletion records through the root log and its read-only source chain within the recorded boundaries."],
+				["resume-remaining-copies", "A new latest inventory lists only remaining reference copies."],
+				["resume-absence", "Confirm absence of the excluded copies before keep-and-close or recording that new inventory."],
+			];
+			const recordedDeletionSentences = [
+				["authorized-exclusion", "For current closure conditions, exclude each copy recorded as deleted under an inventory that had deletion authority when that deletion ran."],
+				["root-record", "Require its deletion record in the root log under these cleanup rules."],
+				["continued-absence", "Confirm that each excluded copy is still absent."],
+				["no-pause", "Confirmed absence of such a copy is not a missing-reference pause."],
+				["unrecorded-pause", "An absent copy without such a deletion record still causes a missing-reference pause."],
+				["no-authority", "This exclusion grants no deletion authority."],
+				...resumeDeletionSentences,
+			];
+			// Each literal attacks a required safety condition, not a candidate-derived expectation.
+			const cleanupAttacks = [
+				...restoredCleanupSentences.map(([id, rule]) => [`restored-${id}`, rule, ""]),
+				...recordedDeletionSentences.map(([id, rule]) => [`deleted-${id}`, rule, ""]),
+				["deleted-any-missing", recordedDeletionSentences[0][1], "For current closure conditions, any missing copy leaves the kept-reference comparison set."],
+				["deleted-unauthorized-inventory", recordedDeletionSentences[0][1], "For current closure conditions, exclude copies recorded as deleted under any inventory, including one without deletion authority."],
+				["deleted-latest-only", recordedDeletionSentences[0][1], "For current closure conditions, copies recorded as deleted under the latest valid inventory leave the kept-reference comparison set."],
+				["deleted-no-record", recordedDeletionSentences[1][1], "Exclude deleted copies even without a root-log deletion record."],
+				["deleted-resume-voided", resumeDeletionSentences[0][1], "On resume, exclude deleted copies only while their inventory remains valid."],
+				["after-close", "immediately before `slate_change close`", "immediately after `slate_change close`"],
+				["inventory-early", "Record the inventory after all closure conditions hold.", "Record the inventory before closure conditions hold."],
+				...[0, 2].map((count) => [`inventory-count-${count}`, "Require exactly one unambiguous latest inventory after every non-cleanup record and after all closure conditions hold.", `Require exactly ${count} latest inventories.`]),
+				["late-authorization", "Read authorization only from those earlier records.", "Read authorization from cleanup observations after the inventory."],
+				["source-chain", "Follow root and subtree logs and their read-only folder-fork source chains within each recorded last-entry boundary.", "Read only the root log without source boundaries."],
+				["inferred-binding", "never an inferred current branch head", "or an inferred current branch head"],
+				["passed-path", "Pass the open change's Current research log path to the cleanup worker as for any record worker.", "Let the worker infer its folder path."],
+				["inventory-refusal-record", "Before stopping, the cleanup worker records the inventory-count refusal under the ordinary safe-write rules of the still-open change folder.", "Stop without recording the inventory-count refusal."],
+				["inventory-refusal-report", "Treat that refusal as incomplete cleanup and report it to the user.", "Keep the inventory-count refusal from the user."],
+				["remote-binding", "the remote name and its fetch and push URLs", "only the remote name"],
+				["effective-fetch", 'With publishing enabled, obtain the effective fetch URL with `git remote get-url --all "<remote>"`.', "Read the raw remote fetch configuration."],
+				["effective-push", 'With publishing enabled, obtain the effective push URL with `git remote get-url --push --all "<remote>"`.', 'Obtain only the first push URL with `git remote get-url --push "<remote>"`.'],
+				["single-effective-URL", "Require each command to return exactly one URL, not raw configuration values.", "Accept multiple URLs or raw configuration values."],
+				["URL-read-refusal", "If either command fails or returns zero or multiple URLs, run no remote command.", "Continue remote deletion after a failed or multiple-URL read."],
+				["URL-read-record", "Before stopping, the cleanup worker records that refusal under the ordinary safe-write rules of the still-open change folder.", "Stop without recording the URL-read refusal."],
+				["URL-read-report", "Report that refusal to the user.", "Keep the URL-read refusal from the user."],
+				["userinfo-removal", "Remove any userinfo from each URL before recording or comparing it.", "Record and compare URLs with embedded credentials."],
+				["userinfo-identical", "Apply this removal identically to recorded and current values.", "Remove userinfo only from current values."],
+				["credential-ban", "Never record a credential.", "Record credentials in the inventory."],
+				["URL-mismatch-record", "Before stopping, the cleanup worker records the URL mismatch under the ordinary safe-write rules of the still-open change folder.", "Stop without recording the URL mismatch."],
+				["URL-mismatch-report", "Report the mismatch to the user.", "Keep the URL mismatch from the user."],
+				...["either URL differs", "the fetch and push URLs differ from each other"].map((condition) => [`URL-${condition}`, `If either URL differs, or the fetch and push URLs differ from each other, run no remote command.`, `If ${condition}, run remote deletion anyway.`]),
+				["check-ref-format", 'Require each name to pass `git check-ref-format "<ref>"` before use.', "Use unchecked names."],
+				["prefix-slash", "Require the prefix `refs/heads/slate-retained/<change>/`", "Require the prefix `refs/heads/slate-retained/<change>`"],
+				["namespace-old", "A name under `<change>-old/` does not match that prefix.", "A name under `<change>-old/` matches that prefix."],
+				["unlisted", "Never delete an unlisted name or a name outside the recorded namespace.", "Delete unlisted names outside the recorded namespace."],
+				...["pull request branch", "local level branch", "default branch"].map((name) => [`excluded-${name}`, "Never delete a pull request branch, a local level branch, or the default branch.", `Delete the ${name}.`]),
+				...["prune", "mirror", "pattern", "all-branches"].map((kind) => [`untargeted-${kind}`, "Use no untargeted deletion, including prune, mirror, pattern, or all-branches deletion.", `Use ${kind} deletion.`]),
+				["no-explicit-name", "Every deletion requires an explicit inventory name.", "Delete without an explicit inventory name."],
+				["missing-closure", "Before each deletion, require current closure conditions and root-log closure evidence from records before the latest inventory.", "Delete without root-log closure evidence."],
+				["unmerged-level", "An unmerged level prevents delivery closure and deletion.", "An unmerged level allows closure and deletion."],
+				["closure-refusal-record", "Before stopping, the cleanup worker records the missing closure evidence under the ordinary safe-write rules of the still-open change folder.", "Stop without recording the missing closure evidence."],
+				["closure-refusal-report", "Report the missing evidence to the user.", "Keep the missing closure evidence from the user."],
+				["preservation-log-check", "Before any deletion, the worker checks each entry's owning logs for a recovery or collision-preservation record.", "Trust inventory marks without checking the owning logs."],
+				["unmarked-preservation", "Treat an unmarked entry with such a record as marked.", "Delete unmarked entries despite preservation records."],
+				["unmarked-discard-choice", "Keep it unless an explicit discard choice precedes the inventory.", "A later or general choice permits discarding an unmarked preserved entry."],
+				["marked-automatic", "Keep those entries unless the user explicitly chooses to discard that commit or state before the inventory.", "Discard marked entries automatically on delivery."],
+				["marked-late-choice", "A choice recorded after the inventory authorizes nothing.", "A choice recorded after the inventory authorizes deletion."],
+				["marked-general-choice", "Delivery alone or a general abandonment deletion choice does not authorize discarding a marked entry.", "A general abandonment choice authorizes discarding marked entries."],
+				["inferred-copies", "without inferred counterparts or pairing by commit", "with inferred counterparts paired by commit"],
+				["existence-first", 'First confirm existence with `git show-ref --verify "<ref>"`.', "Skip the existence check."],
+				["symbolic-status", "Exit status 1 means not symbolic only after that successful existence check.", "Exit status 1 proves existence and permits deletion."],
+				["symbolic-excluded", "This also forbids deleting a symbolic reference that resolves to an excluded branch at the inventory commit.", "Delete a symbolic reference resolving to the default branch at the inventory commit."],
+				["live-read", "read each recorded remote copy live", "compare each remote-tracking reference"],
+				["remote-first", "delete the explicitly named remote reference first", "delete the local reference first"],
+				["absence-first", "Read back remote absence before deleting a recorded local copy of that entry.", "Delete the local copy without remote absence confirmation."],
+				["repeat-checks", "Repeat both the existence and regular-reference checks immediately before local deletion.", "Reuse the earlier reference checks."],
+				["local-old-commit", 'git update-ref --no-deref -d "<ref>" "<inventory-commit>"', 'git update-ref --no-deref -d "<ref>"'],
+				["local-dereference", 'git update-ref --no-deref -d "<ref>" "<inventory-commit>"', 'git update-ref -d "<ref>" "<inventory-commit>"'],
+				["short-name", "Use the full inventory reference name in every command and reject short names.", "Use a short reference name."],
+				["unquoted-placeholder", 'git update-ref --no-deref -d "<ref>" "<inventory-commit>"', 'git update-ref --no-deref -d <ref> "<inventory-commit>"'],
+				...["--force", "--force-with-lease", "--force-with-lease=refs/remotes/<remote>/<name>:<inventory-commit>", "--force-with-lease=refs/heads/slate-retained/<change>/<other-name>:<inventory-commit>"].map((lease) => [`lease-${lease}`, '"--force-with-lease=refs/heads/slate-retained/<change>/<name>:<inventory-commit>"', `"${lease}"`]),
+				["lease-no-commit", '"--force-with-lease=refs/heads/slate-retained/<change>/<name>:<inventory-commit>"', '"--force-with-lease=refs/heads/slate-retained/<change>/<name>"'],
+				["plus-refspec", '":refs/heads/slate-retained/<change>/<name>"', '"+:refs/heads/slate-retained/<change>/<name>"'],
+				["disabled-remote", "With publishing disabled, delete only recorded local copies under the conditional check and run no remote command.", "With publishing disabled, run remote deletion."],
+				["initial-missing", "A mismatch, missing recorded copy on initial comparison, or unexpected reference permits no deletion for that item.", "A missing initial copy confirms prior deletion."],
+				["continuation-exception-scope", "The confirmed-absence continuation below is the only exception for a missing remote copy.", "Every missing copy permits continued deletion."],
+				["continuation-evidence", "An earlier cleanup observation may record the remote copy's confirmed absence for this cleanup.", "Use an unrelated cleanup's absence observation."],
+				["continuation-live-read", "For that both-copy entry, read the remote reference live before continuing.", "Continue from a saved absence observation without a live read."],
+				["continuation-local-checks", "If it is still absent, continue with the local copy under every local check.", "Continue local deletion without the local checks."],
+				["continuation-present-or-failed", "A present remote copy or a failed read permits no continuation and must be reported.", "Continue despite a present remote copy or failed read."],
+				["observation-not-authority", "Observations alone authorize no deletion.", "Observations alone authorize deletion."],
+				["inventory-authority", "Only the latest valid inventory remains the deletion authority.", "The observation replaces inventory authority."],
+				["local-retry-read", "Before any local retry, read the local reference again.", "Retry local deletion without a fresh read."],
+				["local-retry-checks", "Retry only if the fresh read shows the inventory commit and both regular-reference checks pass again.", "Retry at any commit without repeating regular-reference checks."],
+				["local-retry-outcomes", "A missing reference confirms absence, while another commit or a failed read permits no retry.", "Retry against a missing reference, another commit, or a failed read."],
+				["local-retry-report", "Record and report the observed result.", "Leave the local retry result unrecorded and unreported."],
+				["retry-read", "read that remote reference before any retry", "retry before reading that remote reference"],
+				...["Observed absence confirms deletion and must be recorded.", "The inventory commit permits retry under the same full-reference lease and safeguards.", "Another commit permits no retry and must be kept and reported.", "A failed read leaves deletion unresolved, permits no retry, and must be reported."].map((rule, index) => [`retry-outcome-${index}`, rule, "Retry without checking or recording the outcome."]),
+				["local-only", "A local-only entry requires no remote counterpart.", "A local-only entry requires an inferred remote counterpart."],
+				["one-sided", "A one-sided entry is complete when its recorded copy is deleted and absence is confirmed.", "One-sided entries never complete."],
+				["confirmation", "Record both applicable listings in the root research log.", "Record no confirmation listing."],
+				["deleted-kept-record", "Record each deleted copy's name and old commit, and each kept copy's name and reason.", "Record only a total count."],
+				...["Kept copies", "failures", "unresolved deletions", "a failed confirmation listing"].map((kind) => [`incomplete-${kind}`, "Kept copies, failures, unresolved deletions, or a failed confirmation listing leave cleanup incomplete.", `Only ${kind} leaves cleanup incomplete.`]),
+				["incomplete-user-report", "For every incomplete cleanup exit, report the result to the user.", "Incomplete cleanup needs no user report."],
+				["incomplete-observation", "Record an observation under the normal write rules before stopping.", "Stop without a permitted incomplete-cleanup observation."],
+				["incomplete-record-state", "The observation states that cleanup is incomplete.", "Record cleanup as complete."],
+				["interruption-report", "Record the interruption and incomplete cleanup under normal write rules and report them to the user.", "The session ends without an interruption report."],
+				["interruption-open", "If the session ends before cleanup finishes, the change stays open.", "Automatically close on interruption."],
+				["abandonment-auto", "Abandonment has no automatic cleanup.", "Abandonment automatically deletes references."],
+				["ordinary", "An ordinary change has no cleanup duty in either publishing setting.", "Every ordinary change must clean up references."],
+				["publishing-authority", "This owner supplies deletion authority in both publishing settings.", "Only the publishing cleanup block permits deletion."],
+				["reviewed-state-owner-removal", "Authorized inventory cleanup after every closure condition holds ends approved retention and is not a rewrite under the reviewed-state rule.", ""],
+				...["new track", "fix", "decision", "merge-result binding", "abandonment withdrawal", "handoff state summary"].map((kind) => [`void-${kind}`, "Examples include a new track, fix, a decision other than the permitted retry-or-keep choice, merge-result binding, abandonment withdrawal, or handoff state summary outside those permitted kinds.", `A later ${kind} permits continued deletion.`]),
+				...["before each deletion", "on resume", "before each retry"].map((when) => [`void-check-${when}`, "Check for voiding records before each deletion, on resume, and before each retry.", `Check for voiding records except ${when}.`]),
+				...["temporary start copy", "separate temporary append texts", "`>>`", "whole-record comparison", "retry inspection"].map((step) => [`safe-${step}`, "Use the normal temporary start copy, separate temporary append texts, `>>`, whole-record comparison, and retry inspection.", `Omit ${step}.`]),
+				...["closure evidence", "the inventory", "a mark", "a user choice"].map((kind) => [`observation-${kind}`, "It cannot add or amend closure evidence, the inventory, a mark, or a user choice.", `Cleanup records may amend ${kind}.`]),
+				...["record-kind-list", "append-limit"].map((id) => [id, "Permitted cleanup record kinds are comparisons, listings, deleted and kept copies, failures, interruptions, refusals, incomplete-state observations, and the user report.", id === "append-limit" ? "Any record kind is permitted." : ""]),
+				...["another record", "a source folder"].map((place) => [`other-write-${place}`, "The cleanup action writes no other record and no record outside the open root log.", `The cleanup action may write ${place}.`]),
+				["actor", "The orchestrator dispatches one bounded cleanup worker action.", "Any worker may perform unlimited cleanup actions."],
+				["inventory-folder-field", "No inventory folder-path field or closed-folder write permission is required.", "Require an inventory folder path and closed-folder permission."],
+				["close-writer", "Finish the worker and every record write before close.", "Close while a record writer runs."],
+				["pointer-order", "Run cleanup in the closing session after every closure condition holds and immediately before `slate_change close`.", "Run cleanup before closure conditions hold."],
+				...["disabled-recording", "abandonment-recording"].map((id, index) => [id, ["With publishing disabled, record the inventory after final local comparisons and verified final-squash accounting.", "For abandonment cleanup, record the inventory after the archival offer and the recorded explicit user choice to delete."][index], ""]),
+				...["Record the inventory after all closure conditions hold.", "Count inventory entries across the root log and its read-only source chain within the recorded boundaries.", "Read the chain in its recorded source order and select its latest inventory.", "Earlier inventories remain evidence and grant no deletion authority.", "Zero entries or an ambiguous latest inventory permit no deletion.", "Multiple historical inventories permit deletion only when one latest valid inventory is unambiguous.", "No record after an inventory may widen that inventory's deletion authority.", "This structural refusal offers no retry against the voided inventory.", "The user may keep the remaining references and close only when closure conditions still hold.", "Alternatively, wait until every closure condition holds again.", "The orchestrator then records a new inventory after every non-cleanup record.", "Cleanup then uses only that latest inventory and its preceding authorization.", "A new inventory does not amend an earlier inventory or authorize deletion under it.", "Apply this route to missing or ambiguous latest inventories and missing earlier closure evidence too.", "Also apply it when current closure conditions no longer hold."].map((rule, index) => [`latest-refusal-${index}`, rule, ""]),
+				...["The orchestrator reports the cleanup result to the user before `slate_change close`.", "For incomplete cleanup without a structural refusal, the user chooses retry or close with the remaining references kept.", "A structural refusal offers only keep or a new inventory after closure conditions hold again.", "Record the explicit choice after the latest cleanup report through an ordinary record-only action.", "A retry uses only the latest valid inventory and its earlier authorization, not the later choice as deletion authority.", "Before each retry, recheck closure conditions and the absence of voiding records after that inventory.", "A keep choice ends cleanup.", "Only close may follow in that cleanup sequence.", "More deletion requires a new user report and a retry choice recorded after that report.", "The choice that permits close must follow the latest cleanup report.", "A recorded keep choice permits close with incomplete cleanup only when closure conditions still hold.", "For an applicable cleanup sequence, close follows the required user report and any required choice after that latest report.", "An inventory-count refusal is incomplete cleanup, and a recorded keep choice permits close when closure conditions still hold.", "Recheck closure conditions before every close, including close after complete cleanup."].map((rule, index) => [`report-choice-${index}`, rule, ""]),
+				...["new user report", "a retry choice recorded after that report"].map((part) => [`keep-restart-${part}`, "More deletion requires a new user report and a retry choice recorded after that report.", `More deletion needs no ${part}.`]),
+				...["The next session follows Resume order and reconciliation and uses the structural-refusal route above.", "On a folder fork, read inventories through the root log's recorded source boundary.", "Apply the latest-inventory rule, including its closure conditions and non-cleanup record boundary.", "On resume, check for voiding records before any deletion or retry.", "The required handoff state summary voids the inventory like any other non-cleanup record.", "The first source-naming record after a folder fork also voids the inventory.", "Resume therefore permits keep-and-close only when closure conditions still hold.", "Further deletion requires the orchestrator to record a new latest inventory after every non-cleanup record while all closure conditions hold.", "Repeat every live read before deletion under that new inventory, including the confirmed-absence continuation rule above.", "If the user declines abandonment cleanup, record that choice and report the kept references before ordinary abandonment close."].map((rule, index) => [`resume-abandonment-${index}`, rule, ""]),
+				["inventory-close-barrier", "The inventory condition governs deletion only, not close.", "An inventory-count refusal always forbids close."],
+				...["remote namespace when publishing is enabled", "local inventory names in either setting"].map((listing) => [`listing-${listing}`, "After deletion, list the remote namespace when publishing is enabled and the local inventory names in either setting.", `Omit the ${listing} listing.`]),
+			].map(([id, before, after]) => ({ id, unit: historyUnit, before, after }));
+			const mutateCleanup = (original = recursive) => cleanupAttacks.map(({ id, unit, before, after }) => {
+				const pattern = literalPattern(before);
+				const source = original.replace(levelPattern(unit, original), (text) => text.replace(pattern, after));
+				return { id, changed: source !== original && !pattern.test(unit.extract(source).text), rejected: !acceptsLevelUnit(unit, source) };
+			});
+			const cleanupMutations = mutateCleanup();
+			const forbiddenCleanupRoutes = [
+				["post-close-write", "After `slate_change close`, the cleanup worker may append cleanup records to the root log."],
+				["closing-exception", "The closing session has a post-close cleanup write exception."],
+				["later-session", "A later session may clean up a closed change folder."],
+				["validated-closed-folder", "A user request naming a closed change folder permits cleanup after validating its generated path inside this checkout without parent components, real directory and regular log, matching inventory path, and absence from read-only source links."],
+			];
+			const acceptsCleanupRoutes = (source) => acceptsLevelUnit(historyUnit, source) && acceptsRecordUnit(cleanupRecordsUnit, source) && !/Post-close cleanup writes|After `slate_change close`[^.]*may append|closing session[^.]*post-close[^.]*exception|later session[^.]*may[^.]*closed change folder|user request naming a closed change folder[^.]*permits cleanup/i.test(normalizeText(source));
+			const forbiddenCleanupMutations = forbiddenCleanupRoutes.map(([id, rule]) => { const source = `${recursive}\n${rule}\n`; return { id, changed: source !== recursive, rejected: !acceptsCleanupRoutes(source) }; });
+			const forbiddenCleanupPositions = ["<!-- level-history-policy:end -->", "## Identifiers, code ranges, and design markers", "## Manual records and safe writes", "document-end"];
+			const wrappedForbiddenCleanupMutations = forbiddenCleanupRoutes.flatMap(([id, rule]) => forbiddenCleanupPositions.map((position) => {
+				const wrapped = rule.replace(/ /g, "\n\t");
+				const source = position === "document-end" ? `${recursive}\n${wrapped}\n` : recursive.replace(position, `${position}\n\n${wrapped}\n`);
+				return { id, position, changed: source !== recursive && source.includes(wrapped), rejected: !acceptsCleanupRoutes(source) };
+			}));
+			const cleanupControlSentences = [
+				"Before each deletion, require current closure conditions and root-log closure evidence from records before the latest inventory.",
+				"Authorized inventory cleanup after every closure condition holds ends approved retention and is not a rewrite under the reviewed-state rule.",
+				"Before stopping, the cleanup worker records the inventory-count refusal under the ordinary safe-write rules of the still-open change folder.",
+				"Before stopping, the cleanup worker records the URL mismatch under the ordinary safe-write rules of the still-open change folder.",
+				"Before stopping, the cleanup worker records the missing closure evidence under the ordinary safe-write rules of the still-open change folder.",
+				"Record the interruption and incomplete cleanup under normal write rules and report them to the user.",
+				"For that both-copy entry, read the remote reference live before continuing.",
+			];
+			const cleanupOutsideControls = cleanupControlSentences.map((sentence) => {
+				const source = recursive.replace(literalPattern(sentence), "").replace("<!-- level-history-policy:end -->", `<!-- level-history-policy:end -->\n${sentence}`);
+				return { changed: source !== recursive, retained: source.includes(sentence), outside: !historyUnit.extract(source).text.includes(sentence), rejected: !acceptsLevelUnit(historyUnit, source) };
+			});
+			const cleanupWrapControls = [...cleanupControlSentences, "Pass the open change's Current research log path to the cleanup worker as for any record worker.", "Multiple historical inventories permit deletion only when one latest valid inventory is unambiguous.", "After the inventory, only cleanup observations, the user report, the retry-or-keep choice, and `slate_change close` may follow.", "Permitted cleanup record kinds are comparisons, listings, deleted and kept copies, failures, interruptions, refusals, incomplete-state observations, and the user report.", "An inventory-count refusal is incomplete cleanup, and a recorded keep choice permits close when closure conditions still hold.", "Further deletion requires the orchestrator to record a new latest inventory after every non-cleanup record while all closure conditions hold."].map((sentence) => {
+				const source = recursive.replace(literalPattern(sentence), (match) => {
+					const wrapped = sentence.replace(/ /g, "\n  ");
+					return match === wrapped ? sentence.replace(/ /g, "\n\t") : wrapped;
+				});
+				return { changed: source !== recursive, accepted: acceptsCleanupRoutes(source), mutations: mutateCleanup(source) };
+			});
+			const cleanupPointerAttacks = ["For changes that load the nested sections", "retention inventory", "cleanup before close"].map((part) => { const source = workflow.replace(literalPattern(cleanupPointerUnit.expected), cleanupPointerUnit.expected.replace(part, "after-close work for every change")); return { part, changed: source !== workflow, rejected: !acceptsLevelUnit(cleanupPointerUnit, source) }; });
+			const wrappedCleanupPointer = workflow.replace(literalPattern(cleanupPointerUnit.expected), (match) => {
+				const wrapped = cleanupPointerUnit.expected.replace(/ /g, "\n  ");
+				return match === wrapped ? cleanupPointerUnit.expected.replace(/ /g, "\n\t") : wrapped;
+			});
+			const inspectionSentence = "Before every retention push, inspect all commits and objects reachable from each reference to be pushed.";
+			const movedInspection = recursive.replace(literalPattern(inspectionSentence), "").replace("<!-- level-history-policy:end -->", `<!-- level-history-policy:end -->\n${inspectionSentence}`);
+			const wrappedRetention = recursive.replace(literalPattern(inspectionSentence), inspectionSentence.replace(/ /g, "\n  "));
+			const retentionMutations = mutateRetention(recursive);
+			const wrappedRetentionMutations = mutateRetention(wrappedRetention);
+			const privacyDestination = headingUnit("### Design authority and privacy")(recursive);
+			// Literal citations have an exact context roster. Paraphrase detection is best-effort.
+			// The handoff context selects inventory and cleanup before close.
+			// Every context edit needs full lifecycle review, a digest refresh, and a pin-attack recount.
+			const lifecycleRetentionContexts = [
+				["## Recursive planning and loading", "For nested work, use [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for dependency order, pauses, split changes, and branch bases."],
+				["## Confirmation gate", "Use [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for the pause conditions."],
+				["## Delivery and termination", "For changes that load the nested sections, route a missing or wrong-commit retention reference to [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for the user's choice."],
+				["## Session handoff and the research log", "For changes that load the nested sections, follow [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for retention inventory and cleanup before close."],
+			];
+			const privateSetUnit = levelPolicyUnits.find(({ id }) => id === "private-set");
+			// These pins cover only publishing, delivery, and lifecycle documents.
+			// A pin rejects unreviewed content changes in any wording. It cannot judge content.
+			// A refreshed digest accepts whatever the new text says. The refresh reviewer
+			// is the real gate and must confirm that the edit adds no procedure copy.
+			// Every edit to these documents needs a reviewed digest refresh in the same commit.
+			// Whitespace-only reflow passes because normalizeText collapses whitespace.
+			// HTML comments count. The word layer is best-effort during refresh review.
+			// Known word-layer escapes include "retention branches" and "branches kept for retention".
+			const EXPECTED_PUBLISHING_SHA256 = "d3c039739f5a633c6a7de5b7300a56893acc7ac62344e1f18f77a02ae9526b0e";
+			const EXPECTED_TRACK_WORKFLOW_SHA256 = "88760411b097e09cb27a7ee705dd79ae0218fc2c26e07b1f3131b4316b1fe29d";
+			const EXPECTED_DELIVERY_PACKAGES_SHA256 = "21a47331244a66225b4b59c24555f686656512e61f42b9b7f9546f440c7cd64e";
+			const peerRetentionOwners = [
+				{ id: "nested", source: recursive, units: [historyUnit, privateSetUnit] },
+				{ id: "publishing", source: publishing, pin: EXPECTED_PUBLISHING_SHA256, units: [levelPolicyUnits.find(({ id }) => id === "ready-history"), publishingMigrationUnits[0]], count: 3, contexts: [
+					["## One draft pull request", "For nested work, use [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for subtree ordering, branch bases, and history slices."],
+					["## Creation", "For nested work, choose its base under [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history."],
+					["## Ready-for-review flip", "For changes that load the nested sections, complete the retention protocol in [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history before the final ready flip and each merge handoff, and for the comparisons after each merge."],
+				] },
+				{ id: "delivery", source: deliveryPackages, pin: EXPECTED_DELIVERY_PACKAGES_SHA256, units: [levelPolicyUnits.find(({ id }) => id === "transfer"), levelPolicyUnits.find(({ id }) => id === "disabled-preservation")], count: 1, contexts: [
+					["## Durable accounting", "4. For changes that load the nested sections with publishing enabled, complete the retention protocol in [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history."],
+				] },
+				{ id: "lifecycle", source: workflow, pin: EXPECTED_TRACK_WORKFLOW_SHA256, units: [recursiveUnits[0], levelPolicyUnits.find(({ id }) => id === "accepted-history"), levelPolicyUnits.find(({ id }) => id === "cleanup-pointer"), {
+					id: "shared-scheduling", extract: regionUnit(/^(Tracks are contiguous[\s\S]*?)(?=^## Session handoff and the research log)/gm),
+					expected: normalizeText(`Tracks are contiguous and execute through one sequential writer. Independent
+research and reviews may run in parallel. File-writing implementation does not.
+A later track builds on the accepted boundary before it.`),
+				}, {
+					id: "shared-disabled-preservation", extract: regionUnit(/^(Preserve accepted source history[\s\S]*?)(?=^Verify the body against all accounting sources before root closure\.)/gm),
+					expected: "Preserve accepted source history before rewriting under this section's safeguards.",
+				}], count: 4, contexts: lifecycleRetentionContexts },
+			];
+			const peerPinFailure = (owner, source) => owner.pin && recordDigest(source) !== owner.pin ? "document-content" : "";
+			const retentionCitationPattern = /§ (?:Level publishing and retained history|Design authority and privacy)|recursive-workflow\.md#(?:level-publishing-and-retained-history|design-authority-and-privacy)/gi;
+			const peerCitationFailure = (owner, source) => {
+				if (!owner.contexts) return "";
+				let remainder = normalizeText(source);
+				if ([...remainder.matchAll(retentionCitationPattern)].length !== owner.count) return "citation-count";
+				for (const [heading, text] of owner.contexts) {
+					const region = headingUnit(heading)(source);
+					if (region.count !== 1 || !region.text.includes(text) || remainder.split(text).length !== 2) return "citation-context";
+					remainder = remainder.replace(text, "");
+				}
+				return [...remainder.matchAll(retentionCitationPattern)].length ? "citation-context" : "";
+			};
+			// Use independent owner expectations, not candidate sentences, to detect copies.
+			const ownerSentences = [...new Set([historyUnit, privateSetUnit].flatMap((unit) => unit.expected.split(/(?<=\.) /)))];
+			// After validated units and citation contexts are removed, the word scan
+			// rejects retention-form names without treating ordinary reviewed branches as such names.
+			const peerRetentionNames = /\btrack-(?:\d+(?:[.-]\d+)*|<number>)-(?:fix(?:\d+|<r>)-)?reviewed\b|\bslate-retained\//i;
+			const peerVocabulary = /slate-retained|retention[- ](?:reference|protocol|push|check)|retained (?:history|references?|markers?|bindings?|branches)|reviewed (?:binding|reference|marker)|kept (?:copy|(?:local |remote )?reference)|level reference|unexpected commit|private (?:set|bytes|content|files?)|preserv\w*[^.]*\b(?:reference|binding|history|commit)|(?:force[- ]push|forced update)[^.]*reference|(?:publish\w*[^.]*slate-changes|slate-changes[^.]*publish\w*)|(?:delet\w*[^.]*track-[\d.<][\w.<>-]*-reviewed)/i;
+			const peerRetentionFailure = (owner, source) => {
+				const citationFailure = peerCitationFailure(owner, source);
+				if (citationFailure) return citationFailure;
+				for (const unit of owner.units) {
+					if (!acceptsLevelUnit(unit, source)) return "owned-unit";
+					source = source.replace(levelPattern(unit, source), "");
+				}
+				source = normalizeText(source);
+				for (const [, text] of owner.contexts ?? []) source = source.replace(text, "");
+				if (owner.id === "nested") source = source.replace("## Level publishing and retained history", "");
+				if (owner.id !== "nested" && ownerSentences.some((sentence) => source.includes(sentence))) return "owner-sentence";
+				if (owner.id !== "nested" && peerRetentionNames.test(source)) return "retention-name";
+				return peerVocabulary.test(source) ? "vocabulary" : "";
+			};
+			const acceptsPeerRetention = (owner, source) => !peerRetentionFailure(owner, source);
+			const peerPlacementNames = [
+				...["track-3-reviewed", "track-3.1-fix2-reviewed", "track-<number>-reviewed", "track-<number>-fix<r>-reviewed", "slate-retained/change/track-3-reviewed"].map((name) => [name, "retention-name"]),
+				["retained reference", "vocabulary"], ["reviewed reference", "vocabulary"],
+			];
+			const peerPlacementVerbs = ["delete", "remove", "drop", "discard", "purge", "prune", "erase", "reset", "move", "rename", "force", "overwrite", "replace", "rewrite"];
+			const peerEscapeRules = [
+				["extra-scoped-pointer", "For changes that load the nested sections, use [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history before each merge handoff.", "citation-count"],
+				["ordinary-pointer", "For ordinary changes, use [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history before each merge handoff.", "citation-count"],
+				["every-change-pointer", "Every change must complete [recursive-workflow.md] § Level publishing and retained history before each merge handoff", "citation-count"],
+				["reviewed-binding-move", "Move an existing reviewed binding by fast-forward without asking the user.", "vocabulary"],
+				["verbatim-owner", "Never move an existing reviewed binding, even by fast-forward.", "owner-sentence"],
+				["recovery-before-record", "Recover an unexpected commit before recording or preserving it.", "vocabulary"],
+				["delete-retained", "Delete retained references after the merge.", "vocabulary"],
+				["delete-reviewed-branch", "After merge, delete the track-3-reviewed branch.", "retention-name"],
+				["delete-branch-before-name", "After merge, delete the branch track-3-reviewed.", "retention-name"],
+				["gate-remove", "After merge, remove the track-3-reviewed branch.", "retention-name"],
+				["gate-drop", "After merge, drop the branch track-3-reviewed.", "retention-name"],
+				["discard-reviewed", "After merge, discard the track-3-reviewed branch.", "retention-name"],
+				["purge-reviewed", "After merge, purge the branch track-3-reviewed.", "retention-name"],
+				["prune-reviewed", "After merge, prune the track-3-reviewed branch.", "retention-name"],
+				["erase-reviewed", "After merge, erase the branch track-3-reviewed.", "retention-name"],
+				["new-heading-removal", "## Merge notes\n\nAfter merge, remove the track-3-reviewed branch.", "retention-name"],
+				["new-heading-drop", "## Merge notes\n\nAfter merge, drop the branch track-3-reviewed.", "retention-name"],
+				["new-heading-discard", "## Merge notes\n\nAfter merge, discard the track-3-reviewed branch.", "retention-name"],
+				["new-heading-purge", "## Merge notes\n\nAfter merge, purge the branch track-3-reviewed.", "retention-name"],
+				["new-heading-prune", "## Merge notes\n\nAfter merge, prune the track-3-reviewed branch.", "retention-name"],
+				["new-heading-erase", "## Merge notes\n\nAfter merge, erase the branch track-3-reviewed.", "retention-name"],
+				["narrow-private-content", "Only research logs count as private content for any push.", "vocabulary"],
+				["publish-private-path", "Files under slate-changes/ other than the research log may be published.", "vocabulary"],
+				["privacy-citation", "Use [recursive-workflow.md](recursive-workflow.md) § Design authority and privacy for ordinary work.", "citation-count"],
+				["history-fragment", "Use [rules](recursive-workflow.md#level-publishing-and-retained-history) for every change.", "citation-count"],
+				["privacy-fragment", "Use [rules](recursive-workflow.md#design-authority-and-privacy) for every change.", "citation-count"],
+				...peerPlacementNames.flatMap(([name, reason]) => [
+					[`name-only-${name}`, `The name is ${name}.`, reason],
+					...peerPlacementVerbs.flatMap((verb) => [
+						[`verb-first-${verb}-${name}`, `After merge, ${verb} ${name}.`, reason],
+						[`name-first-${verb}-${name}`, `For ${name}, ${verb} it after merge.`, reason],
+					]),
+				]),
+			];
+			const peerEscapeAttacks = peerRetentionOwners.filter(({ contexts }) => contexts).flatMap((owner) => peerEscapeRules.map(([kind, rule, reason]) => {
+				const source = `${owner.source}\n\n${rule}\n`;
+				return { id: owner.id, kind, changed: source !== owner.source, rejected: peerRetentionFailure(owner, source) === reason };
+			}));
+			const peerRetentionAttacks = peerRetentionOwners.flatMap((owner) => [
+				"Force-push the kept references without inspection.",
+				"Create a retention reference before any ordinary change.",
+				"The private set contains only credentials.",
+				historyUnit.expected,
+			].map((rule) => {
+				const source = `${owner.source}\n\n${rule}\n`;
+				return { id: owner.id, changed: source !== owner.source, rejected: !acceptsPeerRetention(owner, source) };
+			}));
+			const ownerSentenceCopies = peerRetentionOwners.filter(({ contexts }) => contexts).flatMap((owner) => ownerSentences.map((rule, index) => {
+				const source = `${owner.source}\n\n${rule}\n`;
+				return { id: owner.id, index, changed: source !== owner.source, rejected: !acceptsPeerRetention(owner, source) };
+			}));
+			const pinnedPeerOwners = peerRetentionOwners.filter(({ pin }) => pin);
+			const peerPinRules = [
+				"After merge, remove the retention branches.",
+				"After merge, remove the branches kept for retention.",
+				"After merge, remove the track-3-reviewed branch.",
+				"After merge, drop the branch track-3-reviewed.",
+				"After merge, delete every branch whose name ends in -reviewed.",
+				"After merge, delete the backup branches from the level work.",
+			];
+			const peerPinAttacks = pinnedPeerOwners.flatMap((owner) => peerPinRules.flatMap((rule) => [
+				...[...owner.source.matchAll(/^## /gm)].map((match) => [`heading-${match.index}`, `${owner.source.slice(0, match.index)}${rule}\n\n${owner.source.slice(match.index)}`]),
+				["end", `${owner.source}\n\n${rule}\n`],
+				["new-heading", `${owner.source}\n\n## Merge notes\n\n${rule}\n`],
+				...owner.contexts.map(([, text], index) => [`context-${index}`, owner.source.replace(literalPattern(text), (match) => `${match}\n\n${rule}`)]),
+			].map(([position, source]) => ({ id: owner.id, rule, position, changed: source !== owner.source, rejected: peerPinFailure(owner, source) === "document-content" }))));
+			const reviewedBranchSentence = "For an ordinary one-level change, the reviewed branch becomes the merge source.";
+			const reviewedBranchControls = pinnedPeerOwners.flatMap((owner) => [
+				["end", `${owner.source}\n\n${reviewedBranchSentence}\n`],
+				...({ publishing: ["## One draft pull request"], lifecycle: ["## Recursive planning and loading"] }[owner.id] ?? []).map((heading) => [heading, owner.source.replace(heading, `${heading}\n\n${reviewedBranchSentence}`)]),
+			].map(([position, source]) => ({ id: owner.id, position, changed: source !== owner.source, accepted: acceptsPeerRetention(owner, source) })));
+			const wordLayerControls = pinnedPeerOwners.map((owner) => ({ id: owner.id,
+				rejected: peerRetentionFailure(owner, `${owner.source}\n\nAfter merge, delete the track-3-reviewed branch.\n`) === "retention-name",
+			}));
+			const peerOutsideControls = peerRetentionOwners.map((owner) => ({ id: owner.id,
+				accepted: acceptsPeerRetention(owner, `${owner.source}\n<!-- Outside control. -->`)
+					&& acceptsPeerRetention(owner, `${owner.source}\n\n## Unrelated section\n\nThis section contains an unrelated note.\n`),
+			}));
+			const pointerAttacks = peerRetentionOwners.flatMap((owner) => owner.units.filter(({ id }) => !["lifecycle-planning", "history", "private-set", "disabled-preservation", "shared-scheduling", "shared-disabled-preservation", publishingMigrationUnits[0].id].includes(id)).flatMap((unit) => [
+				["scope", "For changes that load the nested sections", "For every change"],
+				["destination", "§ Level publishing and retained history", "§ Terms and scope"],
+				...(unit.id === "transfer" ? [["disabled", "with publishing enabled", "with publishing disabled"]] : []),
+			].map(([kind, before, after]) => {
+				const source = owner.source.replace(literalPattern(unit.expected), unit.expected.replace(before, after));
+				return { id: owner.id, kind, changed: source !== owner.source, rejected: !acceptsPeerRetention(owner, source) };
+			})));
+			const benignOrderingDocuments = Object.fromEntries(Object.entries(orderingDocuments).map(([id, source]) => [id, `${source}\n<!-- Outside ordering control. -->\n`]));
+			checkAll("contract-level-publishing", "level membership, dependency order, pauses, local retention, approval, delivery, cleanup, rebase mappings, unavailable evidence, and publishing defaults have owned rules and reviewed peer-document pins", [
+				["reviewed peer-document pins reject unreviewed additions while scoped pointers and the word layer discriminate known copies", peerRetentionOwners.every((owner) => !peerPinFailure(owner, owner.source) && acceptsPeerRetention(owner, owner.source)) && pinnedPeerOwners.length === 3 && peerPinRules.length === 6 && peerPinAttacks.length === 252 && peerPinAttacks.every(({ changed, rejected }) => changed && rejected) && reviewedBranchControls.length === 5 && reviewedBranchControls.every(({ changed, accepted }) => changed && accepted) && wordLayerControls.length === 3 && wordLayerControls.every(({ rejected }) => rejected) && peerOutsideControls.every(({ accepted }) => accepted) && peerPlacementNames.length === 7 && peerPlacementVerbs.length === 14 && peerEscapeAttacks.length === 687 && ownerSentenceCopies.length === 1365 && [...peerRetentionAttacks, ...peerEscapeAttacks, ...ownerSentenceCopies, ...pointerAttacks].every(({ changed, rejected }) => changed && rejected), { baseline: peerRetentionOwners.map((owner) => [owner.id, peerPinFailure(owner, owner.source), peerRetentionFailure(owner, owner.source)]), peerPinAttacks: peerPinAttacks.filter(({ changed, rejected }) => !changed || !rejected), reviewedBranchControls, wordLayerControls, peerOutsideControls, peerRetentionAttacks, peerEscapeAttacks, ownerSentenceCopies: ownerSentenceCopies.filter(({ changed, rejected }) => !changed || !rejected), pointerAttacks }],
+				["closed-folder routes and post-close exceptions fail, including a request with all former folder checks", acceptsCleanupRoutes(recursive) && forbiddenCleanupMutations.length === 4 && wrappedForbiddenCleanupMutations.length === 16 && [...forbiddenCleanupMutations, ...wrappedForbiddenCleanupMutations].every(({ changed, rejected }) => changed && rejected), { forbiddenCleanupMutations, wrappedForbiddenCleanupMutations }],
+				["restored cleanup safety sentences have independent expectations and removal mutations", restoredCleanupSentences.length === 11 && restoredCleanupSentences.every(([id, rule]) => historyUnit.expected.includes(rule) && cleanupMutations.some((mutation) => mutation.id === `restored-${id}` && mutation.changed && mutation.rejected)), restoredCleanupSentences],
+				["recorded authorized deletions have independent exclusions, absence checks, and removal mutations", recordedDeletionSentences.length === 10 && recordedDeletionSentences.every(([id, rule]) => historyUnit.expected.includes(rule) && cleanupMutations.some((mutation) => mutation.id === `deleted-${id}` && mutation.changed && mutation.rejected)), recordedDeletionSentences],
+				["resume preserves recorded-deletion exclusions and inventories only remaining copies without weakening closure or deletion authority", resumeDeletionSentences.length === 4 && resumeDeletionSentences.every(([, rule]) => historyUnit.extract(recursive).text.includes(rule)) && ["Keep every other closure condition.", "Only the latest valid inventory remains the deletion authority.", "Resume therefore permits keep-and-close only when closure conditions still hold.", "Further deletion requires the orchestrator to record a new latest inventory after every non-cleanup record while all closure conditions hold."].every((rule) => historyUnit.expected.includes(rule) && historyUnit.extract(recursive).text.includes(rule)) && ["deleted-any-missing", "deleted-unauthorized-inventory", "deleted-latest-only", "deleted-no-record", "deleted-resume-voided"].every((id) => cleanupMutations.some((mutation) => mutation.id === id && mutation.changed && mutation.rejected)), resumeDeletionSentences],
+				["each lifecycle cleanup pointer clause rejects weakening", cleanupPointerAttacks.length === 3 && cleanupPointerAttacks.every(({ changed, rejected }) => changed && rejected), cleanupPointerAttacks],
+				["cleanup safety and bounded-write mutations change the owned input and fail", cleanupMutations.length === 197 && new Set(cleanupMutations.map(({ id }) => id)).size === 197 && cleanupMutations.every(({ changed, rejected }) => changed && rejected), cleanupMutations],
+				["moving cleanup safeguards outside the marker fails while preserving each sentence", cleanupOutsideControls.length === 7 && cleanupOutsideControls.every(({ changed, retained, outside, rejected }) => changed && retained && outside && rejected), cleanupOutsideControls],
+				["cleanup safeguard wrapping passes and all mutations remain discriminating", cleanupWrapControls.length === 13 && cleanupWrapControls.every(({ changed, accepted, mutations }) => changed && accepted && mutations.every(({ changed, rejected }) => changed && rejected)), cleanupWrapControls],
+				["pointer wrapping preserves scope and destination in the required handoff context", wrappedCleanupPointer !== workflow && acceptsLevelUnit(cleanupPointerUnit, wrappedCleanupPointer) && acceptsPeerRetention(peerRetentionOwners.find(({ id }) => id === "lifecycle"), wrappedCleanupPointer), "wrapped cleanup pointer"],
+				["safe creation, updates, remote events, inspection, and RG4 mutations change their intended input and fail", retentionMutations.length === 58 && retentionMutations.every(({ changed, rejected, retained }) => changed && rejected && retained), retentionMutations],
+				["the complete valid stacked example and normal fast-forward policy match in both publishing settings", acceptsLevelUnit(historyUnit, recursive), "independent complete history literal"],
+				["moving inspection outside the marker fails while keeping the sentence present", movedInspection !== recursive && movedInspection.includes(inspectionSentence) && !historyUnit.extract(movedInspection).text.includes(inspectionSentence) && !acceptsLevelUnit(historyUnit, movedInspection), "outside-marker inspection control"],
+				["wrapped inspection passes and keeps all named mutations discriminating", wrappedRetention !== recursive && acceptsLevelUnit(historyUnit, wrappedRetention) && wrappedRetentionMutations.every(({ changed, rejected, retained }) => changed && rejected && retained), wrappedRetentionMutations],
+				["the inspection pointer reaches the unique existing privacy subsection", privacyDestination.count === 1 && privacyDestination.text.includes("Record contents can also appear in saved worker sessions and command text."), privacyDestination.count],
 				["every unit matches its independent expectation", levelPolicyUnits.every((unit) => acceptsLevelUnit(unit, unit.source)), levelPolicyUnits.filter((unit) => !acceptsLevelUnit(unit, unit.source)).map(({ id }) => id)],
-				["every rule mutation changes input and fails", levelRuleMutations.every(({ changed, rejected }) => changed && rejected), levelRuleMutations],
+				["every rule mutation changes input and fails", levelRuleMutations.length === 611 && levelRuleMutations.every(({ changed, rejected }) => changed && rejected), levelRuleMutations],
+				["every safety sentence removal changes its owned input and fails", safetySentenceRemovals.length === 688 && safetySentenceRemovals.filter(({ id }) => id === "history").length === 443 && !safetySentenceRemovals.some(({ id }) => id === "cleanup-writes") && safetySentenceRemovals.every(({ changed, rejected }) => changed && rejected), safetySentenceRemovals],
+				["ordering, pause reconciliation, and local retention agree across all four documents", agreesOnOrderAndLocalRetention(), "complete independent history, planning, resume, roadmap, and publishing expectations"],
+				["unsafe pauses, conflicting bases, missing scope or events, and ordinary duties in either publishing setting fail", orderAndRetentionMutations.every(({ changed, rejected }) => changed && rejected), orderAndRetentionMutations],
+				["moving an intact event sentence outside the marker fails", eventMoveRejected(orderingDocuments), "event remains present beyond the protected marker"],
+				["event, lifecycle scope, and dependency base wrapping pass with discriminating mutations and move controls", wrappedOrderingControls.every(({ changed, accepted, mutations, eventMoveRejected }) => changed && accepted && eventMoveRejected && mutations.every(({ changed, rejected }) => changed && rejected)), wrappedOrderingControls],
+				["harmless edits outside all ordering units pass", agreesOnOrderAndLocalRetention(benignOrderingDocuments), "four outside controls"],
 				["missing and duplicate units fail and outside-unit controls pass", levelBoundaryControls.every(({ missing, duplicate, benign }) => missing && duplicate && benign), levelBoundaryControls],
 				["all five level constraints agree across lifecycle, publishing, and focus documents", agreesOnLevelMergeability(levelMergeabilityCopies), levelMergeabilityCopies.map(({ id }) => id)],
 				["every constraint rejects weakening in each of its three copies", levelMergeabilityAttacks.every(({ changed, rejected }) => changed && rejected), levelMergeabilityAttacks],
@@ -4391,7 +5469,130 @@ verbatim retention of every tool result.`);
 			const perspectiveBlastRows = [...block(blast, "focus-area-table").text.matchAll(/^\| (\d+) \| ([^|]+) \| ([^|]+) \|/gm)].map((match) => [match[2].trim(), match[3].trim()]);
 			const indexRows = [...reviews.matchAll(/^\| (.*?) \| ([A-Z]{2}) \| (.*?) \| \[([^\]]+)\]\(review-perspectives\/([a-z]+)\.md\) \|$/gm)].map((match) => [match[1].trim(), match[2], match[3].trim(), match[5]]);
 			const authorGuidelines = readFileSync(join(REPO, "docs", "design-principles.md"), "utf8");
-			const authorPrinciple = authorGuidelines.match(/^- \*\*P13 —[\s\S]*?(?=^## 5\.)/m)?.[0].trim() ?? "";
+			const authorRegion = headingUnit("### Built-in focus-area authoring")(authorGuidelines);
+			const authorPrinciple = authorRegion.rawText;
+			// The roster uses current document owners. Marker contracts stay separate.
+			const headingOwnedUnits = [
+				...recursiveRecordUnits.filter((unit) => unit.id !== "marker-identity").map((unit) => ({ ...unit, id: unit.id === "tool-records-and-recovery" ? "manual-records" : unit.id })),
+				...recursiveDeliveryUnits.filter((unit) => !["issues", "public-workflow"].includes(unit.id)),
+				{ id: "repair-escalation", source: userNotes, start: "## Mandatory escalation set", expected: repairEscalationDigest },
+				{ id: "repair-rounds-owner", source: reviews, start: "## Fix loop and gate verdicts", expected: protectedRepairOwners["repair-rounds"] },
+				{ id: "repair-consultations-owner", source: reviews, start: "## Stuck-fix consultation", expected: protectedRepairOwners["repair-consultations"] },
+				{ id: "child-fix-title-owner", source: workflow, start: "### Commit titles and bodies", expected: protectedRepairOwners["child-fix-title"] },
+				{ id: "P13-authoring", source: authorGuidelines, start: "### Built-in focus-area authoring", expected: "e2b7529353072b4a911bf86b038348f7223a94538f0aff0adb1d7f7ff863b9cc" },
+			].map((unit) => ({ ...unit, extract: headingUnit(unit.start) }));
+			const expectedHeadingRegionIds = [
+				"identifiers-ranges", "manual-records", "resume-forks", "handoff-pointer", "resume-order", "general-handoff", "closed-range-feedback",
+				"repairs", "aggregate", "sources", "workflow-accounting", "notes-accounting", "publishing-sync", "public-roadmap",
+				"repair-escalation", "repair-rounds-owner", "repair-consultations-owner", "child-fix-title-owner", "P13-authoring",
+			];
+			const headingPolicyAttacks = headingOwnedUnits.flatMap((unit) => {
+				const resolved = unit.extract(unit.source);
+				const raw = resolved.rawText;
+				const peerHashes = /^#+/.exec(unit.start)[0];
+				const peer = `${peerHashes} Unrelated following section`;
+				const fixture = `${unit.start}\n${raw}\n${peer}\nOutside rule.\n`;
+				const boundaryCases = [
+					["missing", fixture.replace(unit.start, "Missing start"), "missing", 0],
+					["duplicate", `${fixture}\n${unit.start}\n${raw}\n`, "duplicate", 2],
+					["empty", `${unit.start}\n\n${peer}\nOutside rule.\n`, "empty", 1],
+					["empty-duplicate", `${unit.start}\n\n${fixture}`, "duplicate", 2],
+					["closed-heading-duplicate", `${fixture}\n${unit.start} ###\n`, "duplicate", 2],
+				].map(([kind, source, reason, count]) => {
+					const result = unit.extract(source);
+					return { id: unit.id, kind, changed: source !== fixture, rejected: !acceptsRecordUnit(unit, source), intended: result.reason === reason && result.count === count };
+				});
+				const cut = raw.indexOf("\n");
+				const protectedTail = normalizeText(raw.slice(cut + 1));
+				const truncations = [peer, "# Unrelated higher section", peerHashes, `${peerHashes} \t`, "#", "# \t"].map((heading) => {
+					const source = `${unit.start}\n${raw.slice(0, cut)}\n${heading}\n${raw.slice(cut + 1)}\n`;
+					const result = unit.extract(source);
+					return { id: unit.id, kind: heading === peer ? "peer-truncation" : "higher-truncation", changed: source !== fixture, rejected: !acceptsRecordUnit(unit, source), intended: cut > 0 && protectedTail !== "" && result.reason === "content" && result.text === normalizeText(raw.slice(0, cut)) && !result.text.includes(protectedTail) };
+				});
+				// Mutate each complete sentence without repeating a full document fixture.
+				const sentences = resolved.text.split(/(?<=\.) /).filter((rule) => /[a-z]/i.test(rule));
+				return [...boundaryCases, ...truncations, ...sentences.map((rule, index) => {
+					const pattern = new RegExp(rule.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+"));
+					const source = fixture.replace(pattern, `Contradicting ${unit.id} sentence ${index}.`);
+					return { id: unit.id, kind: `sentence-${index}`, changed: source !== fixture, rejected: !acceptsRecordUnit(unit, source), intended: unit.extract(source).reason === "content" };
+				})];
+			});
+			const headingOutsideControls = headingOwnedUnits.flatMap((unit) => {
+				const raw = unit.extract(unit.source).rawText;
+				const peer = /^#+/.exec(unit.start)[0];
+				return [`${peer} Unrelated following section`, peer, `${peer} \t`, "#", "# \t"].map((heading) => {
+					const source = `${unit.start}\n${raw}\n${heading}\nOutside rule.\n`;
+					const changed = source.replace("Outside rule.", "Changed outside rule.\n\nUnrelated insertion.");
+					const fullDocument = unit.source.replace(raw, `${raw}\n${heading}\nOutside rule.\n`);
+					return { id: unit.id, heading, changed: changed !== source && fullDocument !== unit.source, accepted: acceptsRecordUnit(unit, source) && acceptsRecordUnit(unit, changed) && acceptsRecordUnit(unit, fullDocument) && acceptsRecordUnit(unit, `${unit.start}\n${raw}`) };
+				});
+			});
+			// These independent literals test parsing separately from document digests.
+			const boundaryStart = "## Policy";
+			const boundaryExtract = headingUnit(boundaryStart);
+			const boundaryBody = "Required first rule.\nRequired last rule.";
+			const boundarySource = `${boundaryStart}\n${boundaryBody}\n## Following\nOutside rule.\n`;
+			const acceptsBoundary = (source, expected = boundaryBody) => {
+				const result = boundaryExtract(source);
+				return result.count === 1 && result.text === normalizeText(expected);
+			};
+			const truncationAttacks = ["## Peer", "# Higher", "##", "## ", "##\t", "#", "# \t"].map((heading) => {
+				const source = boundarySource.replace("Required last rule.", `${heading}\nRequired last rule.`);
+				const result = boundaryExtract(source);
+				return { heading, changed: source !== boundarySource, rejected: !acceptsBoundary(source), intended: result.reason === "content" && result.text === "Required first rule." };
+			});
+			const levelBoundaries = [1, 2, 3, 4, 5, 6].flatMap((level) => {
+				const hashes = "#".repeat(level);
+				const extract = headingUnit(`${hashes} Policy`);
+				return [hashes, `${hashes} \t`, "#"].map((heading) => {
+					const source = `${hashes} Policy\n${boundaryBody}\n${heading}\nOutside rule.`;
+					const result = extract(source);
+					return { level, heading, accepted: result.count === 1 && result.text === normalizeText(boundaryBody) };
+				});
+			});
+			const inclusionCases = [
+				["lower-level", "### Detail\n"],
+				["empty-lower-level", "###\n"],
+				["seven-hashes", "#######\n"],
+				["missing-heading-space", "##Text\n"],
+				["empty-inline", "Inline ##\n"],
+				["empty-indented", "    ##\n"],
+				["empty-backtick-fence", "```text\n##\n#\nRequired example rule.\n```\n"],
+				["empty-tilde-fence", "~~~text\n## \t\n#\nRequired example rule.\n~~~\n"],
+				["inline", "Inline ## Example\n"],
+				["indented", "  ## Example\n"],
+				["backtick-fence", "```text\n## Example\nRequired example rule.\n```\n"],
+				["tilde-fence", "~~~text\n## Example\nRequired example rule.\n~~~\n"],
+				["fenced-start", "````text\n## Policy\n```\nRequired example rule.\n````\n"],
+			].map(([kind, insertion]) => {
+				const source = boundarySource.replace("Required last rule.", `${insertion}Required last rule.`);
+				const expected = `Required first rule.\n${insertion}Required last rule.`;
+				const protectedRule = insertion.includes("Required example rule.") ? "Required example rule." : "Required last rule.";
+				const changed = source.replace(protectedRule, "Contradictory example rule.");
+				return { kind, changed: source !== boundarySource && changed !== source, accepted: acceptsBoundary(source, expected), rejected: !acceptsBoundary(changed, expected), intended: boundaryExtract(changed).reason === "content" && boundaryExtract(source).text.includes("Required last rule.") };
+			});
+			const keptAnchorRemovals = [
+				["notes-accounting", "- every finding and its disposition."],
+				["workflow-accounting", "Aim for a delivery body at or below 16,384 UTF-8 bytes."],
+				["workflow-accounting", "A bootstrap commit created to open a draft pull request uses\n`Bootstrap: <intent title>`."],
+			].map(([id, rule]) => {
+				const unit = headingOwnedUnits.find((unit) => unit.id === id);
+				const source = unit.source.replace(rule, "");
+				return { id, rule, changed: source !== unit.source, rejected: !acceptsRecordUnit(unit, source) };
+			});
+			const privacyUnit = headingOwnedUnits.find((unit) => unit.id === "manual-records");
+			const privacyRule = "Pi saves session files with default permissions, which can expose record text to other local users.";
+			const privacyMutation = recursive.replace(privacyRule, "Session permissions need no attention.");
+			checkAll("contract-heading-regions", "all 19 heading-owned regions retain complete independent content protection and fence-aware same-level or higher boundaries", [
+				["the exact region roster resolves once and matches independent expectations", JSON.stringify(headingOwnedUnits.map((unit) => unit.id)) === JSON.stringify(expectedHeadingRegionIds) && headingOwnedUnits.every((unit) => acceptsRecordUnit(unit, unit.source)), headingOwnedUnits.map((unit) => ({ id: unit.id, result: unit.extract(unit.source).reason }))],
+				["missing, duplicate, empty, empty duplicate, truncation, and every sentence mutation fail for their intended reason", headingPolicyAttacks.every(({ changed, rejected, intended }) => changed && rejected && intended), headingPolicyAttacks],
+				["following-section insertions preserve every preceding pin and document-end controls pass", headingOutsideControls.every(({ changed, accepted }) => changed && accepted), headingOutsideControls],
+				["peer and higher headings truncate a protected rule and fail content expectations", truncationAttacks.every(({ changed, rejected, intended }) => changed && rejected && intended), truncationAttacks],
+				["all six empty heading levels close regions without becoming owned starts", levelBoundaries.every(({ accepted }) => accepted) && boundaryExtract("##\nRequired rule.").count === 0, levelBoundaries],
+				["lower, inline, indented, and fenced headings keep protected content and its mutations active", inclusionCases.every(({ changed, accepted, rejected, intended }) => changed && accepted && rejected && intended), inclusionCases],
+				["removing each restored anchor sentence fails its complete owning pin", keptAnchorRemovals.every(({ changed, rejected }) => changed && rejected), keptAnchorRemovals],
+				["the lower-level privacy subsection stays protected by the complete manual-record pin", privacyMutation !== recursive && privacyUnit.extract(recursive).text.includes("### Design authority and privacy") && privacyUnit.extract(recursive).text.includes(privacyRule) && !acceptsRecordUnit(privacyUnit, privacyMutation), "privacy sentence removal"],
+			]);
 			const authorRow = "| P13 risk-based focus-area authorship | no runtime code home for author research or approval. Focus definitions, reviewer content, the code roster, and structure and agreement checks apply the rule. |";
 			checkAll("contract-review-agreement", "runtime names, prefixes and focus areas agree with the canonical focus table and linked index; Reviewer I has no focus row", [
 				["canonical eleven focus rows and reviewer labels are exact", JSON.stringify(perspectiveBlastRows) === JSON.stringify(expectedPerspectiveFocus.map((row) => row.slice(0, 2))), perspectiveBlastRows],
@@ -4399,7 +5600,7 @@ verbatim retention of every tool result.`);
 				["general reviewer is outside focus table", roles[0]?.name === "Reviewer I" && roles[0]?.prefix === "RI" && roles[0]?.focusArea === null && !perspectiveBlastRows.some(([area]) => area === "Reviewer I"), roles[0]],
 				["index includes each runtime selector, prefix and focus once", JSON.stringify(indexRows) === JSON.stringify(roles.map((role) => [role.name, role.prefix, role.focusArea ?? "none", role.prefix.toLowerCase()])), indexRows],
 				["regression-gate prefix stays outside roster", !roles.some((role) => role.prefix === "RG") && reviews.includes("RG is a regression-gate prefix and not a perspective"), roles.map((role) => role.prefix)],
-				["on-demand P13 follows P12 and has its approved content and table row", authorGuidelines.indexOf("**P12 —") < authorGuidelines.indexOf("**P13 —") && authorGuidelines.split("**P13 —").length === 2 && hash(authorPrinciple) === "e2b7529353072b4a911bf86b038348f7223a94538f0aff0adb1d7f7ff863b9cc" && Buffer.byteLength(authorPrinciple, "utf8") === 2292 && authorGuidelines.split(authorRow).length === 2, { bytes: Buffer.byteLength(authorPrinciple, "utf8"), digest: hash(authorPrinciple) }],
+				["on-demand P13 follows P12 and has its approved content and table row", authorGuidelines.indexOf("**P12 —") < authorGuidelines.indexOf("**P13 —") && authorGuidelines.split("**P13 —").length === 2 && authorRegion.count === 1 && hash(authorPrinciple) === "e2b7529353072b4a911bf86b038348f7223a94538f0aff0adb1d7f7ff863b9cc" && Buffer.byteLength(authorPrinciple, "utf8") === 2292 && Buffer.byteLength(`### Built-in focus-area authoring\n\n${authorPrinciple}`, "utf8") === 2327 && authorGuidelines.split(authorRow).length === 2, { bytes: Buffer.byteLength(authorPrinciple, "utf8"), digest: hash(authorPrinciple) }],
 			]);
 			checkAll("contract-review-charters", "Reviewer I keeps bounded duties, conditional composition and independent dispatch; specialist limits and prefixes stay exact", [
 				["Reviewer I names its five local duties and evidence boundaries", ["maintainability", "concretely harmful antipatterns", "responsibility distribution", "completeness against the approved current-track requirements", "ordinary local correctness", "adverse effect", "unjustified coupling", "responsibility placed in a component"].every((term) => normalizeText(reviewerICharter).includes(term)), reviewerICharter],
@@ -4473,6 +5674,7 @@ The block states the current approved design when one exists, the current task a
 					source: workflow,
 					extract: regionUnit(/^(Start a change with `slate_change start` before the first implementation[\s\S]*?)(?=^Open these sections:)/gm),
 					expected: normalizeText(`Start a change with \`slate_change start\` before the first implementation dispatch. Slate creates \`slate-changes/<change>/research-log.md\` without waiting for a retained trigger. It records the generated folder name and owning Pi session identifier in saved state. Each code track creates its implementer report there at track start. Append a retained entry immediately when any trigger below fires. \`slate_change close\` clears the current change after delivery or abandonment. It deletes no files.
+For changes that load the nested sections, follow [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for retention inventory and cleanup before close.
 
 - a second non-obvious decision.
 - a surprise about repository behaviour.
@@ -4546,7 +5748,7 @@ Record each grant in the override log.`),
 			}));
 			// Exact pins include the report and ownership rules after the trigger list.
 			const reportRule = regionUnit(/^For each code track, the implementer creates\n([\s\S]*?)(?=^Tracks are contiguous)/gm);
-			const forkRule = regionUnit(/^Use a safe write method\. ([\s\S]*?)(?=^Before a session handoff)/gm);
+			const forkRule = regionUnit(/^Use a safe write method\. ([\s\S]*?)(?=^### Handoff summary\n)/gm);
 			const expectedReportRule = normalizeText(`\`track-<number>-implementer-report.md\` in the current change folder when the track starts. The dispatch gives the exact path. The report is untracked working material. After a session with a different identifier takes ownership, create a report in the new change folder. If the source folder has this track's report, name it as read-only in the new report's first entry. Continue the work in the new report. The report has four required sections: changes to the high-level design with the reason for each, the low-level design, diagrams where they help, and checks run with their results. The report states the approximate track size in counted lines. Later fix rounds append to that report in the current change folder.`);
 			const expectedForkRule = normalizeText(`Follow the direct-write and retry rules for change records, including implementer reports. Use [recursive-workflow.md](recursive-workflow.md) § Manual records and safe writes for write methods, record checks, and inspection before retries. Research logs and implementer reports are append-only. A correction is a new entry. Slate checks the folder chain when it creates the change. Keep all manual records and leftover temporary files untracked and visible in repository status. Do not add them to an ignore file or a pull request. Exclude their references and contents from reviewer inputs. Never overwrite a record from a stale in-memory copy. When a session adopts a change owned by a different Pi session identifier, Slate starts a new folder. Its log first names the direct source folder as a read-only earlier log. Each source log's first entry links to its own source. Follow those links to read the full history. The source remains in place without copying. A resume or reload with the same identifier continues the current folder. A /tree move to parent history with a different owner creates a new folder on reload. A handoff makes the successor the owner of the current folder. If folder allocation fails, Slate saves no open change and reports the failure. If that save fails, Slate reports it too. A legacy root \`research-log.md\` remains read-only. Only the user deletes a delivered or abandoned change folder.`);
 			const acceptsLateRules = (source) => {
@@ -4554,6 +5756,21 @@ Record each grant in the override log.`),
 				const fork = forkRule(source);
 				return report.count === 1 && fork.count === 1 && normalizeText(report.text) === expectedReportRule && normalizeText(fork.text) === expectedForkRule;
 			};
+			const expectedResearchPrivacy = normalizeText(`Do not copy secrets, credentials, private user data, or unnecessary personal
+data into the log. Record a privacy exception as a typed ruling. State what was
+omitted and why.`);
+			const researchPrivacy = (source) => regionUnit(/^(Do not copy secrets,[\s\S]*?)(?=\n\s*\n|(?![\s\S]))/gm)(headingUnit("## Session handoff and the research log")(source).rawText);
+			const acceptsResearchPrivacy = (source) => {
+				const unit = researchPrivacy(source);
+				return unit.count === 1 && unit.text === expectedResearchPrivacy;
+			};
+			const privacyPattern = (rule) => new RegExp(rule.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+"));
+			const researchPrivacyRemovals = expectedResearchPrivacy.split(/(?<=\.) /).map((rule, index) => {
+				const source = workflow.replace(privacyPattern(rule), "");
+				const result = researchPrivacy(source);
+				return { rule, changed: source !== workflow, rejected: !acceptsResearchPrivacy(source), intended: !normalizeText(source).includes(rule) && result.count === (index === 0 ? 0 : 1) && result.text !== expectedResearchPrivacy };
+			});
+			const movedResearchPrivacy = workflow.replace(privacyPattern(expectedResearchPrivacy), "") + `\n## Outside research log\n\n${expectedResearchPrivacy}\n`;
 			const rootReport = workflow.replace("in the current change folder when the track", "at the repository root when the track");
 			const reusedFork = workflow.replace(/Slate starts a new folder\.\s+Its log first names/, "Slate reuses the source folder. Its log first names");
 			const unconditionalReport = workflow.replace(/If the source folder has this track's report,\s+name it as read-only in the new report's first entry\./, "Name the earlier report as read-only in the new report's first entry.");
@@ -4572,6 +5789,10 @@ Record each grant in the override log.`),
 			const duplicatedCharters = `${roleFiles.nl}\n${roleFiles.nl}`;
 			const missingBoundary = roleFiles.nl.replace("**Charter.**", "**Task.**");
 			checkAll("contract-dispatch-context", "four complete dispatch-policy units resolve exactly once and equal independent expectations. They cover the focused implementation-context obligation, research-log lifecycle, reviewer-input contract, and stuck-fix policy. Counterfactuals reject missing current-context inputs, a restored mandatory whole-log read, other policy weakening, or additions inside a unit, while benign text outside the units remains accepted. Five bounded UTF-8 measurements remain exact", [
+				["the complete research-log privacy paragraph matches an independent literal in its owning section", acceptsResearchPrivacy(workflow), researchPrivacy(workflow)],
+				["all three privacy sentence removals change input and fail for missing or changed content", researchPrivacyRemovals.length === 3 && researchPrivacyRemovals.every(({ changed, rejected, intended }) => changed && rejected && intended), researchPrivacyRemovals],
+				["moving the intact privacy paragraph outside its owner fails with no owned paragraph", movedResearchPrivacy !== workflow && normalizeText(movedResearchPrivacy).includes(expectedResearchPrivacy) && researchPrivacy(movedResearchPrivacy).count === 0 && !acceptsResearchPrivacy(movedResearchPrivacy), researchPrivacy(movedResearchPrivacy)],
+				["an unrelated outside edit preserves the research-log privacy paragraph", acceptsResearchPrivacy(benignWorkflow), researchPrivacy(benignWorkflow)],
 				["later report-location and fork-ownership rules match independent exact pins", acceptsLateRules(workflow), { report: reportRule(workflow), fork: forkRule(workflow) }],
 				["root-report, same-folder fork, and unconditional report mutations each break their pin", rootReport !== workflow && reusedFork !== workflow && unconditionalReport !== workflow && !acceptsLateRules(rootReport) && !acceptsLateRules(reusedFork) && !acceptsLateRules(unconditionalReport), { root: acceptsLateRules(rootReport), fork: acceptsLateRules(reusedFork), unconditional: acceptsLateRules(unconditionalReport) }],
 				["the four approved policy units form the exact roster and resolve once", dispatchUnitResults.map(({ id }) => id).join() === "implementation-reference,research-log-lifecycle,reviewer-input-contract,stuck-fix-policy" && dispatchUnitResults.every(({ count }) => count === 1), dispatchUnitResults.map(({ id, count }) => ({ id, count }))],
@@ -4590,7 +5811,6 @@ Record each grant in the override log.`),
 
 			const packageContract = block(deliveryPackages, "delivery-package-contract");
 			const digest = (text) => createHash("sha256").update(normalizeText(text)).digest("hex");
-			const EXPECTED_DELIVERY_PACKAGES_SHA256 = "569dbba8904d5a7b698eff3c7a9024e11adb2251ce7fcf0939091f793b87dc17";
 			const acceptsPackageContract = (source) => {
 				const owned = block(source, "delivery-package-contract");
 				return owned.count === 1 && owned.endCount === 1 && digest(source) === EXPECTED_DELIVERY_PACKAGES_SHA256;
@@ -4651,6 +5871,7 @@ exists.`);
 			const disabledAccountingMutations = [
 				["future-intermediate-record", deliveryPackages.replace("Reference those owning records and\n   accepted ranges.", "Reference the future final commit body.")],
 				["missing-final-transfer", deliveryPackages.replace("Copy every required conclusion from all accounting sources into its body.", "Create the commit without copying the accounting.")],
+				["disabled-source-preservation", deliveryPackages.replace(literalPattern("Before rewriting, preserve accepted source history under [track-workflow.md](track-workflow.md) § Delivery and termination."), "")],
 				["cleanup-before-verification", deliveryPackages.replace("Verify the body against every accounting source and required conclusion.\n   Only then close", "Close before verifying the accounting. Then restore")],
 				["missing-single-track-route", deliveryPackages.replace("A publishing-disabled single-track change starts at step 2.", "A publishing-disabled single-track change has no accounting route.")],
 			];
@@ -4803,7 +6024,7 @@ Do not count accepted child work as new implementation.`),
 					"# Track-based development workflow",
 					...(index === 0 ? [] : index === 1
 						? ["## Review coverage", "### Routing recommendations at change completion"]
-						: ["## Delivery and termination"]),
+						: ["## Delivery and termination", ...(index === 4 ? ["### Delivery history and accounting"] : [])]),
 				], text)),
 				reviewedReference("docs/user-notes.md", ["# User notes and user-facing registers"], `[delivery-packages.md](delivery-packages.md) owns the short user-facing package
 format. Other workflow documents may call a track package a **track packet** and
@@ -4817,7 +6038,7 @@ accounting. The package references that record and the diff.`),
 [delivery-packages.md](delivery-packages.md) § Single-track combined package. A
 multi-track change uses the separate change package defined in that document.
 Package preparation does not delay or replace the feedback triggers above.`),
-				reviewedReference("docs/user-notes.md", ["# User notes and user-facing registers", "## Durable final accounting"], `Before final acceptance, reconcile all owning records defined in
+				reviewedReference("docs/user-notes.md", ["# User notes and user-facing registers", "## Durable final accounting", "### Final accounting preparation"], `Before final acceptance, reconcile all owning records defined in
 [delivery-packages.md](delivery-packages.md) § Durable accounting.
 With publishing, use that section's package and post-acceptance transfer sequence before merge.
 Without publishing, packages reference the owning accounting sources.

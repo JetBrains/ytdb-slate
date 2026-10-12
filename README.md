@@ -93,7 +93,7 @@ The main goal is that you can guide a change through its design without reading 
 
 1. Design documents that state exact guarantees and show why the design keeps them. Reviewers check the code against the approved design ([#402](https://github.com/JetBrains/ytdb-slate/issues/402), [#403](https://github.com/JetBrains/ytdb-slate/issues/403), [#404](https://github.com/JetBrains/ytdb-slate/issues/404)).
 2. Better developer experience: asynchronous threads, a detailed cost breakdown, and a read-only view of thread execution.
-3. Remote development through integration with pi-agent-dashboard ([#417](https://github.com/JetBrains/ytdb-slate/issues/417)).
+3. Remote development: planned support will allow you to set up your own infrastructure to steer agents from a laptop, a desktop or a phone through one browser application, with notifications when an agent needs attention.
 
 See [`docs/roadmap.md`](docs/roadmap.md) for details.
 

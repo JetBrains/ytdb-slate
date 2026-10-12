@@ -23,7 +23,7 @@ Design tracks produce the pull requests of their descendant levels.
 A change without design tracks keeps exactly one pull request.
 Do not create separate pull requests for code tracks or review-fix children.
 For nested work, use [recursive-workflow.md](recursive-workflow.md) § Level publishing
-and retained history for subtree ordering, branch bases, history slices, and retention.
+and retained history for subtree ordering, branch bases, and history slices.
 
 The level is the merge unit.
 All checks pass at each child marker.
@@ -71,6 +71,13 @@ Every creation path keeps these safeguards:
   A one-level change starts from the repository's default development branch.
   For nested work, choose its base under [recursive-workflow.md](recursive-workflow.md)
   § Level publishing and retained history.
+  Use dependency order for bases, including code before a dependent design subtree.
+  Base that subtree's first level branch on the completed code-containing branch.
+  Base later dependent levels on the latest completed preceding level branch.
+
+  The user merges the code-containing level pull request only after its level is complete.
+  Every track of that level, including the dependent design subtree, must have its required acceptance.
+  The user then merges the dependent pull requests in dependency order.
 - If the working branch has no diff against the base yet, land a
   bootstrap empty commit so the PR can be created.
 - At creation, if a high-level design exists, read the current authoritative design file for the change root or design track.
@@ -213,8 +220,8 @@ stay agent duties below. The flip is gated by this checklist, executed in order:
   placeholder — plus any notes under it. Preserve required acceptance and
   history references in Delivery accounting.
   A squash merge does not preserve marker commits in the default-branch history.
-  For nested work, keep accepted source markers under
-  [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history.
+  For changes that load the nested sections, complete the retention protocol in
+  [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history before the final ready flip and each merge handoff, and for the comparisons after each merge.
   Motivation and Planned changes remain in the description.
 - Update the PR title and description to the final state of the
   level: the title names what was actually delivered — preserving any
@@ -259,7 +266,7 @@ Verify the observed merge commit's identity and parents against its accepted his
 Record the observed merge-result binding in the reachable description and owning log.
 The merge commit itself supplies that binding, including for the last level.
 The root final package lists every level delivery.
-It distinguishes merged levels from the last accepted level waiting for merge.
+It distinguishes merged levels from every level waiting for merge, including levels held behind an unmerged foundation.
 Close the root change only after all delivery accounting is verified.
 Use track-workflow.md § Session handoff and the research log for closure.
 Abandonment at any stage also ends with

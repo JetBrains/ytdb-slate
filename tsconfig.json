@@ -98,7 +98,9 @@
   // that imports the SDK and drives the real model-default module, and so is
   // verification/ci-canary.ts — the load check's positive control is a real pi
   // extension, and a type error in it would fake a load failure.
+  // .pi/extensions/require-main-worktree.ts checks the project worktree at startup.
   // verification/required-case-*.ts checks delivery results through Node's native
-  // type stripping. verification/*.mjs drivers remain outside the checked graph.
-  "include": ["extension/**/*.ts", "test/**/*.ts", "verification/probe.ts", "verification/ci-canary.ts", "verification/worker-reminder-canary.ts", "verification/required-case-*.ts"]
+  // type stripping. verification/*.mjs drivers are plain, unannotated JavaScript.
+  // Checking them would need allowJs+checkJs, so they remain outside this graph.
+  "include": ["extension/**/*.ts", ".pi/extensions/require-main-worktree.ts", "test/**/*.ts", "verification/probe.ts", "verification/ci-canary.ts", "verification/worker-reminder-canary.ts", "verification/required-case-*.ts"]
 }

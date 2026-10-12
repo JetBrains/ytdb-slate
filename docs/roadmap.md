@@ -27,7 +27,14 @@ A **code track** implements bounded approved work.
 A **level** contains sibling tracks created by one split.
 Each level with code tracks has one optional draft pull request.
 A **subtree** contains a track and its descendants.
-Complete an entered subtree before starting its siblings.
+
+Tracks finish in dependency order.
+Design tracks finish first only when tracks do not depend on each other.
+Complete an entered subtree before continuing its siblings, except for a permitted dependency pause.
+A subtree may pause for an unfinished sibling dependency only when none of its open level slices has commits.
+Otherwise change the split before the subtree's first commit.
+A late dependency discovery after commits exist stops work for a user-approved replan.
+
 Each design track needs explicit acceptance of its whole subtree.
 Root final acceptance covers the whole change.
 Only the user merges pull requests.
@@ -43,4 +50,4 @@ Planned asynchronous threads will let the main session continue while worker ses
 
 ## Remote development
 
-Planned integration with pi-agent-dashboard will let a desktop or laptop serve as a remote development workstation ([#417](https://github.com/JetBrains/ytdb-slate/issues/417)).
+Planned remote development will allow you to set up your own infrastructure to steer agents from a laptop, a desktop or a phone through one browser application. The goal is that work becomes a natural part of private life and does not harm it. For example, a developer can spend about two hours on intensive system design work. For the rest of the day, the developer can steer agents at intervals between other activities. A notification will tell the developer when an agent needs attention. A phone will show a light view of the agent state. A laptop or desktop will show the same state in a full view.
