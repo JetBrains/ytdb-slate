@@ -33,7 +33,7 @@ async function live(t: TestContext, realTimers = false) {
 	const root = mkdtempSync(join(tmpdir(), "slate-settled-dialog-")), agent = join(root, "agent");
 	mkdirSync(agent);
 	t.after(() => rmSync(root, { recursive: true, force: true }));
-	let time = 0, calls = 0, failNext = false;
+	let time = 0, calls = 0, failNext = false, recordSettlementArm = false;
 	let held: ReturnType<typeof deferred<void>> | undefined, heldFailure: typeof held;
 	let settling: { entered: ReturnType<typeof deferred<void>>; wait: ReturnType<typeof deferred<void>> } | undefined;
 	const providerEntered = deferred<void>(), failureEntered = deferred<void>();
@@ -78,13 +78,22 @@ async function live(t: TestContext, realTimers = false) {
 			channels: [{ name: "native", prepare: async (text) => () => {
 				deliveries.push({ title: text.title, body: text.body, at: now() }); delivered.resolve();
 			} }],
-			...(realTimers ? {} : { now, schedule: (delay: number, callback: () => void) => {
+			now: () => {
+				const at = now();
+				if (recordSettlementArm) {
+					trace.push({ event: "settled_timer_arm", at }); recordSettlementArm = false;
+				}
+				return at;
+			},
+			...(realTimers ? {} : { schedule: (delay: number, callback: () => void) => {
 				const timer = { at: time + delay, callback }; timers.add(timer);
 				return () => { timers.delete(timer); };
 			} }),
 		});
 		pi.on("session_start", (_event, ctx) => { events.retire(); events.start(config, ctx); });
 		pi.on("session_shutdown", events.retire);
+		// The first dispatcher clock read during settlement supplies the timer arm time.
+		pi.on("agent_settled", () => { recordSettlementArm = true; });
 		events.registerSettlement();
 		const record = (event: string) => () => { trace.push({ event, at: now() }); };
 		pi.on("agent_start", record("agent_start"));
@@ -94,7 +103,9 @@ async function live(t: TestContext, realTimers = false) {
 			const gate = settling;
 			if (gate) { gate.entered.resolve(); await gate.wait.promise; }
 		});
-		pi.on("agent_settled", record("agent_settled"));
+		pi.on("agent_settled", () => {
+			recordSettlementArm = false; trace.push({ event: "agent_settled", at: now() });
+		});
 		pi.on("ui_prompt_start", record("ui_prompt_start"));
 		pi.on("ui_prompt_end", record("ui_prompt_end"));
 		pi.on("input", record("input"));
@@ -298,7 +309,7 @@ test("dialog input restarts the delay across a real retry and can notify while t
 
 test("real settled session reaches delivery through the production timers within a generous deadline", { timeout: 10_000 }, async (t) => {
 	const f = await live(t, true); await f.run(); await within(f.delivered.promise);
-	const settlement = f.trace.find((item) => item.event === "agent_settled"); assert.ok(settlement);
+	const settlement = f.trace.find((item) => item.event === "settled_timer_arm"); assert.ok(settlement);
 	assert.equal(f.deliveries.length, 1); assert.equal(f.deliveries[0]!.title, "Input needed");
 	assert.ok(f.deliveries[0]!.at - settlement.at >= minimumDelayMs - 1, "production timers respect the delay");
 	assert.ok(f.deliveries[0]!.at - settlement.at < deadlineMs, "production delivery stays inside the generous deadline");
