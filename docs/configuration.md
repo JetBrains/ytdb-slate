@@ -53,10 +53,10 @@ The project must be trusted before Slate reads this file. Start a new session af
 | `notifications.minimumDelayMs` | number | `30000` | Minimum interval since input, in milliseconds. Accept a nonnegative safe integer. A trusted project value wins. |
 | `notifications.cooldownMs` | number | `60000` | Minimum interval between events of the same type, in milliseconds. Accept a nonnegative safe integer. A trusted project value wins. |
 | `notifications.sequences` | `auto` \| string[] | `auto` | An explicit list must contain distinct values from `osc9`, `osc777`, and `osc99`. The list must not be empty. List order is preserved. A trusted project value wins. |
-| `notifications.push.server` | string | — | Accept HTTPS (Hypertext Transfer Protocol Secure) addresses from home configuration for encrypted web traffic. Accept HTTP (Hypertext Transfer Protocol) only for loopback addresses, which refer to this computer. Allow `localhost`, IPv4 (Internet Protocol version 4) addresses starting with `127.`, or `::1`. Reject embedded credentials, query strings, and fragments. An invalid address disables push with a generic warning. Slate ignores project destination and credential fields with one generic warning. |
-| `notifications.push.topic` | string | — | Home-only topic name. Accept ASCII (American Standard Code for Information Interchange) letters `A-Z` and `a-z`, digits `0-9`, `_`, or `-`. Enabled push requires both server and topic. An invalid or missing destination disables push. |
-| `notifications.push.token` | string | — | Home-only authentication token. Do not combine it with username and password. |
-| `notifications.push.username`, `notifications.push.password` | string | — | Home-only authentication pair. Supply both values or neither. Credentials must be nonempty and contain no control characters. Invalid credentials disable push. |
+| `notifications.push.server` | string | — | Accept HTTPS (Hypertext Transfer Protocol Secure) addresses from home configuration for encrypted web traffic. Accept HTTP (Hypertext Transfer Protocol) only for loopback addresses, which refer to this computer. Allow `localhost`, IPv4 (Internet Protocol version 4) addresses starting with `127.`, or `::1`. HTTP connections also require a resolved loopback address. Reject embedded credentials, query strings, and fragments. The request path ends with `/`. An invalid address disables push with a generic warning. Slate ignores project destination and credential fields with one generic warning. |
+| `notifications.push.topic` | string | — | Home-only topic name of 1 to 64 characters. Accept ASCII (American Standard Code for Information Interchange) letters `A-Z` and `a-z`, digits `0-9`, `_`, or `-`. Enabled push requires both server and topic. An invalid or missing destination disables push. |
+| `notifications.push.token` | string | — | Home-only authentication token. Accept only characters allowed in HTTP headers, without control characters. Do not combine it with username and password. Invalid credentials disable push. |
+| `notifications.push.username`, `notifications.push.password` | string | — | Home-only authentication pair. Supply both values or neither. Credentials must be nonempty and contain no control characters. A username cannot contain `:`. Invalid credentials disable push. |
 | `workerTools` | string[] | `["read", "bash", "edit", "write", "grep", "find", "ls"]` | Tools available to worker threads (an empty list also falls back to the default). |
 | `workerExtensions` | string[] | `[]` | Regex patterns (matched **unanchored**) selecting which of the host session's already-loaded extensions also load into every worker thread; each matched extension's tools are added **on top of** `workerTools`. Empty (default) means workers load no project or discovered extensions. Slate still supplies one internal reminder component. The orchestrator keeps its restricted tool set but its doctrine is told what was whitelisted. Invalid patterns are dropped with a warning at session start. |
 | `cacheKeyEnabled` | boolean | `true` | Add one OpenAI Responses prompt cache key to all workers in the current main Slate session. Another main session receives another key. `false` disables key injection. It does not disable request throttling. Provider requests with `cacheRetention: "none"`, including worker summaries, keep that opt-out and receive no forced key. |
@@ -86,9 +86,417 @@ The project must be trusted before Slate reads this file. Start a new session af
 | `router.models` | object | shipped six-model pool | Ordinary membership and definitions. `include` replaces the starting membership, including with an empty list. `add` accepts complete new definitions. `replace` changes selected fields. `exclude` applies last. Within each model definition, lists and provider maps replace shipped fields. The home and project configuration files merge first. |
 | `router.compressor.models` | array of `{ model, effort }` | `[{"model":"claude-sonnet-5.5","effort":"medium"}]` | Independent ordered compressor list. An explicit empty list blocks work. |
 
-Notification settings define permissions and text policy. Slate validates these settings at session start. Slate sends terminal sequences and a separate bell after eligible main-session waits. Both channels require interactive mode and terminal standard output. Slate registers no notification tool. Native and push delivery channels are not registered.
+Notification settings define permissions and text policy. Slate validates these settings at session start. Slate registers terminal, bell, native and push delivery channels. A channel is one delivery route. Slate registers no notification tool. See [Notifications](#notifications) for automatic delivery and setup.
 
 Invalid values produce generic warnings that name the setting and its home or project source without showing supplied values. Invalid channel values use the channel defaults, combined with home permission for project values. Invalid detail falls back to `generic`. Invalid intervals use their defaults. Invalid sequence selection uses `auto`. Invalid or incomplete push destinations disable push.
+
+## Notifications
+
+Slate automatically attempts delivery when the main session needs attention.
+Channel settings control automatic delivery. There is no separate enable setting.
+Notifications work with orchestrator mode on or off.
+Worker threads do not trigger their own Slate notifications.
+
+Slate sends notifications only in pi's interactive terminal mode.
+Print mode and Remote Procedure Call mode, abbreviated RPC, send none.
+Terminal sequences and bells also require standard output to be a real terminal.
+Captured or redirected output receives no notification controls.
+
+### Automatic waits and timing
+
+A run wait starts after pi reports that the main run has settled.
+Settlement means the run has ended, including retries and queued continuations.
+Slate also waits for its own model recovery to finish.
+A normal outcome sends **Input needed**. A final error sends **Error**.
+Successful recovery does not send the intermediate error.
+
+An open extension dialog can also start an **Input needed** wait.
+Slate observes extension dialog start and end events.
+A blocking dialog waits for your answer before work can continue.
+Closing the dialog cancels its pending wait.
+These events can also describe nonblocking overlays.
+An event proves an outstanding interaction, not that the agent has stopped.
+
+The default minimum delay is 30,000 milliseconds, or 30 seconds.
+The delay starts at settlement or dialog opening, whichever wait applies.
+Observed activity restarts the delay for a pending wait.
+
+The default cooldown is 60,000 milliseconds, or 60 seconds, between attempts of the same event type.
+Input-needed and error events have separate cooldowns.
+A wait that fails the cooldown check sends nothing.
+Slate does not repeatedly notify about the same wait.
+
+Before delivery, Slate checks that the wait still belongs to the current session.
+A run wait also requires an idle agent, no queued message and no active Slate recovery.
+A dialog wait requires an open observed dialog.
+Each channel permits at most one attempt at a time.
+A busy channel does not block the other channels.
+
+Change the delay and cooldown in home or trusted project configuration:
+
+```json
+{
+  "notifications": {
+    "minimumDelayMs": 30000,
+    "cooldownMs": 60000
+  }
+}
+```
+
+### Observed activity and stop limits
+
+Slate restarts pending waits for these observed actions:
+
+- Terminal input that reaches Slate's listener, including typing and navigation keys.
+- An interactive prompt submission or a `!` shell command.
+- Session tree navigation, which selects another point in conversation history.
+- Model selection or a change to the model's thinking effort.
+- A session information change, such as renaming the session.
+- Manual compaction, which shortens conversation history.
+
+Model requests do not count as user activity.
+Activity alone never sends a notification.
+After Slate admits delivery, later activity does not recall that attempt.
+
+The listener cannot observe every human action.
+Earlier extension listeners and full-screen input consumers can hide keys.
+Built-in pi dialogs may emit no extension dialog events.
+Reading output without keys can outlast the delay and cause a notification.
+Rare terminal replies and extension-caused activity events can postpone a notification.
+Slate does not detect terminal focus or replace the editor.
+
+A final response marked as aborted suppresses the run notification.
+An observed aborted run signal also suppresses it.
+Slate cannot detect a stop when pi supplies neither form of evidence.
+
+A stop before an automatic retry can leave the earlier error visible to Slate.
+Slate can then send **Error**.
+A stop during another extension's end-of-run handler can leave a normal outcome.
+Slate can then send **Input needed**.
+Slate does not infer a stop from Esc, which also closes dialogs and menus.
+
+### Session replacement and reload limits
+
+A handler is an extension callback that pi calls for an event.
+Slate observes replacement requests through its `session_before_switch` and `session_before_fork` handlers.
+Outgoing-session notifications stop when Slate's handler observes the request.
+
+The built-in commands include `/new`, `/fork`, `/resume`, `/import` and `/clone`.
+Other extensions can also request replacement.
+An extension can delay or cancel a request.
+Pi supplies no final cancellation result for requests that Slate did not start.
+
+Pi calls these handlers in extension order and waits for each to finish.
+An earlier handler can delay or cancel `/new` or a fork before Slate observes the request.
+An existing outgoing-session wait can still deliver while that earlier handler runs.
+No new prompt is needed.
+If the earlier handler cancels the request, Slate's handler does not run.
+
+Slate tracks its own `/slate handoff` until it finishes, including its wait for the agent to stop.
+A pending Slate handoff keeps outgoing notifications off.
+After cancellation, Slate restores notifications only when no other replacement request remains pending.
+
+For other replacement requests, the next interactive prompt submitted while the agent is idle clears Slate's pending state.
+Notifications resume only when no Slate handoff remains pending.
+A `!` shell command alone does not restore them.
+
+After Slate observes a request, one outgoing notification can still occur during a delayed replacement when all these conditions hold:
+
+1. Slate did not start the replacement request.
+2. Another extension delays it without a pi dialog.
+3. You submit a prompt while the agent is idle during that delay.
+4. The new run settles or a dialog opens before replacement finishes.
+5. No Slate handoff is pending.
+
+A replacement that proceeds aborts any run started during that delay.
+Running `/reload` during a pending replacement creates a Slate instance that does not know about that request.
+The new instance can send one outgoing notification before replacement finishes.
+
+Slate cannot recall a notification that a channel has already accepted.
+A started native helper or sent push request can finish after replacement or reload.
+Native and push attempts retain their time limits.
+A crash or emergency exit can skip cleanup and leave a started helper to finish.
+
+### Text detail and permissions
+
+Terminal and native text follow `notifications.detail`.
+Push text follows the independent `notifications.pushDetail` setting.
+Both default to `generic`.
+Raising general detail does not raise push detail.
+Only home configuration can permit higher detail.
+A trusted project can only lower either home permission.
+
+| Detail | Permitted text |
+| --- | --- |
+| `generic` | Only the event type, **Input needed** or **Error**. |
+| `project` | The event type and current folder name. |
+| `message` | The event type, folder name and end of the latest agent text. |
+
+Message detail copies at most 200 bytes of UTF-8, the Unicode text encoding, with a leading `…`.
+Slate copies text, not thinking or tool data.
+For an error without agent text, message detail can copy provider error text instead.
+Provider error text reaches push only at a home-authorized `message` level.
+Slate removes terminal controls and text direction controls.
+Channel size limits can shorten text further.
+
+Home configuration permits terminal, native and bell channels by default.
+Push defaults to off. A trusted project can disable any channel but cannot grant home-denied permission.
+To turn all delivery off, set these home or trusted project values:
+
+```json
+{
+  "notifications": {
+    "terminal": false,
+    "native": false,
+    "bell": false,
+    "push": { "enabled": false }
+  }
+}
+```
+
+### Terminal client delivery and the bell
+
+Native delivery uses the operating system on the host that runs pi.
+Terminal delivery sends control sequences to the terminal client that displays pi.
+A control sequence is a fixed byte request that a terminal can interpret.
+Over Secure Shell, abbreviated SSH, the host and terminal client can be different computers.
+Native delivery on a remote host does not notify the client desktop.
+Terminal delivery depends on the client terminal's support and permissions.
+
+Slate supports three Operating System Command protocols, abbreviated OSC: `osc9`, `osc777` and `osc99`.
+The default `sequences: "auto"` selects protocols from terminal identity hints.
+Outside tmux, a terminal program that manages multiple windows and panes, Slate chooses at most one protocol:
+
+| Identified terminal | Automatic choice |
+| --- | --- |
+| iTerm2 | `osc9` |
+| WezTerm or Ghostty | `osc777` |
+| kitty or foot | `osc99` |
+| Konsole | `osc777` |
+| Visual Studio Code terminal | `osc99` |
+| Windows Terminal, GNOME Terminal, Alacritty, macOS Terminal.app or an unknown terminal | No sequence. The independent bell remains available. |
+
+Automatic selection uses environment variables and cannot prove every connection arrangement.
+Hints inherited across SSH can describe a different terminal.
+Slate queries attached tmux clients when possible.
+For several identified clients, automatic selection reaches as many as possible without duplicate sequence notifications to any identified client.
+Some clients can receive no sequence notification.
+A failed query or no identified client causes a fallback to environment hints.
+
+Tmux requires your `allow-passthrough` permission to forward notification sequences.
+On tmux 3.4, `allow-passthrough on` delivers no notification sequence from an inactive window.
+Use `all` on tmux 3.4 or later to permit sequences from invisible panes too:
+
+```sh
+tmux set-option -g allow-passthrough all
+```
+
+An attached client must belong to a session containing the producing window.
+Slate does not change this permission.
+In tmux automatic mode, the bell can wait up to one second for the client query.
+The query and other channel preparation finish before delivery starts.
+
+An explicit list bypasses automatic selection and sends every listed protocol in order:
+
+```json
+{
+  "notifications": { "sequences": ["osc777"] }
+}
+```
+
+Choose only protocols your client supports.
+Several entries can cause duplicate notifications.
+An explicit list cannot override an ambiguous route with multiple multiplexer hints.
+
+A multiplexer is a program such as tmux, GNU screen or Zellij that manages terminal sessions.
+Slate suppresses sequences for multiple such hints and warns once per session.
+The bell stays independent.
+Slate wraps sequences for tmux and GNU screen.
+Zellij receives unwrapped requests and controls their forwarding through its own settings.
+
+The bell is a separate alert byte, not a notification sequence.
+An unsupported terminal receives no automatic sequence but can still handle the bell.
+Your terminal or tmux bell settings can mute it or turn it into a visual alert.
+Terminal notification permissions and focus rules can suppress display despite correct bytes.
+Slate does not detect focus or override those rules.
+
+Windows terminal write order has not been validated by hand.
+Slate therefore makes no Windows terminal compatibility claim.
+
+### Native host delivery
+
+Native delivery needs the host's desktop notification service and permission to show notifications.
+A remote host without a desktop service can provide no native display.
+Missing helpers, denied permission and delivery failures show no warning.
+A native failure does not stop other channels.
+
+| Host | Native route and prerequisites | Delivery attempt limit |
+| --- | --- | --- |
+| Linux | `notify-send` from an absolute search-path directory outside the project and `node_modules`. A desktop display and a user notification service must be available in pi's environment. | 5,000 milliseconds |
+| macOS | `/usr/bin/osascript` uses the user's notification service. Check the notification permission for the sender on your machine. | 5,000 milliseconds |
+| Windows | Windows PowerShell 5.1 at the system path. Slate uses the first case-insensitive exact-name Windows PowerShell entry in the Start applications folder for its registered application identity. | 10,000 milliseconds |
+
+Windows uses the system's Start entry, not a universal application identifier.
+The Start applications folder is the application list that `Get-StartApps` enumerates.
+The production helper reads that folder directly and disables PowerShell module auto-loading.
+
+A toast is a Windows desktop notification.
+Hosted Windows checks read back toast history through the operating system.
+History read-back proves retention, not visible presentation.
+
+Libnotify is the library that supplies `notify-send` on Linux.
+Linux native delivery requires a helper that supports `--app-name`.
+Slate passes `--app-name=Slate` on every Linux native attempt.
+Stock helpers from libnotify versions before 0.5.0 reject that option before creating a notification.
+Native delivery then fails without a warning.
+
+Slate doubles body backslashes before the helper parses escape sequences.
+Use [Check delivery by hand](#check-delivery-by-hand) to check local helper support and visible delivery.
+
+### Phone push through ntfy
+
+Ntfy is a notification server with phone applications that subscribe to topics.
+A topic is a named destination that receives messages for its subscribers.
+Put push destinations and credentials in the home file, normally `~/.pi/agent/slate.json`.
+A trusted project cannot supply or replace them.
+
+For a public-server check, choose a long random topic name and keep text generic:
+
+```json
+{
+  "notifications": {
+    "pushDetail": "generic",
+    "push": {
+      "enabled": true,
+      "server": "https://ntfy.sh",
+      "topic": "replace-with-random-topic"
+    }
+  }
+}
+```
+
+Replace the topic placeholder before starting pi.
+Install an ntfy phone application and subscribe to the same server and topic.
+Allow phone notifications and follow the application's background-delivery instructions.
+Start a new interactive pi session after saving the home file.
+
+Follow [Check delivery by hand](#check-delivery-by-hand) to isolate push and check the effective settings.
+The effective settings are the values Slate uses after resolving home and trusted project configuration.
+Send a short prompt.
+After the response settles, leave the session untouched for the effective `notifications.minimumDelayMs`, then allow time for delivery.
+The default delay is 30 seconds.
+Check actual phone receipt, not just a successful subscription.
+
+A public topic is not private storage.
+Anyone who knows its name may subscribe unless the server enforces access control.
+A random name reduces accidental discovery but is not authentication.
+The server can read and retain notification text.
+HTTPS encrypts the network connection, not the message from the server.
+Slate provides no end-to-end encryption between pi and your phone.
+
+For private text, use an authenticated server that you host and control.
+Configure the server to deny unauthenticated topic access.
+Grant your account publish and subscribe access only to the required topic.
+For example, use a server-issued access token in the home file:
+
+```json
+{
+  "notifications": {
+    "push": {
+      "enabled": true,
+      "server": "https://ntfy.example.com",
+      "topic": "slate-alerts",
+      "token": "replace-with-server-issued-token"
+    }
+  }
+}
+```
+
+Configure the phone subscription with credentials that permit reading that topic.
+Follow your server's mobile-delivery setup instructions.
+Slate also accepts `username` and `password` instead of a token.
+Supply both values. Do not combine the pair with a token.
+Keep credentials out of project configuration and version control.
+
+Push detail defaults to `generic` independently of `notifications.detail`.
+Only a home-authorized higher `pushDetail` can disclose the folder name or agent message text.
+At `message`, an error without agent text can also disclose provider error text.
+On a public server, the server and other topic subscribers can read the added text.
+A trusted project can lower push detail but cannot raise it.
+
+#### Push validation and connection limits
+
+- Topic names contain 1 to 64 ASCII letters, digits, underscores or hyphens.
+- Credentials must be nonempty and contain no control characters.
+- Tokens must also use characters allowed in HTTP headers.
+- A username cannot contain `:`.
+- A server address cannot contain embedded credentials, a query string or a fragment.
+- Slate adds a trailing `/` to the server request path when needed.
+- HTTPS supports remote servers. HTTP accepts only configured loopback names or addresses.
+- An HTTP connection starts only when its selected resolved address is loopback.
+- Slate tries one address per attempt, with no alternate-address retry or redirect.
+- The push attempt limit is 5,000 milliseconds, including name lookup and connection work.
+- Slate ignores proxy environment variables. Push does not work where a proxy is required.
+
+Ordinary Node uses a child process for system lookup, which preserves hosts-file entries.
+Bun and Node single executable applications use Domain Name System lookup, abbreviated DNS, instead.
+A single executable application bundles Node and application code into one executable.
+Those runtimes read no hosts file for push lookup.
+They supply loopback answers for `localhost` and names below it without reading a hosts file or querying DNS.
+Other names require DNS answers.
+
+Invalid configuration warns at startup. Push delivery failures show no warning.
+
+### Check delivery by hand
+
+Sending, retention and visible presentation are different results:
+
+- **Sending:** Slate writes terminal bytes, starts a native helper or sends a push request.
+- **Retention:** A service keeps the notification in its history or store.
+- **Visible presentation:** The user's desktop or phone shows the notification.
+
+Correct terminal bytes do not prove that the terminal interpreted them.
+Native history read-back does not prove a visible banner.
+A server accepting push does not prove phone receipt.
+Slate shows no warning for native or push delivery failure.
+No failure warning does not mean delivery succeeded.
+Configuration warnings still identify invalid settings.
+
+Use the effective settings for each check, not just the defaults.
+Slate resolves these values from home and trusted project configuration.
+
+1. Enable the channel under test in home configuration. Turn the other channels off.
+   Use `notifications.terminal`, `notifications.native`, `notifications.bell` and `notifications.push.enabled` to select channels.
+   For push, also supply the home destination described in [Phone push through ntfy](#phone-push-through-ntfy).
+2. Check trusted project configuration for settings that disable the selected channel.
+   Check `notifications.minimumDelayMs` and `notifications.cooldownMs` for timing overrides.
+3. On Linux, check that `notify-send --help` lists `--app-name` before a native check.
+   A helper without that option cannot deliver Slate's native notification.
+4. Start a new interactive session in a terminal with the required permissions.
+   Send a short prompt, such as `Reply with OK`.
+5. After the response settles, leave the session untouched for the effective `notifications.minimumDelayMs`, then allow time for delivery.
+   The default delay is 30 seconds.
+   Check the intended desktop or phone for **Input needed**.
+   For a bell-only check, check the terminal's audible or visual bell instead.
+6. Before checking a blocking extension dialog, wait for the effective `notifications.cooldownMs` to end after the previous input-needed attempt.
+   The default cooldown is 60 seconds.
+   If the attempt time is unknown, wait the full cooldown after step 5.
+   Open the dialog if one is available.
+   Leave it untouched for the effective `notifications.minimumDelayMs`, then allow time for delivery.
+   Check the selected channel, then answer the dialog.
+
+A dialog wait that expires during the cooldown sends nothing.
+Slate does not deliver that expired wait after the cooldown ends.
+Timing or channel settings can cause silence even when delivery works.
+
+Check operating system and terminal notification permissions if nothing appears.
+Check Focus or Do Not Disturb settings, which can suppress visible alerts.
+Check history separately from visible display.
+For SSH, check the client desktop for terminal delivery and the host desktop for native delivery.
+Repeat from an inactive tmux window with the documented passthrough permission.
+
+Record the host, client, versions, settings and observed result.
+Do not report unavailable checks as successful delivery.
 
 ## Extended example
 
