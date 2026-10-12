@@ -171,22 +171,33 @@ It reads `ToastNotificationManager.History.GetHistory(appId)` and extracts
 Content text nodes without changing history or notification settings.
 Base64-framed UTF-8 JSON avoids Windows PowerShell 5.1 console code-page loss.
 A child error, nonzero exit, malformed frame or missing AppID fails the case.
-Every child has a one-MiB output cap. The baseline has a ten-second timeout.
+Every child has a one-MiB output cap. The first cold baseline read has a
+45-second timeout. Its five-key environment has no module-cache override.
+No test-owned PowerShell child runs before this read.
 
 Independent UUID markers identify the title and body. One baseline history
 read requires both markers to be absent from every text node. The title starts
 with `-e ` and the body with `-- `. Both contain the macOS special-character set.
 Assertions require both strings to fit the native byte cap and remain unchanged
 by the product sanitizer. After delivery, polling uses 500 ms waits and a
-30-second allowance. Each child timeout is the smaller of two seconds and the
+30-second allowance. Each child timeout is the smaller of ten seconds and the
 remaining allowance. A marker-bearing toast must have exactly two text nodes.
 The title and body must match the sent strings exactly. The AppID must match
 the baseline identity. A resolved product delivery alone supplies no proof.
 
-The case has a 60-second timeout. Bounded failure diagnostics report the
-reading child's process SessionId, UserInteractive, Windows version,
-WpnUserService status, Start entry and ToastNotifier.Setting. Diagnostics also
-report ImageOS and ImageVersion when present, elapsed product delivery time,
+The case has a 120-second timeout. This budget covers the cold read, polling,
+the product attempt and a ten-second metadata recovery child.
+On success and failure, bounded diagnostics report the first cold read and
+last poll read wall-clock durations. Each script flushes ASCII stage lines to
+stderr after start, service lookup, StartLayout import, Get-StartApps, WinRT
+load, notifier Setting, history extraction and output framing.
+Each line records milliseconds since process start and script start.
+Strict parsing rejects malformed, missing or out-of-order stage lines on a
+successful read. A failed child retains its completed stages for diagnosis.
+Stage lines contain no notification text.
+Bounded failure diagnostics report the reading child's process SessionId,
+UserInteractive, Windows version, WpnUserService status, Start entry and
+ToastNotifier.Setting. Diagnostics also report ImageOS and ImageVersion when present, elapsed product delivery time,
 child errors and any decoded candidate title and body. No diagnostic dumps
 full history. A bounded diagnostic child can recover metadata after a failed
 history child. Success prints the AppID, poll count and delivery duration.
