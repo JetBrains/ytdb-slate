@@ -162,18 +162,37 @@ default product environment handling, then prepares and delivers. It requires
 an absolute SystemRoot, its System32 Windows PowerShell executable and the
 exact-name Windows PowerShell Start entry. Missing prerequisites fail on
 Windows even outside CI. The case registers no test on other platforms.
+The product disables module autoload and creates `Shell.Application` through
+.NET. It enumerates the Apps folder that `Get-StartApps` uses. The first
+case-insensitive exact name match in folder order supplies the registered
+AppID from its Path. The fixed script uses no cmdlet, alias, import or pipeline.
+Notification text enters XML only through text nodes from the two environment
+fields. The five-key environment and 5,000 ms attempt limit remain fixed.
 
 A separate absolute Windows PowerShell child uses `shell: false`, `-NoLogo`,
 `-NoProfile`, `-NonInteractive` and `-EncodedCommand` with fixed UTF-16LE source.
 Only the five product-permitted Windows environment keys reach that child.
-The script uses the same exact-name Start entry rule to resolve the AppID.
-It reads `ToastNotificationManager.History.GetHistory(appId)` and extracts
+The reader disables module autoload. It imports Microsoft.PowerShell.Utility
+and StartLayout by absolute paths under SystemRoot. Utility supplies
+`ConvertTo-Json` and the commands used by `Get-StartApps`.
+The reader selects the first case-insensitive exact name match from
+`Get-StartApps`. This identity method is independent of the product's direct
+COM lookup. Each poll AppID must equal the baseline AppID, which success
+reports without a hard-coded identity. Process properties and UTC timestamps
+come from .NET. ServiceController supplies service diagnostics only when its
+assembly is already loaded. Otherwise, diagnostics report it as unavailable.
+No reader command triggers module autoload.
+The reader reads `ToastNotificationManager.History.GetHistory(appId)` and extracts
 Content text nodes without changing history or notification settings.
 Base64-framed UTF-8 JSON avoids Windows PowerShell 5.1 console code-page loss.
 A child error, nonzero exit, malformed frame or missing AppID fails the case.
 Every child has a one-MiB output cap. The first cold baseline read has a
 45-second timeout. Its five-key environment has no module-cache override.
 No test-owned PowerShell child runs before this read.
+The CI job proves WARM product delivery only because the baseline reader is
+the first PowerShell process. Cold first-process delivery is measured in a
+separate acceptance run. The 5,000 ms margin is measured on the hosted image
+with real-time antivirus off. It does not establish a margin with antivirus on.
 
 Independent UUID markers identify the title and body. One baseline history
 read requires both markers to be absent from every text node. The title starts
@@ -189,8 +208,9 @@ The case has a 120-second timeout. This budget covers the cold read, polling,
 the product attempt and a ten-second metadata recovery child.
 On success and failure, bounded diagnostics report the first cold read and
 last poll read wall-clock durations. Each script flushes ASCII stage lines to
-stderr after start, service lookup, StartLayout import, Get-StartApps, WinRT
-load, notifier Setting, history extraction and output framing.
+stderr after start, Utility import, service lookup, StartLayout import,
+Get-StartApps, WinRT load, notifier Setting, history extraction and output
+framing.
 Each line records milliseconds since process start and script start.
 Strict parsing rejects malformed, missing or out-of-order stage lines on a
 successful read. The script sets `$ProgressPreference = 'SilentlyContinue'`
@@ -207,7 +227,9 @@ UserInteractive, Windows version, WpnUserService status, Start entry and
 ToastNotifier.Setting. Diagnostics also report ImageOS and ImageVersion when present, elapsed product delivery time,
 child errors and any decoded candidate title and body. No diagnostic dumps
 full history. A bounded diagnostic child can recover metadata after a failed
-history child. Success prints the AppID, poll count and delivery duration.
+history child. Every poll reports its number, AppID, toast count and match
+result. Product delivery reports its duration even when later reads fail.
+Success prints the AppID, poll count and delivery duration.
 The duration runs from the product deliver call to helper exit and reports
 the 5,000 ms native attempt limit for comparison. The test changes no services,
 registry, policies, notification settings or Focus Assist.

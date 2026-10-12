@@ -14,6 +14,28 @@ import { notificationText, sanitizeNotificationText, truncateNotificationUtf8 } 
 const spawnRealChild = childProcess.spawn;
 let sequence = 0;
 const hostile = '-option --version -e --wait "quotes" \' $(touch /tmp/PRIVATE) `code` <a href="x">&\nline\u202e';
+const expectedWindowsScript = `
+$ErrorActionPreference = 'Stop'
+$PSModuleAutoLoadingPreference = 'None'
+$shell = [Activator]::CreateInstance([Type]::GetTypeFromProgID('Shell.Application', $true))
+$folder = $shell.NameSpace('shell:::{4234d49b-0245-4df3-b780-3893943456e1}')
+$app = $null
+foreach ($item in $folder.Items()) {
+    if ($item.Name -eq 'Windows PowerShell') { $app = $item; break }
+}
+if (-not $app -or [string]::IsNullOrWhiteSpace($app.Path)) { exit 1 }
+$appId = [string]$app.Path
+$null = [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime]
+$null = [Windows.UI.Notifications.ToastNotification, Windows.UI.Notifications, ContentType = WindowsRuntime]
+$null = [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime]
+$xml = [Windows.Data.Xml.Dom.XmlDocument]::new()
+$xml.LoadXml('<toast><visual><binding template="ToastGeneric"><text/><text/></binding></visual></toast>')
+$nodes = $xml.GetElementsByTagName('text')
+$null = $nodes.Item(0).AppendChild($xml.CreateTextNode($env:SLATE_NOTIFICATION_TITLE))
+$null = $nodes.Item(1).AppendChild($xml.CreateTextNode($env:SLATE_NOTIFICATION_BODY))
+$toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
+[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($appId).Show($toast)
+`;
 function fixture(t: test.TestContext, platform: NodeJS.Platform = "linux") {
 	const projectDirectory = `/native-project-${++sequence}`;
 	const environment: Record<string, string> = { PATH: "/trusted/bin", DISPLAY: ":1", DBUS_SESSION_BUS_ADDRESS: "unix:path=/private/bus", WAYLAND_DISPLAY: "wayland-1", XDG_RUNTIME_DIR: "/run/user/1", HOME: "/home/user", SystemRoot: "/Windows", WINDIR: "/Windows", USERPROFILE: "/Users/user", APPDATA: "/Users/user/AppData/Roaming", LOCALAPPDATA: "/Users/user/AppData/Local", SECRET: "private", NODE_OPTIONS: "private", DYLD_INSERT_LIBRARIES: "private", PSModulePath: "/project/module" };
@@ -67,11 +89,14 @@ test("every native parser receives sanitized text as data and only its minimal e
 			assert.deepEqual(call.args.slice(0, 4), ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand"]);
 			assert.equal(call.args.length, 5, "no trailing interpreter code arguments");
 			const script = Buffer.from(call.args[4]!, "base64").toString("utf16le");
-			assert.match(script, /Get-StartApps -Name 'Windows PowerShell'/);
-			assert.match(script, /CreateToastNotifier\(\$app.AppID\)\.Show\(\$toast\)/);
-			assert.match(script, /CreateTextNode\(\$env:SLATE_NOTIFICATION_TITLE\)/);
-			assert.match(script, /CreateTextNode\(\$env:SLATE_NOTIFICATION_BODY\)/);
-			assert.match(script, /LoadXml\('<toast>.*<text\/><text\/>/);
+			assert.equal(script, expectedWindowsScript, "the interpreter receives the exact reviewed fixed source");
+			assert.ok(!script.includes("|"), "the product script has no pipeline");
+			assert.ok(!script.includes("Import-Module"), "the product script imports no module");
+			assert.match(script, /\$PSModuleAutoLoadingPreference = 'None'/);
+			assert.deepEqual(script.match(/\$env:\w+/g), ["$env:SLATE_NOTIFICATION_TITLE", "$env:SLATE_NOTIFICATION_BODY"]);
+			assert.deepEqual(script.match(/CreateTextNode\([^)]*\)/g), [
+				"CreateTextNode($env:SLATE_NOTIFICATION_TITLE)", "CreateTextNode($env:SLATE_NOTIFICATION_BODY)",
+			]);
 			assert.ok(!script.includes(hostile));
 			assert.deepEqual(Object.keys(call.options.env!).sort(), ["APPDATA", "LOCALAPPDATA", "SLATE_NOTIFICATION_BODY", "SLATE_NOTIFICATION_TITLE", "SystemRoot", "USERPROFILE", "WINDIR"]);
 		}

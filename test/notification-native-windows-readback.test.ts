@@ -12,13 +12,14 @@ import { requiredCase } from "./required-case.ts";
 
 const caseName = "Windows native notification retains exact unique text in operating system toast history";
 const pollLimitMs = 30000;
-// Allow 45 seconds for cold discovery and 10 seconds per warm read within the 30-second poll budget.
+// Allow 45 seconds for the cold baseline reader and 10 seconds per warm read within the poll budget.
+// The baseline starts first, so this case proves only warm product delivery.
 // The 120-second case budget covers those reads, the 5-second product attempt and metadata recovery.
 // These diagnostic allowances remain below the five-minute job limit and do not change product limits.
 const coldReadLimitMs = 45000;
 const warmReadLimitMs = 10000;
 const caseLimitMs = 120000;
-const stages = ["start", "services", "startlayout", "startapps", "winrt", "setting", "history", "framed"];
+const stages = ["start", "utility", "services", "startlayout", "startapps", "winrt", "setting", "history", "framed"];
 type ReadTiming = { durationMs: number; stages: string[]; progress: string[]; status: number | null; signal: string | null; malformed?: string };
 const outputLimitBytes = 1024 * 1024;
 const bounded = (value: unknown) => String(value).slice(0, 2000);
@@ -26,10 +27,12 @@ const bounded = (value: unknown) => String(value).slice(0, 2000);
 const diagnosticSource = String.raw`
 $ProgressPreference = 'SilentlyContinue'
 $ErrorActionPreference = 'Stop'
-$scriptStart = Get-Date
-$processStart = (Get-Process -Id $PID).StartTime
+$PSModuleAutoLoadingPreference = 'None'
+$scriptStart = [DateTime]::UtcNow
+$process = [Diagnostics.Process]::GetCurrentProcess()
+$processStart = $process.StartTime.ToUniversalTime()
 function Write-Stage([string]$stage) {
-    $now = Get-Date
+    $now = [DateTime]::UtcNow
     $processMs = [long][Math]::Floor(($now - $processStart).TotalMilliseconds)
     $scriptMs = [long][Math]::Floor(($now - $scriptStart).TotalMilliseconds)
     [Console]::Error.WriteLine(('stage={0} processMs={1} scriptMs={2}' -f $stage, $processMs, $scriptMs))
@@ -37,22 +40,41 @@ function Write-Stage([string]$stage) {
 }
 Write-Stage 'start'
 $diagnostics = [ordered]@{
-    sessionId = (Get-Process -Id $PID).SessionId
+    sessionId = $process.SessionId
     userInteractive = [Environment]::UserInteractive
     windowsVersion = [Environment]::OSVersion.VersionString
 }
 $result = [ordered]@{ ok = $false; diagnostics = $diagnostics; appId = $null; toasts = @(); error = $null }
 try {
-    $diagnostics.services = @(Get-Service -Name 'WpnUserService*' | ForEach-Object { @{ name = $_.Name; status = [string]$_.Status } })
+    Import-Module ($env:SystemRoot + '\System32\WindowsPowerShell\v1.0\Modules\Microsoft.PowerShell.Utility\Microsoft.PowerShell.Utility.psd1')
+    Write-Stage 'utility'
+    $serviceType = $null
+    foreach ($assembly in [AppDomain]::CurrentDomain.GetAssemblies()) {
+        $serviceType = $assembly.GetType('System.ServiceProcess.ServiceController', $false)
+        if ($serviceType) { break }
+    }
+    $diagnostics.services = @()
+    if ($serviceType) {
+        foreach ($service in $serviceType::GetServices()) {
+            try {
+                if ($service.ServiceName -like 'WpnUserService*') {
+                    $diagnostics.services += @{ name = $service.ServiceName; status = [string]$service.Status }
+                }
+            } finally { $service.Dispose() }
+        }
+    } else { $diagnostics.servicesUnavailable = 'ServiceController assembly is not loaded' }
     Write-Stage 'services'
-    Import-Module (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\Modules\StartLayout\StartLayout.psd1')
+    Import-Module ($env:SystemRoot + '\System32\WindowsPowerShell\v1.0\Modules\StartLayout\StartLayout.psd1')
     Write-Stage 'startlayout'
-    $app = Get-StartApps -Name 'Windows PowerShell' | Where-Object { $_.Name -eq 'Windows PowerShell' } | Select-Object -First 1
+    $app = $null
+    foreach ($entry in (Get-StartApps -Name 'Windows PowerShell')) {
+        if ($entry.Name -eq 'Windows PowerShell') { $app = $entry; break }
+    }
     Write-Stage 'startapps'
     $diagnostics.startApp = if ($app) { @{ name = $app.Name; appId = $app.AppID } } else { $null }
     if (-not $app -or [string]::IsNullOrWhiteSpace($app.AppID)) { throw 'Windows PowerShell Start entry has no AppID' }
     $result.appId = [string]$app.AppID
-    [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
+    $null = [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime]
     Write-Stage 'winrt'
     $diagnostics.notifierSetting = [string][Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($app.AppID).Setting
     Write-Stage 'setting'
@@ -187,7 +209,10 @@ if (process.platform === "win32") requiredCase(caseName, { timeout: caseLimitMs 
 		const channel = createNativeNotificationChannel({ mode: "tui", platform: "win32", projectDirectory: process.cwd() });
 		const deliver = await channel.prepare(text, controller.signal);
 		const start = performance.now();
-		try { await deliver(); } finally { deliveryMs = performance.now() - start; }
+		try { await deliver(); } finally {
+			deliveryMs = performance.now() - start;
+			t.diagnostic(`Windows native product delivery: productDeliveryMs=${deliveryMs.toFixed(1)} nativeAttemptTimeoutMs=${NATIVE_ATTEMPT_TIMEOUT_MS} warm=true`);
+		}
 		const deadline = performance.now() + pollLimitMs;
 		let found = false;
 		while (performance.now() < deadline && !found) {
@@ -206,6 +231,7 @@ if (process.platform === "win32") requiredCase(caseName, { timeout: caseLimitMs 
 				found = true;
 				break;
 			}
+			t.diagnostic(`Windows native history poll: poll=${polls} AppID=${JSON.stringify(history.appId)} toasts=${history.toasts.length} matched=${found}`);
 			if (!found) await delay(Math.min(500, Math.max(0, deadline - performance.now())));
 		}
 		assert.ok(found, `no toast retained the exact title and body within ${pollLimitMs} ms`);

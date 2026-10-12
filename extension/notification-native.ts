@@ -16,22 +16,29 @@ export interface NativeNotificationOptions {
 	readonly environment?: Environment;
 }
 // Start-menu discovery supplies a registered application identity, not an invented sender name.
+// The folder is the one Get-StartApps enumerates. The first exact match in folder order wins.
 // Text enters XML only through text nodes. The interpreter receives fixed source only.
 const windowsScript = `
 $ErrorActionPreference = 'Stop'
-Import-Module (Join-Path $env:SystemRoot 'System32\\WindowsPowerShell\\v1.0\\Modules\\StartLayout\\StartLayout.psd1')
-$app = Get-StartApps -Name 'Windows PowerShell' | Where-Object { $_.Name -eq 'Windows PowerShell' } | Select-Object -First 1
-if (-not $app -or [string]::IsNullOrWhiteSpace($app.AppID)) { exit 1 }
-[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
-[Windows.UI.Notifications.ToastNotification, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
-[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
+$PSModuleAutoLoadingPreference = 'None'
+$shell = [Activator]::CreateInstance([Type]::GetTypeFromProgID('Shell.Application', $true))
+$folder = $shell.NameSpace('shell:::{4234d49b-0245-4df3-b780-3893943456e1}')
+$app = $null
+foreach ($item in $folder.Items()) {
+    if ($item.Name -eq 'Windows PowerShell') { $app = $item; break }
+}
+if (-not $app -or [string]::IsNullOrWhiteSpace($app.Path)) { exit 1 }
+$appId = [string]$app.Path
+$null = [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime]
+$null = [Windows.UI.Notifications.ToastNotification, Windows.UI.Notifications, ContentType = WindowsRuntime]
+$null = [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime]
 $xml = [Windows.Data.Xml.Dom.XmlDocument]::new()
 $xml.LoadXml('<toast><visual><binding template="ToastGeneric"><text/><text/></binding></visual></toast>')
 $nodes = $xml.GetElementsByTagName('text')
-$nodes.Item(0).AppendChild($xml.CreateTextNode($env:SLATE_NOTIFICATION_TITLE)) | Out-Null
-$nodes.Item(1).AppendChild($xml.CreateTextNode($env:SLATE_NOTIFICATION_BODY)) | Out-Null
+$null = $nodes.Item(0).AppendChild($xml.CreateTextNode($env:SLATE_NOTIFICATION_TITLE))
+$null = $nodes.Item(1).AppendChild($xml.CreateTextNode($env:SLATE_NOTIFICATION_BODY))
 $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
-[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($app.AppID).Show($toast)
+[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($appId).Show($toast)
 `;
 const within = (directory: string, candidate: string) => {
 	const path = relative(directory, candidate);
@@ -139,7 +146,8 @@ export function createNativeNotificationChannel(options: NativeNotificationOptio
 			candidates = ["/usr/bin/osascript"];
 			args = ["-e", "on run argv", "-e", "display notification (item 2 of argv) with title (item 1 of argv)", "-e", "end run", "--", title, body];
 		} else if (platform === "win32") {
-			// SystemRoot loads Windows APIs and the fixed StartLayout module. User folders locate Start-menu identity.
+			// SystemRoot locates Windows APIs. User folders locate Start-menu identity.
+			// Module autoload stays off because a cold module cache can delay the helper beyond its attempt limit.
 			for (const key of ["SystemRoot", "WINDIR", "USERPROFILE", "APPDATA", "LOCALAPPDATA"]) if (source[key]) env[key] = source[key];
 			if (!env.SystemRoot || !isAbsolute(env.SystemRoot)) return () => {};
 			candidates = [resolve(env.SystemRoot, "System32/WindowsPowerShell/v1.0/powershell.exe")];
