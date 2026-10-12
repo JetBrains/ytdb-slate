@@ -12,6 +12,10 @@ export const requiredRoster: RequiredFile[] = [{
 	file: fileURLToPath(new URL("../test/notification-native-macos-readback.test.ts", import.meta.url)),
 	names: ["macOS native notification retains exact unique text in a new operating system store record"],
 	platforms: ["darwin"],
+}, {
+	file: fileURLToPath(new URL("../test/notification-native-windows-readback.test.ts", import.meta.url)),
+	names: ["Windows native notification retains exact unique text in operating system toast history"],
+	platforms: ["win32"],
 }];
 
 /** Validate the whole roster before platform selection. Names are globally unique. */

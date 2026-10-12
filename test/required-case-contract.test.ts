@@ -15,8 +15,11 @@ const jobArgs = ["--test", "--test-reporter=spec", "--test-reporter-destination=
 const nativePath = "test/notification-native-macos-readback.test.ts";
 const nativeName = "macOS native notification retains exact unique text in a new operating system store record";
 const macJobArgs = [...jobArgs, nativePath];
+const windowsNativePath = "test/notification-native-windows-readback.test.ts";
+const windowsNativeName = "Windows native notification retains exact unique text in operating system toast history";
+const windowsJobArgs = [...jobArgs, windowsNativePath];
 
-function fixture(t: test.TestContext, platform = "win32") {
+function fixture(t: test.TestContext, platform = "linux") {
 	const root = mkdtempSync(join(tmpdir(), "slate-required-case-"));
 	t.after(() => rmSync(root, { recursive: true, force: true }));
 	for (const dir of ["test", "verification"]) mkdirSync(join(root, dir));
@@ -27,9 +30,11 @@ function fixture(t: test.TestContext, platform = "win32") {
 	assert.ok(original.includes("selectRequiredFiles()"));
 	// Fixture selection exercises both job contracts on every host platform.
 	writeFileSync(reporter, original.replace("selectRequiredFiles()", `selectRequiredFiles(undefined, ${JSON.stringify(platform)})`));
-	writeFileSync(join(root, nativePath), platform === "darwin"
-		? prefix + `requiredCase(${JSON.stringify(nativeName)}, {}, async (t, complete) => { complete(); });`
-		: "");
+	for (const [selected, path, name] of [["darwin", nativePath, nativeName], ["win32", windowsNativePath, windowsNativeName]] as const) {
+		writeFileSync(join(root, path), platform === selected
+			? prefix + `requiredCase(${JSON.stringify(name)}, {}, async (t, complete) => { complete(); });`
+			: "");
+	}
 	return root;
 }
 
@@ -129,13 +134,15 @@ test("required reporter rejects optional, failed, absent and repeated results", 
 });
 
 test("required roster validates global uniqueness before platform selection", () => {
-	assert.equal(selectRequiredFiles().size, process.platform === "darwin" ? 2 : 1);
+	assert.equal(selectRequiredFiles().size, ["darwin", "win32"].includes(process.platform) ? 2 : 1);
 	assert.equal(selectRequiredFiles(requiredRoster, "linux").size, 1);
-	assert.equal(selectRequiredFiles(requiredRoster, "win32").size, 1);
+	assert.equal(selectRequiredFiles(requiredRoster, "win32").size, 2);
 	assert.equal(selectRequiredFiles(requiredRoster, "darwin").size, 2);
-	assert.equal(requiredRoster.length, 2);
+	assert.equal(requiredRoster.length, 3);
 	assert.deepEqual(requiredRoster[1], { file: fileURLToPath(new URL(nativePath, source)),
 		names: [nativeName], platforms: ["darwin"] });
+	assert.deepEqual(requiredRoster[2], { file: fileURLToPath(new URL(windowsNativePath, source)),
+		names: [windowsNativeName], platforms: ["win32"] });
 	const entries = [{ file: "push", names: ["push"] },
 		{ file: "native", names: ["native"], platforms: ["darwin"] }];
 	assert.equal(selectRequiredFiles(entries, "win32").size, 1);
@@ -151,7 +158,7 @@ test("required roster validates global uniqueness before platform selection", ()
 	assert.throws(() => selectRequiredFiles([entries[1]!], "win32"), /no cases/);
 });
 
-for (const [platform, args] of [["win32", jobArgs], ["darwin", macJobArgs]] as const) {
+for (const [platform, args] of [["win32", windowsJobArgs], ["darwin", macJobArgs]] as const) {
 	test(`reviewed ${platform} job command rejects omission, filtering and optional suites`, { timeout: 30000 }, (t) => {
 		const root = fixture(t, platform);
 		const good = bodies("complete();");
@@ -174,10 +181,12 @@ for (const [platform, args] of [["win32", jobArgs], ["darwin", macJobArgs]] as c
 		for (const path of ["test/unrelated.test.ts", "test/missing*.test.ts", "test/missing.test.ts"]) {
 			assert.notEqual(execute(root, good, [...jobArgs.slice(0, -1), path, ...args.slice(jobArgs.length)]).status, 0);
 		}
-		if (platform === "darwin") {
+		{
 			assert.notEqual(execute(root, good, jobArgs).status, 0, "omitting the native file must fail");
-			const nativeFile = join(root, nativePath), nativeGood = readFileSync(nativeFile, "utf8");
-			for (const nativeBody of ["", "process.exit(0);", nativeGood.replace(nativeName, "renamed native"),
+			const path = platform === "darwin" ? nativePath : windowsNativePath;
+			const name = platform === "darwin" ? nativeName : windowsNativeName;
+			const nativeFile = join(root, path), nativeGood = readFileSync(nativeFile, "utf8");
+			for (const nativeBody of ["", "process.exit(0);", nativeGood.replace(name, "renamed native"),
 				nativeGood.replace("complete();", "return;"), nativeGood.replace("{},", "{ skip: true },"),
 				nativeGood + "\n" + nativeGood.replace(prefix, "")]) {
 				writeFileSync(nativeFile, nativeBody);

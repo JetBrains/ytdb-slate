@@ -53,10 +53,10 @@ limit and pin Node 24.18.0. They inherit the read-only workflow permission,
 reuse the Linux action SHAs and install with `npm ci --ignore-scripts`.
 The workflow configures no required-check ruleset.
 
-The Windows job runs this portable command with ordinary `spec` output visible:
+The Windows job runs both files with ordinary `spec` output visible:
 
 ```text
-node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=./verification/required-case-reporter.ts --test-reporter-destination=stdout test/notification-push-portable.test.ts
+node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=./verification/required-case-reporter.ts --test-reporter-destination=stdout test/notification-push-portable.test.ts test/notification-native-windows-readback.test.ts
 ```
 
 The macOS job runs both files in one invocation with the same reporters:
@@ -95,8 +95,10 @@ from the case bodies. Paths use file URLs. Names must be globally unique across
 all entries, including entries for other platforms. An optional `platforms`
 list selects applicable native cases through `process.platform`. A selected
 platform must have at least one required file. The macOS native file has one
-required case with `platforms: ["darwin"]`. It registers no case on Linux or
-Windows. The selected roster has two files on macOS and one elsewhere.
+required case with `platforms: ["darwin"]`. The Windows native file has one
+required case with `platforms: ["win32"]`. Each native file registers no case
+outside its platform. The roster has three files in total. The selected roster
+has two files on macOS or Windows and one on Linux.
 
 The reporter runs only in the macOS and Windows job commands. The Linux runner
 uses its ordinary reporters without this required-file contract. Linux runs
@@ -153,10 +155,51 @@ and automates no consent. Missing prerequisites fail even outside CI.
 There is no local macOS skip path. The workflow configures no required-check
 ruleset. Hosted evidence must establish store access, notification permission,
 application identity and repeatability on the selected image.
-Store retention does not prove visible presentation. Neither job proves
-Windows native delivery, Windows store read-back or Windows terminal write
-ordering. Re-run the relevant direct command on each available target operating
-system after changes to these tests or their CI jobs.
+
+`test/notification-native-windows-readback.test.ts` calls the exported
+`createNativeNotificationChannel` with `mode: "tui"`, `platform: "win32"` and
+default product environment handling, then prepares and delivers. It requires
+an absolute SystemRoot, its System32 Windows PowerShell executable and the
+exact-name Windows PowerShell Start entry. Missing prerequisites fail on
+Windows even outside CI. The case registers no test on other platforms.
+
+A separate absolute Windows PowerShell child uses `shell: false`, `-NoLogo`,
+`-NoProfile`, `-NonInteractive` and `-EncodedCommand` with fixed UTF-16LE source.
+Only the five product-permitted Windows environment keys reach that child.
+The script uses the same exact-name Start entry rule to resolve the AppID.
+It reads `ToastNotificationManager.History.GetHistory(appId)` and extracts
+Content text nodes without changing history or notification settings.
+Base64-framed UTF-8 JSON avoids Windows PowerShell 5.1 console code-page loss.
+A child error, nonzero exit, malformed frame or missing AppID fails the case.
+Every child has a one-MiB output cap. The baseline has a ten-second timeout.
+
+Independent UUID markers identify the title and body. One baseline history
+read requires both markers to be absent from every text node. The title starts
+with `-e ` and the body with `-- `. Both contain the macOS special-character set.
+Assertions require both strings to fit the native byte cap and remain unchanged
+by the product sanitizer. After delivery, polling uses 500 ms waits and a
+30-second allowance. Each child timeout is the smaller of two seconds and the
+remaining allowance. A marker-bearing toast must have exactly two text nodes.
+The title and body must match the sent strings exactly. The AppID must match
+the baseline identity. A resolved product delivery alone supplies no proof.
+
+The case has a 60-second timeout. Bounded failure diagnostics report the
+reading child's process SessionId, UserInteractive, Windows version,
+WpnUserService status, Start entry and ToastNotifier.Setting. Diagnostics also
+report ImageOS and ImageVersion when present, elapsed product delivery time,
+child errors and any decoded candidate title and body. No diagnostic dumps
+full history. A bounded diagnostic child can recover metadata after a failed
+history child. Success prints the AppID, poll count and delivery duration.
+The duration runs from the product deliver call to helper exit and reports
+the 5,000 ms native attempt limit for comparison. The test changes no services,
+registry, policies, notification settings or Focus Assist.
+
+The Windows job checks native toast retention in operating system history.
+Store or history retention does not prove visible presentation. Neither job
+proves Windows terminal write ordering. The workflow configures no required-check
+ruleset. Hosted runs must establish toast acceptance and history access on the
+selected Windows image. Re-run the relevant direct command on each available
+target operating system after changes to these tests or their CI jobs.
 
 ## Why this exists
 
