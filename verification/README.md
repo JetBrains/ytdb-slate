@@ -193,7 +193,14 @@ stderr after start, service lookup, StartLayout import, Get-StartApps, WinRT
 load, notifier Setting, history extraction and output framing.
 Each line records milliseconds since process start and script start.
 Strict parsing rejects malformed, missing or out-of-order stage lines on a
-successful read. A failed child retains its completed stages for diagnosis.
+successful read. The script sets `$ProgressPreference = 'SilentlyContinue'`
+before other statements. Startup progress can still reach stderr.
+The classifier accepts an exact `#< CLIXML` marker followed by an XML record
+that starts with `<Objs` and ends with `</Objs>`. It does not parse XML.
+Bounded diagnostics report the record's byte length and whether it contains
+`Preparing modules for first use`. The record supplies no stage evidence.
+Other stderr content fails the read. A failed child retains its completed
+stages for diagnosis. Diagnostics retain stages for every poll read.
 Stage lines contain no notification text.
 Bounded failure diagnostics report the reading child's process SessionId,
 UserInteractive, Windows version, WpnUserService status, Start entry and

@@ -19,11 +19,12 @@ const coldReadLimitMs = 45000;
 const warmReadLimitMs = 10000;
 const caseLimitMs = 120000;
 const stages = ["start", "services", "startlayout", "startapps", "winrt", "setting", "history", "framed"];
-type ReadTiming = { durationMs: number; stages: string[]; status: number | null; signal: string | null; malformed?: string };
+type ReadTiming = { durationMs: number; stages: string[]; progress: string[]; status: number | null; signal: string | null; malformed?: string };
 const outputLimitBytes = 1024 * 1024;
 const bounded = (value: unknown) => String(value).slice(0, 2000);
 // Both scripts contain fixed source only. History access and diagnostic properties are read-only.
 const diagnosticSource = String.raw`
+$ProgressPreference = 'SilentlyContinue'
 $ErrorActionPreference = 'Stop'
 $scriptStart = Get-Date
 $processStart = (Get-Process -Id $PID).StartTime
@@ -79,6 +80,7 @@ type History = { appId: string; toasts: { texts: string[] }[] };
 if (process.platform === "win32") requiredCase(caseName, { timeout: caseLimitMs }, async (t, complete) => {
 	const childErrors: string[] = [];
 	const timings: Partial<Record<"first cold read" | "last poll read" | "metadata read", ReadTiming>> = {};
+	const reads: { kind: keyof typeof timings; timing: ReadTiming }[] = [];
 	let executable: string | undefined, diagnostics: unknown, candidate: string[] | undefined;
 	let polls = 0, deliveryMs: number | undefined;
 	// Keep the first cold reader's OS environment identical to the product's five-key environment.
@@ -95,19 +97,37 @@ if (process.platform === "win32") requiredCase(caseName, { timeout: caseLimitMs 
 			env: environment, cwd: parse(executable).root, encoding: "utf8", timeout, killSignal: "SIGKILL",
 			maxBuffer: outputLimitBytes, shell: false, windowsHide: true, stdio: ["ignore", "pipe", "pipe"],
 		});
-		const timing: ReadTiming = { durationMs: performance.now() - start, stages: [], status: result.status, signal: result.signal };
+		const timing: ReadTiming = { durationMs: performance.now() - start, stages: [], progress: [], status: result.status, signal: result.signal };
 		timings[kind] = timing;
+		reads.push({ kind, timing });
 		try {
 			const expectedStages = script === historyScript ? stages : stages.filter((stage) => stage !== "history");
 			try {
 				const lines = result.stderr.replace(/\r?\n$/, "").split(/\r?\n/);
 				let previousProcessMs = 0, previousScriptMs = 0;
-				for (const [index, line] of lines.entries()) {
+				for (let index = 0; index < lines.length; index++) {
+					const line = lines[index]!;
+					if (line === "#< CLIXML") {
+						const xml: string[] = [];
+						assert.ok(lines[index + 1]?.startsWith("<Objs ") || lines[index + 1]?.startsWith("<Objs>"),
+							"CLIXML stderr requires an Objs opening line");
+						do {
+							const part = lines[++index];
+							assert.ok(part !== undefined && !part.startsWith("stage=") && part !== "#< CLIXML",
+								"CLIXML stderr requires a closing Objs line before another record");
+							xml.push(part);
+						} while (!xml[xml.length - 1]!.endsWith("</Objs>"));
+						// Record framing only. Do not parse XML or print notification content from it.
+						const record = xml.join("\n"), bytes = Buffer.byteLength(record, "utf8");
+						assert.ok(bytes <= outputLimitBytes, "CLIXML stderr must remain within the child output cap");
+						timing.progress.push(`CLIXML: bytes=${bytes} preparingModulesForFirstUse=${record.includes("Preparing modules for first use")}`);
+						continue;
+					}
 					assert.ok(line.length <= 128, "stage stderr lines must remain bounded");
 					const match = /^stage=([a-z]+) processMs=(0|[1-9][0-9]*) scriptMs=(0|[1-9][0-9]*)$/.exec(line);
 					assert.ok(match, `malformed stage stderr: ${bounded(JSON.stringify(line))}`);
+					assert.equal(match[1], expectedStages[timing.stages.length], "stage stderr must follow the exact ordered roster");
 					timing.stages.push(line);
-					assert.equal(match[1], expectedStages[index], "stage stderr must follow the exact ordered roster");
 					const processMs = Number(match[2]), scriptMs = Number(match[3]);
 					assert.ok(Number.isSafeInteger(processMs) && Number.isSafeInteger(scriptMs) &&
 						processMs >= previousProcessMs && scriptMs >= previousScriptMs && processMs >= scriptMs,
@@ -207,14 +227,13 @@ if (process.platform === "win32") requiredCase(caseName, { timeout: caseLimitMs 
 		t.diagnostic(`child errors: ${bounded(childErrors.join("\n"))}`);
 		throw error;
 	} finally {
-		for (const kind of ["first cold read", "last poll read", "metadata read"] as const) {
-			const timing = timings[kind];
-			if (!timing) {
-				if (kind !== "metadata read") t.diagnostic(`Windows native read-back ${kind}: not called`);
-				continue;
-			}
+		for (const kind of ["first cold read", "last poll read"] as const) {
+			if (!timings[kind]) t.diagnostic(`Windows native read-back ${kind}: not called`);
+		}
+		for (const { kind, timing } of reads) {
 			t.diagnostic(`Windows native read-back ${kind}: durationMs=${timing.durationMs.toFixed(1)} status=${timing.status} signal=${timing.signal}`);
 			for (const line of timing.stages) t.diagnostic(`Windows native read-back ${kind}: ${line}`);
+			for (const line of timing.progress) t.diagnostic(`Windows native read-back ${kind}: ${line}`);
 			if (timing.malformed) t.diagnostic(`Windows native read-back ${kind}: invalid stage stderr: ${timing.malformed}`);
 		}
 	}
