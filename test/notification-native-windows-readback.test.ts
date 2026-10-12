@@ -9,6 +9,7 @@ import { TextDecoder } from "node:util";
 import { createNativeNotificationChannel, NATIVE_WINDOWS_ATTEMPT_TIMEOUT_MS, NATIVE_TEXT_MAX_BYTES } from "../extension/notification-native.ts";
 import { sanitizeNotificationText, truncateNotificationUtf8 } from "../extension/notification-protocols.ts";
 import { requiredCase } from "./required-case.ts";
+import { classifyPowerShellStderr } from "./powershell-stderr.ts";
 
 const caseName = "Windows native notification retains exact unique text in operating system toast history";
 const pollLimitMs = 30000;
@@ -124,42 +125,8 @@ if (process.platform === "win32") requiredCase(caseName, { timeout: caseLimitMs 
 		reads.push({ kind, timing });
 		try {
 			const expectedStages = script === historyScript ? stages : stages.filter((stage) => stage !== "history");
-			try {
-				const lines = result.stderr.replace(/\r?\n$/, "").split(/\r?\n/);
-				let previousProcessMs = 0, previousScriptMs = 0;
-				for (let index = 0; index < lines.length; index++) {
-					const line = lines[index]!;
-					if (line === "#< CLIXML") {
-						const xml: string[] = [];
-						assert.ok(lines[index + 1]?.startsWith("<Objs ") || lines[index + 1]?.startsWith("<Objs>"),
-							"CLIXML stderr requires an Objs opening line");
-						do {
-							const part = lines[++index];
-							assert.ok(part !== undefined && !part.startsWith("stage=") && part !== "#< CLIXML",
-								"CLIXML stderr requires a closing Objs line before another record");
-							xml.push(part);
-						} while (!xml[xml.length - 1]!.endsWith("</Objs>"));
-						// Record framing only. Do not parse XML or print notification content from it.
-						const record = xml.join("\n"), bytes = Buffer.byteLength(record, "utf8");
-						assert.ok(bytes <= outputLimitBytes, "CLIXML stderr must remain within the child output cap");
-						timing.progress.push(`CLIXML: bytes=${bytes} preparingModulesForFirstUse=${record.includes("Preparing modules for first use")}`);
-						continue;
-					}
-					assert.ok(line.length <= 128, "stage stderr lines must remain bounded");
-					const match = /^stage=([a-z]+) processMs=(0|[1-9][0-9]*) scriptMs=(0|[1-9][0-9]*)$/.exec(line);
-					assert.ok(match, `malformed stage stderr: ${bounded(JSON.stringify(line))}`);
-					assert.equal(match[1], expectedStages[timing.stages.length], "stage stderr must follow the exact ordered roster");
-					timing.stages.push(line);
-					const processMs = Number(match[2]), scriptMs = Number(match[3]);
-					assert.ok(Number.isSafeInteger(processMs) && Number.isSafeInteger(scriptMs) &&
-						processMs >= previousProcessMs && scriptMs >= previousScriptMs && processMs >= scriptMs,
-						"stage timings must be safe, ordered milliseconds");
-					previousProcessMs = processMs; previousScriptMs = scriptMs;
-				}
-			} catch (error) {
-				timing.malformed = bounded(error);
-				// Decode any framed failure metadata before rejecting malformed stage output.
-			}
+			Object.assign(timing, classifyPowerShellStderr(result.stderr, expectedStages, outputLimitBytes));
+			// Decode any framed failure metadata before rejecting malformed stage output.
 			// ASCII framing avoids Windows PowerShell 5.1 console code-page loss.
 			const framed = result.stdout.trim();
 			assert.ok(framed.length > 0 && /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(framed), "history output must be one base64 frame");

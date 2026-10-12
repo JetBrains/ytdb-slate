@@ -220,10 +220,20 @@ Each line records milliseconds since process start and script start.
 Strict parsing rejects malformed, missing or out-of-order stage lines on a
 successful read. The script sets `$ProgressPreference = 'SilentlyContinue'`
 before other statements. Startup progress can still reach stderr.
-The classifier accepts an exact `#< CLIXML` marker followed by an XML record
-that starts with `<Objs` and ends with `</Objs>`. It does not parse XML.
-Bounded diagnostics report the record's byte length and whether it contains
-`Preparing modules for first use`. The record supplies no stage evidence.
+The pure classifier in `test/powershell-stderr.ts` permits one exact
+`#< CLIXML` marker followed by a fixed PowerShell first-use progress block.
+The block requires the exact version and namespace of the hosted record.
+Every object must match the recognised `S="progress"` shape with sequential
+references and the fixed `Preparing modules for first use.` completed record.
+The first object defines its type names. Later objects reference those names.
+The classifier matches literal text without XML parsing or entity decoding.
+Error, warning, verbose, debug and information records fail the read.
+Unknown content, malformed or empty blocks and a second marker also fail.
+Platform-independent tests in `test/powershell-stderr.test.ts` check the hosted
+single-object and type-reference shapes plus negative controls.
+These tests run in the full suite and stay outside the required-case roster.
+Bounded diagnostics report the accepted block's byte length and first-use flag.
+The block supplies no stage evidence.
 Other stderr content fails the read. A failed child retains its completed
 stages for diagnosis. Diagnostics retain stages for every poll read.
 Stage lines contain no notification text.
