@@ -6,7 +6,7 @@ import { access, stat } from "node:fs/promises";
 import { isAbsolute, parse, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { TextDecoder } from "node:util";
-import { createNativeNotificationChannel, NATIVE_ATTEMPT_TIMEOUT_MS, NATIVE_TEXT_MAX_BYTES } from "../extension/notification-native.ts";
+import { createNativeNotificationChannel, NATIVE_WINDOWS_ATTEMPT_TIMEOUT_MS, NATIVE_TEXT_MAX_BYTES } from "../extension/notification-native.ts";
 import { sanitizeNotificationText, truncateNotificationUtf8 } from "../extension/notification-protocols.ts";
 import { requiredCase } from "./required-case.ts";
 
@@ -14,7 +14,7 @@ const caseName = "Windows native notification retains exact unique text in opera
 const pollLimitMs = 30000;
 // Allow 45 seconds for the cold baseline reader and 10 seconds per warm read within the poll budget.
 // The baseline starts first, so this case proves only warm product delivery.
-// The 120-second case budget covers those reads, the 5-second product attempt and metadata recovery.
+// The 120-second case budget covers those reads, the 10-second product attempt and metadata recovery.
 // These diagnostic allowances remain below the five-minute job limit and do not change product limits.
 const coldReadLimitMs = 45000;
 const warmReadLimitMs = 10000;
@@ -211,7 +211,7 @@ if (process.platform === "win32") requiredCase(caseName, { timeout: caseLimitMs 
 		const start = performance.now();
 		try { await deliver(); } finally {
 			deliveryMs = performance.now() - start;
-			t.diagnostic(`Windows native product delivery: productDeliveryMs=${deliveryMs.toFixed(1)} nativeAttemptTimeoutMs=${NATIVE_ATTEMPT_TIMEOUT_MS} warm=true`);
+			t.diagnostic(`Windows native product delivery: productDeliveryMs=${deliveryMs.toFixed(1)} nativeWindowsAttemptTimeoutMs=${NATIVE_WINDOWS_ATTEMPT_TIMEOUT_MS} warm=true`);
 		}
 		const deadline = performance.now() + pollLimitMs;
 		let found = false;
@@ -235,7 +235,7 @@ if (process.platform === "win32") requiredCase(caseName, { timeout: caseLimitMs 
 			if (!found) await delay(Math.min(500, Math.max(0, deadline - performance.now())));
 		}
 		assert.ok(found, `no toast retained the exact title and body within ${pollLimitMs} ms`);
-		t.diagnostic(`Windows native history read-back: AppID=${JSON.stringify(baseline.appId)} polls=${polls} productDeliveryMs=${deliveryMs.toFixed(1)} nativeAttemptTimeoutMs=${NATIVE_ATTEMPT_TIMEOUT_MS}`);
+		t.diagnostic(`Windows native history read-back: AppID=${JSON.stringify(baseline.appId)} polls=${polls} productDeliveryMs=${deliveryMs.toFixed(1)} nativeWindowsAttemptTimeoutMs=${NATIVE_WINDOWS_ATTEMPT_TIMEOUT_MS} warm=true`);
 		complete();
 	} catch (error) {
 		// One bounded diagnostic child can recover metadata after a failed or timed-out history read.
@@ -245,7 +245,7 @@ if (process.platform === "win32") requiredCase(caseName, { timeout: caseLimitMs 
 		t.diagnostic(`Windows native read-back failure: ${bounded(error)}`);
 		t.diagnostic(`reading child: ${bounded(JSON.stringify(diagnostics ?? "unavailable"))}`);
 		t.diagnostic(`ImageOS=${bounded(process.env.ImageOS ?? "absent")} ImageVersion=${bounded(process.env.ImageVersion ?? "absent")}`);
-		t.diagnostic(`polls=${polls} productDeliveryMs=${deliveryMs === undefined ? "not called" : deliveryMs.toFixed(1)} nativeAttemptTimeoutMs=${NATIVE_ATTEMPT_TIMEOUT_MS}`);
+		t.diagnostic(`polls=${polls} productDeliveryMs=${deliveryMs === undefined ? "not called" : deliveryMs.toFixed(1)} nativeWindowsAttemptTimeoutMs=${NATIVE_WINDOWS_ATTEMPT_TIMEOUT_MS} warm=true`);
 		if (candidate) {
 			t.diagnostic(`decoded title: ${bounded(JSON.stringify(candidate[0]))}`);
 			t.diagnostic(`decoded body: ${bounded(JSON.stringify(candidate[1]))}`);

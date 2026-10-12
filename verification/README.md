@@ -167,7 +167,9 @@ The product disables module autoload and creates `Shell.Application` through
 case-insensitive exact name match in folder order supplies the registered
 AppID from its Path. The fixed script uses no cmdlet, alias, import or pipeline.
 Notification text enters XML only through text nodes from the two environment
-fields. The five-key environment and 5,000 ms attempt limit remain fixed.
+fields. The five-key environment remains fixed. Windows uses a 10,000 ms
+native attempt limit. Linux and macOS use 5,000 ms.
+Cold Windows PowerShell process start measured above five seconds on a hosted runner.
 
 A separate absolute Windows PowerShell child uses `shell: false`, `-NoLogo`,
 `-NoProfile`, `-NonInteractive` and `-EncodedCommand` with fixed UTF-16LE source.
@@ -191,8 +193,11 @@ Every child has a one-MiB output cap. The first cold baseline read has a
 No test-owned PowerShell child runs before this read.
 The CI job proves WARM product delivery only because the baseline reader is
 the first PowerShell process. Cold first-process delivery is measured in a
-separate acceptance run. The 5,000 ms margin is measured on the hosted image
-with real-time antivirus off. It does not establish a margin with antivirus on.
+separate acceptance run. The 10,000 ms limit leaves 4,736.5 ms above the slower
+of two cold delivery measurements, 5,263.5 ms and 2,391.2 ms.
+The margin is measured on the hosted image with real-time antivirus off.
+Two samples do not bound worst-case startup.
+The measurements do not establish a margin with antivirus on.
 
 Independent UUID markers identify the title and body. One baseline history
 read requires both markers to be absent from every text node. The title starts
@@ -231,8 +236,10 @@ history child. Every poll reports its number, AppID, toast count and match
 result. Product delivery reports its duration even when later reads fail.
 Success prints the AppID, poll count and delivery duration.
 The duration runs from the product deliver call to helper exit and reports
-the 5,000 ms native attempt limit for comparison. The test changes no services,
-registry, policies, notification settings or Focus Assist.
+the 10,000 ms Windows native attempt limit for comparison.
+Success and failure diagnostics report `nativeWindowsAttemptTimeoutMs=10000`
+and `warm=true`. The test changes no services, registry, policies,
+notification settings or Focus Assist.
 
 The Windows job checks native toast retention in operating system history.
 Store or history retention does not prove visible presentation. Neither job

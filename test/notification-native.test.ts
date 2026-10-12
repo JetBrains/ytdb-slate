@@ -6,7 +6,7 @@ import fs from "node:fs/promises";
 import { constants } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { createNativeNotificationChannel, NATIVE_ATTEMPT_TIMEOUT_MS, NATIVE_PREPARE_TIMEOUT_MS, NATIVE_TEXT_MAX_BYTES } from "../extension/notification-native.ts";
+import { createNativeNotificationChannel, NATIVE_ATTEMPT_TIMEOUT_MS, NATIVE_WINDOWS_ATTEMPT_TIMEOUT_MS, NATIVE_PREPARE_TIMEOUT_MS, NATIVE_TEXT_MAX_BYTES } from "../extension/notification-native.ts";
 import { NotificationDispatcher } from "../extension/notification-dispatcher.ts";
 import { NOTIFICATION_DEFAULTS } from "../extension/notification-config.ts";
 import { notificationText, sanitizeNotificationText, truncateNotificationUtf8 } from "../extension/notification-protocols.ts";
@@ -210,6 +210,33 @@ test("abort before helper acceptance kills it, accepted work ignores abort and s
 	f.children[1]!.emit("spawn"); second.abort(); await delay(20); assert.deepEqual(f.children[1]!.kills, []);
 	await accepted; assert.deepEqual(f.children[1]!.kills, ["SIGKILL"]);
 });
+
+for (const platform of ["linux", "darwin", "win32"] as const) {
+	test(`${platform} native delivery kills at its platform deadline and waits for confirmed termination`, { timeout: 2000 }, async (t) => {
+		const f = fixture(t, platform), controller = new AbortController();
+		const send = await f.channel.prepare({ title: "T", body: "" }, controller.signal);
+		t.mock.timers.enable({ apis: ["setTimeout"] });
+		const pending = send(), child = f.children[0]!;
+		child.kill = (signal) => { child.kills.push(signal); return false; };
+		child.emit("spawn"); controller.abort();
+		let settled = false;
+		void Promise.resolve(pending).then(() => { settled = true; });
+		const deadlineMs = platform === "win32" ? 10000 : 5000;
+		assert.equal(platform === "win32" ? NATIVE_WINDOWS_ATTEMPT_TIMEOUT_MS : NATIVE_ATTEMPT_TIMEOUT_MS, deadlineMs);
+		t.mock.timers.tick(deadlineMs - 1);
+		assert.deepEqual(child.kills, [], "accepted work survives cancellation and the time before its deadline");
+		assert.equal(settled, false);
+		t.mock.timers.tick(1);
+		assert.deepEqual(child.kills, ["SIGKILL"], "the helper is killed exactly at its platform deadline");
+		child.emit("error", new Error("injected kill failure"));
+		await Promise.resolve();
+		assert.equal(settled, false, "a failed kill and error event do not release delivery");
+		child.emit("close", null, "SIGKILL"); await pending;
+		assert.equal(settled, true, "confirmed close releases delivery");
+		t.mock.timers.tick(deadlineMs);
+		assert.deepEqual(child.kills, ["SIGKILL"], "confirmed termination clears the deadline timer");
+	});
+}
 
 test("cancelled native preparation promptly releases a deferred same-type dialog and blocks a prepared start", { timeout: 2000 }, async (t) => {
 	const f = fixture(t), controller = new AbortController();

@@ -7,6 +7,8 @@ import { sanitizeNotificationText, truncateNotificationUtf8 } from "./notificati
 
 export const NATIVE_PREPARE_TIMEOUT_MS = 1000;
 export const NATIVE_ATTEMPT_TIMEOUT_MS = 5000;
+// Cold Windows PowerShell process start measured above 5 seconds on a hosted runner.
+export const NATIVE_WINDOWS_ATTEMPT_TIMEOUT_MS = 10000;
 export const NATIVE_TEXT_MAX_BYTES = 1024;
 type Environment = Readonly<Record<string, string | undefined>>;
 export interface NativeNotificationOptions {
@@ -87,7 +89,7 @@ export function stopNativeNotificationHelpers(): void {
 }
 
 /** Helper startup accepts delivery. Only confirmed exit releases the delivery slot. */
-function deliver(executable: string, args: readonly string[], env: NodeJS.ProcessEnv, cwd: string, signal: AbortSignal): Promise<void> {
+function deliver(executable: string, args: readonly string[], env: NodeJS.ProcessEnv, cwd: string, signal: AbortSignal, attemptTimeoutMs: number): Promise<void> {
 	return new Promise((done) => {
 		let child: childProcess.ChildProcess | undefined, settled = false, accepted = false;
 		const finish = () => {
@@ -102,7 +104,7 @@ function deliver(executable: string, args: readonly string[], env: NodeJS.Proces
 			try { child.kill("SIGKILL"); } catch { /* Delivery failures stay silent. */ }
 		};
 		const cancel = () => { if (!accepted) stop(); };
-		const timer = setTimeout(stop, NATIVE_ATTEMPT_TIMEOUT_MS);
+		const timer = setTimeout(stop, attemptTimeoutMs);
 		timer.unref(); signal.addEventListener("abort", cancel, { once: true });
 		if (signal.aborted) { cancel(); return; }
 		try {
@@ -131,6 +133,7 @@ export function createNativeNotificationChannel(options: NativeNotificationOptio
 		const title = truncateNotificationUtf8(sanitizeNotificationText(text.title), NATIVE_TEXT_MAX_BYTES);
 		const body = truncateNotificationUtf8(sanitizeNotificationText(text.body), NATIVE_TEXT_MAX_BYTES);
 		let candidates: string[], args: string[], env: NodeJS.ProcessEnv = {};
+		const attemptTimeoutMs = platform === "win32" ? NATIVE_WINDOWS_ATTEMPT_TIMEOUT_MS : NATIVE_ATTEMPT_TIMEOUT_MS;
 		if (platform === "linux") {
 			// D-Bus identifies the user service. Display and runtime values identify the desktop session.
 			for (const key of ["DISPLAY", "WAYLAND_DISPLAY", "DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR"]) if (source[key]) env[key] = source[key];
@@ -164,7 +167,7 @@ export function createNativeNotificationChannel(options: NativeNotificationOptio
 				if (signal.aborted) { cancel(); return; }
 				void resolveHelper(candidates, options.projectDirectory, resolution.signal).then(done, () => done(undefined));
 			});
-			return () => executable && !signal.aborted ? deliver(executable, args, env, parse(resolve(options.projectDirectory)).root, signal) : undefined;
+			return () => executable && !signal.aborted ? deliver(executable, args, env, parse(resolve(options.projectDirectory)).root, signal, attemptTimeoutMs) : undefined;
 		} finally { clearTimeout(timer); signal.removeEventListener("abort", cancel); resolution.abort(); }
 	} };
 }
