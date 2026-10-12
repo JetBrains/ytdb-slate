@@ -221,16 +221,24 @@ Strict parsing rejects malformed, missing or out-of-order stage lines on a
 successful read. The script sets `$ProgressPreference = 'SilentlyContinue'`
 before other statements. Startup progress can still reach stderr.
 The pure classifier in `test/powershell-stderr.ts` permits one exact
-`#< CLIXML` marker followed by a fixed PowerShell first-use progress block.
-The block requires the exact version and namespace of the hosted record.
+`#< CLIXML` marker before a fixed PowerShell first-use progress block.
+Zero or more stage lines may appear between the marker and the block.
+Those lines follow the same strict grammar, ordered roster and timing checks.
+The marker must precede every stage line when a progress block is present.
+Stage-only stderr remains valid without a marker or block.
+Stage lines inside the block fail. Any content after the block fails, except
+one final line ending. The block requires the exact version and namespace
+of the hosted record.
 Every object must match the recognised `S="progress"` shape with sequential
 references and the fixed `Preparing modules for first use.` completed record.
 The first object defines its type names. Later objects reference those names.
 The classifier matches literal text without XML parsing or entity decoding.
 Error, warning, verbose, debug and information records fail the read.
 Unknown content, malformed or empty blocks and a second marker also fail.
-Platform-independent tests in `test/powershell-stderr.test.ts` check the hosted
-single-object and type-reference shapes plus negative controls.
+Platform-independent tests in `test/powershell-stderr.test.ts` check single-object
+and type-reference shapes plus negative controls. The hosted payload fixture
+contains the exact marker, stage lines and both progress objects from run
+38228181386. It covers both LF and CRLF line endings.
 These tests run in the full suite and stay outside the required-case roster.
 Bounded diagnostics report the accepted block's byte length and first-use flag.
 The block supplies no stage evidence.

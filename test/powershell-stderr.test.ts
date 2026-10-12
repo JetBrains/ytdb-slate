@@ -13,7 +13,29 @@ const finish = "stage=framed processMs=20 scriptMs=2";
 const expected = ["start", "framed"];
 const cap = 1024 * 1024;
 const classify = (stderr: string, limit = cap) => classifyPowerShellStderr(stderr, expected, limit);
-const withXml = (record: string) => `${start}\n#< CLIXML\n${record}\n${finish}\n`;
+const withXml = (record: string) => `#< CLIXML\n${start}\n${finish}\n${record}\n`;
+// Exact stderr payload lines in the hosted log. That reader's roster has no utility stage.
+const hostedStages = [
+	"stage=start processMs=27212 scriptMs=207",
+	"stage=services processMs=27241 scriptMs=237",
+	"stage=startlayout processMs=27540 scriptMs=535",
+	"stage=startapps processMs=27953 scriptMs=948",
+	"stage=winrt processMs=27959 scriptMs=954",
+	"stage=setting processMs=28001 scriptMs=997",
+	"stage=history processMs=28038 scriptMs=1033",
+	"stage=framed processMs=28856 scriptMs=1852",
+];
+const hostedStderr = ["#< CLIXML", ...hostedStages, hostedXml, ""].join("\n");
+const hostedRoster = ["start", "services", "startlayout", "startapps", "winrt", "setting", "history", "framed"];
+
+test("PowerShell stderr accepts the exact hosted marker, stages and two progress objects", () => {
+	for (const stderr of [hostedStderr, hostedStderr.replaceAll("\n", "\r\n")]) {
+		const result = classifyPowerShellStderr(stderr, hostedRoster, cap);
+		assert.equal(result.malformed, undefined);
+		assert.deepEqual(result.stages, hostedStages);
+		assert.deepEqual(result.progress, ["CLIXML: bytes=605 preparingModulesForFirstUse=true"]);
+	}
+});
 
 for (const [name, record] of [["single progress object", xml], ["hosted type-reference progress objects", hostedXml]]) {
 	test(`PowerShell stderr accepts ${name} without stage credit`, () => {
@@ -27,8 +49,38 @@ for (const [name, record] of [["single progress object", xml], ["hosted type-ref
 test("PowerShell stderr accepts stages alone and CRLF progress framing", () => {
 	assert.deepEqual(classify(`${start}\n${finish}\n`), { stages: [start, finish], progress: [] });
 	assert.equal(classify(withXml(hostedXml).replaceAll("\n", "\r\n")).malformed, undefined);
-	assert.equal(classify(`#< CLIXML\n${xml}\n${start}\n${finish}`).malformed, undefined);
-	assert.equal(classify(`${start}\n${finish}\n#< CLIXML\n${xml}`).malformed, undefined);
+	for (const stageLines of [[], [start], [start, finish]]) {
+		const stderr = ["#< CLIXML", ...stageLines, xml].join("\n");
+		const result = classify(stderr);
+		assert.equal(result.malformed, undefined);
+		assert.deepEqual(result.stages, stageLines);
+		assert.equal(result.progress.length, 1);
+	}
+});
+
+test("PowerShell stderr rejects blocks before the marker and stages outside the hosted framing", () => {
+	for (const stderr of [
+		`${xml}\n#< CLIXML\n${start}\n${finish}`,
+		`${start}\n#< CLIXML\n${finish}\n${xml}`,
+		`${start}\n${finish}\n#< CLIXML\n${xml}`,
+		`#< CLIXML\n${xml}\n${start}\n${finish}`,
+		withXml(xml) + "unrecognised content\n",
+		withXml(xml) + "\n",
+		`#< CLIXML\n${start}\n${finish}`,
+		"#< CLIXML",
+	]) assert.ok(classify(stderr).malformed, stderr);
+});
+
+test("PowerShell stderr rejects error records at every framing boundary", () => {
+	const error = '<S S="Error">history access denied</S>';
+	const lines = ["#< CLIXML", start, finish, hostedXml];
+	for (let index = 0; index <= lines.length; index++) {
+		const stderr = [...lines.slice(0, index), error, ...lines.slice(index)].join("\n");
+		assert.ok(classify(stderr).malformed, `error at line ${index}`);
+	}
+	assert.ok(classify(withXml(opening + error + first + second + "</Objs>")).malformed);
+	assert.ok(classify(withXml(opening + first + error + second + "</Objs>")).malformed);
+	assert.ok(classify(withXml(opening + first + second + error + "</Objs>")).malformed);
 });
 
 for (const stream of ["Error", "error", "warning", "verbose", "debug", "information"]) {
@@ -61,13 +113,17 @@ for (const [name, record] of Object.entries(invalidRecords)) {
 	test(`PowerShell stderr rejects ${name} and keeps completed stages`, () => {
 		const result = classify(withXml(record));
 		assert.ok(result.malformed, name);
-		assert.deepEqual(result.stages, [start]);
+		assert.deepEqual(result.stages, [start, finish]);
 		assert.deepEqual(result.progress, []);
 	});
 }
 
 test("PowerShell stderr rejects a second CLIXML block and enforces the byte cap", () => {
-	assert.match(classify(withXml(xml) + `#< CLIXML\n${xml}\n`).malformed!, /only one CLIXML marker/);
+	for (const stderr of [
+		withXml(xml) + `#< CLIXML\n${xml}\n`,
+		`#< CLIXML\n#< CLIXML\n${start}\n${finish}\n${xml}`,
+		`#< CLIXML\n${start}\n#< CLIXML\n${finish}\n${xml}`,
+	]) assert.match(classify(stderr).malformed!, /only one CLIXML marker/);
 	const bytes = Buffer.byteLength(xml, "utf8");
 	assert.equal(classify(withXml(xml), bytes).malformed, undefined);
 	assert.match(classify(withXml(xml), bytes - 1).malformed!, /child output cap/);
@@ -81,6 +137,12 @@ test("PowerShell stderr preserves stage syntax, order and timing checks", () => 
 		`${start}\nstage=framed processMs=020 scriptMs=2`, `${start}\nstage=framed processMs=-1 scriptMs=2`,
 		`${start}\n${"x".repeat(129)}`, `${start}\nunrecognised content`, `${start}\n${finish}\n\n`,
 	]) assert.ok(classify(stderr).malformed, stderr);
+	for (const line of [
+		finish, "stage=start processMs=01 scriptMs=1", "stage=start processMs=10 scriptMs=11",
+		"stage=start processMs=9007199254740992 scriptMs=1", "unrecognised content",
+	]) assert.ok(classify(`#< CLIXML\n${line}\n${xml}`).malformed, line);
+	assert.ok(classify(`#< CLIXML\n${start}\nstage=framed processMs=9 scriptMs=2\n${xml}`).malformed);
+	assert.ok(classify(`#< CLIXML\n${start}\nstage=framed processMs=20 scriptMs=0\n${xml}`).malformed);
 	// The reader checks completeness after decoding failure metadata.
 	assert.deepEqual(classify(start), { stages: [start], progress: [] });
 });

@@ -24,21 +24,26 @@ export function classifyPowerShellStderr(stderr: string, expectedStages: readonl
 	const result: StderrClassification = { stages: [], progress: [] };
 	try {
 		const lines = stderr.replace(/\r?\n$/, "").split(/\r?\n/);
-		let previousProcessMs = 0, previousScriptMs = 0, seenProgress = false;
+		let previousProcessMs = 0, previousScriptMs = 0, seenMarker = false;
 		for (let index = 0; index < lines.length; index++) {
 			const line = lines[index]!;
 			if (line === "#< CLIXML") {
-				assert.ok(!seenProgress, "stderr permits only one CLIXML marker");
-				seenProgress = true;
+				assert.ok(!seenMarker, "stderr permits only one CLIXML marker");
+				assert.equal(result.stages.length, 0, "CLIXML marker must precede all stage lines");
+				seenMarker = true;
+				continue;
+			}
+			assert.equal(result.progress.length, 0, "stderr permits no content after the CLIXML block");
+			if (line.startsWith("<Objs ") || line.startsWith("<Objs>")) {
+				assert.ok(seenMarker, "CLIXML block requires a preceding marker");
 				const xml: string[] = [];
-				assert.ok(lines[index + 1]?.startsWith("<Objs ") || lines[index + 1]?.startsWith("<Objs>"),
-					"CLIXML stderr requires an Objs opening line");
 				do {
-					const part = lines[++index];
+					const part = lines[index++];
 					assert.ok(part !== undefined && !part.startsWith("stage=") && part !== "#< CLIXML",
 						"CLIXML stderr requires a closing Objs line before another record");
 					xml.push(part);
 				} while (!xml[xml.length - 1]!.endsWith("</Objs>"));
+				index--;
 				const record = xml.join("\n"), bytes = Buffer.byteLength(record, "utf8");
 				assert.ok(bytes <= outputLimitBytes, "CLIXML stderr must remain within the child output cap");
 				assert.ok(isStartupProgress(record), "CLIXML stderr requires recognised first-use progress objects only");
@@ -56,6 +61,7 @@ export function classifyPowerShellStderr(stderr: string, expectedStages: readonl
 				"stage timings must be safe, ordered milliseconds");
 			previousProcessMs = processMs; previousScriptMs = scriptMs;
 		}
+		assert.ok(!seenMarker || result.progress.length === 1, "CLIXML marker requires a progress block");
 	} catch (error) {
 		result.malformed = String(error).slice(0, 2000);
 	}
