@@ -207,7 +207,10 @@ export function selectPushAddress(addresses: unknown, loopbackOnly: boolean): Lo
 /** Supply both Node lookup callback shapes without another system lookup. */
 export function pinnedPushLookup(address: LookupAddress): NonNullable<RequestOptions["lookup"]> {
 	return (_host, options, callback) => {
-		if (typeof options === "object" && options.all) callback(null, [address]);
-		else callback(null, address.address, address.family);
+		// Defer the answer so HTTPS request setup finishes before a connection can fail.
+		queueMicrotask(() => {
+			if (typeof options === "object" && options.all) callback(null, [address]);
+			else callback(null, address.address, address.family);
+		});
 	};
 }

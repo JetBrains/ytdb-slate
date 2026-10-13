@@ -218,7 +218,7 @@ test("HTTP rejects remote answers and selects only validated loopback forms", { 
 	assert.deepEqual(selectPushAddress([{ address: "192.0.2.1", family: 4 }], false), { address: "192.0.2.1", family: 4 });
 });
 
-test("pinned lookup handles both callback shapes with exactly one candidate", () => {
+test("pinned lookup handles both callback shapes with exactly one candidate", { timeout: 1000 }, async () => {
 	const address = { address: "127.0.0.1", family: 4 };
 	const lookup = pinnedPushLookup(address);
 	for (const options of [{ all: true }, { all: false }, 4]) {
@@ -227,7 +227,78 @@ test("pinned lookup handles both callback shapes with exactly one candidate", ()
 			calls++;
 			assert.deepEqual(args, typeof options === "object" && options.all ? [null, [address]] : [null, address.address, 4]);
 		});
+		assert.equal(calls, 0, "lookup must wait for request setup");
+		await Promise.resolve();
 		assert.equal(calls, 1);
+	}
+});
+
+test("immediate HTTPS connect failures settle silently without crashing the host", { timeout: 10000 }, async (t) => {
+	const moduleUrl = new URL("../extension/notification-push.ts", import.meta.url).href;
+	const configUrl = new URL("../extension/notification-config.ts", import.meta.url).href;
+	const dispatcherUrl = new URL("../extension/notification-dispatcher.ts", import.meta.url).href;
+	for (const address of [{ address: "192.0.2.1", family: 4 }, { address: "2001:db8::1", family: 6 }]) {
+		await t.test(`IPv${address.family}`, { timeout: 5000 }, async (t) => {
+			// Only the native connect return value is replaced. Node owns TLS setup and error delivery.
+			const source = `import assert from 'node:assert/strict';
+				import https from 'node:https';
+				import { createPushNotificationChannel } from ${JSON.stringify(moduleUrl)};
+				import { resolveNotificationSettings } from ${JSON.stringify(configUrl)};
+				import { NotificationDispatcher } from ${JSON.stringify(dispatcherUrl)};
+				const address = ${JSON.stringify(address)};
+				const { TCP } = process.binding('tcp_wrap');
+				const { UV_ENETUNREACH } = process.binding('uv');
+				assert.equal(typeof UV_ENETUNREACH, 'number');
+				let connects = 0, requests = 0, throws = 0, settled = false, bells = 0;
+				TCP.prototype.connect = TCP.prototype.connect6 = (_req, ip, port) => {
+					assert.equal(ip, address.address); assert.equal(port, 443);
+					connects++; return UV_ENETUNREACH;
+				};
+				const original = https.request;
+				https.request = (...args) => {
+					requests++; assert.equal(args[0].hostname, 'original.example');
+					assert.equal(args[1].servername, 'original.example');
+					try { return original(...args); } catch (error) { throws++; throw error; }
+				};
+				const warnings = [], callbacks = new Set();
+				const settings = resolveNotificationSettings({ minimumDelayMs: 0, cooldownMs: 0, bell: true,
+					push: { enabled: true, server: 'https://original.example', topic: 'topic' } },
+					undefined, warning => warnings.push(warning));
+				const channel = createPushNotificationChannel({ mode: 'tui', settings,
+					resolver: { script: ${JSON.stringify(`console.log(${JSON.stringify(JSON.stringify([address]))})`)} } });
+				const dispatcher = new NotificationDispatcher({ mode: 'tui', cwd: '/tmp', settings,
+					channels: [{ name: 'push', async prepare(text, signal) {
+						const send = await channel.prepare(text, signal);
+						return async () => { assert.equal(await send(), undefined); settled = true; };
+					} }, { name: 'bell', async prepare() { return () => { bells++; }; } }],
+					current: () => true, idle: () => true, queued: () => false, recovering: () => false,
+					warn: warning => warnings.push(warning),
+					schedule: (_ms, callback) => { callbacks.add(callback); return () => callbacks.delete(callback); } });
+				const keep = setInterval(() => {}, 1000);
+				dispatcher.runStart(); dispatcher.message({ role: 'assistant', stopReason: 'stop', content: '' });
+				dispatcher.settled();
+				for (let i = 0; i < 6; i++) {
+					for (const callback of [...callbacks]) { callbacks.delete(callback); callback(); }
+					await Promise.resolve();
+				}
+				const slots = globalThis[Symbol.for('ytdb-slate.notification-channel-slots.v1')];
+				while (!settled || slots.size) await new Promise(done => setTimeout(done, 5));
+				await new Promise(done => setTimeout(done, 50));
+				assert.equal(connects, 1); assert.equal(requests, 1); assert.equal(throws, 0);
+				assert.equal(bells, 1); assert.deepEqual(warnings, []);
+				dispatcher.retire(); clearInterval(keep); console.log('silent settlement');`;
+			const child = spawn(process.execPath, ["--disable-warning=MODULE_TYPELESS_PACKAGE_JSON", "--input-type=module", "-e", source],
+				{ stdio: ["ignore", "pipe", "pipe"], timeout: 3000, killSignal: "SIGKILL" });
+			t.after(() => { if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL"); });
+			let output = "", errors = "";
+			child.stdout.on("data", (chunk: Buffer) => { output += chunk; });
+			child.stderr.on("data", (chunk: Buffer) => { errors += chunk; });
+			const result = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((done, reject) => {
+				child.once("error", reject); child.once("close", (code, signal) => done({ code, signal }));
+			});
+			assert.deepEqual(result, { code: 0, signal: null }, errors);
+			assert.equal(errors, ""); assert.equal(output, "silent settlement\n");
+		});
 	}
 });
 
