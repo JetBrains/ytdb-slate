@@ -29,6 +29,242 @@ small-branch-denominator warning policy remain unchanged.
 ## Continuous integration
 
 The full suite runs on Linux under the stable `Node 22` and `Node 24` check names.
+Each Linux job has a 20-minute limit on the version-specific `ubuntu-24.04` runner label.
+The Linux prerequisite install includes `dbus`, `libnotify-bin`,
+`python3-dbus-next`, `openssh-client`, `openssh-server` and `tmux`.
+
+`test/notification-tmux-readback.test.ts` asserts the tmux 3.4 version series in CI.
+It owns a private server socket, configuration, home directory and client
+pseudoterminals. Client version replies identify all seven known terminals.
+Independent byte expectations check the production query match bits, automatic
+selection, complete pane-device envelopes and the attached client streams.
+The cases cover the four G9 examples, both tie-breaks, fixed send order,
+unidentified clients, visible-window `on`, inactive-window `all`, inactive-window
+`on` silence, default bell delivery to both clients and real-binary query failure.
+Unit tests in `test/notification-tmux.test.ts` cover stalled queries, cancellation,
+nonblocking admission and process exit. Missing prerequisites fail on Linux when
+`CI` is true and produce a visible local skip otherwise. The integration check
+proves byte transport, not terminal interpretation or visible presentation.
+
+The narrow `macOS notification push` and `Windows notification push` jobs use
+`macos-15` (arm64) and `windows-2025` (x64). These version-specific labels fix the
+operating-system line, not the image revision. Both jobs have a five-minute
+limit and pin Node 24.18.0. They inherit the read-only workflow permission,
+reuse the Linux action SHAs and install with `npm ci --ignore-scripts`.
+The workflow configures no required-check ruleset.
+
+The Windows job runs both files with ordinary `spec` output visible:
+
+```text
+node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=./verification/required-case-reporter.ts --test-reporter-destination=stdout test/notification-push-portable.test.ts test/notification-native-windows-readback.test.ts
+```
+
+The macOS job runs both files in one invocation with the same reporters:
+
+```text
+node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=./verification/required-case-reporter.ts --test-reporter-destination=stdout test/notification-push-portable.test.ts test/notification-native-macos-readback.test.ts
+```
+
+The Linux suite also discovers the portable file. The first case sends one notification
+to a fake ntfy HTTP server through `http://localhost:<port>`. IPv4-first resolver
+ordering selects the `127.0.0.1` listener even when localhost has an IPv6 answer.
+The observing spawn wrapper passes production arguments unchanged to Node and
+checks the exact child script, minimal environment, answer and close.
+The server checks a complete POST to `/`, exact JSON fields, `Connection: close`
+and no additional request during a 250 ms quiet window.
+The second case uses a child-only prelude to stall the lookup callback.
+The exact production timer uses a 300 ms deadline. The child must close before
+that deadline plus a 1,000 ms allowance for startup, scheduling and pipe close.
+The parent must not terminate the child. A process probe must report that the
+child is gone. The test does not depend on Windows signal codes.
+Missing prerequisites fail. `test/required-case.ts` accepts only `undefined`
+and `false` for `skip` and `todo` options. Runtime `t.skip()` and `t.todo()` calls
+fail the case, even when the body catches their exceptions. Each case body calls
+`complete()` after its last required assertion. A return without that marker
+fails. Wrappers, hooks and `finally` blocks must not declare completion.
+
+`verification/required-case-reporter.ts` checks structured Node result events.
+It requires each selected case to report exactly once as a pass without skip,
+todo or expected-failure directives. Every required file needs one successful
+summary whose test and pass counts equal its roster size. Failed, cancelled,
+skipped and todo counts must all be zero. Missing, renamed, duplicate, filtered,
+empty and not-run cases fail. Zero tests fail.
+
+`verification/required-case-roster.ts` lists required files and names separately
+from the case bodies. Paths use file URLs. Names must be globally unique across
+all entries, including entries for other platforms. An optional `platforms`
+list selects applicable native cases through `process.platform`. A selected
+platform must have at least one required file. The macOS native file has one
+required case with `platforms: ["darwin"]`. The Windows native file has one
+required case with `platforms: ["win32"]`. Each native file registers no case
+outside its platform. The roster has three files in total. The selected roster
+has two files on macOS or Windows and one on Linux.
+
+The reporter runs only in the macOS and Windows job commands. The Linux runner
+uses its ordinary reporters without this required-file contract. Linux runs
+the shared helper and `test/required-case-contract.test.ts`. Those contract tests
+exercise the helper, reporter, roster and exact narrow-job command.
+`tsconfig.json` includes the reporter and roster. Node executes their erasable
+TypeScript directly. Linux coverage and the patch gate include only
+`extension/**/*.ts`. The helper, reporter, roster and contract-test lines are
+outside that denominator and receive no coverage credit.
+
+The helper does not track caught assertion failures. The marker proves control
+reached its position, not assertion quality. The reviewed command, roster and
+terminal marker placement remain trusted. Node can attribute helper-registered
+results to the helper file. The reporter therefore does not prove exact
+name-to-file ownership against coordinated swaps. It relies on the pinned Node
+structured-event schema and ordinary process isolation. Re-measure the guard
+before changing Node pins or execution flags.
+Both jobs prove push transport and child termination. The macOS job also
+checks native notification retention in the operating system store.
+`test/notification-native-macos-readback.test.ts` uses the exported
+`createNativeNotificationChannel`, then preparation and delivery. The helper
+receives a HOME-only environment. Fixed osascript source reads the title and
+body from trailing arguments after `--`. These arguments carry UTF-8 text.
+
+The native case requires an absolute HOME, osascript, sqlite3 and plutil.
+It tries `~/Library/Group Containers/group.com.apple.usernoted/db2/db` first.
+Only a missing path permits the fallback to
+`$(getconf DARWIN_USER_DIR)com.apple.notificationcenter/db2/db`.
+Access denial, a missing store, a query error or a schema mismatch fails.
+Every sqlite3 child uses `-readonly`, a fresh connection, a one-second busy
+wait and a two-second process timeout. Normal reads include write-ahead log
+(WAL) data. The test never uses an immutable connection or changes the store.
+
+Independent random UUIDs identify the title and body. The baseline query
+requires both markers to be absent in ASCII and UTF-16 big-endian encodings.
+It also records the maximum record ID in that same query. The text includes
+leading `-e ` and `-- `, separators, quotes, backslashes, XML characters,
+accented text, Chinese characters and an emoji.
+After product delivery, polling runs every 500 ms for at most 30 seconds.
+Candidate records must have a higher ID and contain a marker. Bounded plutil
+children extract `req.titl` and `req.body` from each candidate binary plist.
+Extraction requires string values and emits raw UTF-8 without a trailing newline.
+Both fields must equal the sent text exactly. The result reports the retained
+record's `app.identifier` without requiring a particular application identity.
+Every child has a timeout and a one-MiB output cap. Poll children use the
+remaining polling allowance when it is shorter than two seconds.
+
+The case has a 60-second timeout. Its failure diagnostics bound the error,
+`sw_vers`, architecture, tried paths, schema summary and child errors.
+A decoded candidate also supplies its title, body and `app.identifier` to
+those diagnostics.
+The test prints no complete store, takes no screenshot, grants no permission
+and automates no consent. Missing prerequisites fail even outside CI.
+There is no local macOS skip path. The workflow configures no required-check
+ruleset. Hosted evidence must establish store access, notification permission,
+application identity and repeatability on the selected image.
+
+`test/notification-native-windows-readback.test.ts` calls the exported
+`createNativeNotificationChannel` with `mode: "tui"`, `platform: "win32"` and
+default product environment handling, then prepares and delivers. It requires
+an absolute SystemRoot, its System32 Windows PowerShell executable and the
+exact-name Windows PowerShell Start entry. Missing prerequisites fail on
+Windows even outside CI. The case registers no test on other platforms.
+The product disables module autoload and creates `Shell.Application` through
+.NET. It enumerates the Apps folder that `Get-StartApps` uses. The first
+case-insensitive exact name match in folder order supplies the registered
+AppID from its Path. The fixed script uses no cmdlet, alias, import or pipeline.
+Notification text enters XML only through text nodes from the two environment
+fields. The five-key environment remains fixed. Windows uses a 10,000 ms
+native attempt limit. Linux and macOS use 5,000 ms.
+Cold Windows PowerShell process start measured above five seconds on a hosted runner.
+
+A separate absolute Windows PowerShell child uses `shell: false`, `-NoLogo`,
+`-NoProfile`, `-NonInteractive` and `-EncodedCommand` with fixed UTF-16LE source.
+Only the five product-permitted Windows environment keys reach that child.
+The reader disables module autoload. It imports Microsoft.PowerShell.Utility
+and StartLayout by absolute paths under SystemRoot. Utility supplies
+`ConvertTo-Json` and the commands used by `Get-StartApps`.
+The reader selects the first case-insensitive exact name match from
+`Get-StartApps`. This identity method is independent of the product's direct
+COM lookup. Each poll AppID must equal the baseline AppID, which success
+reports without a hard-coded identity. Process properties and UTC timestamps
+come from .NET. ServiceController supplies service diagnostics only when its
+assembly is already loaded. Otherwise, diagnostics report it as unavailable.
+No reader command triggers module autoload.
+The reader reads `ToastNotificationManager.History.GetHistory(appId)` and extracts
+Content text nodes without changing history or notification settings.
+Base64-framed UTF-8 JSON avoids Windows PowerShell 5.1 console code-page loss.
+A child error, nonzero exit, malformed frame or missing AppID fails the case.
+Every child has a one-MiB output cap. The first cold baseline read has a
+45-second timeout. Its five-key environment has no module-cache override.
+No test-owned PowerShell child runs before this read.
+The CI job proves WARM product delivery only because the baseline reader is
+the first PowerShell process. Cold first-process delivery is measured in a
+separate acceptance run. The 10,000 ms limit leaves 4,736.5 ms above the slower
+of two cold delivery measurements, 5,263.5 ms and 2,391.2 ms.
+The margin is measured on the hosted image with real-time antivirus off.
+Two samples do not bound worst-case startup.
+The measurements do not establish a margin with antivirus on.
+
+Independent UUID markers identify the title and body. One baseline history
+read requires both markers to be absent from every text node. The title starts
+with `-e ` and the body with `-- `. Both contain the macOS special-character set.
+Assertions require both strings to fit the native byte cap and remain unchanged
+by the product sanitizer. After delivery, polling uses 500 ms waits and a
+30-second allowance. Each child timeout is the smaller of ten seconds and the
+remaining allowance. A marker-bearing toast must have exactly two text nodes.
+The title and body must match the sent strings exactly. The AppID must match
+the baseline identity. A resolved product delivery alone supplies no proof.
+
+The case has a 120-second timeout. This budget covers the cold read, polling,
+the product attempt and a ten-second metadata recovery child.
+On success and failure, bounded diagnostics report the first cold read and
+last poll read wall-clock durations. Each script flushes ASCII stage lines to
+stderr after start, Utility import, service lookup, StartLayout import,
+Get-StartApps, WinRT load, notifier Setting, history extraction and output
+framing.
+Each line records milliseconds since process start and script start.
+Strict parsing rejects malformed, missing or out-of-order stage lines on a
+successful read. The script sets `$ProgressPreference = 'SilentlyContinue'`
+before other statements. Startup progress can still reach stderr.
+The pure classifier in `test/powershell-stderr.ts` permits one exact
+`#< CLIXML` marker before a fixed PowerShell first-use progress block.
+Zero or more stage lines may appear between the marker and the block.
+Those lines follow the same strict grammar, ordered roster and timing checks.
+The marker must precede every stage line when a progress block is present.
+Stage-only stderr remains valid without a marker or block.
+Stage lines inside the block fail. Any content after the block fails, except
+one final line ending. The block requires the exact version and namespace
+of the hosted record.
+Every object must match the recognised `S="progress"` shape with sequential
+references and the fixed `Preparing modules for first use.` completed record.
+The first object defines its type names. Later objects reference those names.
+The classifier matches literal text without XML parsing or entity decoding.
+Error, warning, verbose, debug and information records fail the read.
+Unknown content, malformed or empty blocks and a second marker also fail.
+Platform-independent tests in `test/powershell-stderr.test.ts` check single-object
+and type-reference shapes plus negative controls. The hosted payload fixture
+contains the exact marker, stage lines and both progress objects from run
+38228181386. It covers both LF and CRLF line endings.
+These tests run in the full suite and stay outside the required-case roster.
+Bounded diagnostics report the accepted block's byte length and first-use flag.
+The block supplies no stage evidence.
+Other stderr content fails the read. A failed child retains its completed
+stages for diagnosis. Diagnostics retain stages for every poll read.
+Stage lines contain no notification text.
+Bounded failure diagnostics report the reading child's process SessionId,
+UserInteractive, Windows version, WpnUserService status, Start entry and
+ToastNotifier.Setting. Diagnostics also report ImageOS and ImageVersion when present, elapsed product delivery time,
+child errors and any decoded candidate title and body. No diagnostic dumps
+full history. A bounded diagnostic child can recover metadata after a failed
+history child. Every poll reports its number, AppID, toast count and match
+result. Product delivery reports its duration even when later reads fail.
+Success prints the AppID, poll count and delivery duration.
+The duration runs from the product deliver call to helper exit and reports
+the 10,000 ms Windows native attempt limit for comparison.
+Success and failure diagnostics report `nativeWindowsAttemptTimeoutMs=10000`
+and `warm=true`. The test changes no services, registry, policies,
+notification settings or Focus Assist.
+
+The Windows job checks native toast retention in operating system history.
+Store or history retention does not prove visible presentation. Neither job
+proves Windows terminal write ordering. The workflow configures no required-check
+ruleset. Hosted runs must establish toast acceptance and history access on the
+selected Windows image. Re-run the relevant direct command on each available
+target operating system after changes to these tests or their CI jobs.
 
 ## Why this exists
 
@@ -66,7 +302,7 @@ report **NOT RUN**, never PASS.
 bash verification/run-ladder.sh --repo .                  # everything, ~3 min
 bash verification/run-ladder.sh --repo . --only G1,P5a    # a subset
 bash verification/run-ladder.sh --repo . --lab /tmp/mylab
-bash verification/run-ladder.sh --repo . --strict         # CI: any NOT RUN is fatal
+bash verification/run-ladder.sh --repo . --strict         # automation: any NOT RUN is fatal
 bash verification/run-ladder.sh --repo . --setup-only     # guards + fixtures, no pi runs
 bash verification/run-ladder.sh --list-rungs
 bash verification/run-ladder.sh --help
@@ -296,8 +532,8 @@ different mechanism.
 NOT RUN means the rung could not be made meaningful, never that it passed. None is
 fatal on its own, but a run with NOT RUNs has proportionally less coverage — do
 not merge a change to the mechanism on the strength of one. **In automation pass
-`--strict`**, which turns any NOT RUN into a failing run; the table below is then
-the list of things to fix before CI goes green again.
+`--strict`**, which turns any NOT RUN into a failing run. Fix the causes listed
+below, then rerun the strict ladder. The ladder is outside CI.
 
 | NOT RUN reason | what to do |
 | --- | --- |

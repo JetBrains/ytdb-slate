@@ -298,6 +298,7 @@ export function registerSlateHandoff(
 	getConfig: () => SlateConfig,
 	getBaseModel: () => BaseModelTracker,
 	getRuntime: () => Readonly<LogicalRuntime> | undefined = () => undefined,
+	replacement: <T>(ctx: ExtensionCommandContext, request: () => Promise<T>) => Promise<T> = (_ctx, request) => request(),
 ): SlateHandoffHooks {
 	// Snapshot settings once: creation takes a disk lock on this per-turn path.
 	// Resolve the reserve against the LIVE model on every calculation instead
@@ -719,8 +720,10 @@ export function registerSlateHandoff(
 	};
 
 	const startHandoff = async (ctx: ExtensionCommandContext, focus?: string, summaryVisible?: boolean): Promise<void> => {
-		await ctx.waitForIdle();
-		await performHandoff(ctx, focus, summaryVisible);
+		await replacement(ctx, async () => {
+			await ctx.waitForIdle();
+			await performHandoff(ctx, focus, summaryVisible);
+		});
 	};
 
 	return { startHandoff, takeSummaryVisibility, effectiveContextBudget };

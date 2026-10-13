@@ -802,6 +802,7 @@ export interface WritingConfig {
 }
 
 export interface SlateConfig {
+	notifications?: unknown; // source-resolved policy is available through notificationSettings(config)
 	episodeModel?: unknown; // legacy key, ignored visibly by logical policy resolution
 	workerTools?: string[];
 	workerExtensions?: string[]; // regex patterns selecting which of the HOST session's pi extensions worker threads may load (default [] = none); see worker-extensions.ts

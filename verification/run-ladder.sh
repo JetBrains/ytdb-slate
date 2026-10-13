@@ -11,7 +11,7 @@
 #   bash verification/run-ladder.sh --repo .
 #   bash verification/run-ladder.sh --repo . --only G1,P5a
 #   bash verification/run-ladder.sh --repo . --lab /tmp/mylab
-#   bash verification/run-ladder.sh --repo . --strict         # CI: NOT RUN is fatal
+#   bash verification/run-ladder.sh --repo . --strict         # automation: any NOT RUN is fatal
 #   bash verification/run-ladder.sh --repo . --setup-only     # guards + fixtures, no rungs
 #   bash verification/run-ladder.sh --list-rungs
 #

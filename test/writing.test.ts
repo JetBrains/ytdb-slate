@@ -294,7 +294,7 @@ test("a delivery-side failure cannot mutate measurement", () => {
   assert.deepEqual(counters, before);
 });
 
-test("mode measures at message end, retries loading, and advances turn cadence", async () => {
+test("mode measures at message end, retries loading, and advances turn cadence", async (t) => {
   const handlers = new Map<string, Array<(event: any, ctx: ExtensionContext) => unknown>>();
   const statuses: Array<string | undefined> = [];
   const sent: Array<[unknown, unknown]> = [];
@@ -476,4 +476,24 @@ test("mode measures at message end, retries loading, and advances turn cadence",
   assert.equal(store.writingReminder.turnsSinceDelivery, 2);
   await emit("agent_settled", {});
   assert.equal(store.writingReminder.turnsSinceDelivery, 2);
+
+  await t.test("an error with an aborted signal defers writing cadence until settlement", async () => {
+    await emit("session_start", {});
+    store.writingReminder.turnsSinceDelivery = 3;
+    const sentBefore = sent.length;
+    const controller = new AbortController();
+    controller.abort();
+    const cancelledCtx = { ...ctx, signal: controller.signal };
+    await emit("message_end", { message: retryError });
+    for (const handler of handlers.get("turn_end") ?? []) {
+      await handler({ message: retryError, toolResults: [] }, cancelledCtx);
+    }
+    assert.equal(sent.length, sentBefore, "turn_end sends no reminder for the pending error");
+    assert.equal(store.writingReminder.turnsSinceDelivery, 3, "turn_end leaves cadence unchanged");
+    await emit("agent_settled", {});
+    assert.equal(sent.length, sentBefore + 1, "settlement counts the final error and sends the reminder");
+    assert.equal(store.writingReminder.turnsSinceDelivery, 0);
+    await emit("agent_settled", {});
+    assert.equal(sent.length, sentBefore + 1, "duplicate settlement counts no extra turn");
+  });
 });

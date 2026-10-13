@@ -16,6 +16,7 @@ import { registerSlateTools } from "../extension/tools.ts";
 import { createRuntimeStorageFolder } from "../extension/artifact-names.ts";
 import { openWorkerSession, type WorkerSession } from "../extension/worker.ts";
 import { createWorkerExtensionResolver } from "../extension/worker-extensions.ts";
+import { NotificationDispatcher } from "../extension/notification-dispatcher.ts";
 
 function context(cwd: string): ExtensionContext {
   return {
@@ -120,6 +121,20 @@ test("internal reminder reaches the next offline worker turn with no external ex
       assert.equal(requests[1]!.messages.filter((message) => message.role === "toolResult").length, 2);
       assert.match(readFileSync(session.sessionFile!, "utf8"), /"display":false/);
     });
+});
+
+test("offline worker loading registers no Slate notification dispatcher", { timeout: 10000 }, async (t) => {
+  const start = t.mock.method(NotificationDispatcher.prototype, "runStart");
+  const settle = t.mock.method(NotificationDispatcher.prototype, "settled");
+  const activity = t.mock.method(NotificationDispatcher.prototype, "activity");
+  await offlineWorkerTest(t, () => [{ type: "text", text: "worker complete" }], async (session) => {
+    const loaded = session.resourceLoader.getExtensions().extensions;
+    assert.deepEqual(loaded.filter((item) => !item.path.startsWith("builtin:")).map((item) => item.path), ["<inline:slate-worker-reminder>"]);
+    await session.prompt("Complete this bounded worker action.");
+    assert.equal(start.mock.callCount(), 0);
+    assert.equal(settle.mock.callCount(), 0);
+    assert.equal(activity.mock.callCount(), 0);
+  });
 });
 
 const builtinCall = (name: string, args: Extract<AssistantMessage["content"][number], { type: "toolCall" }>["arguments"]): AssistantMessage["content"] =>

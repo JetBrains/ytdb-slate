@@ -83,6 +83,8 @@ The orchestrator records risks for the change and each track. You approve or rej
 
 Slate reads optional home configuration and trusted project configuration. The [configuration reference](docs/configuration.md) lists merge rules, options, examples, and document path warnings.
 
+Slate attempts notifications after a main-session run settles or an extension dialog stays open for input. Terminal, desktop and bell delivery default to on. Phone push through ntfy, a notification server, needs home setup. Text defaults to the event type. See [notification setup](docs/configuration.md#notifications) for timing and limits.
+
 ## Safety and trust
 
 Slate limits which extensions worker threads can load and which project settings it reads. [Safety and trust](docs/safety-and-trust.md) explains worker extensions, provider registrations, and the project trust boundary.
