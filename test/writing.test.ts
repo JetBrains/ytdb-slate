@@ -368,7 +368,7 @@ test("mode measures at message end, retries loading, and advances turn cadence",
     assert.equal(notifications.length, 3, "a headless refusal adds no notification");
     // The report itself must start no turn and send no message.
     assert.equal(sent.length, 0);
-    // In pi 1.0.0, AgentSession.prompt() handles registered commands before input.
+    // In pi 1.2.0, AgentSession.prompt() handles registered commands before input.
     // _tryExecuteExtensionCommand(text) returns when a command claims the text.
     // A real /slate resume or /slate handoff therefore never reaches this handler.
     // Command matching is exact and case-sensitive.

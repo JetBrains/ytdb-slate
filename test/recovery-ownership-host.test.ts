@@ -1375,7 +1375,7 @@ test("production ThreadManager and real Pi workers guard preflight, later-turn, 
 		assert.equal(state.rejectedSubmitted, true);
 		assert.equal(state.primaryCalls, 1, "the rejected call starts no extra provider request");
 		assert.equal(result.episode.status, "failed");
-		assert.match(result.thread.outcomeReason ?? "", /included message call failed: Agent is already processing a prompt/);
+		assert.match(result.thread.outcomeReason ?? "", /included message call failed: Agent is already processing\. Specify streamingBehavior \('steer' or 'followUp'\) to queue the message\./);
 	});
 
 	await t.test("a deferred agent_settled command error fails without relying on a warning pattern", { timeout: 15_000 }, async () => {
