@@ -45,4 +45,4 @@ Start a new pi session after you change `slate.json`.
 
 ## SDK compatibility
 
-The pi software development kit (SDK) development pins do not change. Slate 0.14.0 was developed and tested against pi 1.0.0 and TypeBox 1.3.27. The SDK packages are still peer dependencies with the range `*`. This release states no minimum pi version, because no test establishes one.
+The pi software development kit (SDK) development pins change from pi 1.0.0 to pi 1.2.0. Slate 0.14.0 was developed and tested against pi 1.2.0 and TypeBox 1.3.27. The SDK packages are still peer dependencies with the range `*`. This release states no minimum pi version, because no test establishes one.
