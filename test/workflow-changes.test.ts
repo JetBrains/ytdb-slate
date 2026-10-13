@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -15,10 +16,13 @@ import { implementerReportName, readOnlyEarlierLogLine, trackIdentifier } from "
 import { registerSlateHandoff } from "../extension/handoff.ts";
 import { createBaseModelTracker } from "../extension/base-model.ts";
 import { pathToFileURL } from "node:url";
-import type { AgentTool, runToolCall as RunToolCall } from "../node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-agent-core/dist/index.js";
+import type { AgentTool, runToolCall as RunToolCall } from "@earendil-works/pi-agent-core";
 
 // Use Pi's pinned core, including prepareArguments, conversion, hooks and error results.
-const { runToolCall } = await import(pathToFileURL(join(process.cwd(), "node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-agent-core/dist/index.js")).href) as { runToolCall: typeof RunToolCall };
+const requireFromPi = createRequire(import.meta.resolve("@earendil-works/pi-coding-agent"));
+const coreManifestUrl = pathToFileURL(requireFromPi.resolve("@earendil-works/pi-agent-core/package.json"));
+const coreExports = JSON.parse(readFileSync(coreManifestUrl, "utf8")).exports;
+const { runToolCall } = await import(new URL(coreExports["."].import, coreManifestUrl).href) as { runToolCall: typeof RunToolCall };
 
 type Tool = { execute: (...args: any[]) => Promise<{ content: Array<{ text: string }> }> };
 function harness(t: import("node:test").TestContext) {
