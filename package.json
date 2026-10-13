@@ -1,6 +1,6 @@
 {
   "name": "ytdb-slate",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "description": "Multi-agent orchestration extension for the pi coding agent: bounded worker sessions, structured episode summaries, and a risk-based review workflow.",
   "license": "Apache-2.0",
   "repository": {
