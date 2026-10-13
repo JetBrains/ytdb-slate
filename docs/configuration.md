@@ -276,6 +276,15 @@ Outside tmux, a terminal program that manages multiple windows and panes, Slate 
 | Visual Studio Code terminal | `osc99` |
 | Windows Terminal, GNOME Terminal, Alacritty, macOS Terminal.app or an unknown terminal | No sequence. The independent bell remains available. |
 
+Windows Terminal Preview 1.26.2734.0 or later can show OSC 777 notifications as Windows toasts, which are desktop notifications.
+Set the profile setting `compatibility.allowOSC777` to `true`.
+The Settings path is Profiles → Terminal Emulation → **Allow OSC 777 (Desktop Notification) to show toast notifications**.
+Automatic selection sends no sequence to Windows Terminal, so select `["osc777"]` explicitly.
+
+Select another tab while waiting because Windows Terminal shows no toast while the sending tab is selected.
+Windows Terminal shows at most one notification every 5 seconds.
+Terminal delivery works for remote pi sessions reached through SSH, including from a Windows Subsystem for Linux (WSL) shell.
+
 Automatic selection uses environment variables and cannot prove every connection arrangement.
 Hints inherited across SSH can describe a different terminal.
 Slate queries attached tmux clients when possible.
@@ -320,8 +329,9 @@ Your terminal or tmux bell settings can mute it or turn it into a visual alert.
 Terminal notification permissions and focus rules can suppress display despite correct bytes.
 Slate does not detect focus or override those rules.
 
-Windows terminal write order has not been validated by hand.
-Slate therefore makes no Windows terminal compatibility claim.
+When pi runs directly on Windows, its standard output is the Windows console.
+Write order in that console has not been validated by hand.
+Slate therefore makes no terminal compatibility claim for pi running directly on Windows.
 
 ### Native host delivery
 
@@ -347,8 +357,11 @@ History read-back proves retention, not visible presentation.
 Libnotify is the library that supplies `notify-send` on Linux.
 Linux native delivery requires a helper that supports `--app-name`.
 Slate passes `--app-name=Slate` on every Linux native attempt.
-Stock helpers from libnotify versions before 0.5.0 reject that option before creating a notification.
+Older stock `notify-send` helpers without `--app-name` reject Slate's `--app-name=Slate` argument before creating a notification.
 Native delivery then fails without a warning.
+
+On KDE Plasma, notifications use the application name `Slate` without a desktop entry, so Plasma applies its **Other Applications** notification settings.
+The **Show in history** setting controls whether notifications stay in history, not whether visible banners appear.
 
 Slate doubles body backslashes before the helper parses escape sequences.
 Use [Check delivery by hand](#check-delivery-by-hand) to check local helper support and visible delivery.
