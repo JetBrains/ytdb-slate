@@ -281,7 +281,8 @@ Set the profile setting `compatibility.allowOSC777` to `true`.
 The Settings path is Profiles → Terminal Emulation → **Allow OSC 777 (Desktop Notification) to show toast notifications**.
 Automatic selection sends no sequence to Windows Terminal, so select `["osc777"]` explicitly.
 
-Select another tab while waiting because Windows Terminal shows no toast while the sending tab is selected.
+Windows Terminal can hide the toast while its window is active and the sending tab and pane are selected.
+Selecting another Windows Terminal tab while waiting avoids this.
 Windows Terminal shows at most one notification every 5 seconds.
 Terminal delivery works for remote pi sessions reached through SSH, including from a Windows Subsystem for Linux (WSL) shell.
 
@@ -360,6 +361,7 @@ Slate passes `--app-name=Slate` on every Linux native attempt.
 Older stock `notify-send` helpers without `--app-name` reject Slate's `--app-name=Slate` argument before creating a notification.
 Native delivery then fails without a warning.
 
+A desktop entry is a file that identifies an application to the desktop environment.
 On KDE Plasma, notifications use the application name `Slate` without a desktop entry, so Plasma applies its **Other Applications** notification settings.
 The **Show in history** setting controls whether notifications stay in history, not whether visible banners appear.
 
