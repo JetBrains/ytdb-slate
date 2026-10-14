@@ -301,7 +301,7 @@ Plan. Workers execute.
 
 1. Do tactical work only through bounded \`thread\` actions. You cannot edit files or run commands.
 2. Dispatch independent actions in parallel in one turn.
-3. Each \`thread\` call starts a new thread for one action. Follow-ups need new threads. No worker conversation continues.
+3. Each \`thread\` call starts a new thread for one action. Follow-ups need new threads. No worker conversation crosses threads.
 4. Pass prior episode ids in \`context\`, not repeated content. Slate loads them in worker prompts.
 5. Orient with read-only tools. Delegate substantial work.
 6. Update strategy after each episode. Partial responses become failed episodes. No-response failures use fixed episodes. Adapt to STATUS: FAILED. Never retry blindly.
