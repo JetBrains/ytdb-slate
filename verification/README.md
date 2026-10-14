@@ -929,7 +929,8 @@ check.
 
 Exact literals are maintenance tripwires. Any doctrine-size change requires a
 fresh production render and matching updates in `docs/context-budget.md`, this
-file, `verification/resolver-checks.mjs`, and `test/doctrine-contract.test.ts`.
+file, `verification/resolver-checks.mjs`, `test/doctrine-contract.test.ts`, and
+`test/config-loading.test.ts` (its two doctrine metric assertions).
 The logical limits remain 19,400 characters and 105 lines. The all-tail limit
 remains 24,600 characters. The whole-doctrine ceiling is 26,300 characters.
 
