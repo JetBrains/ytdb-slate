@@ -1419,14 +1419,14 @@ try {
 			dogfood: metrics(await doctrine(dogExtensions, () => dogRuntime, true, dogConfig)),
 		};
 		const exact = {
-			prompt: { portable: 3596, lines: 11, paths: 0 }, trusted: { portable: 8455, lines: 74, paths: 5 },
-			untrusted: { portable: 2762, lines: 33, paths: 4 }, draft: { portable: 8523, lines: 75, paths: 6 },
-			extensions: { portable: 9802, lines: 84, paths: 5 }, allTails: { portable: 9870, lines: 85, paths: 6 },
-			followUp: { portable: 9876, lines: 85, paths: 5 }, routing: { portable: 9899, lines: 85, paths: 5 },
-			draftFollowUp: { portable: 9944, lines: 86, paths: 6 }, draftRouting: { portable: 9963, lines: 86, paths: 6 },
-			followUpRouting: { portable: 9973, lines: 86, paths: 5 }, maximal: { portable: 10037, lines: 87, paths: 6 },
-			maximalOpen: { portable: 10235, lines: 88, paths: 6 }, maximalLinked: { portable: 10465, lines: 90, paths: 6 },
-			dogfood: { portable: 9162, lines: 86, paths: 6 },
+			prompt: { portable: 3596, lines: 11, paths: 0 }, trusted: { portable: 8461, lines: 74, paths: 5 },
+			untrusted: { portable: 2768, lines: 33, paths: 4 }, draft: { portable: 8529, lines: 75, paths: 6 },
+			extensions: { portable: 9808, lines: 84, paths: 5 }, allTails: { portable: 9876, lines: 85, paths: 6 },
+			followUp: { portable: 9882, lines: 85, paths: 5 }, routing: { portable: 9905, lines: 85, paths: 5 },
+			draftFollowUp: { portable: 9950, lines: 86, paths: 6 }, draftRouting: { portable: 9969, lines: 86, paths: 6 },
+			followUpRouting: { portable: 9979, lines: 86, paths: 5 }, maximal: { portable: 10043, lines: 87, paths: 6 },
+			maximalOpen: { portable: 10241, lines: 88, paths: 6 }, maximalLinked: { portable: 10471, lines: 90, paths: 6 },
+			dogfood: { portable: 9168, lines: 86, paths: 6 },
 		};
 		const doctrineBaselines = Object.values(rendered);
 		checkAll("doctrine-budget", "exact production renders match published portable baselines and every current baseline keeps five-percent reserve", [
@@ -1470,11 +1470,11 @@ try {
 			["19,401 rejected", aboveChars.promptText() === undefined && aboveChars.criticalErrors.some((x) => /19401 portable characters/.test(x)), aboveChars.criticalErrors],
 			["105 lines accepted", atLines.promptText()?.split("\n").length === 105, atLines.criticalErrors],
 			["106 lines rejected", aboveLines.promptText() === undefined && aboveLines.criticalErrors.some((x) => /106 lines/.test(x)), aboveLines.criticalErrors],
-			["whole-doctrine padding stays inside the supported label cap", labelAt === 25 && labelAt + 1 <= 128, { at: labelAt, above: labelAt + 1 }],
+			["whole-doctrine padding stays inside the supported label cap", labelAt === 19 && labelAt + 1 <= 128, { at: labelAt, above: labelAt + 1 }],
 			["whole-doctrine equality is accepted and first-over-limit is rejected", portable(wholeAt) === 26300 && portable(wholeAbove) === 26301 && portable(wholeAt) <= DOCTRINE_LIMITS.maximalChars && !(portable(wholeAbove) <= DOCTRINE_LIMITS.maximalChars), { at: portable(wholeAt), above: portable(wholeAbove), ceiling: DOCTRINE_LIMITS.maximalChars }],
-			["boundary compositions stay exact and below whole-doctrine cap", portable(featureOffDraft) === 26102 && portable(featureOffTight) === 26176 && portable(routingWithoutDrafts) === 26131 && portable(routingWithFollowUp) === 26205 && portable(routing) === 26195 && portable(deferred) === 26269 && [featureOffDraft, featureOffTight, routingWithoutDrafts, routingWithFollowUp, routing, deferred].every((text) => portable(text) <= DOCTRINE_LIMITS.maximalChars), { featureOffDraft: portable(featureOffDraft), featureOffTight: portable(featureOffTight), routingWithoutDrafts: portable(routingWithoutDrafts), routingWithFollowUp: portable(routingWithFollowUp), routing: portable(routing), deferred: portable(deferred) }],
+			["boundary compositions stay exact and below whole-doctrine cap", portable(featureOffDraft) === 26108 && portable(featureOffTight) === 26182 && portable(routingWithoutDrafts) === 26137 && portable(routingWithFollowUp) === 26211 && portable(routing) === 26201 && portable(deferred) === 26275 && [featureOffDraft, featureOffTight, routingWithoutDrafts, routingWithFollowUp, routing, deferred].every((text) => portable(text) <= DOCTRINE_LIMITS.maximalChars), { featureOffDraft: portable(featureOffDraft), featureOffTight: portable(featureOffTight), routingWithoutDrafts: portable(routingWithoutDrafts), routingWithFollowUp: portable(routingWithFollowUp), routing: portable(routing), deferred: portable(deferred) }],
 			["boundary composition line counts match the published tables", featureOffDraft.split("\n").length === 88 && featureOffTight.split("\n").length === 89 && routingWithoutDrafts.split("\n").length === 88 && routingWithFollowUp.split("\n").length === 89 && routing.split("\n").length === 89 && deferred.split("\n").length === 90, { featureOffDraft: featureOffDraft.split("\n").length, featureOffTight: featureOffTight.split("\n").length, routingWithoutDrafts: routingWithoutDrafts.split("\n").length, routingWithFollowUp: routingWithFollowUp.split("\n").length, routing: routing.split("\n").length, deferred: deferred.split("\n").length }],
-			["fresh valid-router over-cap control reaches whole-doctrine guard", portable(over) === 28139 && portable(over) > DOCTRINE_LIMITS.maximalChars, portable(over)],
+			["fresh valid-router over-cap control reaches whole-doctrine guard", portable(over) === 28145 && portable(over) > DOCTRINE_LIMITS.maximalChars, portable(over)],
 		]);
 	});
 
@@ -1503,7 +1503,7 @@ try {
 			["parallel independent dispatch", /Dispatch independent actions in parallel in one turn/, /in parallel/],
 			["one action per new thread", /Each `thread` call starts a new thread for one action/, /for one action/],
 			["new follow-up threads", /Follow-ups need new threads/, /new threads/],
-			["no continuing conversation", /No worker conversation continues/, /No worker conversation continues/],
+			["no cross-thread conversation", /No worker conversation crosses (?:threads|that boundary)/, /(?<=crosses )threads/],
 			["episode references", /Pass prior episode ids in `context`, not repeated content/, /not repeated content/],
 			["Slate loads worker context", /Slate loads them in worker prompts/, /Slate loads them/],
 			["read-only orientation", /Orient with read-only tools/, /read-only/],
@@ -1544,6 +1544,7 @@ try {
 			["each filename change is rejected", filenames.every(([, filename]) => !protect(pointer(trusted)[0].replace(filename, "wrong.md"), pointerDuties)), filenames],
 			["missing untrusted pointer is rejected", pointer(untrusted.replace(pointer(untrusted)[0], "")).length === 0, untrusted],
 			["tactical positive and removal controls", protect(tactical, tacticalDuties) && discriminate(tactical, tacticalDuties), tactical],
+			["unqualified conversation restriction is rejected", !protect(tactical.replace(/crosses threads/, "continues"), tacticalDuties), tactical],
 			["rationale retains its installed document", rationale.includes(paths.DESIGN_PRINCIPLES_DOC), rationale],
 			["rationale positive and removal controls", protect(rationale, rationaleDuties) && discriminate(rationale, rationaleDuties), rationale],
 		]);

@@ -198,27 +198,27 @@ characters. Tool names use 64 characters. Descriptions use 140 characters.
 | fixture | paths | portable characters | lines |
 | --- | ---: | ---: | ---: |
 | shipped logical section | 0 | 3,596 | 11 |
-| trusted shipped-default doctrine | 5 | 8,455 | 74 |
-| untrusted doctrine without a home configuration file | 4 | 2,762 | 33 |
-| draft pull requests, shipped policy | 6 | 8,523 | 75 |
-| capped workers, shipped policy | 5 | 9,802 | 84 |
-| draft plus capped workers | 6 | 9,870 | 85 |
-| deferred issues plus capped workers | 5 | 9,876 | 85 |
-| routing recommendations plus capped workers | 5 | 9,899 | 85 |
-| draft plus deferred issues and capped workers | 6 | 9,944 | 86 |
-| draft plus routing recommendations and capped workers | 6 | 9,963 | 86 |
-| deferred issues plus routing recommendations and capped workers | 5 | 9,973 | 86 |
-| canonical maximal baseline with all workflow options | 6 | 10,037 | 87 |
-| maximal baseline with an open change | 6 | 10,235 | 88 |
-| maximal baseline with source and legacy root log | 6 | 10,465 | 90 |
-| dogfood `.pi/slate.json` and its two extension units | 6 | 9,162 | 86 |
-| runtime boundary plus draft and capped workers, source and legacy log | 6 | 26,102 | 88 |
-| runtime boundary plus draft and deferred issues, source and legacy log | 6 | 26,176 | 89 |
-| runtime boundary plus routing recommendations, source and legacy log | 5 | 26,131 | 88 |
-| runtime boundary plus deferred issues and routing recommendations, source and legacy log | 5 | 26,205 | 89 |
-| runtime boundary plus draft and routing recommendations, source and legacy log | 6 | 26,195 | 89 |
-| same boundary composition plus deferred issues | 6 | 26,269 | 90 |
-| valid shipped policy plus 88 capped worker tools, source and legacy log | 6 | 28,139 | 173 |
+| trusted shipped-default doctrine | 5 | 8,461 | 74 |
+| untrusted doctrine without a home configuration file | 4 | 2,768 | 33 |
+| draft pull requests, shipped policy | 6 | 8,529 | 75 |
+| capped workers, shipped policy | 5 | 9,808 | 84 |
+| draft plus capped workers | 6 | 9,876 | 85 |
+| deferred issues plus capped workers | 5 | 9,882 | 85 |
+| routing recommendations plus capped workers | 5 | 9,905 | 85 |
+| draft plus deferred issues and capped workers | 6 | 9,950 | 86 |
+| draft plus routing recommendations and capped workers | 6 | 9,969 | 86 |
+| deferred issues plus routing recommendations and capped workers | 5 | 9,979 | 86 |
+| canonical maximal baseline with all workflow options | 6 | 10,043 | 87 |
+| maximal baseline with an open change | 6 | 10,241 | 88 |
+| maximal baseline with source and legacy root log | 6 | 10,471 | 90 |
+| dogfood `.pi/slate.json` and its two extension units | 6 | 9,168 | 86 |
+| runtime boundary plus draft and capped workers, source and legacy log | 6 | 26,108 | 88 |
+| runtime boundary plus draft and deferred issues, source and legacy log | 6 | 26,182 | 89 |
+| runtime boundary plus routing recommendations, source and legacy log | 5 | 26,137 | 88 |
+| runtime boundary plus deferred issues and routing recommendations, source and legacy log | 5 | 26,211 | 89 |
+| runtime boundary plus draft and routing recommendations, source and legacy log | 6 | 26,201 | 89 |
+| same boundary composition plus deferred issues | 6 | 26,275 | 90 |
+| valid shipped policy plus 88 capped worker tools, source and legacy log | 6 | 28,145 | 173 |
 
 An untrusted session with an empty home `slate.json` receives the same doctrine
 as the trusted shipped-default fixture above. It includes routing and writing
@@ -229,25 +229,25 @@ project preferences can.
 The canonical maximal baseline uses all six shipped logical definitions, all
 three workflow options, and the fixed capped worker roster. Its largest variant
 has an open change, one direct source folder, and a legacy root log. Its
-five-percent requirement is `ceil(10,465 × 1.05) = 10,989`.
+five-percent requirement is `ceil(10,471 × 1.05) = 10,995`.
 The 26,300 whole-doctrine ceiling exceeds it. The table pins all eight
 combinations of the three workflow options with the capped worker roster. The
 dogfood row reads the actual project configuration. A change to `.pi/slate.json` requires a fresh render.
 
-The four routing-enabled rows from 26,131 through 26,269 are
-boundary-composition controls. The 26,102 and 26,176 rows keep the
-routing-recommendation feature off as compatibility controls. The 26,269 row
-pins the largest supported composition. It has 31 characters of headroom.
+The four routing-enabled rows from 26,137 through 26,275 are
+boundary-composition controls. The 26,108 and 26,182 rows keep the
+routing-recommendation feature off as compatibility controls. The 26,275 row
+pins the largest supported composition. It has 25 characters of headroom.
 Each row combines a valid logical section padded to exactly 19,400 characters with supported doctrine tails. The rows do not define reserve-bearing
 baselines. Every row remains below the 26,300 portable-character ceiling.
-A valid third worker unit with a 25-character label reaches 26,300 exactly
-when all three workflow options are on. A 26-character label reaches 26,301,
+A valid third worker unit with a 19-character label reaches 26,300 exactly
+when all three workflow options are on. A 20-character label reaches 26,301,
 the first value beyond the ceiling.
 
 The over-cap counterfactual uses a valid shipped logical policy and one supported
 worker-extension unit with 88 capped tools. It also includes an open change,
-its source, and the legacy root log. Its 28,139 portable characters exceed
-the whole-doctrine ceiling by 1,839. The check therefore detects whole-doctrine
+its source, and the legacy root log. Its 28,145 portable characters exceed
+the whole-doctrine ceiling by 1,845. The check therefore detects whole-doctrine
 growth without using a retired model-row shape or an assumed per-tool increment.
 Worker-extension doctrine has no runtime size cap, so the fixture reaches the
 whole-doctrine guard rather than failing logical-policy validation first.
