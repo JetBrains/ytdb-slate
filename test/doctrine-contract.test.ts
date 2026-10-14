@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { after, test } from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import slateExtension from "../extension/index.ts";
 import { createLogicalRuntime, type LogicalRuntime } from "../extension/logical-model-runtime.ts";
 import { registerSlateMode } from "../extension/mode.ts";
-import { BLAST_RADIUS_DOC, PR_PUBLISHING_DOC, REVIEW_RULES_DOC, TRACK_WORKFLOW_DOC, WRITING_GUIDANCE_DOC } from "../extension/paths.ts";
+import { BLAST_RADIUS_DOC, CHANGE_RECORDS_DOC, DESIGN_PRINCIPLES_DOC, PR_PUBLISHING_DOC, RECURSIVE_WORKFLOW_DOC, REVIEW_RULES_DOC, TRACK_WORKFLOW_DOC, WRITING_GUIDANCE_DOC } from "../extension/paths.ts";
 import { SlateStore, type SlateConfig } from "../extension/state.ts";
 import { EMPTY_WORKER_EXTENSION_SET } from "../extension/worker-extensions.ts";
 import { DESIGN_REQUIREMENTS, WRITING_REQUIREMENTS } from "../extension/writing-reminder.ts";
@@ -132,12 +132,12 @@ test("logical doctrine production renders match published portable measurements"
   ], paths: [], toolNames: [] };
   const metric = (text: string) => ({ portable: text.split(docsDirectory).join("").length, lines: text.split("\n").length, paths: text.split(docsDirectory).length - 1 });
   assert.deepEqual(metric(runtime.promptText()!), { portable: 3596, lines: 11, paths: 0 });
-  assert.deepEqual(metric(await renderDoctrine(runtime)), { portable: 8461, lines: 81, paths: 5 });
-  assert.deepEqual(metric(await renderDoctrine(runtime, {}, false)), { portable: 2768, lines: 40, paths: 4 });
-  assert.deepEqual(metric(await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped)), { portable: 10043, lines: 94, paths: 6 });
+  assert.deepEqual(metric(await renderDoctrine(runtime)), { portable: 8455, lines: 74, paths: 5 });
+  assert.deepEqual(metric(await renderDoctrine(runtime, {}, false)), { portable: 2762, lines: 33, paths: 4 });
+  assert.deepEqual(metric(await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped)), { portable: 10037, lines: 87, paths: 6 });
   const change = { current: `change-20260101T000000Z-${"a".repeat(32)}`, source: `change-20260101T000001Z-${"b".repeat(32)}`, legacy: true };
   const linked = await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped, change);
-  assert.deepEqual(metric(linked), { portable: 10471, lines: 97, paths: 6 });
+  assert.deepEqual(metric(linked), { portable: 10465, lines: 90, paths: 6 });
   assert.ok(metric(linked).portable * 1.05 < 26300);
   assert.match(linked, /Follow each log's first entry to read the full source chain and accounting/);
   assert.match(linked, /Read-only legacy root log: research-log.md/);
@@ -331,11 +331,48 @@ test("real Pi startup prefers Opus 5.5 anywhere in the scoped model set", { time
 
 test("single-action doctrine requires new threads and episode references", { timeout: 5000 }, async () => {
   const doctrine = await renderDoctrine();
-  assert.match(doctrine, /Every `thread` call creates a new thread for one action\./);
-  assert.match(doctrine, /A follow-up action\s+must use another new thread\./);
-  assert.match(doctrine, /No worker conversation crosses that boundary\./);
-  assert.match(doctrine, /Slate loads those episodes into the new worker prompt\./);
+  assert.match(doctrine, /Each `thread` call starts a new thread for one action\./);
+  assert.match(doctrine, /Follow-ups need new threads\./);
+  assert.match(doctrine, /No worker conversation continues\./);
+  assert.match(doctrine, /Slate loads them in worker prompts\./);
   assert.doesNotMatch(doctrine, /freshContext|threadChoice|restart/);
+});
+
+test("fixed doctrine preserves loading clauses and resolves filenames beside Lifecycle", { timeout: 5000 }, async () => {
+  const directory = dirname(TRACK_WORKFLOW_DOC);
+  assert.equal(CHANGE_RECORDS_DOC, join(directory, "change-records.md"));
+  assert.equal(RECURSIVE_WORKFLOW_DOC, join(directory, "recursive-workflow.md"));
+  for (const [name, path] of [["CHANGE_RECORDS_DOC", CHANGE_RECORDS_DOC], ["RECURSIVE_WORKFLOW_DOC", RECURSIVE_WORKFLOW_DOC]]) {
+    assert.ok(readFileSync(path!, "utf8").length > 0);
+    assert.equal(readFileSync(join(process.cwd(), "extension", "paths.ts"), "utf8").split(`export const ${name} =`).length, 2);
+  }
+  // Loading requirements are owned by Lifecycle, not the candidate renderer.
+  const clauses = [/read change-records\.md for every change/, /load recursive-workflow\.md if a current or proposed plan/,
+    /plan has a design track or/, /or review-fix child track/, /At planning and/,
+    /and resume reconciliation, load/, /Load it before proposing a review-fix split/,
+    /Read applicable sections before relying on their rules/, /Beside Lifecycle:/];
+  for (const trusted of [true, false]) {
+    const doctrine = await renderDoctrine(undefined, {}, trusted);
+    const pointers = doctrine.match(/   Beside Lifecycle: [^\n]+/g) ?? [];
+    assert.equal(pointers.length, 1);
+    const pointer = pointers[0]!;
+    assert.ok(clauses.every((clause) => clause.test(pointer)));
+    for (const clause of clauses) {
+      assert.equal([...pointer.matchAll(new RegExp(clause.source, "g"))].length, 1);
+      const removed = pointer.replace(clause, "");
+      assert.notEqual(removed, pointer);
+      assert.equal(clauses.every((required) => required.test(removed)), false);
+    }
+    for (const filename of ["change-records.md", "recursive-workflow.md"]) {
+      assert.equal(clauses.every((clause) => clause.test(pointer.replace(filename, "wrong.md"))), false);
+    }
+    assert.equal(pointer.includes(directory), false);
+    assert.equal(doctrine.split(`${directory}/`).length - 1, trusted ? 5 : 4);
+    assert.ok(doctrine.includes(`Lifecycle: ${TRACK_WORKFLOW_DOC}.`));
+    assert.ok(doctrine.includes(`Design rationale: ${DESIGN_PRINCIPLES_DOC}.`));
+    assert.match(doctrine, /Read only to explain or change slate or for unusual routing or compaction/);
+    assert.match(doctrine, /Never for routine dispatch\. Skip if in context\./);
+  }
 });
 
 test("doctrine uses approved focus states, the four-part proof, and effective gates", { timeout: 5000 }, async () => {

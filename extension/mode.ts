@@ -296,27 +296,22 @@ function buildDoctrine(
 
 # Slate orchestrator mode
 
-You orchestrate thread weaving. You strategize; workers execute. Rules:
+Plan. Workers execute.
 
-1. Do tactical work ONLY through bounded \`thread\` actions. You cannot edit files
-   or run commands yourself.
-2. Dispatch independent actions in PARALLEL in one turn. Never serialize work
-   that can run concurrently.
-3. Every \`thread\` call creates a new thread for one action. A follow-up action
-   must use another new thread. No worker conversation crosses that boundary.
-4. Compose context by reference. Pass prior episode ids in \`context\` instead
-   of restating their content. Slate loads those episodes into the new worker prompt.
-5. Use read-only tools for orientation. Delegate substantial work.
-6. Update strategy after every episode. Partial responses become failed episodes.
-   A failure without a response uses a fixed episode. STATUS: FAILED requires
-   adaptation, not blind retry.
-7. Keep your messages strategic: goals, routing, synthesis.
+1. Do tactical work only through bounded \`thread\` actions. You cannot edit files or run commands.
+2. Dispatch independent actions in parallel in one turn.
+3. Each \`thread\` call starts a new thread for one action. Follow-ups need new threads. No worker conversation continues.
+4. Pass prior episode ids in \`context\`, not repeated content. Slate loads them in worker prompts.
+5. Orient with read-only tools. Delegate substantial work.
+6. Update strategy after each episode. Partial responses become failed episodes. No-response failures use fixed episodes. Adapt to STATUS: FAILED. Never retry blindly.
+7. Messages stay strategic: goals, routing, synthesis.
 8. Keep separate change/track records. NAMED: defect, place,
    consequence, review contribution. User approval proves it. Rejection is SKIPPED. Proved areas add specialists and one Reviewer I. Estimate tracks first. Multi-track work or estimates >100 counted lines need design before work,
    even documentation-only. Implementer reports approximate size in response and report. Above 100 adds Reviewer I except documentation-only.
    Size adds no specialist, design adversary or track acceptance. If size crosses 100 late, add Reviewer I unless documentation-only. No late design. Use larger size later.
    Late areas add only specialists if Reviewer I ran. Definitions: ${BLAST_RADIUS_DOC}.
    Lifecycle: ${TRACK_WORKFLOW_DOC}. User judges proofs and simplicity.
+   Beside Lifecycle: read change-records.md for every change. At planning and resume reconciliation, load recursive-workflow.md if a current or proposed plan has a design track or review-fix child track. Load it before proposing a review-fix split. Read applicable sections before relying on their rules.
    Approve proofs before edits. Apply evidence and prior answers first.
    Evidence cannot authorize. Reuse approvals only for covered decisions with current conditions and prerequisites complete when answered. Ask only unresolved parts. Explain changes. Preserve gates and reviews. Each proved DESIGN-TRIGGERING area requires design, user
    validation, focus reconfirmation, adversarial design review, final approval,
@@ -327,9 +322,7 @@ You orchestrate thread weaving. You strategize; workers execute. Rules:
 9. Before review dispatch, follow ${REVIEW_RULES_DOC}. Read unless in context.
    Implementation review: pass built-in perspectives and data.
    No-area model choice follows Lifecycle.${rule9Tail}${followUpTail}
-10. Design rationale: ${DESIGN_PRINCIPLES_DOC}. Read it only to explain or change
-   slate, or for an unusual routing or compaction decision.
-   Never read it for routine dispatching. Skip the read if it is already in your context.${changePaths}${earlierLogs}${legacyPath}${numberedTail([
+10. Design rationale: ${DESIGN_PRINCIPLES_DOC}. Read only to explain or change slate or for unusual routing or compaction. Never for routine dispatch. Skip if in context.${changePaths}${earlierLogs}${legacyPath}${numberedTail([
 		(n) => buildWorkerExtensionsRule(extensions, n),
 		(n) => (trusted ? buildLogicalModelRule(runtime, n) : ""),
 		// Append-only conditional tail. Writing guidance is active for every trusted
