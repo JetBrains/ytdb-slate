@@ -347,7 +347,7 @@ async function doctrine(extSet, getRouter, trusted = false, config = {}, change 
 /** Checks that need extension/state.ts — the canonical model-spec vocabulary. */
 const STATE_IDS = ["spec-invisible", "state-thread-record", "state-episode-record"];
 /** The action-routing doctrine rule (extension/mode.ts, b092f92); renders the shipped table. */
-const DOCTRINE_IDS = ["doctrine-logical", "doctrine-untrusted", "doctrine-numbering", "doctrine-inject", "doctrine-no-trace", "doctrine-budget", "doctrine-budget-boundaries", "writing-doctrine-off", "writing-doctrine-untrusted", "writing-doctrine-numbering", "design-doctrine-size", "writing-prompt-check", "writing-doctrine-inject", "writing-doctrine-cite"];
+const DOCTRINE_IDS = ["doctrine-logical", "doctrine-untrusted", "doctrine-numbering", "doctrine-inject", "doctrine-no-trace", "doctrine-budget", "doctrine-budget-boundaries", "doctrine-duty-contract", "writing-doctrine-off", "writing-doctrine-untrusted", "writing-doctrine-numbering", "design-doctrine-size", "writing-prompt-check", "writing-doctrine-inject", "writing-doctrine-cite"];
 const WORKER_IDS = [
 	"worker-preamble",
 	"reviewer-charter-sync",
@@ -1419,14 +1419,14 @@ try {
 			dogfood: metrics(await doctrine(dogExtensions, () => dogRuntime, true, dogConfig)),
 		};
 		const exact = {
-			prompt: { portable: 3596, lines: 11, paths: 0 }, trusted: { portable: 8461, lines: 81, paths: 5 },
-			untrusted: { portable: 2768, lines: 40, paths: 4 }, draft: { portable: 8529, lines: 82, paths: 6 },
-			extensions: { portable: 9808, lines: 91, paths: 5 }, allTails: { portable: 9876, lines: 92, paths: 6 },
-			followUp: { portable: 9882, lines: 92, paths: 5 }, routing: { portable: 9905, lines: 92, paths: 5 },
-			draftFollowUp: { portable: 9950, lines: 93, paths: 6 }, draftRouting: { portable: 9969, lines: 93, paths: 6 },
-			followUpRouting: { portable: 9979, lines: 93, paths: 5 }, maximal: { portable: 10043, lines: 94, paths: 6 },
-			maximalOpen: { portable: 10241, lines: 95, paths: 6 }, maximalLinked: { portable: 10471, lines: 97, paths: 6 },
-			dogfood: { portable: 9168, lines: 93, paths: 6 },
+			prompt: { portable: 3596, lines: 11, paths: 0 }, trusted: { portable: 8455, lines: 74, paths: 5 },
+			untrusted: { portable: 2762, lines: 33, paths: 4 }, draft: { portable: 8523, lines: 75, paths: 6 },
+			extensions: { portable: 9802, lines: 84, paths: 5 }, allTails: { portable: 9870, lines: 85, paths: 6 },
+			followUp: { portable: 9876, lines: 85, paths: 5 }, routing: { portable: 9899, lines: 85, paths: 5 },
+			draftFollowUp: { portable: 9944, lines: 86, paths: 6 }, draftRouting: { portable: 9963, lines: 86, paths: 6 },
+			followUpRouting: { portable: 9973, lines: 86, paths: 5 }, maximal: { portable: 10037, lines: 87, paths: 6 },
+			maximalOpen: { portable: 10235, lines: 88, paths: 6 }, maximalLinked: { portable: 10465, lines: 90, paths: 6 },
+			dogfood: { portable: 9162, lines: 86, paths: 6 },
 		};
 		const doctrineBaselines = Object.values(rendered);
 		checkAll("doctrine-budget", "exact production renders match published portable baselines and every current baseline keeps five-percent reserve", [
@@ -1460,17 +1460,92 @@ try {
 		const overExtensions = { units: [{ path: "/fixture/over", source: "z".repeat(128), isDirectory: true, tools: Array.from({ length: 88 }, (_, i) => ({ name: (`t${i}`).padEnd(64, "x"), description: "q".repeat(140) })) }], paths: [], toolNames: [] };
 		const over = await doctrine(overExtensions, () => activeRuntime, true, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, change);
 		const portable = (text) => text.split(docsDirectory).join("").length;
-		const wholeAt = await doctrine({ ...capped, units: [...capped.units, { path: "/fixture/c", source: "c".repeat(19), isDirectory: true, tools: [] }] }, () => atChars, true, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, change);
-		const wholeAbove = await doctrine({ ...capped, units: [...capped.units, { path: "/fixture/c", source: "c".repeat(20), isDirectory: true, tools: [] }] }, () => atChars, true, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, change);
+		const whole = (labelSize) => doctrine({ ...capped, units: [...capped.units, { path: "/fixture/c", source: "c".repeat(labelSize), isDirectory: true, tools: [] }] }, () => atChars, true, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, change);
+		const wholeSeed = await whole(1);
+		const labelAt = DOCTRINE_LIMITS.maximalChars - portable(wholeSeed) + 1;
+		const wholeAt = await whole(labelAt);
+		const wholeAbove = await whole(labelAt + 1);
 		checkAll("doctrine-budget-boundaries", "runtime equality, first-over-limit rejection, maximum composition, and valid-router doctrine growth remain discriminatory", [
 			["19,400 accepted", atChars.promptText().length === 19400 && atChars.criticalErrors.length === 0, { length: atChars.promptText()?.length, errors: atChars.criticalErrors }],
 			["19,401 rejected", aboveChars.promptText() === undefined && aboveChars.criticalErrors.some((x) => /19401 portable characters/.test(x)), aboveChars.criticalErrors],
 			["105 lines accepted", atLines.promptText()?.split("\n").length === 105, atLines.criticalErrors],
 			["106 lines rejected", aboveLines.promptText() === undefined && aboveLines.criticalErrors.some((x) => /106 lines/.test(x)), aboveLines.criticalErrors],
-			["whole-doctrine equality is accepted and first-over-limit is rejected", portable(wholeAt) === DOCTRINE_LIMITS.maximalChars && portable(wholeAbove) === DOCTRINE_LIMITS.maximalChars + 1, { at: portable(wholeAt), above: portable(wholeAbove), ceiling: DOCTRINE_LIMITS.maximalChars }],
-			["boundary compositions stay exact and below whole-doctrine cap", portable(featureOffDraft) === 26108 && portable(featureOffTight) === 26182 && portable(routingWithoutDrafts) === 26137 && portable(routingWithFollowUp) === 26211 && portable(routing) === 26201 && portable(deferred) === 26275 && [featureOffDraft, featureOffTight, routingWithoutDrafts, routingWithFollowUp, routing, deferred].every((text) => portable(text) <= DOCTRINE_LIMITS.maximalChars), { featureOffDraft: portable(featureOffDraft), featureOffTight: portable(featureOffTight), routingWithoutDrafts: portable(routingWithoutDrafts), routingWithFollowUp: portable(routingWithFollowUp), routing: portable(routing), deferred: portable(deferred) }],
-			["boundary composition line counts match the published tables", featureOffDraft.split("\n").length === 95 && featureOffTight.split("\n").length === 96 && routingWithoutDrafts.split("\n").length === 95 && routingWithFollowUp.split("\n").length === 96 && routing.split("\n").length === 96 && deferred.split("\n").length === 97, { featureOffDraft: featureOffDraft.split("\n").length, featureOffTight: featureOffTight.split("\n").length, routingWithoutDrafts: routingWithoutDrafts.split("\n").length, routingWithFollowUp: routingWithFollowUp.split("\n").length, routing: routing.split("\n").length, deferred: deferred.split("\n").length }],
-			["fresh valid-router over-cap control reaches whole-doctrine guard", portable(over) === 28145 && portable(over) > DOCTRINE_LIMITS.maximalChars, portable(over)],
+			["whole-doctrine padding stays inside the supported label cap", labelAt === 25 && labelAt + 1 <= 128, { at: labelAt, above: labelAt + 1 }],
+			["whole-doctrine equality is accepted and first-over-limit is rejected", portable(wholeAt) === 26300 && portable(wholeAbove) === 26301 && portable(wholeAt) <= DOCTRINE_LIMITS.maximalChars && !(portable(wholeAbove) <= DOCTRINE_LIMITS.maximalChars), { at: portable(wholeAt), above: portable(wholeAbove), ceiling: DOCTRINE_LIMITS.maximalChars }],
+			["boundary compositions stay exact and below whole-doctrine cap", portable(featureOffDraft) === 26102 && portable(featureOffTight) === 26176 && portable(routingWithoutDrafts) === 26131 && portable(routingWithFollowUp) === 26205 && portable(routing) === 26195 && portable(deferred) === 26269 && [featureOffDraft, featureOffTight, routingWithoutDrafts, routingWithFollowUp, routing, deferred].every((text) => portable(text) <= DOCTRINE_LIMITS.maximalChars), { featureOffDraft: portable(featureOffDraft), featureOffTight: portable(featureOffTight), routingWithoutDrafts: portable(routingWithoutDrafts), routingWithFollowUp: portable(routingWithFollowUp), routing: portable(routing), deferred: portable(deferred) }],
+			["boundary composition line counts match the published tables", featureOffDraft.split("\n").length === 88 && featureOffTight.split("\n").length === 89 && routingWithoutDrafts.split("\n").length === 88 && routingWithFollowUp.split("\n").length === 89 && routing.split("\n").length === 89 && deferred.split("\n").length === 90, { featureOffDraft: featureOffDraft.split("\n").length, featureOffTight: featureOffTight.split("\n").length, routingWithoutDrafts: routingWithoutDrafts.split("\n").length, routingWithFollowUp: routingWithFollowUp.split("\n").length, routing: routing.split("\n").length, deferred: deferred.split("\n").length }],
+			["fresh valid-router over-cap control reaches whole-doctrine guard", portable(over) === 28139 && portable(over) > DOCTRINE_LIMITS.maximalChars, portable(over)],
+		]);
+	});
+
+	await section("doctrine-duty-contract", async () => {
+		const trusted = await doctrineFor();
+		const untrusted = await doctrineFor(EMPTY_EXT, activeRuntime, false);
+		const published = await doctrine(EMPTY_EXT, () => activeRuntime, true, { workflow: { draftPRs: true } });
+		const directory = dirname(paths.TRACK_WORKFLOW_DOC);
+		// Lifecycle loading duties and preserved tactical and rationale duties.
+		// These expectations describe the reviewed requirements independently.
+		const pointerDuties = [
+			["common read for every change", /read change-records\.md for every change/, /for every change/],
+			["current or proposed plan", /load recursive-workflow\.md if a current or proposed plan/, /current or proposed/],
+			["design-track trigger", /plan has a design track or/, /design track/],
+			["review-fix-child trigger", /or review-fix child track/, /review-fix child track/],
+			["planning check", /At planning and/, /planning/],
+			["resume reconciliation check", /and resume reconciliation, load/, /resume reconciliation/],
+			["read before proposed split", /Load it before proposing a review-fix split/, /before proposing a review-fix split/],
+			["applicable read before reliance", /Read applicable sections before relying on their rules/, /before relying on their rules/],
+			["Lifecycle directory", /Beside Lifecycle:/, /Beside Lifecycle:/],
+		];
+		const tacticalDuties = [
+			["worker-only bounded actions", /only through bounded `thread` actions/, /only through bounded/],
+			["no direct edits", /You cannot edit files/, /edit files/],
+			["no direct commands", /You cannot [^.]*run commands/, /run commands/],
+			["parallel independent dispatch", /Dispatch independent actions in parallel in one turn/, /in parallel/],
+			["one action per new thread", /Each `thread` call starts a new thread for one action/, /for one action/],
+			["new follow-up threads", /Follow-ups need new threads/, /new threads/],
+			["no continuing conversation", /No worker conversation continues/, /No worker conversation continues/],
+			["episode references", /Pass prior episode ids in `context`, not repeated content/, /not repeated content/],
+			["Slate loads worker context", /Slate loads them in worker prompts/, /Slate loads them/],
+			["read-only orientation", /Orient with read-only tools/, /read-only/],
+			["delegate substantial work", /Delegate substantial work/, /Delegate substantial work/],
+			["strategy after every episode", /Update strategy after each episode/, /after each episode/],
+			["failed partial episodes", /Partial responses become failed episodes/, /failed episodes/],
+			["fixed no-response episodes", /No-response failures use fixed episodes/, /fixed episodes/],
+			["adapt to failure", /Adapt to STATUS: FAILED/, /Adapt to/],
+			["no blind retry", /Never retry blindly/, /Never retry blindly/],
+			["strategic messages", /Messages stay strategic: goals, routing, synthesis/, /strategic: goals, routing, synthesis/],
+		];
+		const rationaleDuties = [
+			["explain Slate", /Read only to explain or change slate/, /explain/],
+			["change Slate", /Read only to explain or change slate/, /change slate/],
+			["unusual routing", /for unusual routing or compaction/, /unusual routing/],
+			["unusual compaction", /for unusual routing or compaction/, /compaction/],
+			["no routine read", /Never for routine dispatch/, /Never for routine dispatch/],
+			["skip existing context", /Skip if in context/, /Skip if in context/],
+		];
+		const pointer = (text) => text.match(/   Beside Lifecycle: [^\n]+/g) ?? [];
+		const tactical = trusted.slice(trusted.indexOf("\n1. "), trusted.indexOf("\n8. "));
+		const rationale = trusted.match(/10\. Design rationale: [^\n]+/)?.[0] ?? "";
+		const protect = (text, duties) => duties.every(([, requirement]) => requirement.test(text));
+		const discriminate = (text, duties) => duties.every(([, , removal]) => {
+			const matches = [...text.matchAll(new RegExp(removal.source, "g"))];
+			const changed = text.replace(removal, "");
+			return matches.length === 1 && changed !== text && !protect(changed, duties);
+		});
+		const exportsSource = readFileSync(join(REPO, "extension", "paths.ts"), "utf8");
+		const filenames = [["CHANGE_RECORDS_DOC", "change-records.md"], ["RECURSIVE_WORKFLOW_DOC", "recursive-workflow.md"]];
+		const fixedPrefixes = (text, count) => text.split(`${directory}${sep}`).length - 1 === count && pointer(text).length === 1 && !pointer(text)[0].includes(directory);
+		checkAll("doctrine-duty-contract", "fixed filename pointers resolve beside Lifecycle in all trust cases and each reviewed loading, tactical, and rationale duty rejects its removal", [
+			["unique shipped exports resolve in the Lifecycle directory", filenames.every(([name, filename]) => paths[name] === join(directory, filename) && existsSync(paths[name]) && exportsSource.split(`export const ${name} =`).length === 2), filenames],
+			["pointer is unconditional and unique", [trusted, untrusted, published].every((text) => pointer(text).length === 1 && protect(pointer(text)[0], pointerDuties)), [pointer(trusted), pointer(untrusted)]],
+			["fixed pointers add no installed prefix", [trusted, untrusted, published].every((text, i) => fixedPrefixes(text, [5, 4, 6][i])), directory],
+			["an added absolute filename prefix is rejected", filenames.every(([, filename]) => !fixedPrefixes(trusted.replace(filename, join(directory, filename)), 5)), filenames],
+			["each loading clause removal is rejected", discriminate(pointer(trusted)[0], pointerDuties) && discriminate(pointer(untrusted)[0], pointerDuties), pointerDuties.map(([name]) => name)],
+			["each filename change is rejected", filenames.every(([, filename]) => !protect(pointer(trusted)[0].replace(filename, "wrong.md"), pointerDuties)), filenames],
+			["missing untrusted pointer is rejected", pointer(untrusted.replace(pointer(untrusted)[0], "")).length === 0, untrusted],
+			["tactical positive and removal controls", protect(tactical, tacticalDuties) && discriminate(tactical, tacticalDuties), tactical],
+			["rationale retains its installed document", rationale.includes(paths.DESIGN_PRINCIPLES_DOC), rationale],
+			["rationale positive and removal controls", protect(rationale, rationaleDuties) && discriminate(rationale, rationaleDuties), rationale],
 		]);
 	});
 
@@ -5528,7 +5603,7 @@ A later track builds on the accepted boundary before it.`),
 			const appendixUnit = markedUnit("track-acceptance")(reviewsWithAppendix);
 			const workflowElsewhere = `${workflow}\n\n<!-- resolver benign acceptance control -->`;
 			const elsewhereUnits = acceptanceUnits.filter((unit) => unit.source === workflow).map((unit) => unit.extract(workflowElsewhere));
-			const doctrineElsewhere = sessionDoctrine.replace("Never read it for routine dispatching.", "Do not read it for routine dispatching.");
+			const doctrineElsewhere = sessionDoctrine.replace("Never for routine dispatch.", "Do not read for routine dispatch.");
 			const doctrineElsewhereUnit = acceptanceUnits[4].extract(doctrineElsewhere);
 			checkAll("contract-acceptance-mutations", "every unit rejects a contradictory waiver, a removed blocking fact, an inverted blocking fact, an inverted no-acceptance fact, and a stale canonical copy. Benign text in another section, including text appended after the terminal end marker, leaves every unit exact", [
 				["every mutation really changes the text it attacks", inertMutations.length === 0, inertMutations],
@@ -7695,7 +7770,7 @@ The accounting covers:`),
 	// check or a renamed id shows up here instead of vanishing into a clean exit.
 	const EXPECTED = [
 		"off-inert", "off-doctrine",
-		"doctrine-logical", "doctrine-untrusted", "doctrine-numbering", "doctrine-inject", "doctrine-no-trace", "doctrine-budget", "doctrine-budget-boundaries",
+		"doctrine-logical", "doctrine-untrusted", "doctrine-numbering", "doctrine-inject", "doctrine-no-trace", "doctrine-budget", "doctrine-budget-boundaries", "doctrine-duty-contract",
 		"writing-config-default", "writing-config-reminder-turns", "writing-config-reminder-trigger", "writing-config-trigger-interaction", "writing-config-sentence-limit", "writing-config-status-window", "writing-config-show-status", "writing-config-findings", "writing-config-reminder-ignored", "writing-config-reminder-percent", "writing-config-invalid", "writing-config-hostile",
 		"writing-reminder-load", "writing-reminder-roster", "writing-copy-independence", "writing-reminder-render", "writing-reminder-full-render", "writing-reminder-size", "writing-reminder-model-visible-rules", "writing-reminder-counter", "writing-reminder-cadence", "writing-reminder-delivery-mode", "writing-reminder-gates", "writing-reminder-state-machine",
 		"writing-reminder-mode-send", "writing-reminder-mode-delivery", "writing-reminder-trigger", "writing-reminder-trigger-switch", "writing-reminder-trigger-reset", "writing-reminder-mode-gates", "writing-reminder-delivery-failure-independent", "writing-reminder-checker-failure-independent", "writing-reminder-findings-off", "writing-reminder-retry-boundary", "writing-reminder-completed-shapes", "writing-reminder-abort-round", "writing-reminder-summary-staleness", "writing-reminder-session-reset", "writing-reminder-local-reset", "writing-reminder-round-gate", "writing-reminder-gate-claim-order", "writing-reminder-claim-delivery", "writing-reminder-correlation", "writing-reminder-runtime-only", "writing-reminder-budget", "writing-reminder-handoff-order",

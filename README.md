@@ -101,7 +101,7 @@ See [`docs/roadmap.md`](docs/roadmap.md) for details.
 
 ## Shipped docs
 
-These documents define workflow and reference behavior. Slate cites workflow documents by installed path in its numbered system-prompt rules.
+These documents define workflow and reference behavior. Slate uses installed paths for workflow citations in its numbered system-prompt rules. The filenames `change-records.md` and `recursive-workflow.md` resolve beside the Lifecycle document, `track-workflow.md`.
 
 - [`docs/blast-radius.md`](docs/blast-radius.md) defines focus areas, proofs, and review coverage.
 - [`docs/change-records.md`](docs/change-records.md) defines identifiers, code ranges, design markers, and safe writes to change records.
