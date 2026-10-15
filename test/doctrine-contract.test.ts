@@ -153,23 +153,53 @@ test("every declared doctrine composition fits the original production hook", { 
     assert.equal(result.status, 0, `Cannot read original doctrine base ${original}: ${result.stderr}`);
     return result.stdout;
   };
+  const verifyIdentity = (ref: string): void => {
+    assert.equal(git("rev-parse", ref).trim(), "d8bca25ef8947e370a92a68a4d98d0e2ec9f1a53", "original commit identity");
+    assert.equal(git("rev-parse", `${ref}:extension`).trim(), "2b4f7f3bc2b305ff52c39cd08856cf265747069a", "original extension tree");
+    assert.equal(git("rev-parse", `${ref}:package.json`).trim(), "0e770c4b04b32bdd5afe061031538391b314d806", "original manifest blob");
+  };
+  verifyIdentity(original);
   const root = join(scratch, "original-doctrine");
-  for (const name of ["package.json", ...git("ls-tree", "-r", "--name-only", original, "--", "extension/").trim().split("\n")]) {
-    assert.ok(name === "package.json" || /^extension\/[\w-]+\.(ts|mjs)$/.test(name));
+  const blobs = new Map<string, string>();
+  for (const entry of git("ls-tree", "-r", original, "--", "package.json", "extension/").trim().split("\n")) {
+    const match = entry.match(/^100(?:644|755) blob ([a-f0-9]{40})\t(package\.json|extension\/[\w-]+\.(?:ts|mjs))$/);
+    assert.ok(match, `Unexpected original doctrine source: ${entry}`);
+    const name = match[2]!;
+    blobs.set(name, match[1]!);
     mkdirSync(dirname(join(root, name)), { recursive: true });
     writeFileSync(join(root, name), git("show", `${original}:${name}`));
   }
+  const verifyExport = (): void => {
+    for (const [name, hash] of blobs) {
+      const bytes = readFileSync(join(root, name));
+      assert.equal(createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex"), hash, `original exported bytes: ${name}`);
+    }
+  };
+  verifyExport();
   symlinkSync(join(process.cwd(), "node_modules"), join(root, "node_modules"), "dir");
   const historical = await import(pathToFileURL(join(root, "extension", "mode.ts")).href);
   const logical = await import(pathToFileURL(join(root, "extension", "logical-model-runtime.ts")).href);
   const paths = await import(pathToFileURL(join(root, "extension", "paths.ts")).href);
-  const prefix = TRACK_WORKFLOW_DOC.slice(0, -"track-workflow.md".length), basePrefix = paths.TRACK_WORKFLOW_DOC.slice(0, -"track-workflow.md".length);
+  const prefix = TRACK_WORKFLOW_DOC.slice(0, -"track-workflow.md".length);
+  const reference = { register: historical.registerSlateMode, create: logical.createLogicalRuntime, directory: paths.TRACK_WORKFLOW_DOC.slice(0, -"track-workflow.md".length) };
+  const verifyReference = async (selected: typeof reference): Promise<void> => {
+    verifyExport();
+    assert.equal(selected.register, (await import(pathToFileURL(join(root, "extension", "mode.ts")).href)).registerSlateMode, "original hook provenance");
+    assert.equal(selected.create, (await import(pathToFileURL(join(root, "extension", "logical-model-runtime.ts")).href)).createLogicalRuntime, "original runtime provenance");
+    assert.equal(`${selected.directory}track-workflow.md`, join(root, "docs", "track-workflow.md"), "original paths provenance");
+  };
+  await verifyReference(reference);
+  const basePrefix = reference.directory;
   const runtimes = (create: typeof createLogicalRuntime, directory: string) => {
     const replace = (n: number): SlateConfig => ({ router: { models: { replace: [{ model: "sol-6.1", guidelines: ["x".repeat(n)], cautions: [] }] } } });
     const runtime = (projectConfig?: SlateConfig) => create({ trusted: true, projectConfig, documentationDirectory: directory });
-    return [runtime(), null, runtime({ router: { compressor: { models: [] } } }), runtime(replace(19401 - runtime(replace(1)).promptText()!.length))];
+    const projectRoster: SlateConfig = { router: { models: { include: ["sol-6.1"], replace: [{ model: "sol-6.1", guidelines: ["x"], cautions: [] }] } } };
+    return [runtime(), null, runtime({ router: { compressor: { models: [] } } }), runtime(replace(19401 - runtime(replace(1)).promptText()!.length)), runtime(projectRoster)];
   };
-  const oldRuntimes = runtimes(logical.createLogicalRuntime, basePrefix), newRuntimes = runtimes(createLogicalRuntime, prefix);
+  const oldRuntimes = runtimes(reference.create, basePrefix), newRuntimes = runtimes(createLogicalRuntime, prefix);
+  assert.equal(oldRuntimes[3]!.promptText()!.length, 19400);
+  assert.equal(newRuntimes[3]!.promptText()!.length, 19400);
+  for (const runtime of [oldRuntimes[4], newRuntimes[4]]) assert.deepEqual(runtime!.policy!.ordinary.map((model) => model.model), ["sol-6.1"]);
   const capped = { units: ["a", "b"].map((c) => ({ path: `/fixture/${c}`, source: c.repeat(128), isDirectory: true, tools: [c, c.toUpperCase()].map((n) => ({ name: n.repeat(64), description: "d".repeat(140) })) })), paths: [], toolNames: [] };
   const current = `change-20260101T000000Z-${"a".repeat(32)}`, source = `change-20260101T000001Z-${"b".repeat(32)}`;
   const perspectives = join(scratch, "comparison-perspectives.md"), extra = join(scratch, "comparison-extra.md");
@@ -180,24 +210,55 @@ test("every declared doctrine composition fits the original production hook", { 
     return [reduction >= 0, before.split(basePrefix).length === after.split(prefix).length,
       ...["/x/docs/", "/fixture/a-much-longer-installed-package/docs/"].map((p) => before.split(basePrefix).join(p).length - after.split(prefix).join(p).length === reduction)];
   };
-  let count = 0;
-  for (let options = 0; options < 8; options++) for (const trusted of [false, true]) for (let runtime = 0; runtime < 4; runtime++)
-  for (const extensions of [EMPTY_WORKER_EXTENSION_SET, { units: [{ path: "/x", source: "npm:demo", isDirectory: true, tools: [{ name: "d", description: "d" }] }], paths: [], toolNames: [] }, capped])
-  for (const change of [{}, { current }, { current, source, legacy: true }, { source }, { legacy: true }]) for (const paused of [false, true])
-  for (const perspective of [false, true]) for (const optional of [false, true]) {
+  const domains = { options: [0, 1, 2, 3, 4, 5, 6, 7], trusted: [false, true], runtime: [0, 1, 2, 3], extensions: [0, 1, 2], change: [0, 1, 2, 3, 4], paused: [false, true], perspective: [false, true], optional: [false, true] };
+  const validDomains = (values: typeof domains): boolean => JSON.stringify(values) === '{"options":[0,1,2,3,4,5,6,7],"trusted":[false,true],"runtime":[0,1,2,3],"extensions":[0,1,2],"change":[0,1,2,3,4],"paused":[false,true],"perspective":[false,true],"optional":[false,true]}'
+    && Object.values(values).every((domain) => new Set<number | boolean>(domain).size === domain.length)
+    && Object.values(values).reduce((total, domain) => total * domain.length, 1) === 7680;
+  assert.ok(validDomains(domains), "fixed, distinct matrix domains");
+  assert.equal(validDomains({ ...domains, paused: [false, false] }), false);
+  assert.equal(validDomains({ ...domains, options: domains.options.slice(1) }), false);
+  const extensionCases = [EMPTY_WORKER_EXTENSION_SET, { units: [{ path: "/x", source: "npm:demo", isDirectory: true, tools: [{ name: "d", description: "d" }] }], paths: [], toolNames: [] }, capped];
+  const changeCases = [{}, { current }, { current, source, legacy: true }, { source }, { legacy: true }];
+  let count = 0, fixedCount = 0;
+  for (const options of domains.options) for (const trusted of domains.trusted) for (const runtime of domains.runtime)
+  for (const extensionIndex of domains.extensions) for (const changeIndex of domains.change) for (const paused of domains.paused)
+  for (const perspective of domains.perspective) for (const optional of domains.optional) {
+    const extensions = extensionCases[extensionIndex]!, change = changeCases[changeIndex]!;
     const config = { workflow: { draftPRs: !!(options & 1), followUpIssues: !!(options & 2), routingRecommendations: !!(options & 4) },
       ...(perspective ? { reviewPerspectivesPath: perspectives } : {}), ...(optional ? { doctrineExtraPath: extra, orchestratorPromptDocs: [extra] } : {}) };
-    const before = await renderDoctrine(oldRuntimes[runtime], config, trusted, paused, undefined, extensions, change, historical.registerSlateMode);
-    const after = await renderDoctrine(newRuntimes[runtime], config, trusted, paused, undefined, extensions, change);
-    assert.deepEqual(comparison(before, after), [true, true, true, true], JSON.stringify({ options, trusted, runtime, change, paused, perspective, optional }));
-    count++;
+    for (const index of runtime === 3 ? [3, 4] : [runtime]) {
+      const before = await renderDoctrine(oldRuntimes[index], config, trusted, paused, undefined, extensions, change, reference.register);
+      const after = await renderDoctrine(newRuntimes[index], config, trusted, paused, undefined, extensions, change);
+      assert.deepEqual(comparison(before, after), [true, true, true, true], JSON.stringify({ options, trusted, runtime: index, change, paused, perspective, optional }));
+      if (index === 4) fixedCount++;
+      else count++;
+    }
   }
   assert.equal(count, 7680);
-  const before = await renderDoctrine(oldRuntimes[0], {}, true, false, undefined, EMPTY_WORKER_EXTENSION_SET, undefined, historical.registerSlateMode);
+  assert.equal(fixedCount, 1920);
+  const before = await renderDoctrine(oldRuntimes[0], {}, true, false, undefined, EMPTY_WORKER_EXTENSION_SET, undefined, reference.register);
   const normalized = before.split(basePrefix).join(prefix);
   assert.deepEqual(comparison(before, normalized), [true, true, true, true]);
   assert.equal(comparison(before, `${normalized}x`)[0], false);
   assert.equal(comparison(before, `${normalized}${prefix}`)[1], false);
+  const fixed = newRuntimes[4]!;
+  const grown = { ...fixed, promptText: () => `${fixed.promptText()}${"x".repeat(48)}` };
+  const fixedBefore = await renderDoctrine(oldRuntimes[4], {}, true, false, undefined, EMPTY_WORKER_EXTENSION_SET, undefined, reference.register);
+  assert.equal(comparison(fixedBefore, await renderDoctrine(grown))[0], false, "fixed project input exposes logical prompt growth");
+  for (const paused of domains.paused) {
+    const pausedBefore = await renderDoctrine(oldRuntimes[0], {}, true, paused, undefined, EMPTY_WORKER_EXTENSION_SET, undefined, reference.register);
+    const changed = `${await renderDoctrine(newRuntimes[0], {}, true, paused)}${paused ? "x" : ""}`;
+    assert.equal(comparison(pausedBefore, changed)[0], !paused, "paused-only growth is visible");
+  }
+  for (const ref of ["HEAD", `${original}^`]) assert.throws(() => verifyIdentity(ref), /original commit identity/);
+  for (const selected of [{ ...reference, register: registerSlateMode }, { ...reference, create: createLogicalRuntime }, { ...reference, directory: prefix }]) {
+    await assert.rejects(() => verifyReference(selected), /original (hook|runtime|paths) provenance/);
+  }
+  const exportedMode = join(root, "extension", "mode.ts"), savedMode = readFileSync(exportedMode);
+  try {
+    writeFileSync(exportedMode, Buffer.concat([savedMode, Buffer.from(" ")]));
+    assert.throws(verifyExport, /original exported bytes/);
+  } finally { writeFileSync(exportedMode, savedMode); }
   assert.throws(() => git("show", `${"0".repeat(40)}:extension/mode.ts`), /Cannot read original doctrine base/);
 });
 
@@ -216,10 +277,22 @@ test("P14 preserves exact conditional text, P13, and published byte figures", { 
   };
   assert.ok(valid(source));
   assert.deepEqual([Buffer.byteLength(body), Buffer.byteLength(block), Buffer.byteLength(row)], [323, 351, 145]);
-  assert.match(budget, /P14 is a conditional read outside both ordinary read sets/);
-  assert.match(budget, /body contains 323 UTF-8 bytes/);
-  assert.match(budget, /heading and body contain 351 bytes/);
-  assert.match(budget, /row contains 145 bytes without its final line feed/);
+  const published = [
+    "P14 enters neither injected totals nor the always-loaded principle subset.",
+    "Read P14 only when reading [design-principles.md](design-principles.md).",
+    "Design-track planning reads § 4 of design-principles.md.",
+    "Explaining or changing Slate can require design-principles.md.",
+    "Unusual routing or compaction can also require design-principles.md.",
+    "Routine dispatch does not require design-principles.md.",
+    "The P14 body contains 323 UTF-8 bytes, including the final line feed.",
+    "The heading and body contain 351 bytes.",
+    "The separate principle-table row contains 145 bytes without its final line feed.",
+    "A blank separator before § 5 of design-principles.md adds one byte outside the 351-byte figure.",
+    "The complete design-principles.md document adds 498 bytes for P14.",
+  ];
+  const validBudget = (text: string): boolean => published.every((line) => text.split(line).length === 2);
+  assert.ok(validBudget(budget));
+  for (const line of published) assert.equal(validBudget(budget.replace(line, "")), false);
   const p13 = source.slice(source.indexOf("- **P13"), source.indexOf("### Workflow steps in code") - 2);
   assert.equal(createHash("sha256").update(p13).digest("hex"), "b04cb0d7429c9e202451af7d3c2f695ea326561e263e6423159d8ee23175f5e7");
   assert.doesNotMatch(await renderDoctrine(), /Put workflow steps in code/);
