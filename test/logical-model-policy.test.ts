@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -589,6 +589,76 @@ test("the real resolver wrapper refuses a missing exact-pinned TypeScript compil
   } finally {
     if (passed) rmSync(root, { recursive: true, force: true });
     else process.stderr.write(`missing-TypeScript wrapper fixture retained at ${root}\n`);
+  }
+});
+
+test("resolver exclusions are explicit and preserve the complete default roster", { timeout: 240_000 }, () => {
+  const root = mkdtempSync(join(tmpdir(), "slate-resolver-options-"));
+  const repo = process.cwd();
+  const ids = ["doctrine-original-base", "doctrine-original-controls"];
+  const wrapper = join(repo, "verification/run-resolver-checks.sh");
+  const run = (script: string, args: string[] = []) => {
+    const result = spawnSync("bash", [script, "--repo", repo, "--strict", ...args], {
+      encoding: "utf8", timeout: 60_000, maxBuffer: 2 * 1024 * 1024,
+    });
+    const output = `${result.stdout}\n${result.stderr}`;
+    assert.equal(result.error, undefined, output);
+    assert.equal(result.signal, null, output);
+    return { status: result.status, output };
+  };
+  try {
+    const full = run(wrapper);
+    assert.equal(full.status, 0, full.output);
+    assert.match(full.output, /^== summary: 209 pass, 0 fail, 0 not run \(209 result lines = 208 expected checks \+ this roster audit\) ==$/m);
+    assert.doesNotMatch(full.output, /EXCLUDED|NOTE --exclude/);
+    assert.equal([...full.output.matchAll(/^CHECK +\S+ +PASS\b/gm)].length, 209);
+    for (const id of ids) assert.match(full.output, new RegExp(`^CHECK +${id} +PASS\\b`, "m"));
+
+    const args = ["--exclude", ids.join(",")];
+    const bounded = run(wrapper, args);
+    assert.equal(bounded.status, 0, bounded.output);
+    assert.match(bounded.output, /^NOTE --exclude doctrine-original-base,doctrine-original-controls$/m);
+    assert.deepEqual([...bounded.output.matchAll(/^CHECK +(\S+) +EXCLUDED\b/gm)].map((match) => match[1]), ids);
+    assert.doesNotMatch(bounded.output, /^CHECK +doctrine-original-(?:base|controls) +(?:PASS|NOT RUN)\b/m);
+    assert.match(bounded.output, /^== summary: 207 pass, 0 fail, 0 not run, 2 excluded \(209 result lines = 208 expected checks \+ this roster audit\) ==$/m);
+    for (const value of ["unknown-check", "", `${ids[0]},unknown-check`, `${ids[0]},${ids[0]}`]) {
+      const rejected = run(wrapper, ["--exclude", value]);
+      assert.equal(rejected.status, 2, rejected.output);
+      assert.doesNotMatch(rejected.output, /^CHECK /m);
+    }
+    for (const args of [["--exclude"], ["--exclude", ids[0]!, "--exclude", ids[1]!]]) {
+      const rejected = run(wrapper, args);
+      assert.equal(rejected.status, 2, rejected.output);
+      assert.doesNotMatch(rejected.output, /^CHECK /m);
+    }
+    const direct = spawnSync(process.execPath, [join(repo, "verification/resolver-checks.mjs"), repo, "unused-jiti", root, "strict", "--exclude", "unknown-check"], {
+      encoding: "utf8", timeout: 10_000,
+    });
+    assert.equal(direct.status, 2, direct.stdout + direct.stderr);
+    assert.match(direct.stderr, /unknown exclusion id 'unknown-check'/);
+
+    cpSync(join(repo, "verification"), join(root, "verification"), { recursive: true });
+    const driver = join(root, "verification/resolver-checks.mjs");
+    const source = readFileSync(driver, "utf8");
+    const deleted = source.replace(/^\s*check\("off-inert",[^\n]+\n/m, "\n");
+    assert.notEqual(deleted, source, "missing-check fixture must delete an actual check");
+    writeFileSync(driver, deleted);
+    const missing = run(join(root, "verification/run-resolver-checks.sh"), args);
+    assert.equal(missing.status, 1, missing.output);
+    assert.match(missing.output, /^CHECK +roster +FAIL\b/m);
+    assert.match(missing.output, /none missing → \["off-inert"\]/);
+    assert.deepEqual([...missing.output.matchAll(/^CHECK +(\S+) +EXCLUDED\b/gm)].map((match) => match[1]), ids);
+    assert.match(missing.output, /^== summary: 205 pass, 1 fail, 0 not run, 2 excluded .*−1 unaccounted/m);
+    const deletedExcluded = source.replace(/^\s*check\("doctrine-original-base",[^\n]+\n/m, "\n");
+    assert.notEqual(deletedExcluded, source, "excluded-check fixture must delete an actual check");
+    writeFileSync(driver, deletedExcluded);
+    const missingExcluded = run(join(root, "verification/run-resolver-checks.sh"), args);
+    assert.equal(missingExcluded.status, 1, missingExcluded.output);
+    assert.match(missingExcluded.output, /^CHECK +roster +FAIL\b/m);
+    assert.match(missingExcluded.output, /none missing → \["doctrine-original-base"\]/);
+    assert.match(missingExcluded.output, /^== summary: 206 pass, 1 fail, 0 not run, 1 excluded .*−1 unaccounted/m);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });
 
