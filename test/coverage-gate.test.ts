@@ -792,6 +792,7 @@ test("run-tests isolates Jiti coverage from a cache warmed by an earlier process
   writeFileSync(renderPath, renderSource);
   writeFileSync(resolverPath, resolverSource);
   commit(repo, "head");
+  git(repo, "fetch", "--no-tags", CHECKOUT, "d8bca25ef8947e370a92a68a4d98d0e2ec9f1a53");
 
   const childEnv = {
     ...isolatedChildEnvironment(repo),

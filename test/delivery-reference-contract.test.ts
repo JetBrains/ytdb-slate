@@ -18,6 +18,10 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
     mkdirSync(join(fixture, ".pi"));
     cpSync(join(repo, ".pi/slate.json"), join(fixture, ".pi/slate.json"));
     symlinkSync(join(repo, "node_modules"), join(fixture, "node_modules"), "dir");
+    for (const args of [["init", "-q"], ["fetch", "--no-tags", repo, "d8bca25ef8947e370a92a68a4d98d0e2ec9f1a53"]]) {
+      const result = spawnSync("git", args, { cwd: fixture, encoding: "utf8", timeout: 20_000 });
+      assert.equal(result.status, 0, `original doctrine base setup failed: ${result.stderr}`);
+    }
     const workflowFile = "docs/track-workflow.md";
     const workflow = readFileSync(join(fixture, workflowFile), "utf8");
     const readme = readFileSync(join(fixture, "README.md"), "utf8");

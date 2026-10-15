@@ -422,6 +422,11 @@ and following blank line add 35 bytes. The heading and body together contain
 2,327 bytes. Its separate principle-table row contains 201 bytes. Neither enters injected totals or the always-loaded
 principle subset.
 
+P14 is a conditional read outside both ordinary read sets. Its body contains 323 UTF-8 bytes, including the final line feed.
+The heading and body contain 351 bytes. The separate principle-table row contains 145 bytes without its final line feed.
+A blank separator before § 5 adds one byte outside the 351-byte figure. The complete document adds 498 bytes for P14.
+Design-track planning reads § 4. Architecture work and unusual routing or compaction can require this document. Routine dispatch does not.
+
 ## Using GPT-5.6's full 1.05M window
 
 Two deliberate steps. First, raise the registry window in

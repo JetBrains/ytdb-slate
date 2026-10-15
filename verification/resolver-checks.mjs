@@ -303,7 +303,7 @@ function mkpkg(name, entries, files) {
 // Drive the doctrine builder the way index.ts does — through registerSlateMode's
 // before_agent_start handler — with a fixed (empty) config and an untrusted
 // project, so only the worker-extension rule varies between calls.
-async function doctrine(extSet, getRouter, trusted = false, config = {}, change = {}) {
+async function doctrine(extSet, getRouter, trusted = false, config = {}, change = {}, register = mode.registerSlateMode) {
 	const handlers = {};
 	const pi = {
 		on: (e, h) => (handlers[e] = h),
@@ -315,7 +315,7 @@ async function doctrine(extSet, getRouter, trusted = false, config = {}, change 
 	};
 	const store = {
 		orchestratorMode: true,
-		paused: false,
+		paused: change.paused ?? false,
 		threads: new Map(),
 		workerCostUsd: 0,
 		carriedCostUsd: 0,
@@ -328,7 +328,7 @@ async function doctrine(extSet, getRouter, trusted = false, config = {}, change 
 	// omitted only when a check needs the blocked no-runtime path.
 	const args = [pi, store, { startHandoff: async () => {} }, () => config, () => extSet];
 	if (getRouter !== undefined) args.push(getRouter);
-	mode.registerSlateMode(...args);
+	register(...args);
 	// Trust defaults to false. Doctrine checks pass true only when they exercise
 	// trusted project policy and its trusted-only tail rules.
 	// Use an isolated project without a legacy root log for reproducible size pins.
@@ -347,7 +347,7 @@ async function doctrine(extSet, getRouter, trusted = false, config = {}, change 
 /** Checks that need extension/state.ts — the canonical model-spec vocabulary. */
 const STATE_IDS = ["spec-invisible", "state-thread-record", "state-episode-record"];
 /** The action-routing doctrine rule (extension/mode.ts, b092f92); renders the shipped table. */
-const DOCTRINE_IDS = ["doctrine-logical", "doctrine-untrusted", "doctrine-numbering", "doctrine-inject", "doctrine-no-trace", "doctrine-budget", "doctrine-budget-boundaries", "doctrine-duty-contract", "writing-doctrine-off", "writing-doctrine-untrusted", "writing-doctrine-numbering", "design-doctrine-size", "writing-prompt-check", "writing-doctrine-inject", "writing-doctrine-cite"];
+const DOCTRINE_IDS = ["doctrine-logical", "doctrine-untrusted", "doctrine-numbering", "doctrine-inject", "doctrine-no-trace", "doctrine-budget", "doctrine-budget-boundaries", "doctrine-duty-contract", "doctrine-original-base", "doctrine-original-controls", "doctrine-p14", "doctrine-p14-controls", "writing-doctrine-off", "writing-doctrine-untrusted", "writing-doctrine-numbering", "design-doctrine-size", "writing-prompt-check", "writing-doctrine-inject", "writing-doctrine-cite"];
 const WORKER_IDS = [
 	"worker-preamble",
 	"reviewer-charter-sync",
@@ -1478,6 +1478,82 @@ try {
 		]);
 	});
 
+	await section("doctrine-original-base", async () => {
+		const original = "d8bca25ef8947e370a92a68a4d98d0e2ec9f1a53";
+		const git = (...args) => {
+			const result = spawnSync("git", ["-C", REPO, ...args], { encoding: "utf8", timeout: 10000, maxBuffer: 4 * 1024 * 1024 });
+			if (result.error || result.status !== 0) throw new Error(`Cannot read original doctrine base ${original}: ${result.error?.message ?? result.stderr}`);
+			return result.stdout;
+		};
+		const root = join(WORK, "original-doctrine");
+		for (const name of ["package.json", ...git("ls-tree", "-r", "--name-only", original, "--", "extension/").trim().split("\n")]) {
+			if (name !== "package.json" && !/^extension\/[\w-]+\.(ts|mjs)$/.test(name)) throw new Error(`Unexpected original doctrine source: ${name}`);
+			file(join("original-doctrine", name), git("show", `${original}:${name}`));
+		}
+		symlinkSync(join(REPO, "node_modules"), join(root, "node_modules"), "dir");
+		const base = await jiti.import(join(root, "extension", "mode.ts"));
+		const baseLogical = await jiti.import(join(root, "extension", "logical-model-runtime.ts"));
+		const basePaths = await jiti.import(join(root, "extension", "paths.ts"));
+		const prefix = paths.TRACK_WORKFLOW_DOC.slice(0, -"track-workflow.md".length);
+		const basePrefix = basePaths.TRACK_WORKFLOW_DOC.slice(0, -"track-workflow.md".length);
+		const runtimes = (module, directory) => {
+			const replace = (n) => ({ router: { models: { replace: [{ model: "sol-6.1", guidelines: ["x".repeat(n)], cautions: [] }] } } });
+			const create = (projectConfig) => module.createLogicalRuntime({ trusted: true, projectConfig, documentationDirectory: directory });
+			return [create(), undefined, create({ router: { compressor: { models: [] } } }), create(replace(19401 - create(replace(1)).promptText().length))];
+		};
+		const oldRuntimes = runtimes(baseLogical, basePrefix), newRuntimes = runtimes(logicalRuntime, prefix);
+		const capped = { units: ["a", "b"].map((c) => ({ path: `/fixture/${c}`, source: c.repeat(128), isDirectory: true, tools: [c, c.toUpperCase()].map((n) => ({ name: n.repeat(64), description: "d".repeat(140) })) })), paths: [], toolNames: [] };
+		const changes = [{}, { currentChange: `change-20260101T000000Z-${"a".repeat(32)}` }];
+		changes.push({ ...changes[1], sourceChange: `change-20260101T000001Z-${"b".repeat(32)}`, legacyLog: true }, { sourceChange: changes[1].currentChange }, { legacyLog: true });
+		const perspectives = file("comparison-perspectives.md", "Project perspective.");
+		const extra = file("comparison-extra.md", "Optional doctrine content.");
+		const compare = (before, after) => {
+			const portableDelta = before.split(basePrefix).join("").length - after.split(prefix).join("").length;
+			return [portableDelta >= 0, before.split(basePrefix).length === after.split(prefix).length,
+				...["/x/docs/", "/fixture/a-much-longer-installed-package/docs/"].map((p) => before.split(basePrefix).join(p).length - after.split(prefix).join(p).length === portableDelta)];
+		};
+		let count = 0;
+		const failures = [];
+		for (let options = 0; options < 8; options++) for (const trusted of [false, true]) for (let runtime = 0; runtime < 4; runtime++)
+		for (const extensions of [EMPTY_EXT, WITH_EXT, capped]) for (const change of changes) for (const paused of [false, true])
+		for (const perspective of [false, true]) for (const optional of [false, true]) {
+			const config = { workflow: { draftPRs: !!(options & 1), followUpIssues: !!(options & 2), routingRecommendations: !!(options & 4) },
+				...(perspective ? { reviewPerspectivesPath: perspectives } : {}), ...(optional ? { doctrineExtraPath: extra, orchestratorPromptDocs: [extra] } : {}) };
+			const before = await doctrine(extensions, () => oldRuntimes[runtime], trusted, config, { ...change, paused }, base.registerSlateMode);
+			const after = await doctrine(extensions, () => newRuntimes[runtime], trusted, config, { ...change, paused });
+			if (!compare(before, after).every(Boolean)) failures.push({ options, trusted, runtime, change, paused, perspective, optional });
+			count++;
+		}
+		check("doctrine-original-base", count === 7680 && failures.length === 0, "7,680 paired original-base production compositions preserve portable size, prefix counts, and raw reductions at two install lengths", { count, failures });
+		const before = await doctrine(EMPTY_EXT, () => oldRuntimes[0], true, {}, {}, base.registerSlateMode);
+		const normalized = before.split(basePrefix).join(prefix);
+		check("doctrine-original-controls", compare(before, normalized).every(Boolean) && !compare(before, `${normalized}x`)[0] && !compare(before, `${normalized}${prefix}`)[1], "the comparison accepts equality and rejects one added character and one added installed prefix");
+	});
+	await section("doctrine-p14", async () => {
+		const source = readFileSync(paths.DESIGN_PRINCIPLES_DOC, "utf8");
+		const budget = readFileSync(join(REPO, "docs", "context-budget.md"), "utf8");
+		const body = "- **P14 — Put workflow steps in code.** *(Repo-local note, not from the report.)*\n"
+			+ "  Move a workflow step into Slate code when code can perform or check it in a mechanical, deterministic way.\n"
+			+ "  A step stays as prompt text when code would cost more than the protection it adds, or when the user decided to keep it as text.\n";
+		const block = `### Workflow steps in code\n\n${body}`;
+		const row = "| P14 mechanical workflow steps | `action-temporary.ts` manages temporary folders. Other existing rules remain future work for a tracked issue. |";
+		const valid = (text) => {
+			const p13 = text.indexOf("### Built-in focus-area authoring\n"), p14 = text.indexOf(block), table = text.indexOf("## 5. Where each principle lives in the code");
+			return p13 >= 0 && p13 < p14 && p14 < table && text.slice(p14, table) === `${block}\n`
+				&& text.split("**P14 —").length === 2 && text.split("### Workflow steps in code").length === 2
+				&& text.split(row).length === 2 && text.slice(table).split("\n\n")[1]?.endsWith(row);
+		};
+		checkAll("doctrine-p14", "P14 has the exact conditional principle, final table row, and independently stated byte figures", [
+			["exact principle and placement", valid(source)],
+			["independent byte figures", Buffer.byteLength(body) === 323 && Buffer.byteLength(block) === 351 && Buffer.byteLength(row) === 145],
+			["published figures and read boundary", /P14 is a conditional read outside both ordinary read sets/.test(budget) && /body contains 323 UTF-8 bytes/.test(budget) && /heading and body contain 351 bytes/.test(budget) && /row contains 145 bytes without its final line feed/.test(budget)],
+			["P13 raw body is unchanged", createHash("sha256").update(source.slice(source.indexOf("- **P13"), source.indexOf("### Workflow steps in code") - 2)).digest("hex") === "b04cb0d7429c9e202451af7d3c2f695ea326561e263e6423159d8ee23175f5e7"],
+			["principle stays out of always-loaded text", !(await doctrineFor()).includes("Put workflow steps in code")],
+		]);
+		const attacks = [source.replace(block, ""), source.replace("*(Repo-local note, not from the report.)*\n  Move", "*(From the report.)*\n  Move"), source.replace("when the user decided to keep it as text", "even when the user requires code"), source.replace(row, ""), source.replace(row, row.replace("future work", "completed work")), source.replace(block, `${block}${body}`), source.replace(block, "").replace("### Built-in focus-area authoring", `${block}\n### Built-in focus-area authoring`)];
+		check("doctrine-p14-controls", attacks.every((text) => text !== source && !valid(text)), "removal, attribution, exception, row, duplicate, and placement counterexamples fail the exact P14 check");
+	});
+
 	await section("doctrine-duty-contract", async () => {
 		const trusted = await doctrineFor();
 		const untrusted = await doctrineFor(EMPTY_EXT, activeRuntime, false);
@@ -1547,6 +1623,9 @@ try {
 			["unqualified conversation restriction is rejected", !protect(tactical.replace(/crosses threads/, "continues"), tacticalDuties), tactical],
 			["rationale retains its installed document", rationale.includes(paths.DESIGN_PRINCIPLES_DOC), rationale],
 			["rationale positive and removal controls", protect(rationale, rationaleDuties) && discriminate(rationale, rationaleDuties), rationale],
+			["P14 does not enter either trust-state doctrine", [trusted, untrusted].every((text) => !/P1[34] —|Workflow steps in code/.test(text))],
+			["design planning retains the conditional section read", readFileSync(paths.RECURSIVE_WORKFLOW_DOC, "utf8").includes("Use [design-principles.md](design-principles.md) § 4. Operating principles for proportional process.")],
+			["rationale remains tier two", readFileSync(paths.DESIGN_PRINCIPLES_DOC, "utf8").includes("**Tier 2 — on demand.** This document.")],
 		]);
 	});
 
@@ -7771,7 +7850,7 @@ The accounting covers:`),
 	// check or a renamed id shows up here instead of vanishing into a clean exit.
 	const EXPECTED = [
 		"off-inert", "off-doctrine",
-		"doctrine-logical", "doctrine-untrusted", "doctrine-numbering", "doctrine-inject", "doctrine-no-trace", "doctrine-budget", "doctrine-budget-boundaries", "doctrine-duty-contract",
+		"doctrine-logical", "doctrine-untrusted", "doctrine-numbering", "doctrine-inject", "doctrine-no-trace", "doctrine-budget", "doctrine-budget-boundaries", "doctrine-duty-contract", "doctrine-original-base", "doctrine-original-controls", "doctrine-p14", "doctrine-p14-controls",
 		"writing-config-default", "writing-config-reminder-turns", "writing-config-reminder-trigger", "writing-config-trigger-interaction", "writing-config-sentence-limit", "writing-config-status-window", "writing-config-show-status", "writing-config-findings", "writing-config-reminder-ignored", "writing-config-reminder-percent", "writing-config-invalid", "writing-config-hostile",
 		"writing-reminder-load", "writing-reminder-roster", "writing-copy-independence", "writing-reminder-render", "writing-reminder-full-render", "writing-reminder-size", "writing-reminder-model-visible-rules", "writing-reminder-counter", "writing-reminder-cadence", "writing-reminder-delivery-mode", "writing-reminder-gates", "writing-reminder-state-machine",
 		"writing-reminder-mode-send", "writing-reminder-mode-delivery", "writing-reminder-trigger", "writing-reminder-trigger-switch", "writing-reminder-trigger-reset", "writing-reminder-mode-gates", "writing-reminder-delivery-failure-independent", "writing-reminder-checker-failure-independent", "writing-reminder-findings-off", "writing-reminder-retry-boundary", "writing-reminder-completed-shapes", "writing-reminder-abort-round", "writing-reminder-summary-staleness", "writing-reminder-session-reset", "writing-reminder-local-reset", "writing-reminder-round-gate", "writing-reminder-gate-claim-order", "writing-reminder-claim-delivery", "writing-reminder-correlation", "writing-reminder-runtime-only", "writing-reminder-budget", "writing-reminder-handoff-order",
