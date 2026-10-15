@@ -18,10 +18,8 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
     mkdirSync(join(fixture, ".pi"));
     cpSync(join(repo, ".pi/slate.json"), join(fixture, ".pi/slate.json"));
     symlinkSync(join(repo, "node_modules"), join(fixture, "node_modules"), "dir");
-    for (const args of [["init", "-q"], ["fetch", "--no-tags", repo, "d8bca25ef8947e370a92a68a4d98d0e2ec9f1a53"]]) {
-      const result = spawnSync("git", args, { cwd: fixture, encoding: "utf8", timeout: 20_000 });
-      assert.equal(result.status, 0, `original doctrine base setup failed: ${result.stderr}`);
-    }
+    // No remaining check reads Git history when both original-base checks are excluded.
+    const excluded = ["doctrine-original-base", "doctrine-original-controls"];
     const workflowFile = "docs/track-workflow.md";
     const workflow = readFileSync(join(fixture, workflowFile), "utf8");
     const readme = readFileSync(join(fixture, "README.md"), "utf8");
@@ -44,7 +42,7 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
             mkdirSync(dirname(path), { recursive: true });
             writeFileSync(path, source);
           }
-          const result = spawnSync("bash", [join(fixture, "verification/run-resolver-checks.sh"), "--repo", fixture, "--strict"], {
+          const result = spawnSync("bash", [join(fixture, "verification/run-resolver-checks.sh"), "--repo", fixture, "--strict", "--exclude", excluded.join(",")], {
             cwd: fixture, encoding: "utf8", timeout: 60_000, maxBuffer: 2 * 1024 * 1024,
             env: { ...process.env, JITI_FS_CACHE: "true" },
           });
@@ -54,6 +52,9 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
           assert.equal(result.status, accepted ? 0 : 1, output);
           assert.match(output, new RegExp(`^CHECK +${contract} +${accepted ? "PASS" : "FAIL"}\\b`, "m"));
           assert.match(output, /^CHECK +roster +PASS\b/m);
+          assert.deepEqual([...output.matchAll(/^CHECK +(\S+) +EXCLUDED\b/gm)].map((match) => match[1]), excluded);
+          assert.doesNotMatch(output, /^CHECK +doctrine-original-(?:base|controls) +PASS\b/m);
+          assert.match(output, /^== summary: \d+ pass, \d+ fail, 0 not run, 2 excluded \(209 result lines = 208 expected checks \+ this roster audit\) ==$/m);
         } finally {
           for (const [path, original] of originals) {
             if (original === undefined) rmSync(path);

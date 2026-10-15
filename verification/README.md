@@ -801,9 +801,19 @@ bash verification/run-resolver-checks.sh --repo . --strict
 ```
 
 The wrapper reports one `CHECK` line per identifier, one roster audit, and one
-summary. Exit 0 means every check passed. Exit 1 means a failure, missing check,
+summary. Exit 0 means every non-excluded check passed. Exit 1 means a failure, missing check,
 or strict `NOT RUN`. Exit 2 means the wrapper refused to start. The roster and
 summary output own the live count.
+
+`--exclude <id,id>` accepts only `doctrine-original-base` and
+`doctrine-original-controls`, together or individually. The driver accepts the
+same option after its positional arguments. Unknown, empty, or duplicate
+identifiers refuse to start with exit 2. The output reports the option, marks
+each selected check `EXCLUDED`, and adds an excluded count to the summary.
+Excluded checks never report `PASS` or `NOT RUN`. Explicit exclusions do not
+fail `--strict`. The roster still requires every expected identifier exactly
+once. Without this option, the wrapper runs every check and keeps the default
+output format.
 
 ## Current coverage
 
@@ -861,8 +871,11 @@ approved guarantee.
 
 `test/delivery-reference-contract.test.ts` runs disposable mutations through the
 real strict resolver wrapper. Each negative case requires exit 1 and a failed
-`contract-delivery-packages` result. Positive controls require the full suite to
-pass. Run this test and the strict resolver suite after changing the scanner,
+`contract-delivery-packages` result. Its child runs pass
+`--exclude doctrine-original-base,doctrine-original-controls` and require exactly
+those two exclusions. Positive controls require every other check to pass.
+The default resolver run still covers both original-base checks.
+Run this test and the strict resolver suite after changing the scanner,
 its reviewed roster, or a reference-bearing documentation context.
 
 ## Doctrine measurement basis

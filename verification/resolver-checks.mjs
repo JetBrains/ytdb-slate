@@ -12,7 +12,7 @@
 // it creates lives under the work dir the wrapper owns and removes.
 //
 // Output contract (TS1–TS3):
-//   · one `CHECK <id> <PASS|FAIL|NOT RUN> — <detail>` line per check, plus an
+//   · one `CHECK <id> <PASS|FAIL|NOT RUN|EXCLUDED> — <detail>` line per check, plus an
 //     `observed:` line under a FAIL so a failure localises itself;
 //   · a `roster` check asserting that EVERY expected check id reported exactly
 //     once, so a crashed section or a deleted check can never read as a clean
@@ -31,12 +31,25 @@ import { pathToFileURL } from "node:url";
 import { createMutationAudit, loadWithMutationAudit, mutationAuditControls } from "./record-mutation-roster.mjs";
 const mutationAudit = createMutationAudit();
 
-const [, , REPO, JITI, WORK, STRICT_ARG] = process.argv;
-if (!REPO || !JITI || !WORK) {
-	console.error("resolver-checks.mjs: expected <repo> <jiti> <workdir> [strict] argv (run via run-resolver-checks.sh)");
+const [, , REPO, JITI, WORK, ...OPTIONS] = process.argv;
+function refuse(reason) {
+	console.error(`resolver-checks.mjs: ${reason}`);
 	process.exit(2);
 }
-const STRICT = STRICT_ARG === "strict";
+if (!REPO || !JITI || !WORK) refuse("expected <repo> <jiti> <workdir> [strict] [--exclude <id,id>] argv (run via run-resolver-checks.sh)");
+const STRICT = OPTIONS[0] === "strict";
+if (STRICT || OPTIONS[0] === "") OPTIONS.shift();
+const EXCLUDABLE = ["doctrine-original-base", "doctrine-original-controls"];
+const EXCLUDED = new Set();
+if (OPTIONS.length) {
+	if (OPTIONS.length !== 2 || OPTIONS[0] !== "--exclude") refuse("expected one --exclude <id,id> option");
+	for (const id of OPTIONS[1].split(",")) {
+		if (!EXCLUDABLE.includes(id)) refuse(`unknown exclusion id '${id}' (allowed: ${EXCLUDABLE.join(",")})`);
+		if (EXCLUDED.has(id)) refuse(`duplicate exclusion id '${id}'`);
+		EXCLUDED.add(id);
+	}
+	console.log(`NOTE --exclude ${[...EXCLUDED].join(",")}`);
+}
 
 // One value feeds each doctrine-budget assertion and each maintained published
 // statement. The independent JSON pin below protects the approved ceilings from
@@ -121,6 +134,7 @@ const CHECKER_PATH = `${REPO}/extension/writing-check.mjs`;
 let pass = 0;
 let fail = 0;
 let notrun = 0;
+let excluded = 0;
 const reported = [];
 
 function fmt(value) {
@@ -145,6 +159,7 @@ const ID_COLUMN = 32;
 // TS2: a FAIL prints the observed value, not just the claim. `observed` may be
 // any value or omitted.
 function check(id, cond, detail, observed) {
+	if (EXCLUDED.has(id)) return exclude(id);
 	reported.push(id);
 	const ok = cond === true;
 	console.log(`CHECK ${id.padEnd(ID_COLUMN)} ${(ok ? "PASS" : "FAIL").padEnd(7)} — ${detail}`);
@@ -164,8 +179,16 @@ function checkAll(id, detail, parts) {
 	);
 }
 
+// Explicit exclusions remain rostered results and have their own counter.
+function exclude(id) {
+	reported.push(id);
+	console.log(`CHECK ${id.padEnd(ID_COLUMN)} EXCLUDED — explicitly requested by --exclude`);
+	excluded++;
+}
+
 // TS3: an explicit NOT RUN state, like run-ladder.sh's skip() — never a PASS.
 function skip(id, reason) {
+	if (EXCLUDED.has(id)) return exclude(id);
 	reported.push(id);
 	console.log(`CHECK ${id.padEnd(ID_COLUMN)} ${"NOT RUN".padEnd(7)} — ${reason}`);
 	notrun++;
@@ -1479,7 +1502,7 @@ try {
 		]);
 	});
 
-	await section("doctrine-original-base", async () => {
+	const originalDoctrineResults = async () => {
 		const original = "d8bca25ef8947e370a92a68a4d98d0e2ec9f1a53";
 		const git = (...args) => {
 			const result = spawnSync("git", ["-C", REPO, ...args], { encoding: "utf8", timeout: 10000, maxBuffer: 4 * 1024 * 1024 });
@@ -1562,7 +1585,6 @@ try {
 				else count++;
 			}
 		}
-		check("doctrine-original-base", count === 7680 && fixedCount === 1920 && failures.length === 0, "7,680 original-base pairs and 1,920 fixed-project pairs preserve portable size, prefix counts, and raw reductions at two install lengths", { count, fixedCount, failures });
 		const before = await doctrine(EMPTY_EXT, () => oldRuntimes[0], true, {}, {}, reference.register);
 		const normalized = before.split(basePrefix).join(prefix);
 		const rejects = async (action, pattern) => { try { await action(); return false; } catch (error) { return pattern.test(error.message); } };
@@ -1584,7 +1606,7 @@ try {
 			writeFileSync(exportedMode, Buffer.concat([savedMode, Buffer.from(" ")]));
 			exportControl = await rejects(verifyExport, /exported bytes/);
 		} finally { writeFileSync(exportedMode, savedMode); }
-		checkAll("doctrine-original-controls", "independent reference, matrix, and growth controls reject their counterexamples", [
+		return { count, fixedCount, failures, controls: [
 			["equality, one character, and installed prefix", compare(before, normalized).every(Boolean) && !compare(before, `${normalized}x`)[0] && !compare(before, `${normalized}${prefix}`)[1]],
 			["substituted reference commits", identityControls.every(Boolean), identityControls],
 			["candidate-derived hook, runtime, and paths", provenanceControls.every(Boolean), provenanceControls],
@@ -1592,7 +1614,13 @@ try {
 			["fixed project input exposes logical prompt growth", !compare(fixedBefore, fixedAfter)[0]],
 			["paused-only growth is visible", pausedControls.every(Boolean), pausedControls],
 			["duplicate and missing domain members", !validDomains({ ...domains, paused: [false, false] }) && !validDomains({ ...domains, options: domains.options.slice(1) })],
-		]);
+		] };
+	};
+	await section("doctrine-original-base", async () => {
+		// Either active check needs the shared reference. Both exclusions avoid its work.
+		const result = EXCLUDABLE.every((id) => EXCLUDED.has(id)) ? undefined : await originalDoctrineResults();
+		check("doctrine-original-base", result?.count === 7680 && result.fixedCount === 1920 && result.failures.length === 0, "7,680 original-base pairs and 1,920 fixed-project pairs preserve portable size, prefix counts, and raw reductions at two install lengths", result && { count: result.count, fixedCount: result.fixedCount, failures: result.failures });
+		checkAll("doctrine-original-controls", "independent reference, matrix, and growth controls reject their counterexamples", result?.controls ?? []);
 	});
 	await section("doctrine-p14", async () => {
 		const source = readFileSync(paths.DESIGN_PRINCIPLES_DOC, "utf8");
@@ -7965,12 +7993,12 @@ The accounting covers:`),
 	const uncovered = VOIDABLE.flatMap(([prefix, list, loadId]) =>
 		EXPECTED.filter((id) => id.startsWith(prefix) && id !== loadId && !list.includes(id)),
 	);
-	// THE COUNTERS AGAINST THE ROSTER. `reported` and pass/fail/notrun are written by
-	// the same three functions (check, checkAll, skip) but are separate state, so
+	// THE COUNTERS AGAINST THE ROSTER. Reporting functions update both `reported`
+	// and pass/fail/notrun/excluded. These are separate state, so
 	// this term pins them together: every counted verdict is a rostered id and every
 	// rostered id was counted. Read BEFORE the roster reports itself, so both sides
 	// exclude it.
-	const counted = pass + fail + notrun;
+	const counted = pass + fail + notrun + excluded;
 	const countsAgree = counted === reported.length;
 	// WHY THE TWO NUMBERS IN THE OUTPUT DIFFER BY ONE, stated here and in the summary
 	// line so nobody has to re-derive it: this line counts EXPECTED CHECKS, the
@@ -7988,17 +8016,17 @@ The accounting covers:`),
 			["none reported twice", duplicated.length === 0, duplicated],
 			["none unexpected", unexpected.length === 0, unexpected],
 			["every voidable check is on a NOT RUN list", uncovered.length === 0, uncovered],
-			["pass+fail+notrun equals the number of rostered ids", countsAgree, { counted, rostered: reported.length }],
+			[`${EXCLUDED.size ? "pass+fail+notrun+excluded" : "pass+fail+notrun"} equals the number of rostered ids`, countsAgree, { counted, rostered: reported.length }],
 		],
 	);
 
 	// The reconciliation is COMPUTED, never claimed: on a failing run (a crashed
 	// section adds an id, a deleted check removes one) the residual is printed as
 	// "unaccounted" and points at the roster line instead of silently going wrong.
-	const resultLines = pass + fail + notrun;
+	const resultLines = pass + fail + notrun + excluded;
 	const unaccounted = resultLines - (EXPECTED.length + 1); // +1: the roster audit reports itself
 	console.log(
-		`== summary: ${pass} pass, ${fail} fail, ${notrun} not run ` +
+		`== summary: ${pass} pass, ${fail} fail, ${notrun} not run${EXCLUDED.size ? `, ${excluded} excluded` : ""} ` +
 			`(${resultLines} result lines = ${EXPECTED.length} expected checks + this roster audit` +
 			`${unaccounted === 0 ? "" : `, ${unaccounted > 0 ? "+" : "−"}${Math.abs(unaccounted)} unaccounted — see the roster line`}) ==`,
 	);

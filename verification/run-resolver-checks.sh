@@ -12,7 +12,7 @@
 #   · model-spec and persisted-record sanitizers, the base-model reducer, and
 #     episode rendering against fabricated records and events.
 # Prints one
-#   CHECK <id> <PASS|FAIL|NOT RUN> — <detail>
+#   CHECK <id> <PASS|FAIL|NOT RUN|EXCLUDED> — <detail>
 # line per check (a FAIL adds an `observed:` line), then a `roster` check that
 # every expected check reported, then a summary. See verification/README.md.
 #
@@ -23,8 +23,12 @@
 #
 #   --repo <dir>   slate checkout under test (default: ".")
 #   --strict       any NOT RUN check fails the run (automation should pass this)
+#   --exclude <id,id>  explicitly exclude doctrine-original-base and/or
+#                      doctrine-original-controls (no other ids are accepted)
+# Exclusions print EXCLUDED and a separate summary count, never PASS or NOT RUN.
+# The roster still requires every expected check exactly once.
 #
-# Exit status: 0 all checks passed · 1 a check failed, a check went missing, or
+# Exit status: 0 all non-excluded checks passed · 1 a check failed, a check went missing, or
 # --strict was given and a check reported NOT RUN · 2 refused to start (a missing
 # tool, a bad --repo, a missing exact-pinned TypeScript compiler, no resolvable
 # pi CLI, or jiti could not be located).
@@ -56,10 +60,12 @@ usage() { sed -n '/^#:HELP_START/,/^#:HELP_END/p' "$0" | sed '1d;$d;s/^# \{0,1\}
 
 REPO="."
 STRICT=""
+EXCLUDE_ARGS=()
 while [ $# -gt 0 ]; do
 	case "$1" in
 		--repo) [ "$#" -ge 2 ] || die "option '--repo' requires a value"; REPO="$2"; shift 2 ;;
 		--strict) STRICT="strict"; shift ;;
+		--exclude) [ "$#" -ge 2 ] || die "option '--exclude' requires a value"; [ "${#EXCLUDE_ARGS[@]}" -eq 0 ] || die "option '--exclude' may appear only once"; EXCLUDE_ARGS=(--exclude "$2"); shift 2 ;;
 		-h|--help) usage; exit 0 ;;
 		*) die "unknown argument '$1' (try --help)" ;;
 	esac
@@ -148,4 +154,4 @@ trap 'rm -rf "$WORK"' EXIT
 trap 'rm -rf "$WORK"; exit 130' INT
 trap 'rm -rf "$WORK"; exit 143' TERM
 
-node --no-warnings "$(dirname "$0")/resolver-checks.mjs" "$REPO" "$JITI" "$WORK" "$STRICT"
+node --no-warnings "$(dirname "$0")/resolver-checks.mjs" "$REPO" "$JITI" "$WORK" "$STRICT" "${EXCLUDE_ARGS[@]}"
