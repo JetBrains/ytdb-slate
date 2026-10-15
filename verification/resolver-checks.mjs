@@ -1566,7 +1566,9 @@ try {
 		const before = await doctrine(EMPTY_EXT, () => oldRuntimes[0], true, {}, {}, reference.register);
 		const normalized = before.split(basePrefix).join(prefix);
 		const rejects = async (action, pattern) => { try { await action(); return false; } catch (error) { return pattern.test(error.message); } };
-		const identityControls = await Promise.all(["HEAD", `${original}^`].map((ref) => rejects(() => verifyIdentity(ref), /commit identity|Cannot read original doctrine base/)));
+		const identityControls = await Promise.all(["HEAD", `${original}^`].map((ref) => rejects(() => verifyIdentity(ref),
+			ref === "HEAD" ? /^Original doctrine reference rejected: commit identity$|^Cannot read original doctrine base d8bca25ef8947e370a92a68a4d98d0e2ec9f1a53: fatal: ambiguous argument 'HEAD': unknown revision or path not in the working tree\.\n/
+				: /^Original doctrine reference rejected: commit identity$/)));
 		const provenanceControls = await Promise.all([{ ...reference, register: mode.registerSlateMode }, { ...reference, create: logicalRuntime.createLogicalRuntime }, { ...reference, directory: prefix }].map((selected) => rejects(() => verifyReference(selected), /provenance/)));
 		const fixed = newRuntimes[4], grown = { ...fixed, promptText: () => `${fixed.promptText()}${"x".repeat(48)}` };
 		const fixedBefore = await doctrine(EMPTY_EXT, () => oldRuntimes[4], true, {}, {}, reference.register);
