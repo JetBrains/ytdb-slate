@@ -444,6 +444,7 @@ const VOIDABLE = [
 	["base-", BASE_IDS, "base-load"],
 	["episode-", EPISODE_IDS, "episode-load"],
 	["logical-", LOGICAL_IDS, "logical-load"],
+	["doctrine-", DOCTRINE_IDS, "logical-load"],
 ];
 
 // ------------------------------------------------------------------ fixtures --
@@ -1485,23 +1486,51 @@ try {
 			if (result.error || result.status !== 0) throw new Error(`Cannot read original doctrine base ${original}: ${result.error?.message ?? result.stderr}`);
 			return result.stdout;
 		};
+		const requireOriginal = (condition, detail) => { if (!condition) throw new Error(`Original doctrine reference rejected: ${detail}`); };
+		const verifyIdentity = (ref) => {
+			requireOriginal(git("rev-parse", ref).trim() === "d8bca25ef8947e370a92a68a4d98d0e2ec9f1a53", "commit identity");
+			requireOriginal(git("rev-parse", `${ref}:extension`).trim() === "2b4f7f3bc2b305ff52c39cd08856cf265747069a", "extension tree");
+			requireOriginal(git("rev-parse", `${ref}:package.json`).trim() === "0e770c4b04b32bdd5afe061031538391b314d806", "manifest blob");
+		};
+		verifyIdentity(original);
 		const root = join(WORK, "original-doctrine");
-		for (const name of ["package.json", ...git("ls-tree", "-r", "--name-only", original, "--", "extension/").trim().split("\n")]) {
-			if (name !== "package.json" && !/^extension\/[\w-]+\.(ts|mjs)$/.test(name)) throw new Error(`Unexpected original doctrine source: ${name}`);
-			file(join("original-doctrine", name), git("show", `${original}:${name}`));
+		const blobs = new Map();
+		for (const entry of git("ls-tree", "-r", original, "--", "package.json", "extension/").trim().split("\n")) {
+			const match = entry.match(/^100(?:644|755) blob ([a-f0-9]{40})\t(package\.json|extension\/[\w-]+\.(?:ts|mjs))$/);
+			requireOriginal(match, `unexpected source: ${entry}`);
+			blobs.set(match[2], match[1]);
+			file(join("original-doctrine", match[2]), git("show", `${original}:${match[2]}`));
 		}
+		const verifyExport = () => {
+			for (const [name, hash] of blobs) {
+				const bytes = readFileSync(join(root, name));
+				requireOriginal(createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex") === hash, `exported bytes: ${name}`);
+			}
+		};
+		verifyExport();
 		symlinkSync(join(REPO, "node_modules"), join(root, "node_modules"), "dir");
 		const base = await jiti.import(join(root, "extension", "mode.ts"));
 		const baseLogical = await jiti.import(join(root, "extension", "logical-model-runtime.ts"));
 		const basePaths = await jiti.import(join(root, "extension", "paths.ts"));
 		const prefix = paths.TRACK_WORKFLOW_DOC.slice(0, -"track-workflow.md".length);
-		const basePrefix = basePaths.TRACK_WORKFLOW_DOC.slice(0, -"track-workflow.md".length);
-		const runtimes = (module, directory) => {
-			const replace = (n) => ({ router: { models: { replace: [{ model: "sol-6.1", guidelines: ["x".repeat(n)], cautions: [] }] } } });
-			const create = (projectConfig) => module.createLogicalRuntime({ trusted: true, projectConfig, documentationDirectory: directory });
-			return [create(), undefined, create({ router: { compressor: { models: [] } } }), create(replace(19401 - create(replace(1)).promptText().length))];
+		const reference = { register: base.registerSlateMode, create: baseLogical.createLogicalRuntime, directory: basePaths.TRACK_WORKFLOW_DOC.slice(0, -"track-workflow.md".length) };
+		const verifyReference = async (selected) => {
+			verifyExport();
+			requireOriginal(selected.register === (await jiti.import(join(root, "extension", "mode.ts"))).registerSlateMode, "hook provenance");
+			requireOriginal(selected.create === (await jiti.import(join(root, "extension", "logical-model-runtime.ts"))).createLogicalRuntime, "runtime provenance");
+			requireOriginal(`${selected.directory}track-workflow.md` === join(root, "docs", "track-workflow.md"), "paths provenance");
 		};
-		const oldRuntimes = runtimes(baseLogical, basePrefix), newRuntimes = runtimes(logicalRuntime, prefix);
+		await verifyReference(reference);
+		const basePrefix = reference.directory;
+		const runtimes = (factory, directory) => {
+			const replace = (n) => ({ router: { models: { replace: [{ model: "sol-6.1", guidelines: ["x".repeat(n)], cautions: [] }] } } });
+			const create = (projectConfig) => factory({ trusted: true, projectConfig, documentationDirectory: directory });
+			const projectRoster = { router: { models: { include: ["sol-6.1"], replace: [{ model: "sol-6.1", guidelines: ["x"], cautions: [] }] } } };
+			return [create(), undefined, create({ router: { compressor: { models: [] } } }), create(replace(19401 - create(replace(1)).promptText().length)), create(projectRoster)];
+		};
+		const oldRuntimes = runtimes(reference.create, basePrefix), newRuntimes = runtimes(logicalRuntime.createLogicalRuntime, prefix);
+		requireOriginal(oldRuntimes[3].promptText().length === 19400 && newRuntimes[3].promptText().length === 19400, "at-limit runtime length");
+		requireOriginal([oldRuntimes[4], newRuntimes[4]].every((runtime) => JSON.stringify(runtime.policy.ordinary.map((model) => model.model)) === '["sol-6.1"]'), "fixed project roster membership");
 		const capped = { units: ["a", "b"].map((c) => ({ path: `/fixture/${c}`, source: c.repeat(128), isDirectory: true, tools: [c, c.toUpperCase()].map((n) => ({ name: n.repeat(64), description: "d".repeat(140) })) })), paths: [], toolNames: [] };
 		const changes = [{}, { currentChange: `change-20260101T000000Z-${"a".repeat(32)}` }];
 		changes.push({ ...changes[1], sourceChange: `change-20260101T000001Z-${"b".repeat(32)}`, legacyLog: true }, { sourceChange: changes[1].currentChange }, { legacyLog: true });
@@ -1512,22 +1541,56 @@ try {
 			return [portableDelta >= 0, before.split(basePrefix).length === after.split(prefix).length,
 				...["/x/docs/", "/fixture/a-much-longer-installed-package/docs/"].map((p) => before.split(basePrefix).join(p).length - after.split(prefix).join(p).length === portableDelta)];
 		};
-		let count = 0;
+		const domains = { options: [0, 1, 2, 3, 4, 5, 6, 7], trusted: [false, true], runtime: [0, 1, 2, 3], extensions: [0, 1, 2], change: [0, 1, 2, 3, 4], paused: [false, true], perspective: [false, true], optional: [false, true] };
+		const validDomains = (values) => JSON.stringify(values) === '{"options":[0,1,2,3,4,5,6,7],"trusted":[false,true],"runtime":[0,1,2,3],"extensions":[0,1,2],"change":[0,1,2,3,4],"paused":[false,true],"perspective":[false,true],"optional":[false,true]}'
+			&& Object.values(values).every((domain) => new Set(domain).size === domain.length)
+			&& Object.values(values).reduce((total, domain) => total * domain.length, 1) === 7680;
+		requireOriginal(validDomains(domains), "fixed, distinct matrix domains");
+		let count = 0, fixedCount = 0;
 		const failures = [];
-		for (let options = 0; options < 8; options++) for (const trusted of [false, true]) for (let runtime = 0; runtime < 4; runtime++)
-		for (const extensions of [EMPTY_EXT, WITH_EXT, capped]) for (const change of changes) for (const paused of [false, true])
-		for (const perspective of [false, true]) for (const optional of [false, true]) {
+		for (const options of domains.options) for (const trusted of domains.trusted) for (const runtime of domains.runtime)
+		for (const extensionIndex of domains.extensions) for (const changeIndex of domains.change) for (const paused of domains.paused)
+		for (const perspective of domains.perspective) for (const optional of domains.optional) {
+			const extensions = [EMPTY_EXT, WITH_EXT, capped][extensionIndex], change = changes[changeIndex];
 			const config = { workflow: { draftPRs: !!(options & 1), followUpIssues: !!(options & 2), routingRecommendations: !!(options & 4) },
 				...(perspective ? { reviewPerspectivesPath: perspectives } : {}), ...(optional ? { doctrineExtraPath: extra, orchestratorPromptDocs: [extra] } : {}) };
-			const before = await doctrine(extensions, () => oldRuntimes[runtime], trusted, config, { ...change, paused }, base.registerSlateMode);
-			const after = await doctrine(extensions, () => newRuntimes[runtime], trusted, config, { ...change, paused });
-			if (!compare(before, after).every(Boolean)) failures.push({ options, trusted, runtime, change, paused, perspective, optional });
-			count++;
+			for (const index of runtime === 3 ? [3, 4] : [runtime]) {
+				const before = await doctrine(extensions, () => oldRuntimes[index], trusted, config, { ...change, paused }, reference.register);
+				const after = await doctrine(extensions, () => newRuntimes[index], trusted, config, { ...change, paused });
+				if (!compare(before, after).every(Boolean)) failures.push({ options, trusted, runtime: index, change, paused, perspective, optional });
+				if (index === 4) fixedCount++;
+				else count++;
+			}
 		}
-		check("doctrine-original-base", count === 7680 && failures.length === 0, "7,680 paired original-base production compositions preserve portable size, prefix counts, and raw reductions at two install lengths", { count, failures });
-		const before = await doctrine(EMPTY_EXT, () => oldRuntimes[0], true, {}, {}, base.registerSlateMode);
+		check("doctrine-original-base", count === 7680 && fixedCount === 1920 && failures.length === 0, "7,680 original-base pairs and 1,920 fixed-project pairs preserve portable size, prefix counts, and raw reductions at two install lengths", { count, fixedCount, failures });
+		const before = await doctrine(EMPTY_EXT, () => oldRuntimes[0], true, {}, {}, reference.register);
 		const normalized = before.split(basePrefix).join(prefix);
-		check("doctrine-original-controls", compare(before, normalized).every(Boolean) && !compare(before, `${normalized}x`)[0] && !compare(before, `${normalized}${prefix}`)[1], "the comparison accepts equality and rejects one added character and one added installed prefix");
+		const rejects = async (action, pattern) => { try { await action(); return false; } catch (error) { return pattern.test(error.message); } };
+		const identityControls = await Promise.all(["HEAD", `${original}^`].map((ref) => rejects(() => verifyIdentity(ref), /commit identity|Cannot read original doctrine base/)));
+		const provenanceControls = await Promise.all([{ ...reference, register: mode.registerSlateMode }, { ...reference, create: logicalRuntime.createLogicalRuntime }, { ...reference, directory: prefix }].map((selected) => rejects(() => verifyReference(selected), /provenance/)));
+		const fixed = newRuntimes[4], grown = { ...fixed, promptText: () => `${fixed.promptText()}${"x".repeat(48)}` };
+		const fixedBefore = await doctrine(EMPTY_EXT, () => oldRuntimes[4], true, {}, {}, reference.register);
+		const fixedAfter = await doctrine(EMPTY_EXT, () => grown, true);
+		const pausedControls = await Promise.all(domains.paused.map(async (paused) => {
+			const pausedBefore = await doctrine(EMPTY_EXT, () => oldRuntimes[0], true, {}, { paused }, reference.register);
+			const changed = `${await doctrine(EMPTY_EXT, () => newRuntimes[0], true, {}, { paused })}${paused ? "x" : ""}`;
+			return compare(pausedBefore, changed)[0] === !paused;
+		}));
+		const exportedMode = join(root, "extension", "mode.ts"), savedMode = readFileSync(exportedMode);
+		let exportControl;
+		try {
+			writeFileSync(exportedMode, Buffer.concat([savedMode, Buffer.from(" ")]));
+			exportControl = await rejects(verifyExport, /exported bytes/);
+		} finally { writeFileSync(exportedMode, savedMode); }
+		checkAll("doctrine-original-controls", "independent reference, matrix, and growth controls reject their counterexamples", [
+			["equality, one character, and installed prefix", compare(before, normalized).every(Boolean) && !compare(before, `${normalized}x`)[0] && !compare(before, `${normalized}${prefix}`)[1]],
+			["substituted reference commits", identityControls.every(Boolean), identityControls],
+			["candidate-derived hook, runtime, and paths", provenanceControls.every(Boolean), provenanceControls],
+			["changed exported source bytes", exportControl],
+			["fixed project input exposes logical prompt growth", !compare(fixedBefore, fixedAfter)[0]],
+			["paused-only growth is visible", pausedControls.every(Boolean), pausedControls],
+			["duplicate and missing domain members", !validDomains({ ...domains, paused: [false, false] }) && !validDomains({ ...domains, options: domains.options.slice(1) })],
+		]);
 	});
 	await section("doctrine-p14", async () => {
 		const source = readFileSync(paths.DESIGN_PRINCIPLES_DOC, "utf8");
@@ -1543,15 +1606,29 @@ try {
 				&& text.split("**P14 —").length === 2 && text.split("### Workflow steps in code").length === 2
 				&& text.split(row).length === 2 && text.slice(table).split("\n\n")[1]?.endsWith(row);
 		};
+		const published = [
+			"P14 enters neither injected totals nor the always-loaded principle subset.",
+			"Read P14 only when reading [design-principles.md](design-principles.md).",
+			"Design-track planning reads § 4 of design-principles.md.",
+			"Explaining or changing Slate can require design-principles.md.",
+			"Unusual routing or compaction can also require design-principles.md.",
+			"Routine dispatch does not require design-principles.md.",
+			"The P14 body contains 323 UTF-8 bytes, including the final line feed.",
+			"The heading and body contain 351 bytes.",
+			"The separate principle-table row contains 145 bytes without its final line feed.",
+			"A blank separator before § 5 of design-principles.md adds one byte outside the 351-byte figure.",
+			"The complete design-principles.md document adds 498 bytes for P14.",
+		];
+		const validBudget = (text) => published.every((line) => text.split(line).length === 2);
 		checkAll("doctrine-p14", "P14 has the exact conditional principle, final table row, and independently stated byte figures", [
 			["exact principle and placement", valid(source)],
 			["independent byte figures", Buffer.byteLength(body) === 323 && Buffer.byteLength(block) === 351 && Buffer.byteLength(row) === 145],
-			["published figures and read boundary", /P14 is a conditional read outside both ordinary read sets/.test(budget) && /body contains 323 UTF-8 bytes/.test(budget) && /heading and body contain 351 bytes/.test(budget) && /row contains 145 bytes without its final line feed/.test(budget)],
+			["published figures and read boundary", validBudget(budget)],
 			["P13 raw body is unchanged", createHash("sha256").update(source.slice(source.indexOf("- **P13"), source.indexOf("### Workflow steps in code") - 2)).digest("hex") === "b04cb0d7429c9e202451af7d3c2f695ea326561e263e6423159d8ee23175f5e7"],
 			["principle stays out of always-loaded text", !(await doctrineFor()).includes("Put workflow steps in code")],
 		]);
 		const attacks = [source.replace(block, ""), source.replace("*(Repo-local note, not from the report.)*\n  Move", "*(From the report.)*\n  Move"), source.replace("when the user decided to keep it as text", "even when the user requires code"), source.replace(row, ""), source.replace(row, row.replace("future work", "completed work")), source.replace(block, `${block}${body}`), source.replace(block, "").replace("### Built-in focus-area authoring", `${block}\n### Built-in focus-area authoring`)];
-		check("doctrine-p14-controls", attacks.every((text) => text !== source && !valid(text)), "removal, attribution, exception, row, duplicate, and placement counterexamples fail the exact P14 check");
+		check("doctrine-p14-controls", attacks.every((text) => text !== source && !valid(text)) && published.every((line) => !validBudget(budget.replace(line, ""))), "principle mutations and removal of each published read condition or byte figure fail the exact P14 check");
 	});
 
 	await section("doctrine-duty-contract", async () => {
