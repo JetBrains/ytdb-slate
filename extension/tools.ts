@@ -158,15 +158,16 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 				? `${params.task}\n\nImplementer report: slate-changes/${store.currentChange}/${reportName}. ` +
 					"A new report starts with a `>>` append. Later appends use only `>>`. " +
 					"Never use `>`, the write tool, the edit tool, or `sed -i` on an existing report. " +
-					"Write no other file under `slate-changes/`. " +
-					"Before its first report write in each action, the implementer copies the report to a temporary file outside `slate-changes/`. " +
+					"Under `slate-changes/`, write only this report and assigned temporary files. " +
+					"Before its first report write in each action, the implementer copies the report to a temporary file. " +
 					"For a new report, that copy is an empty file. " +
-					"The implementer writes each new text to its own temporary file outside `slate-changes/`. " +
+					"The implementer writes each new text to its own temporary file. " +
 					"It creates a new report by appending its first temporary file with `>>`. " +
 					"It appends each temporary file to the report with `>>`. " +
 					"After its last write, the implementer checks the whole report once with `cat` and `cmp`. " +
 					"The report must equal the start copy followed by every appended temporary file in order. " +
-					"The implementer reports the check in its final response with the report path, what it compared, and the result." +
+					"In the final response, report the check with the report path, comparison, and result. " +
+					"Report a failed record check as a failure." +
 					(store.sourceChange
 						? ` If the source folder has this track's report, continue it in this new report and name slate-changes/${store.sourceChange}/${reportName} as read-only in the new report's first entry. Do not edit the source report. Never write in the read-only source folder \`slate-changes/${store.sourceChange}/\`.`
 						: "")

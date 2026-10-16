@@ -7,7 +7,7 @@ import { SlateStore } from "../extension/state.ts";
 import { createLogicalRuntime } from "../extension/logical-model-runtime.ts";
 import { REVIEW_PERSPECTIVES, validateReviewPerspectives } from "../extension/review-perspectives.ts";
 import { REVIEW_COMMON_POLICY_DOC, REVIEW_IMPLEMENTATION_INPUT_DOC, REVIEW_NL_DOC, REVIEW_CB_DOC, WRITING_CHECKER, WRITING_GUIDANCE_DOC } from "../extension/paths.ts";
-import { REVIEWER_CHARTER, workerPreamble, workerSystemPromptBlocks } from "../extension/worker.ts";
+import { REVIEWER_CHARTER, changeGuidance, workerPreamble, workerSystemPromptBlocks } from "../extension/worker.ts";
 
 const runtime = createLogicalRuntime({ trusted: true, projectConfig: { router: { models: { include: [], add: [{ model: "fixture", capabilityRating: 50, effort: "off", costRating: 50, preferredProvider: "test", providers: { test: "worker" }, guidelines: [], cautions: [] }] } } } });
 const admittedRuntime = Object.freeze({ ...runtime, validateRoute: async () => ({ ok: true } as const) });
@@ -16,9 +16,9 @@ const base = { task: "review this approved range", type: "reviewer", model: "fix
 function harness(read?: (file: string) => string) {
   const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
   const manager = new ThreadManager(store, {}, undefined, admittedRuntime, undefined, {}, read);
-  const calls: Array<{ opts: DispatchOptions; guidance: string | undefined }> = [];
-  (manager as unknown as { runDispatch: (...args: unknown[]) => unknown }).runDispatch = (_thread: unknown, opts: unknown, _prompt: unknown, _ctx: unknown, _signal: unknown, _progress: unknown, _admission: unknown, _route: unknown, guidance: unknown) => {
-    calls.push({ opts: opts as DispatchOptions, guidance: guidance as string | undefined });
+  const calls: Array<{ opts: DispatchOptions; prompt: string; guidance: string | undefined; folder: string }> = [];
+  (manager as unknown as { runDispatch: (...args: unknown[]) => unknown }).runDispatch = (_thread: unknown, opts: unknown, _prompt: unknown, _ctx: unknown, _signal: unknown, _progress: unknown, _admission: unknown, _route: unknown, guidance: unknown, _temporary: unknown, folder: unknown) => {
+    calls.push({ opts: opts as DispatchOptions, prompt: _prompt as string, guidance: guidance as string | undefined, folder: folder as string });
     return _thread;
   };
   return { manager, store, calls };
@@ -84,8 +84,8 @@ test("selected guidance reaches the worker system blocks in selection order, onc
     assert.equal(calls.length, 1);
     const expected = [common, input, ...selected.map((name) => readFileSync(REVIEW_PERSPECTIVES.find((role) => role.name === name)!.file, "utf8").trim())].join("\n\n");
     assert.equal(calls[0]!.guidance, expected);
-    const blocks = workerSystemPromptBlocks(true, true, calls[0]!.guidance, []);
-    assert.deepEqual(blocks, [workerPreamble(true, true), expected]);
+    const blocks = workerSystemPromptBlocks(true, true, calls[0]!.guidance, [], calls[0]!.folder);
+    assert.deepEqual(blocks, [workerPreamble(true, true), changeGuidance(undefined, true), expected]);
     assert.equal(occurrences(blocks.join("\n\n"), REVIEWER_CHARTER.trim().slice(0, 22)), 1);
     assert.equal(occurrences(expected, "## Common review policy"), 1);
     assert.equal(occurrences(expected, "## Implementation-review inputs"), 1);
@@ -99,7 +99,24 @@ test("selected guidance reaches the worker system blocks in selection order, onc
       assert.ok(charter.indexOf("**Design-quality questions**") < charter.indexOf("**Examples of useful evidence**"));
     }
     // These independent duties fail when the source is lost, even if both generated copies agree.
+    assert.match(expected, /In a Slate action with an open change, write the checker diff only in the supplied action folder\./);
+    assert.match(expected, /Otherwise, use a private operating-system temporary folder outside the checkout\./);
+    assert.match(expected, /Delete only your own diff after use\. Write nothing else\./);
+    assert.equal(occurrences(expected, "write the checker diff only"), 1);
+    const openRules = changeGuidance("change-20261008T000000Z-00000000000000000000000000000000", true)!;
+    const noChangeRules = changeGuidance(undefined, true);
+    assert.match(openRules, /Write only your own writing-checker diff in the supplied action folder\. Write nothing else\./);
+    assert.match(openRules, /Delete the diff before finishing/);
+    assert.match(noChangeRules, /Write only your own writing-checker diff in a private operating-system temporary folder outside the checkout/);
+    assert.match(noChangeRules, /Delete the diff and its private folder after use\. Write nothing else/);
+    assert.equal(calls[0]!.opts.task, base.task);
+    assert.equal(calls[0]!.prompt, base.task);
+    assert.doesNotMatch(calls[0]!.prompt, /research[- ]log|implementer[- ]report|slate-changes\//i);
+    const reviewRules = readFileSync(new URL("../docs/review-rules.md", import.meta.url), "utf8");
+    assert.match(reviewRules, /The supplied action temporary folder permits only the reviewer's own writing-checker diff and adds no reviewer input\./);
+    assert.match(reviewRules, /A reviewer never lists tmp\/ or reads another action's folder\./);
     assert.match(expected, /Do not seek these private sources/);
+    assert.doesNotMatch(expected, /may read.*(?:research log|another action)|only.*tracked-range bytes/);
     assert.match(expected, /A design concern is a finding only when evidence links it to a concrete adverse effect/);
     assert.match(expected, /These questions change no trigger, boundary, reviewer count, merge rule, gate, or user authority/);
     if (selected[0] === "Reviewer I") assert.match(expected, /does not absorb an absent specialist charter/);

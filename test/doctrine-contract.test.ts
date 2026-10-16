@@ -1,14 +1,16 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { pathToFileURL } from "node:url";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { after, test } from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import slateExtension from "../extension/index.ts";
 import { createLogicalRuntime, type LogicalRuntime } from "../extension/logical-model-runtime.ts";
 import { registerSlateMode } from "../extension/mode.ts";
-import { BLAST_RADIUS_DOC, PR_PUBLISHING_DOC, REVIEW_RULES_DOC, TRACK_WORKFLOW_DOC, WRITING_GUIDANCE_DOC } from "../extension/paths.ts";
+import { BLAST_RADIUS_DOC, CHANGE_RECORDS_DOC, DESIGN_PRINCIPLES_DOC, PR_PUBLISHING_DOC, RECURSIVE_WORKFLOW_DOC, REVIEW_RULES_DOC, TRACK_WORKFLOW_DOC, WRITING_GUIDANCE_DOC } from "../extension/paths.ts";
 import { SlateStore, type SlateConfig } from "../extension/state.ts";
 import { EMPTY_WORKER_EXTENSION_SET } from "../extension/worker-extensions.ts";
 import { DESIGN_REQUIREMENTS, WRITING_REQUIREMENTS } from "../extension/writing-reminder.ts";
@@ -65,7 +67,7 @@ function extensionContext(cwd: string, warnings: string[] = [], trusted = true):
   } as unknown as ExtensionContext;
 }
 
-async function renderDoctrine(runtime: Readonly<LogicalRuntime> | null = createLogicalRuntime({ trusted: true }), config: SlateConfig = {}, trusted = true, paused = false, model?: { provider: string; id: string }, extensions = EMPTY_WORKER_EXTENSION_SET, change?: { current: string; source: string; legacy: boolean }): Promise<string> {
+async function renderDoctrine(runtime: Readonly<LogicalRuntime> | null = createLogicalRuntime({ trusted: true }), config: SlateConfig = {}, trusted = true, paused = false, model?: { provider: string; id: string }, extensions = EMPTY_WORKER_EXTENSION_SET, change?: { current?: string; source?: string; legacy?: boolean }, register = registerSlateMode): Promise<string> {
   const api = new FakeExtensionApi();
   const store = new SlateStore(api as unknown as ExtensionAPI);
   store.orchestratorMode = true;
@@ -74,7 +76,7 @@ async function renderDoctrine(runtime: Readonly<LogicalRuntime> | null = createL
     store.currentChange = change.current;
     store.sourceChange = change.source;
   }
-  registerSlateMode(
+  register(
     api as unknown as ExtensionAPI,
     store,
     {
@@ -132,15 +134,173 @@ test("logical doctrine production renders match published portable measurements"
   ], paths: [], toolNames: [] };
   const metric = (text: string) => ({ portable: text.split(docsDirectory).join("").length, lines: text.split("\n").length, paths: text.split(docsDirectory).length - 1 });
   assert.deepEqual(metric(runtime.promptText()!), { portable: 3596, lines: 11, paths: 0 });
-  assert.deepEqual(metric(await renderDoctrine(runtime)), { portable: 8461, lines: 81, paths: 5 });
-  assert.deepEqual(metric(await renderDoctrine(runtime, {}, false)), { portable: 2768, lines: 40, paths: 4 });
-  assert.deepEqual(metric(await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped)), { portable: 10043, lines: 94, paths: 6 });
+  assert.deepEqual(metric(await renderDoctrine(runtime)), { portable: 8461, lines: 74, paths: 5 });
+  assert.deepEqual(metric(await renderDoctrine(runtime, {}, false)), { portable: 2768, lines: 33, paths: 4 });
+  assert.deepEqual(metric(await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped)), { portable: 10043, lines: 87, paths: 6 });
   const change = { current: `change-20260101T000000Z-${"a".repeat(32)}`, source: `change-20260101T000001Z-${"b".repeat(32)}`, legacy: true };
   const linked = await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped, change);
-  assert.deepEqual(metric(linked), { portable: 10471, lines: 97, paths: 6 });
+  assert.deepEqual(metric(linked), { portable: 10471, lines: 90, paths: 6 });
   assert.ok(metric(linked).portable * 1.05 < 26300);
   assert.match(linked, /Follow each log's first entry to read the full source chain and accounting/);
   assert.match(linked, /Read-only legacy root log: research-log.md/);
+});
+
+test("every declared doctrine composition fits the original production hook", { timeout: 60000 }, async () => {
+  const original = "d8bca25ef8947e370a92a68a4d98d0e2ec9f1a53";
+  const git = (...args: string[]): string => {
+    const result = spawnSync("git", ["-C", process.cwd(), ...args], { encoding: "utf8", timeout: 10000, maxBuffer: 4 * 1024 * 1024 });
+    assert.equal(result.error, undefined, `Cannot read original doctrine base ${original}: ${result.error?.message}`);
+    assert.equal(result.status, 0, `Cannot read original doctrine base ${original}: ${result.stderr}`);
+    return result.stdout;
+  };
+  const verifyIdentity = (ref: string): void => {
+    assert.equal(git("rev-parse", ref).trim(), "d8bca25ef8947e370a92a68a4d98d0e2ec9f1a53", "original commit identity");
+    assert.equal(git("rev-parse", `${ref}:extension`).trim(), "2b4f7f3bc2b305ff52c39cd08856cf265747069a", "original extension tree");
+    assert.equal(git("rev-parse", `${ref}:package.json`).trim(), "0e770c4b04b32bdd5afe061031538391b314d806", "original manifest blob");
+  };
+  verifyIdentity(original);
+  const root = join(scratch, "original-doctrine");
+  const blobs = new Map<string, string>();
+  for (const entry of git("ls-tree", "-r", original, "--", "package.json", "extension/").trim().split("\n")) {
+    const match = entry.match(/^100(?:644|755) blob ([a-f0-9]{40})\t(package\.json|extension\/[\w-]+\.(?:ts|mjs))$/);
+    assert.ok(match, `Unexpected original doctrine source: ${entry}`);
+    const name = match[2]!;
+    blobs.set(name, match[1]!);
+    mkdirSync(dirname(join(root, name)), { recursive: true });
+    writeFileSync(join(root, name), git("show", `${original}:${name}`));
+  }
+  const verifyExport = (): void => {
+    for (const [name, hash] of blobs) {
+      const bytes = readFileSync(join(root, name));
+      assert.equal(createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex"), hash, `original exported bytes: ${name}`);
+    }
+  };
+  verifyExport();
+  symlinkSync(join(process.cwd(), "node_modules"), join(root, "node_modules"), "dir");
+  const historical = await import(pathToFileURL(join(root, "extension", "mode.ts")).href);
+  const logical = await import(pathToFileURL(join(root, "extension", "logical-model-runtime.ts")).href);
+  const paths = await import(pathToFileURL(join(root, "extension", "paths.ts")).href);
+  const prefix = TRACK_WORKFLOW_DOC.slice(0, -"track-workflow.md".length);
+  const reference = { register: historical.registerSlateMode, create: logical.createLogicalRuntime, directory: paths.TRACK_WORKFLOW_DOC.slice(0, -"track-workflow.md".length) };
+  const verifyReference = async (selected: typeof reference): Promise<void> => {
+    verifyExport();
+    assert.equal(selected.register, (await import(pathToFileURL(join(root, "extension", "mode.ts")).href)).registerSlateMode, "original hook provenance");
+    assert.equal(selected.create, (await import(pathToFileURL(join(root, "extension", "logical-model-runtime.ts")).href)).createLogicalRuntime, "original runtime provenance");
+    assert.equal(`${selected.directory}track-workflow.md`, join(root, "docs", "track-workflow.md"), "original paths provenance");
+  };
+  await verifyReference(reference);
+  const basePrefix = reference.directory;
+  const runtimes = (create: typeof createLogicalRuntime, directory: string) => {
+    const replace = (n: number): SlateConfig => ({ router: { models: { replace: [{ model: "sol-6.1", guidelines: ["x".repeat(n)], cautions: [] }] } } });
+    const runtime = (projectConfig?: SlateConfig) => create({ trusted: true, projectConfig, documentationDirectory: directory });
+    const projectRoster: SlateConfig = { router: { models: { include: ["sol-6.1"], replace: [{ model: "sol-6.1", guidelines: ["x"], cautions: [] }] } } };
+    return [runtime(), null, runtime({ router: { compressor: { models: [] } } }), runtime(replace(19401 - runtime(replace(1)).promptText()!.length)), runtime(projectRoster)];
+  };
+  const oldRuntimes = runtimes(reference.create, basePrefix), newRuntimes = runtimes(createLogicalRuntime, prefix);
+  assert.equal(oldRuntimes[3]!.promptText()!.length, 19400);
+  assert.equal(newRuntimes[3]!.promptText()!.length, 19400);
+  for (const runtime of [oldRuntimes[4], newRuntimes[4]]) assert.deepEqual(runtime!.policy!.ordinary.map((model) => model.model), ["sol-6.1"]);
+  const capped = { units: ["a", "b"].map((c) => ({ path: `/fixture/${c}`, source: c.repeat(128), isDirectory: true, tools: [c, c.toUpperCase()].map((n) => ({ name: n.repeat(64), description: "d".repeat(140) })) })), paths: [], toolNames: [] };
+  const current = `change-20260101T000000Z-${"a".repeat(32)}`, source = `change-20260101T000001Z-${"b".repeat(32)}`;
+  const perspectives = join(scratch, "comparison-perspectives.md"), extra = join(scratch, "comparison-extra.md");
+  writeFileSync(perspectives, "Project perspective.");
+  writeFileSync(extra, "Optional doctrine content.");
+  const comparison = (before: string, after: string): boolean[] => {
+    const reduction = before.split(basePrefix).join("").length - after.split(prefix).join("").length;
+    return [reduction >= 0, before.split(basePrefix).length === after.split(prefix).length,
+      ...["/x/docs/", "/fixture/a-much-longer-installed-package/docs/"].map((p) => before.split(basePrefix).join(p).length - after.split(prefix).join(p).length === reduction)];
+  };
+  const domains = { options: [0, 1, 2, 3, 4, 5, 6, 7], trusted: [false, true], runtime: [0, 1, 2, 3], extensions: [0, 1, 2], change: [0, 1, 2, 3, 4], paused: [false, true], perspective: [false, true], optional: [false, true] };
+  const validDomains = (values: typeof domains): boolean => JSON.stringify(values) === '{"options":[0,1,2,3,4,5,6,7],"trusted":[false,true],"runtime":[0,1,2,3],"extensions":[0,1,2],"change":[0,1,2,3,4],"paused":[false,true],"perspective":[false,true],"optional":[false,true]}'
+    && Object.values(values).every((domain) => new Set<number | boolean>(domain).size === domain.length)
+    && Object.values(values).reduce((total, domain) => total * domain.length, 1) === 7680;
+  assert.ok(validDomains(domains), "fixed, distinct matrix domains");
+  assert.equal(validDomains({ ...domains, paused: [false, false] }), false);
+  assert.equal(validDomains({ ...domains, options: domains.options.slice(1) }), false);
+  const extensionCases = [EMPTY_WORKER_EXTENSION_SET, { units: [{ path: "/x", source: "npm:demo", isDirectory: true, tools: [{ name: "d", description: "d" }] }], paths: [], toolNames: [] }, capped];
+  const changeCases = [{}, { current }, { current, source, legacy: true }, { source }, { legacy: true }];
+  let count = 0, fixedCount = 0;
+  for (const options of domains.options) for (const trusted of domains.trusted) for (const runtime of domains.runtime)
+  for (const extensionIndex of domains.extensions) for (const changeIndex of domains.change) for (const paused of domains.paused)
+  for (const perspective of domains.perspective) for (const optional of domains.optional) {
+    const extensions = extensionCases[extensionIndex]!, change = changeCases[changeIndex]!;
+    const config = { workflow: { draftPRs: !!(options & 1), followUpIssues: !!(options & 2), routingRecommendations: !!(options & 4) },
+      ...(perspective ? { reviewPerspectivesPath: perspectives } : {}), ...(optional ? { doctrineExtraPath: extra, orchestratorPromptDocs: [extra] } : {}) };
+    for (const index of runtime === 3 ? [3, 4] : [runtime]) {
+      const before = await renderDoctrine(oldRuntimes[index], config, trusted, paused, undefined, extensions, change, reference.register);
+      const after = await renderDoctrine(newRuntimes[index], config, trusted, paused, undefined, extensions, change);
+      assert.deepEqual(comparison(before, after), [true, true, true, true], JSON.stringify({ options, trusted, runtime: index, change, paused, perspective, optional }));
+      if (index === 4) fixedCount++;
+      else count++;
+    }
+  }
+  assert.equal(count, 7680);
+  assert.equal(fixedCount, 1920);
+  const before = await renderDoctrine(oldRuntimes[0], {}, true, false, undefined, EMPTY_WORKER_EXTENSION_SET, undefined, reference.register);
+  const normalized = before.split(basePrefix).join(prefix);
+  assert.deepEqual(comparison(before, normalized), [true, true, true, true]);
+  assert.equal(comparison(before, `${normalized}x`)[0], false);
+  assert.equal(comparison(before, `${normalized}${prefix}`)[1], false);
+  const fixed = newRuntimes[4]!;
+  const grown = { ...fixed, promptText: () => `${fixed.promptText()}${"x".repeat(48)}` };
+  const fixedBefore = await renderDoctrine(oldRuntimes[4], {}, true, false, undefined, EMPTY_WORKER_EXTENSION_SET, undefined, reference.register);
+  assert.equal(comparison(fixedBefore, await renderDoctrine(grown))[0], false, "fixed project input exposes logical prompt growth");
+  for (const paused of domains.paused) {
+    const pausedBefore = await renderDoctrine(oldRuntimes[0], {}, true, paused, undefined, EMPTY_WORKER_EXTENSION_SET, undefined, reference.register);
+    const changed = `${await renderDoctrine(newRuntimes[0], {}, true, paused)}${paused ? "x" : ""}`;
+    assert.equal(comparison(pausedBefore, changed)[0], !paused, "paused-only growth is visible");
+  }
+  for (const ref of ["HEAD", `${original}^`]) assert.throws(() => verifyIdentity(ref), /original commit identity/);
+  for (const selected of [{ ...reference, register: registerSlateMode }, { ...reference, create: createLogicalRuntime }, { ...reference, directory: prefix }]) {
+    await assert.rejects(() => verifyReference(selected), /original (hook|runtime|paths) provenance/);
+  }
+  const exportedMode = join(root, "extension", "mode.ts"), savedMode = readFileSync(exportedMode);
+  try {
+    writeFileSync(exportedMode, Buffer.concat([savedMode, Buffer.from(" ")]));
+    assert.throws(verifyExport, /original exported bytes/);
+  } finally { writeFileSync(exportedMode, savedMode); }
+  assert.throws(() => git("show", `${"0".repeat(40)}:extension/mode.ts`), /Cannot read original doctrine base/);
+});
+
+test("P14 preserves exact conditional text, P13, and published byte figures", { timeout: 5000 }, async () => {
+  const source = readFileSync(DESIGN_PRINCIPLES_DOC, "utf8"), budget = readFileSync(join(process.cwd(), "docs", "context-budget.md"), "utf8");
+  const body = "- **P14 — Put workflow steps in code.** *(Repo-local note, not from the report.)*\n"
+    + "  Move a workflow step into Slate code when code can perform or check it in a mechanical, deterministic way.\n"
+    + "  The move reduces the prompt text in the orchestrator context, and code performs the step the same way each time.\n"
+    + "  A step stays as prompt text when the move would not reduce context usage, or when the user decided to keep it as text.\n";
+  const block = `### Workflow steps in code\n\n${body}`;
+  const row = "| P14 mechanical workflow steps | `action-temporary.ts` manages temporary folders. Other existing rules remain future work for a tracked issue. |";
+  const valid = (text: string): boolean => {
+    const p13 = text.indexOf("### Built-in focus-area authoring\n"), p14 = text.indexOf(block), table = text.indexOf("## 5. Where each principle lives in the code");
+    return p13 >= 0 && p13 < p14 && p14 < table && text.slice(p14, table) === `${block}\n`
+      && text.split("**P14 —").length === 2 && text.split("### Workflow steps in code").length === 2
+      && text.split(row).length === 2 && text.slice(table).split("\n\n")[1]?.endsWith(row) === true;
+  };
+  assert.ok(valid(source));
+  assert.deepEqual([Buffer.byteLength(body), Buffer.byteLength(block), Buffer.byteLength(row)], [429, 457, 145]);
+  const published = [
+    "P14 enters neither injected totals nor the always-loaded principle subset.",
+    "Read P14 only when reading [design-principles.md](design-principles.md).",
+    "Design-track planning reads § 4 of design-principles.md.",
+    "Explaining or changing Slate can require design-principles.md.",
+    "Unusual routing or compaction can also require design-principles.md.",
+    "Routine dispatch does not require design-principles.md.",
+    "The P14 body contains 429 UTF-8 bytes, including the final line feed.",
+    "The heading and body contain 457 bytes.",
+    "The separate principle-table row contains 145 bytes without its final line feed.",
+    "A blank separator before § 5 of design-principles.md adds one byte outside the 457-byte figure.",
+    "The complete design-principles.md document adds 604 bytes for P14.",
+  ];
+  const validBudget = (text: string): boolean => published.every((line) => text.split(line).length === 2);
+  assert.ok(validBudget(budget));
+  for (const line of published) assert.equal(validBudget(budget.replace(line, "")), false);
+  const p13 = source.slice(source.indexOf("- **P13"), source.indexOf("### Workflow steps in code") - 2);
+  assert.equal(createHash("sha256").update(p13).digest("hex"), "b04cb0d7429c9e202451af7d3c2f695ea326561e263e6423159d8ee23175f5e7");
+  assert.doesNotMatch(await renderDoctrine(), /Put workflow steps in code/);
+  for (const changed of [source.replace(block, ""), source.replace("*(Repo-local note, not from the report.)*\n  Move", "*(From the report.)*\n  Move"), source.replace("when the user decided to keep it as text", "even when the user requires code"), source.replace("when the move would not reduce context usage", "when the move would reduce context usage"), source.replace("when the move would not reduce context usage", "when code would cost more than the protection it adds"), source.replace(row, ""), source.replace(row, row.replace("future work", "completed work")), source.replace(block, `${block}${body}`), source.replace(block, "").replace("### Built-in focus-area authoring", `${block}\n### Built-in focus-area authoring`)]) {
+    assert.notEqual(changed, source);
+    assert.equal(valid(changed), false);
+  }
 });
 
 test("blocked logical policy renders a visible doctrine refusal", { timeout: 5000 }, async () => {
@@ -331,11 +491,57 @@ test("real Pi startup prefers Opus 5.5 anywhere in the scoped model set", { time
 
 test("single-action doctrine requires new threads and episode references", { timeout: 5000 }, async () => {
   const doctrine = await renderDoctrine();
-  assert.match(doctrine, /Every `thread` call creates a new thread for one action\./);
-  assert.match(doctrine, /A follow-up action\s+must use another new thread\./);
-  assert.match(doctrine, /No worker conversation crosses that boundary\./);
-  assert.match(doctrine, /Slate loads those episodes into the new worker prompt\./);
+  assert.match(doctrine, /Each `thread` call starts a new thread for one action\./);
+  assert.match(doctrine, /Follow-ups need new threads\./);
+  const boundaryDuty = /No worker conversation crosses (?:threads|that boundary)\./;
+  assert.match(doctrine, boundaryDuty);
+  const unqualified = doctrine.replace(/crosses threads/, "continues");
+  assert.notEqual(unqualified, doctrine);
+  assert.match(unqualified, /No worker conversation continues\./);
+  assert.equal(boundaryDuty.test(unqualified), false);
+  assert.equal(boundaryDuty.test(doctrine.replace(/crosses threads/, "crosses")), false);
+  assert.match(doctrine, /Slate loads them in worker prompts\./);
   assert.doesNotMatch(doctrine, /freshContext|threadChoice|restart/);
+});
+
+test("fixed doctrine preserves loading clauses and resolves filenames beside Lifecycle", { timeout: 5000 }, async () => {
+  const directory = dirname(TRACK_WORKFLOW_DOC);
+  assert.equal(CHANGE_RECORDS_DOC, join(directory, "change-records.md"));
+  assert.equal(RECURSIVE_WORKFLOW_DOC, join(directory, "recursive-workflow.md"));
+  for (const [name, path] of [["CHANGE_RECORDS_DOC", CHANGE_RECORDS_DOC], ["RECURSIVE_WORKFLOW_DOC", RECURSIVE_WORKFLOW_DOC]]) {
+    assert.ok(readFileSync(path!, "utf8").length > 0);
+    assert.equal(readFileSync(join(process.cwd(), "extension", "paths.ts"), "utf8").split(`export const ${name} =`).length, 2);
+  }
+  // Loading requirements are owned by Lifecycle, not the candidate renderer.
+  const clauses = [/read change-records\.md for every change/, /load recursive-workflow\.md if a current or proposed plan/,
+    /plan has a design track or/, /or review-fix child track/, /At planning and/,
+    /and resume reconciliation, load/, /Load it before proposing a review-fix split/,
+    /Read applicable sections before relying on their rules/, /Beside Lifecycle:/];
+  for (const trusted of [true, false]) {
+    const doctrine = await renderDoctrine(undefined, {}, trusted);
+    const pointers = doctrine.match(/   Beside Lifecycle: [^\n]+/g) ?? [];
+    assert.equal(pointers.length, 1);
+    const pointer = pointers[0]!;
+    assert.ok(clauses.every((clause) => clause.test(pointer)));
+    for (const clause of clauses) {
+      assert.equal([...pointer.matchAll(new RegExp(clause.source, "g"))].length, 1);
+      const removed = pointer.replace(clause, "");
+      assert.notEqual(removed, pointer);
+      assert.equal(clauses.every((required) => required.test(removed)), false);
+    }
+    for (const filename of ["change-records.md", "recursive-workflow.md"]) {
+      assert.equal(clauses.every((clause) => clause.test(pointer.replace(filename, "wrong.md"))), false);
+    }
+    assert.equal(pointer.includes(directory), false);
+    assert.equal(doctrine.split(`${directory}/`).length - 1, trusted ? 5 : 4);
+    assert.ok(doctrine.includes(`Lifecycle: ${TRACK_WORKFLOW_DOC}.`));
+    assert.ok(doctrine.includes(`Design rationale: ${DESIGN_PRINCIPLES_DOC}.`));
+    assert.match(doctrine, /Read only to explain or change slate or for unusual routing or compaction/);
+    assert.match(doctrine, /Never for routine dispatch\. Skip if in context\./);
+    assert.doesNotMatch(doctrine, /P1[34] —|Workflow steps in code/);
+    assert.ok(readFileSync(RECURSIVE_WORKFLOW_DOC, "utf8").includes("Use [design-principles.md](design-principles.md) § 4. Operating principles for proportional process."));
+    assert.ok(readFileSync(DESIGN_PRINCIPLES_DOC, "utf8").includes("**Tier 2 — on demand.** This document."));
+  }
 });
 
 test("doctrine uses approved focus states, the four-part proof, and effective gates", { timeout: 5000 }, async () => {

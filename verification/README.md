@@ -565,9 +565,19 @@ bash verification/run-resolver-checks.sh --repo . --strict
 ```
 
 The wrapper reports one `CHECK` line per identifier, one roster audit, and one
-summary. Exit 0 means every check passed. Exit 1 means a failure, missing check,
+summary. Exit 0 means every non-excluded check passed. Exit 1 means a failure, missing check,
 or strict `NOT RUN`. Exit 2 means the wrapper refused to start. The roster and
 summary output own the live count.
+
+`--exclude <id,id>` accepts only `doctrine-original-base` and
+`doctrine-original-controls`, together or individually. The driver accepts the
+same option after its positional arguments. Unknown, empty, or duplicate
+identifiers refuse to start with exit 2. The output reports the option, marks
+each selected check `EXCLUDED`, and adds an excluded count to the summary.
+Excluded checks never report `PASS` or `NOT RUN`. Explicit exclusions do not
+fail `--strict`. The roster still requires every expected identifier exactly
+once. Without this option, the wrapper runs every check and keeps the default
+output format.
 
 ## Current coverage
 
@@ -625,8 +635,11 @@ approved guarantee.
 
 `test/delivery-reference-contract.test.ts` runs disposable mutations through the
 real strict resolver wrapper. Each negative case requires exit 1 and a failed
-`contract-delivery-packages` result. Positive controls require the full suite to
-pass. Run this test and the strict resolver suite after changing the scanner,
+`contract-delivery-packages` result. Its child runs pass
+`--exclude doctrine-original-base,doctrine-original-controls` and require exactly
+those two exclusions. Positive controls require every other check to pass.
+The default resolver run still covers both original-base checks.
+Run this test and the strict resolver suite after changing the scanner,
 its reviewed roster, or a reference-bearing documentation context.
 
 ## Doctrine measurement basis
@@ -638,27 +651,27 @@ exact current production renders are:
 | fixture | paths | portable characters | lines |
 | --- | ---: | ---: | ---: |
 | shipped logical section | 0 | 3,596 | 11 |
-| trusted shipped-default doctrine | 5 | 8,461 | 81 |
-| untrusted doctrine | 4 | 2,768 | 40 |
-| draft pull requests, shipped policy | 6 | 8,529 | 82 |
-| capped workers, shipped policy | 5 | 9,808 | 91 |
-| draft plus capped workers | 6 | 9,876 | 92 |
-| deferred issues plus capped workers | 5 | 9,882 | 92 |
-| routing recommendations plus capped workers | 5 | 9,905 | 92 |
-| draft plus deferred issues and capped workers | 6 | 9,950 | 93 |
-| draft plus routing recommendations and capped workers | 6 | 9,969 | 93 |
-| deferred issues plus routing recommendations and capped workers | 5 | 9,979 | 93 |
-| canonical maximal baseline with all workflow options | 6 | 10,043 | 94 |
-| maximal baseline with an open change | 6 | 10,241 | 95 |
-| maximal baseline with source and legacy root log | 6 | 10,471 | 97 |
-| dogfood config and extension roster | 6 | 9,168 | 93 |
-| 19,400-character policy plus draft, source and legacy log | 6 | 26,108 | 95 |
-| same policy plus draft and deferred issues, source and legacy log | 6 | 26,182 | 96 |
-| same policy plus routing recommendations, source and legacy log | 5 | 26,137 | 95 |
-| same policy plus deferred issues and routing recommendations, source and legacy log | 5 | 26,211 | 96 |
-| same policy plus draft and routing recommendations, source and legacy log | 6 | 26,201 | 96 |
-| same boundary composition plus deferred issues | 6 | 26,275 | 97 |
-| valid shipped policy plus 88 capped tools, source and legacy log | 6 | 28,145 | 180 |
+| trusted shipped-default doctrine | 5 | 8,461 | 74 |
+| untrusted doctrine | 4 | 2,768 | 33 |
+| draft pull requests, shipped policy | 6 | 8,529 | 75 |
+| capped workers, shipped policy | 5 | 9,808 | 84 |
+| draft plus capped workers | 6 | 9,876 | 85 |
+| deferred issues plus capped workers | 5 | 9,882 | 85 |
+| routing recommendations plus capped workers | 5 | 9,905 | 85 |
+| draft plus deferred issues and capped workers | 6 | 9,950 | 86 |
+| draft plus routing recommendations and capped workers | 6 | 9,969 | 86 |
+| deferred issues plus routing recommendations and capped workers | 5 | 9,979 | 86 |
+| canonical maximal baseline with all workflow options | 6 | 10,043 | 87 |
+| maximal baseline with an open change | 6 | 10,241 | 88 |
+| maximal baseline with source and legacy root log | 6 | 10,471 | 90 |
+| dogfood config and extension roster | 6 | 9,168 | 86 |
+| 19,400-character policy plus draft, source and legacy log | 6 | 26,108 | 88 |
+| same policy plus draft and deferred issues, source and legacy log | 6 | 26,182 | 89 |
+| same policy plus routing recommendations, source and legacy log | 5 | 26,137 | 88 |
+| same policy plus deferred issues and routing recommendations, source and legacy log | 5 | 26,211 | 89 |
+| same policy plus draft and routing recommendations, source and legacy log | 6 | 26,201 | 89 |
+| same boundary composition plus deferred issues | 6 | 26,275 | 90 |
+| valid shipped policy plus 88 capped tools, source and legacy log | 6 | 28,145 | 173 |
 
 The capped worker baseline has two units and four tools. Each unit label has 128
 characters. Each tool name has 64 characters. Each description has 140
@@ -678,7 +691,7 @@ portable characters or 105 lines is valid. A section at 19,401 characters or
 compositions and the 26,108-character and 26,182-character feature-off
 compatibility controls include the current change, direct source, and legacy
 root log. They prove that an exact-boundary policy fits the 26,300-character
-whole-doctrine ceiling. The 26,275-character control has the smallest margin.
+whole-doctrine ceiling. The 26,275-character control has 25 characters of headroom.
 A valid third worker unit with a 19-character label and all three workflow
 options measures 26,300. A 20-character label measures 26,301 and fails. These controls are
 not reserve-bearing canonical baselines.
@@ -693,7 +706,8 @@ check.
 
 Exact literals are maintenance tripwires. Any doctrine-size change requires a
 fresh production render and matching updates in `docs/context-budget.md`, this
-file, `verification/resolver-checks.mjs`, and `test/doctrine-contract.test.ts`.
+file, `verification/resolver-checks.mjs`, `test/doctrine-contract.test.ts`, and
+`test/config-loading.test.ts` (its two doctrine metric assertions).
 The logical limits remain 19,400 characters and 105 lines. The all-tail limit
 remains 24,600 characters. The whole-doctrine ceiling is 26,300 characters.
 

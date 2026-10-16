@@ -20,6 +20,7 @@ import type { RequestThrottleConfig, SanitizedRequestThrottle } from "./request-
 import { sanitizeForNotify } from "./notify.ts";
 import { createRuntimeStorageFolder, isRuntimeStorageFolder, isChangeFolder, isSafeThreadId, isSlateArtifactReference, slateEpisodeId } from "./artifact-names.ts";
 import { createWritingReminderRuntime, type WritingReminderRuntime } from "./writing-reminder.ts";
+import type { ActionTemporary } from "./action-temporary.ts";
 
 /**
  * Snapshot records are unversioned. Older snapshots may contain fields this
@@ -830,6 +831,13 @@ export class SlateStore {
 	currentChange?: string;
 	changeOwnerSessionId?: string;
 	sourceChange?: string;
+	/** Exact live action handles. Snapshots contain no temporary ownership. */
+	readonly actionTemporaryOwners = new Set<ActionTemporary>();
+	assertNoActionTemporaryOwners(): void {
+		if (this.actionTemporaryOwners.size > 0) {
+			throw new Error("Slate cannot close the change while an action owns a temporary folder. Wait for those actions to finish.");
+		}
+	}
 	/** New on every session start. This name is not saved with the snapshot. */
 	runtimeFolder = createRuntimeStorageFolder();
 	startRuntime(): void { this.runtimeFolder = createRuntimeStorageFolder(); }

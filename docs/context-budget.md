@@ -198,27 +198,27 @@ characters. Tool names use 64 characters. Descriptions use 140 characters.
 | fixture | paths | portable characters | lines |
 | --- | ---: | ---: | ---: |
 | shipped logical section | 0 | 3,596 | 11 |
-| trusted shipped-default doctrine | 5 | 8,461 | 81 |
-| untrusted doctrine without a home configuration file | 4 | 2,768 | 40 |
-| draft pull requests, shipped policy | 6 | 8,529 | 82 |
-| capped workers, shipped policy | 5 | 9,808 | 91 |
-| draft plus capped workers | 6 | 9,876 | 92 |
-| deferred issues plus capped workers | 5 | 9,882 | 92 |
-| routing recommendations plus capped workers | 5 | 9,905 | 92 |
-| draft plus deferred issues and capped workers | 6 | 9,950 | 93 |
-| draft plus routing recommendations and capped workers | 6 | 9,969 | 93 |
-| deferred issues plus routing recommendations and capped workers | 5 | 9,979 | 93 |
-| canonical maximal baseline with all workflow options | 6 | 10,043 | 94 |
-| maximal baseline with an open change | 6 | 10,241 | 95 |
-| maximal baseline with source and legacy root log | 6 | 10,471 | 97 |
-| dogfood `.pi/slate.json` and its two extension units | 6 | 9,168 | 93 |
-| runtime boundary plus draft and capped workers, source and legacy log | 6 | 26,108 | 95 |
-| runtime boundary plus draft and deferred issues, source and legacy log | 6 | 26,182 | 96 |
-| runtime boundary plus routing recommendations, source and legacy log | 5 | 26,137 | 95 |
-| runtime boundary plus deferred issues and routing recommendations, source and legacy log | 5 | 26,211 | 96 |
-| runtime boundary plus draft and routing recommendations, source and legacy log | 6 | 26,201 | 96 |
-| same boundary composition plus deferred issues | 6 | 26,275 | 97 |
-| valid shipped policy plus 88 capped worker tools, source and legacy log | 6 | 28,145 | 180 |
+| trusted shipped-default doctrine | 5 | 8,461 | 74 |
+| untrusted doctrine without a home configuration file | 4 | 2,768 | 33 |
+| draft pull requests, shipped policy | 6 | 8,529 | 75 |
+| capped workers, shipped policy | 5 | 9,808 | 84 |
+| draft plus capped workers | 6 | 9,876 | 85 |
+| deferred issues plus capped workers | 5 | 9,882 | 85 |
+| routing recommendations plus capped workers | 5 | 9,905 | 85 |
+| draft plus deferred issues and capped workers | 6 | 9,950 | 86 |
+| draft plus routing recommendations and capped workers | 6 | 9,969 | 86 |
+| deferred issues plus routing recommendations and capped workers | 5 | 9,979 | 86 |
+| canonical maximal baseline with all workflow options | 6 | 10,043 | 87 |
+| maximal baseline with an open change | 6 | 10,241 | 88 |
+| maximal baseline with source and legacy root log | 6 | 10,471 | 90 |
+| dogfood `.pi/slate.json` and its two extension units | 6 | 9,168 | 86 |
+| runtime boundary plus draft and capped workers, source and legacy log | 6 | 26,108 | 88 |
+| runtime boundary plus draft and deferred issues, source and legacy log | 6 | 26,182 | 89 |
+| runtime boundary plus routing recommendations, source and legacy log | 5 | 26,137 | 88 |
+| runtime boundary plus deferred issues and routing recommendations, source and legacy log | 5 | 26,211 | 89 |
+| runtime boundary plus draft and routing recommendations, source and legacy log | 6 | 26,201 | 89 |
+| same boundary composition plus deferred issues | 6 | 26,275 | 90 |
+| valid shipped policy plus 88 capped worker tools, source and legacy log | 6 | 28,145 | 173 |
 
 An untrusted session with an empty home `slate.json` receives the same doctrine
 as the trusted shipped-default fixture above. It includes routing and writing
@@ -281,6 +281,42 @@ needs one separating newline. The current text uses UTF-8 punctuation, so byte
 and character counts can differ.
 This separate figure states the worker-session cost without presenting
 it as orchestrator doctrine.
+
+### Change-folder guidance
+
+Each admitted action adds one change-level system block after the preamble.
+Record-writing types share one block. Review types share another.
+The canonical change name uses a date stamp and 32 lowercase hexadecimal characters.
+Its action path adds `/tmp/action.` and six allocator characters.
+
+| Canonical addition | Block bytes | Separator bytes | Complete bytes | Limit |
+| --- | ---: | ---: | ---: | ---: |
+| Open-change record-writing system | 797 | 2 | 799 | 800 |
+| Open-change review system | 311 | 2 | 313 | 350 |
+| No-change record-writing system | 149 | 2 | 151 | 180 |
+| No-change review system | 293 | 2 | 295 | 300 |
+| Open-change hidden action message | 162 | 0 | 162 | 180 |
+| No-change hidden action message | 0 | 0 | 0 | 0 |
+
+The message includes both final line feeds. System blocks have no final line feed.
+Open-change record-writing system totals are 1,343 or 1,896 bytes without or with writing guidance.
+Open-change review system totals are 3,012 or 3,565 bytes without or with writing guidance.
+These totals exclude selected review guidance, prompt documents, base Pi text, and provider framing.
+
+The parent-session cache key stays unchanged.
+System blocks vary by change and type group, never by action.
+Otherwise matching inputs share a system prefix within that group and change.
+Across changes, the shared prefix ends before the changed folder name.
+
+Slate delivers the action path only in its generated hidden action message.
+Compression input excludes that message.
+Slate keeps the path out of system guidance and generated episode fields.
+Worker messages, tool results, and compaction summaries can still quote the path.
+Compaction preserves the change-level system block but can lose the hidden action message.
+A worker without that path pauses destination-dependent writes.
+
+Scratch placement excepts required outside-checkout tool folders under their own rules.
+The record-writing block includes that exception within its 800-byte limit.
 
 ### Implementer task guidance
 
@@ -359,18 +395,22 @@ selected file once and does not repeat the shared files.
 
 | selected perspective | rendered injected bytes | path-normalized injected bytes |
 | --- | ---: | ---: |
-| Reviewer I | 8,575 | 8,452 |
-| Concurrency reviewer | 7,329 | 7,206 |
-| Data loss and recovery reviewer | 7,524 | 7,401 |
-| Security reviewer | 7,471 | 7,348 |
-| Performance reviewer | 7,526 | 7,403 |
-| Test-quality and structure reviewer | 8,780 | 8,657 |
-| Prose reviewer | 7,738 | 7,615 |
-| Licensing reviewer | 7,469 | 7,346 |
-| Non-local logic defect reviewer | 8,466 | 8,343 |
-| Consumer contract break reviewer | 8,750 | 8,627 |
-| Governing-rule defect reviewer | 8,859 | 8,736 |
-| Unreported failure reviewer | 8,391 | 8,268 |
+| Reviewer I | 8,664 | 8,541 |
+| Concurrency reviewer | 7,418 | 7,295 |
+| Data loss and recovery reviewer | 7,613 | 7,490 |
+| Security reviewer | 7,560 | 7,437 |
+| Performance reviewer | 7,615 | 7,492 |
+| Test-quality and structure reviewer | 8,869 | 8,746 |
+| Prose reviewer | 7,827 | 7,704 |
+| Licensing reviewer | 7,558 | 7,435 |
+| Non-local logic defect reviewer | 8,555 | 8,432 |
+| Consumer contract break reviewer | 8,839 | 8,716 |
+| Governing-rule defect reviewer | 8,948 | 8,825 |
+| Unreported failure reviewer | 8,480 | 8,357 |
+
+The rendered column uses installed directory prefixes totaling 123 UTF-8 bytes.
+Prefixes totaling 145 bytes add 22 bytes to each rendered row. Portable counts stay unchanged.
+These totals exclude the separate change-level review block and hidden action message.
 
 The focused-reference figure measures one reference copy in one implementation
 dispatch. It excludes the research log and every other task input. Worker history
@@ -381,6 +421,19 @@ P13 author guideline body contains 2,292 UTF-8 bytes. Its subsection heading
 and following blank line add 35 bytes. The heading and body together contain
 2,327 bytes. Its separate principle-table row contains 201 bytes. Neither enters injected totals or the always-loaded
 principle subset.
+
+P14 enters neither injected totals nor the always-loaded principle subset.
+Read P14 only when reading [design-principles.md](design-principles.md).
+Design-track planning reads § 4 of design-principles.md.
+Explaining or changing Slate can require design-principles.md.
+Unusual routing or compaction can also require design-principles.md.
+Routine dispatch does not require design-principles.md.
+
+The P14 body contains 429 UTF-8 bytes, including the final line feed.
+The heading and body contain 457 bytes.
+The separate principle-table row contains 145 bytes without its final line feed.
+A blank separator before § 5 of design-principles.md adds one byte outside the 457-byte figure.
+The complete design-principles.md document adds 604 bytes for P14.
 
 ## Using GPT-5.6's full 1.05M window
 

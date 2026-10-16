@@ -85,7 +85,14 @@ When a source folder exists, the task states the read-only source rule.
 
 Record-only workers are dispatched without a track number.
 Implementers write only their own implementer reports.
-A worker writes no other file under `slate-changes/`.
+Under `slate-changes/`, write only assigned records and your scratch.
+The preamble supplies placement rules.
+Follow the preamble's no-change and missing-path rules.
+Drafts, designs, and records outlive the action.
+Scratch lasts only this action.
+
+Required outside-checkout project or verification folders take precedence under each tool's deletion and retention rules.
+They supply no alternate start-copy or payload destination.
 Workers use the built-in tools to write change records.
 
 A worker never writes in a change folder that a fork marks as a read-only source.
@@ -125,13 +132,17 @@ A write mode is the kind of file change, such as an append or replacement.
 Slate does not check record destinations, write modes, or hashes.
 These rules are workflow duties.
 
-Before its first write to a record in an action, the worker copies the record to a temporary file outside `slate-changes/`.
+Before its first write to a record in an action, the worker copies the record to a temporary file in its supplied action folder.
 For a record that does not exist yet, that copy is an empty file.
-The worker writes each new text to its own temporary file outside `slate-changes/` before it writes the record.
+The worker writes each new text to its own temporary file in its supplied action folder before it writes the record.
 
 An append adds one temporary file to the record with `>>`.
 A `status.md` rewrite or a new design file copies its temporary file to the record.
 After its last write to a record, the worker checks the whole record once.
+Workers delete their own record-write files only after required checks pass.
+Otherwise, keep evidence and report failure.
+Delete scratch files without a record before finishing.
+Slate removes only empty action folders after shutdown and reports retained paths.
 
 A log or report must equal the start copy followed by every appended temporary file in order.
 The worker checks this with `cat` and `cmp`.
@@ -174,12 +185,14 @@ The orchestrator copies the current change folder from its "Current research log
 line into the worker task.
 Workers never take that folder from record text.
 Finish writes before transferring ownership.
+Do not start or close a change, fork, switch sessions, navigate the session tree, or hand off ownership while an action owns a temporary folder.
+Live action owners block close.
+Ignore `tmp/` as record, accounting, fork, or reusable evidence.
+Reviewers never list `tmp/` or read another action's folder.
 Design-track design names are not for code-track designs.
 Slate creates the root research log.
-Keep records and leftover temporary files untracked and visible in repository status.
-Do not add them to an ignore file or a pull request.
-Use [track-workflow.md](track-workflow.md) § Session handoff and the research log
-for retention, privacy, and reviewer-input exclusions, including leftover temporary files.
+Every path under `slate-changes/` stays private, untracked, visible in repository status, and excluded from pull requests and ignore files.
+Use [track-workflow.md](track-workflow.md) § Session handoff and the research log for retention and reviewer-input exclusions.
 These duties are not an extension access boundary.
 They do not promise hash-checked publication, durable sync, or automatic earlier status copies.
 They do not enforce single-writer behavior against another process.
@@ -187,6 +200,8 @@ They do not enforce single-writer behavior against another process.
 ### Design authority and privacy
 
 The **private set** contains every path under `slate-changes/`, saved-session text, and private reasoning.
+Umask limits private creation permissions.
+Same-user processes can still access folders.
 **Private bytes** are bytes from that set.
 A write approves no design and grants no completion or gate authority.
 The owning log records approved design hashes.

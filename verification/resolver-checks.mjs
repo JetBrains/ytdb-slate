@@ -12,7 +12,7 @@
 // it creates lives under the work dir the wrapper owns and removes.
 //
 // Output contract (TS1–TS3):
-//   · one `CHECK <id> <PASS|FAIL|NOT RUN> — <detail>` line per check, plus an
+//   · one `CHECK <id> <PASS|FAIL|NOT RUN|EXCLUDED> — <detail>` line per check, plus an
 //     `observed:` line under a FAIL so a failure localises itself;
 //   · a `roster` check asserting that EVERY expected check id reported exactly
 //     once, so a crashed section or a deleted check can never read as a clean
@@ -31,12 +31,25 @@ import { pathToFileURL } from "node:url";
 import { createMutationAudit, loadWithMutationAudit, mutationAuditControls } from "./record-mutation-roster.mjs";
 const mutationAudit = createMutationAudit();
 
-const [, , REPO, JITI, WORK, STRICT_ARG] = process.argv;
-if (!REPO || !JITI || !WORK) {
-	console.error("resolver-checks.mjs: expected <repo> <jiti> <workdir> [strict] argv (run via run-resolver-checks.sh)");
+const [, , REPO, JITI, WORK, ...OPTIONS] = process.argv;
+function refuse(reason) {
+	console.error(`resolver-checks.mjs: ${reason}`);
 	process.exit(2);
 }
-const STRICT = STRICT_ARG === "strict";
+if (!REPO || !JITI || !WORK) refuse("expected <repo> <jiti> <workdir> [strict] [--exclude <id,id>] argv (run via run-resolver-checks.sh)");
+const STRICT = OPTIONS[0] === "strict";
+if (STRICT || OPTIONS[0] === "") OPTIONS.shift();
+const EXCLUDABLE = ["doctrine-original-base", "doctrine-original-controls"];
+const EXCLUDED = new Set();
+if (OPTIONS.length) {
+	if (OPTIONS.length !== 2 || OPTIONS[0] !== "--exclude") refuse("expected one --exclude <id,id> option");
+	for (const id of OPTIONS[1].split(",")) {
+		if (!EXCLUDABLE.includes(id)) refuse(`unknown exclusion id '${id}' (allowed: ${EXCLUDABLE.join(",")})`);
+		if (EXCLUDED.has(id)) refuse(`duplicate exclusion id '${id}'`);
+		EXCLUDED.add(id);
+	}
+	console.log(`NOTE --exclude ${[...EXCLUDED].join(",")}`);
+}
 
 // One value feeds each doctrine-budget assertion and each maintained published
 // statement. The independent JSON pin below protects the approved ceilings from
@@ -121,6 +134,7 @@ const CHECKER_PATH = `${REPO}/extension/writing-check.mjs`;
 let pass = 0;
 let fail = 0;
 let notrun = 0;
+let excluded = 0;
 const reported = [];
 
 function fmt(value) {
@@ -145,6 +159,7 @@ const ID_COLUMN = 32;
 // TS2: a FAIL prints the observed value, not just the claim. `observed` may be
 // any value or omitted.
 function check(id, cond, detail, observed) {
+	if (EXCLUDED.has(id)) return exclude(id);
 	reported.push(id);
 	const ok = cond === true;
 	console.log(`CHECK ${id.padEnd(ID_COLUMN)} ${(ok ? "PASS" : "FAIL").padEnd(7)} — ${detail}`);
@@ -164,8 +179,16 @@ function checkAll(id, detail, parts) {
 	);
 }
 
+// Explicit exclusions remain rostered results and have their own counter.
+function exclude(id) {
+	reported.push(id);
+	console.log(`CHECK ${id.padEnd(ID_COLUMN)} EXCLUDED — explicitly requested by --exclude`);
+	excluded++;
+}
+
 // TS3: an explicit NOT RUN state, like run-ladder.sh's skip() — never a PASS.
 function skip(id, reason) {
+	if (EXCLUDED.has(id)) return exclude(id);
 	reported.push(id);
 	console.log(`CHECK ${id.padEnd(ID_COLUMN)} ${"NOT RUN".padEnd(7)} — ${reason}`);
 	notrun++;
@@ -303,7 +326,7 @@ function mkpkg(name, entries, files) {
 // Drive the doctrine builder the way index.ts does — through registerSlateMode's
 // before_agent_start handler — with a fixed (empty) config and an untrusted
 // project, so only the worker-extension rule varies between calls.
-async function doctrine(extSet, getRouter, trusted = false, config = {}, change = {}) {
+async function doctrine(extSet, getRouter, trusted = false, config = {}, change = {}, register = mode.registerSlateMode) {
 	const handlers = {};
 	const pi = {
 		on: (e, h) => (handlers[e] = h),
@@ -315,7 +338,7 @@ async function doctrine(extSet, getRouter, trusted = false, config = {}, change 
 	};
 	const store = {
 		orchestratorMode: true,
-		paused: false,
+		paused: change.paused ?? false,
 		threads: new Map(),
 		workerCostUsd: 0,
 		carriedCostUsd: 0,
@@ -328,7 +351,7 @@ async function doctrine(extSet, getRouter, trusted = false, config = {}, change 
 	// omitted only when a check needs the blocked no-runtime path.
 	const args = [pi, store, { startHandoff: async () => {} }, () => config, () => extSet];
 	if (getRouter !== undefined) args.push(getRouter);
-	mode.registerSlateMode(...args);
+	register(...args);
 	// Trust defaults to false. Doctrine checks pass true only when they exercise
 	// trusted project policy and its trusted-only tail rules.
 	// Use an isolated project without a legacy root log for reproducible size pins.
@@ -347,7 +370,7 @@ async function doctrine(extSet, getRouter, trusted = false, config = {}, change 
 /** Checks that need extension/state.ts — the canonical model-spec vocabulary. */
 const STATE_IDS = ["spec-invisible", "state-thread-record", "state-episode-record"];
 /** The action-routing doctrine rule (extension/mode.ts, b092f92); renders the shipped table. */
-const DOCTRINE_IDS = ["doctrine-logical", "doctrine-untrusted", "doctrine-numbering", "doctrine-inject", "doctrine-no-trace", "doctrine-budget", "doctrine-budget-boundaries", "writing-doctrine-off", "writing-doctrine-untrusted", "writing-doctrine-numbering", "design-doctrine-size", "writing-prompt-check", "writing-doctrine-inject", "writing-doctrine-cite"];
+const DOCTRINE_IDS = ["doctrine-logical", "doctrine-untrusted", "doctrine-numbering", "doctrine-inject", "doctrine-no-trace", "doctrine-budget", "doctrine-budget-boundaries", "doctrine-duty-contract", "doctrine-original-base", "doctrine-original-controls", "doctrine-p14", "doctrine-p14-controls", "writing-doctrine-off", "writing-doctrine-untrusted", "writing-doctrine-numbering", "design-doctrine-size", "writing-prompt-check", "writing-doctrine-inject", "writing-doctrine-cite"];
 const WORKER_IDS = [
 	"worker-preamble",
 	"reviewer-charter-sync",
@@ -396,6 +419,9 @@ const DOCTRINE_CONTRACT_IDS = [
 	"contract-review-structure",
 	"contract-review-agreement",
 	"contract-review-sizes",
+	"contract-review-destinations",
+	"contract-review-inputs",
+	"contract-common-temporary-rules",
 	"contract-delivery-packages",
 	"contract-review-charters",
 	"contract-size-review-copies",
@@ -441,6 +467,7 @@ const VOIDABLE = [
 	["base-", BASE_IDS, "base-load"],
 	["episode-", EPISODE_IDS, "episode-load"],
 	["logical-", LOGICAL_IDS, "logical-load"],
+	["doctrine-", DOCTRINE_IDS, "logical-load"],
 ];
 
 // ------------------------------------------------------------------ fixtures --
@@ -1416,14 +1443,14 @@ try {
 			dogfood: metrics(await doctrine(dogExtensions, () => dogRuntime, true, dogConfig)),
 		};
 		const exact = {
-			prompt: { portable: 3596, lines: 11, paths: 0 }, trusted: { portable: 8461, lines: 81, paths: 5 },
-			untrusted: { portable: 2768, lines: 40, paths: 4 }, draft: { portable: 8529, lines: 82, paths: 6 },
-			extensions: { portable: 9808, lines: 91, paths: 5 }, allTails: { portable: 9876, lines: 92, paths: 6 },
-			followUp: { portable: 9882, lines: 92, paths: 5 }, routing: { portable: 9905, lines: 92, paths: 5 },
-			draftFollowUp: { portable: 9950, lines: 93, paths: 6 }, draftRouting: { portable: 9969, lines: 93, paths: 6 },
-			followUpRouting: { portable: 9979, lines: 93, paths: 5 }, maximal: { portable: 10043, lines: 94, paths: 6 },
-			maximalOpen: { portable: 10241, lines: 95, paths: 6 }, maximalLinked: { portable: 10471, lines: 97, paths: 6 },
-			dogfood: { portable: 9168, lines: 93, paths: 6 },
+			prompt: { portable: 3596, lines: 11, paths: 0 }, trusted: { portable: 8461, lines: 74, paths: 5 },
+			untrusted: { portable: 2768, lines: 33, paths: 4 }, draft: { portable: 8529, lines: 75, paths: 6 },
+			extensions: { portable: 9808, lines: 84, paths: 5 }, allTails: { portable: 9876, lines: 85, paths: 6 },
+			followUp: { portable: 9882, lines: 85, paths: 5 }, routing: { portable: 9905, lines: 85, paths: 5 },
+			draftFollowUp: { portable: 9950, lines: 86, paths: 6 }, draftRouting: { portable: 9969, lines: 86, paths: 6 },
+			followUpRouting: { portable: 9979, lines: 86, paths: 5 }, maximal: { portable: 10043, lines: 87, paths: 6 },
+			maximalOpen: { portable: 10241, lines: 88, paths: 6 }, maximalLinked: { portable: 10471, lines: 90, paths: 6 },
+			dogfood: { portable: 9168, lines: 86, paths: 6 },
 		};
 		const doctrineBaselines = Object.values(rendered);
 		checkAll("doctrine-budget", "exact production renders match published portable baselines and every current baseline keeps five-percent reserve", [
@@ -1457,17 +1484,256 @@ try {
 		const overExtensions = { units: [{ path: "/fixture/over", source: "z".repeat(128), isDirectory: true, tools: Array.from({ length: 88 }, (_, i) => ({ name: (`t${i}`).padEnd(64, "x"), description: "q".repeat(140) })) }], paths: [], toolNames: [] };
 		const over = await doctrine(overExtensions, () => activeRuntime, true, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, change);
 		const portable = (text) => text.split(docsDirectory).join("").length;
-		const wholeAt = await doctrine({ ...capped, units: [...capped.units, { path: "/fixture/c", source: "c".repeat(19), isDirectory: true, tools: [] }] }, () => atChars, true, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, change);
-		const wholeAbove = await doctrine({ ...capped, units: [...capped.units, { path: "/fixture/c", source: "c".repeat(20), isDirectory: true, tools: [] }] }, () => atChars, true, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, change);
+		const whole = (labelSize) => doctrine({ ...capped, units: [...capped.units, { path: "/fixture/c", source: "c".repeat(labelSize), isDirectory: true, tools: [] }] }, () => atChars, true, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, change);
+		const wholeSeed = await whole(1);
+		const labelAt = DOCTRINE_LIMITS.maximalChars - portable(wholeSeed) + 1;
+		const wholeAt = await whole(labelAt);
+		const wholeAbove = await whole(labelAt + 1);
 		checkAll("doctrine-budget-boundaries", "runtime equality, first-over-limit rejection, maximum composition, and valid-router doctrine growth remain discriminatory", [
 			["19,400 accepted", atChars.promptText().length === 19400 && atChars.criticalErrors.length === 0, { length: atChars.promptText()?.length, errors: atChars.criticalErrors }],
 			["19,401 rejected", aboveChars.promptText() === undefined && aboveChars.criticalErrors.some((x) => /19401 portable characters/.test(x)), aboveChars.criticalErrors],
 			["105 lines accepted", atLines.promptText()?.split("\n").length === 105, atLines.criticalErrors],
 			["106 lines rejected", aboveLines.promptText() === undefined && aboveLines.criticalErrors.some((x) => /106 lines/.test(x)), aboveLines.criticalErrors],
-			["whole-doctrine equality is accepted and first-over-limit is rejected", portable(wholeAt) === DOCTRINE_LIMITS.maximalChars && portable(wholeAbove) === DOCTRINE_LIMITS.maximalChars + 1, { at: portable(wholeAt), above: portable(wholeAbove), ceiling: DOCTRINE_LIMITS.maximalChars }],
+			["whole-doctrine padding stays inside the supported label cap", labelAt === 19 && labelAt + 1 <= 128, { at: labelAt, above: labelAt + 1 }],
+			["whole-doctrine equality is accepted and first-over-limit is rejected", portable(wholeAt) === 26300 && portable(wholeAbove) === 26301 && portable(wholeAt) <= DOCTRINE_LIMITS.maximalChars && !(portable(wholeAbove) <= DOCTRINE_LIMITS.maximalChars), { at: portable(wholeAt), above: portable(wholeAbove), ceiling: DOCTRINE_LIMITS.maximalChars }],
 			["boundary compositions stay exact and below whole-doctrine cap", portable(featureOffDraft) === 26108 && portable(featureOffTight) === 26182 && portable(routingWithoutDrafts) === 26137 && portable(routingWithFollowUp) === 26211 && portable(routing) === 26201 && portable(deferred) === 26275 && [featureOffDraft, featureOffTight, routingWithoutDrafts, routingWithFollowUp, routing, deferred].every((text) => portable(text) <= DOCTRINE_LIMITS.maximalChars), { featureOffDraft: portable(featureOffDraft), featureOffTight: portable(featureOffTight), routingWithoutDrafts: portable(routingWithoutDrafts), routingWithFollowUp: portable(routingWithFollowUp), routing: portable(routing), deferred: portable(deferred) }],
-			["boundary composition line counts match the published tables", featureOffDraft.split("\n").length === 95 && featureOffTight.split("\n").length === 96 && routingWithoutDrafts.split("\n").length === 95 && routingWithFollowUp.split("\n").length === 96 && routing.split("\n").length === 96 && deferred.split("\n").length === 97, { featureOffDraft: featureOffDraft.split("\n").length, featureOffTight: featureOffTight.split("\n").length, routingWithoutDrafts: routingWithoutDrafts.split("\n").length, routingWithFollowUp: routingWithFollowUp.split("\n").length, routing: routing.split("\n").length, deferred: deferred.split("\n").length }],
+			["boundary composition line counts match the published tables", featureOffDraft.split("\n").length === 88 && featureOffTight.split("\n").length === 89 && routingWithoutDrafts.split("\n").length === 88 && routingWithFollowUp.split("\n").length === 89 && routing.split("\n").length === 89 && deferred.split("\n").length === 90, { featureOffDraft: featureOffDraft.split("\n").length, featureOffTight: featureOffTight.split("\n").length, routingWithoutDrafts: routingWithoutDrafts.split("\n").length, routingWithFollowUp: routingWithFollowUp.split("\n").length, routing: routing.split("\n").length, deferred: deferred.split("\n").length }],
 			["fresh valid-router over-cap control reaches whole-doctrine guard", portable(over) === 28145 && portable(over) > DOCTRINE_LIMITS.maximalChars, portable(over)],
+		]);
+	});
+
+	const originalDoctrineResults = async () => {
+		const original = "d8bca25ef8947e370a92a68a4d98d0e2ec9f1a53";
+		const git = (...args) => {
+			const result = spawnSync("git", ["-C", REPO, ...args], { encoding: "utf8", timeout: 10000, maxBuffer: 4 * 1024 * 1024 });
+			if (result.error || result.status !== 0) throw new Error(`Cannot read original doctrine base ${original}: ${result.error?.message ?? result.stderr}`);
+			return result.stdout;
+		};
+		const requireOriginal = (condition, detail) => { if (!condition) throw new Error(`Original doctrine reference rejected: ${detail}`); };
+		const verifyIdentity = (ref) => {
+			requireOriginal(git("rev-parse", ref).trim() === "d8bca25ef8947e370a92a68a4d98d0e2ec9f1a53", "commit identity");
+			requireOriginal(git("rev-parse", `${ref}:extension`).trim() === "2b4f7f3bc2b305ff52c39cd08856cf265747069a", "extension tree");
+			requireOriginal(git("rev-parse", `${ref}:package.json`).trim() === "0e770c4b04b32bdd5afe061031538391b314d806", "manifest blob");
+		};
+		verifyIdentity(original);
+		const root = join(WORK, "original-doctrine");
+		const blobs = new Map();
+		for (const entry of git("ls-tree", "-r", original, "--", "package.json", "extension/").trim().split("\n")) {
+			const match = entry.match(/^100(?:644|755) blob ([a-f0-9]{40})\t(package\.json|extension\/[\w-]+\.(?:ts|mjs))$/);
+			requireOriginal(match, `unexpected source: ${entry}`);
+			blobs.set(match[2], match[1]);
+			file(join("original-doctrine", match[2]), git("show", `${original}:${match[2]}`));
+		}
+		const verifyExport = () => {
+			for (const [name, hash] of blobs) {
+				const bytes = readFileSync(join(root, name));
+				requireOriginal(createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex") === hash, `exported bytes: ${name}`);
+			}
+		};
+		verifyExport();
+		symlinkSync(join(REPO, "node_modules"), join(root, "node_modules"), "dir");
+		const base = await jiti.import(join(root, "extension", "mode.ts"));
+		const baseLogical = await jiti.import(join(root, "extension", "logical-model-runtime.ts"));
+		const basePaths = await jiti.import(join(root, "extension", "paths.ts"));
+		const prefix = paths.TRACK_WORKFLOW_DOC.slice(0, -"track-workflow.md".length);
+		const reference = { register: base.registerSlateMode, create: baseLogical.createLogicalRuntime, directory: basePaths.TRACK_WORKFLOW_DOC.slice(0, -"track-workflow.md".length) };
+		const verifyReference = async (selected) => {
+			verifyExport();
+			requireOriginal(selected.register === (await jiti.import(join(root, "extension", "mode.ts"))).registerSlateMode, "hook provenance");
+			requireOriginal(selected.create === (await jiti.import(join(root, "extension", "logical-model-runtime.ts"))).createLogicalRuntime, "runtime provenance");
+			requireOriginal(`${selected.directory}track-workflow.md` === join(root, "docs", "track-workflow.md"), "paths provenance");
+		};
+		await verifyReference(reference);
+		const basePrefix = reference.directory;
+		const runtimes = (factory, directory) => {
+			const replace = (n) => ({ router: { models: { replace: [{ model: "sol-6.1", guidelines: ["x".repeat(n)], cautions: [] }] } } });
+			const create = (projectConfig) => factory({ trusted: true, projectConfig, documentationDirectory: directory });
+			const projectRoster = { router: { models: { include: ["sol-6.1"], replace: [{ model: "sol-6.1", guidelines: ["x"], cautions: [] }] } } };
+			return [create(), undefined, create({ router: { compressor: { models: [] } } }), create(replace(19401 - create(replace(1)).promptText().length)), create(projectRoster)];
+		};
+		const oldRuntimes = runtimes(reference.create, basePrefix), newRuntimes = runtimes(logicalRuntime.createLogicalRuntime, prefix);
+		requireOriginal(oldRuntimes[3].promptText().length === 19400 && newRuntimes[3].promptText().length === 19400, "at-limit runtime length");
+		requireOriginal([oldRuntimes[4], newRuntimes[4]].every((runtime) => JSON.stringify(runtime.policy.ordinary.map((model) => model.model)) === '["sol-6.1"]'), "fixed project roster membership");
+		const capped = { units: ["a", "b"].map((c) => ({ path: `/fixture/${c}`, source: c.repeat(128), isDirectory: true, tools: [c, c.toUpperCase()].map((n) => ({ name: n.repeat(64), description: "d".repeat(140) })) })), paths: [], toolNames: [] };
+		const changes = [{}, { currentChange: `change-20260101T000000Z-${"a".repeat(32)}` }];
+		changes.push({ ...changes[1], sourceChange: `change-20260101T000001Z-${"b".repeat(32)}`, legacyLog: true }, { sourceChange: changes[1].currentChange }, { legacyLog: true });
+		const perspectives = file("comparison-perspectives.md", "Project perspective.");
+		const extra = file("comparison-extra.md", "Optional doctrine content.");
+		const compare = (before, after) => {
+			const portableDelta = before.split(basePrefix).join("").length - after.split(prefix).join("").length;
+			return [portableDelta >= 0, before.split(basePrefix).length === after.split(prefix).length,
+				...["/x/docs/", "/fixture/a-much-longer-installed-package/docs/"].map((p) => before.split(basePrefix).join(p).length - after.split(prefix).join(p).length === portableDelta)];
+		};
+		const domains = { options: [0, 1, 2, 3, 4, 5, 6, 7], trusted: [false, true], runtime: [0, 1, 2, 3], extensions: [0, 1, 2], change: [0, 1, 2, 3, 4], paused: [false, true], perspective: [false, true], optional: [false, true] };
+		const validDomains = (values) => JSON.stringify(values) === '{"options":[0,1,2,3,4,5,6,7],"trusted":[false,true],"runtime":[0,1,2,3],"extensions":[0,1,2],"change":[0,1,2,3,4],"paused":[false,true],"perspective":[false,true],"optional":[false,true]}'
+			&& Object.values(values).every((domain) => new Set(domain).size === domain.length)
+			&& Object.values(values).reduce((total, domain) => total * domain.length, 1) === 7680;
+		requireOriginal(validDomains(domains), "fixed, distinct matrix domains");
+		let count = 0, fixedCount = 0;
+		const failures = [];
+		for (const options of domains.options) for (const trusted of domains.trusted) for (const runtime of domains.runtime)
+		for (const extensionIndex of domains.extensions) for (const changeIndex of domains.change) for (const paused of domains.paused)
+		for (const perspective of domains.perspective) for (const optional of domains.optional) {
+			const extensions = [EMPTY_EXT, WITH_EXT, capped][extensionIndex], change = changes[changeIndex];
+			const config = { workflow: { draftPRs: !!(options & 1), followUpIssues: !!(options & 2), routingRecommendations: !!(options & 4) },
+				...(perspective ? { reviewPerspectivesPath: perspectives } : {}), ...(optional ? { doctrineExtraPath: extra, orchestratorPromptDocs: [extra] } : {}) };
+			for (const index of runtime === 3 ? [3, 4] : [runtime]) {
+				const before = await doctrine(extensions, () => oldRuntimes[index], trusted, config, { ...change, paused }, reference.register);
+				const after = await doctrine(extensions, () => newRuntimes[index], trusted, config, { ...change, paused });
+				if (!compare(before, after).every(Boolean)) failures.push({ options, trusted, runtime: index, change, paused, perspective, optional });
+				if (index === 4) fixedCount++;
+				else count++;
+			}
+		}
+		const before = await doctrine(EMPTY_EXT, () => oldRuntimes[0], true, {}, {}, reference.register);
+		const normalized = before.split(basePrefix).join(prefix);
+		const rejects = async (action, pattern) => { try { await action(); return false; } catch (error) { return pattern.test(error.message); } };
+		const identityControls = await Promise.all(["HEAD", `${original}^`].map((ref) => rejects(() => verifyIdentity(ref),
+			ref === "HEAD" ? /^Original doctrine reference rejected: commit identity$|^Cannot read original doctrine base d8bca25ef8947e370a92a68a4d98d0e2ec9f1a53: fatal: ambiguous argument 'HEAD': unknown revision or path not in the working tree\.\n/
+				: /^Original doctrine reference rejected: commit identity$/)));
+		const provenanceControls = await Promise.all([{ ...reference, register: mode.registerSlateMode }, { ...reference, create: logicalRuntime.createLogicalRuntime }, { ...reference, directory: prefix }].map((selected) => rejects(() => verifyReference(selected), /provenance/)));
+		const fixed = newRuntimes[4], grown = { ...fixed, promptText: () => `${fixed.promptText()}${"x".repeat(48)}` };
+		const fixedBefore = await doctrine(EMPTY_EXT, () => oldRuntimes[4], true, {}, {}, reference.register);
+		const fixedAfter = await doctrine(EMPTY_EXT, () => grown, true);
+		const pausedControls = await Promise.all(domains.paused.map(async (paused) => {
+			const pausedBefore = await doctrine(EMPTY_EXT, () => oldRuntimes[0], true, {}, { paused }, reference.register);
+			const changed = `${await doctrine(EMPTY_EXT, () => newRuntimes[0], true, {}, { paused })}${paused ? "x" : ""}`;
+			return compare(pausedBefore, changed)[0] === !paused;
+		}));
+		const exportedMode = join(root, "extension", "mode.ts"), savedMode = readFileSync(exportedMode);
+		let exportControl;
+		try {
+			writeFileSync(exportedMode, Buffer.concat([savedMode, Buffer.from(" ")]));
+			exportControl = await rejects(verifyExport, /exported bytes/);
+		} finally { writeFileSync(exportedMode, savedMode); }
+		return { count, fixedCount, failures, controls: [
+			["equality, one character, and installed prefix", compare(before, normalized).every(Boolean) && !compare(before, `${normalized}x`)[0] && !compare(before, `${normalized}${prefix}`)[1]],
+			["substituted reference commits", identityControls.every(Boolean), identityControls],
+			["candidate-derived hook, runtime, and paths", provenanceControls.every(Boolean), provenanceControls],
+			["changed exported source bytes", exportControl],
+			["fixed project input exposes logical prompt growth", !compare(fixedBefore, fixedAfter)[0]],
+			["paused-only growth is visible", pausedControls.every(Boolean), pausedControls],
+			["duplicate and missing domain members", !validDomains({ ...domains, paused: [false, false] }) && !validDomains({ ...domains, options: domains.options.slice(1) })],
+		] };
+	};
+	await section("doctrine-original-base", async () => {
+		// Either active check needs the shared reference. Both exclusions avoid its work.
+		const result = EXCLUDABLE.every((id) => EXCLUDED.has(id)) ? undefined : await originalDoctrineResults();
+		check("doctrine-original-base", result?.count === 7680 && result.fixedCount === 1920 && result.failures.length === 0, "7,680 original-base pairs and 1,920 fixed-project pairs preserve portable size, prefix counts, and raw reductions at two install lengths", result && { count: result.count, fixedCount: result.fixedCount, failures: result.failures });
+		checkAll("doctrine-original-controls", "independent reference, matrix, and growth controls reject their counterexamples", result?.controls ?? []);
+	});
+	await section("doctrine-p14", async () => {
+		const source = readFileSync(paths.DESIGN_PRINCIPLES_DOC, "utf8");
+		const budget = readFileSync(join(REPO, "docs", "context-budget.md"), "utf8");
+		const body = "- **P14 — Put workflow steps in code.** *(Repo-local note, not from the report.)*\n"
+			+ "  Move a workflow step into Slate code when code can perform or check it in a mechanical, deterministic way.\n"
+			+ "  The move reduces the prompt text in the orchestrator context, and code performs the step the same way each time.\n"
+			+ "  A step stays as prompt text when the move would not reduce context usage, or when the user decided to keep it as text.\n";
+		const block = `### Workflow steps in code\n\n${body}`;
+		const row = "| P14 mechanical workflow steps | `action-temporary.ts` manages temporary folders. Other existing rules remain future work for a tracked issue. |";
+		const valid = (text) => {
+			const p13 = text.indexOf("### Built-in focus-area authoring\n"), p14 = text.indexOf(block), table = text.indexOf("## 5. Where each principle lives in the code");
+			return p13 >= 0 && p13 < p14 && p14 < table && text.slice(p14, table) === `${block}\n`
+				&& text.split("**P14 —").length === 2 && text.split("### Workflow steps in code").length === 2
+				&& text.split(row).length === 2 && text.slice(table).split("\n\n")[1]?.endsWith(row);
+		};
+		const published = [
+			"P14 enters neither injected totals nor the always-loaded principle subset.",
+			"Read P14 only when reading [design-principles.md](design-principles.md).",
+			"Design-track planning reads § 4 of design-principles.md.",
+			"Explaining or changing Slate can require design-principles.md.",
+			"Unusual routing or compaction can also require design-principles.md.",
+			"Routine dispatch does not require design-principles.md.",
+			"The P14 body contains 429 UTF-8 bytes, including the final line feed.",
+			"The heading and body contain 457 bytes.",
+			"The separate principle-table row contains 145 bytes without its final line feed.",
+			"A blank separator before § 5 of design-principles.md adds one byte outside the 457-byte figure.",
+			"The complete design-principles.md document adds 604 bytes for P14.",
+		];
+		const validBudget = (text) => published.every((line) => text.split(line).length === 2);
+		checkAll("doctrine-p14", "P14 has the exact conditional principle, final table row, and independently stated byte figures", [
+			["exact principle and placement", valid(source)],
+			["independent byte figures", Buffer.byteLength(body) === 429 && Buffer.byteLength(block) === 457 && Buffer.byteLength(row) === 145],
+			["published figures and read boundary", validBudget(budget)],
+			["P13 raw body is unchanged", createHash("sha256").update(source.slice(source.indexOf("- **P13"), source.indexOf("### Workflow steps in code") - 2)).digest("hex") === "b04cb0d7429c9e202451af7d3c2f695ea326561e263e6423159d8ee23175f5e7"],
+			["principle stays out of always-loaded text", !(await doctrineFor()).includes("Put workflow steps in code")],
+		]);
+		const attacks = [source.replace(block, ""), source.replace("*(Repo-local note, not from the report.)*\n  Move", "*(From the report.)*\n  Move"), source.replace("when the user decided to keep it as text", "even when the user requires code"), source.replace("when the move would not reduce context usage", "when the move would reduce context usage"), source.replace("when the move would not reduce context usage", "when code would cost more than the protection it adds"), source.replace(row, ""), source.replace(row, row.replace("future work", "completed work")), source.replace(block, `${block}${body}`), source.replace(block, "").replace("### Built-in focus-area authoring", `${block}\n### Built-in focus-area authoring`)];
+		check("doctrine-p14-controls", attacks.every((text) => text !== source && !valid(text)) && published.every((line) => !validBudget(budget.replace(line, ""))), "principle mutations and removal of each published read condition or byte figure fail the exact P14 check");
+	});
+
+	await section("doctrine-duty-contract", async () => {
+		const trusted = await doctrineFor();
+		const untrusted = await doctrineFor(EMPTY_EXT, activeRuntime, false);
+		const published = await doctrine(EMPTY_EXT, () => activeRuntime, true, { workflow: { draftPRs: true } });
+		const directory = dirname(paths.TRACK_WORKFLOW_DOC);
+		// Lifecycle loading duties and preserved tactical and rationale duties.
+		// These expectations describe the reviewed requirements independently.
+		const pointerDuties = [
+			["common read for every change", /read change-records\.md for every change/, /for every change/],
+			["current or proposed plan", /load recursive-workflow\.md if a current or proposed plan/, /current or proposed/],
+			["design-track trigger", /plan has a design track or/, /design track/],
+			["review-fix-child trigger", /or review-fix child track/, /review-fix child track/],
+			["planning check", /At planning and/, /planning/],
+			["resume reconciliation check", /and resume reconciliation, load/, /resume reconciliation/],
+			["read before proposed split", /Load it before proposing a review-fix split/, /before proposing a review-fix split/],
+			["applicable read before reliance", /Read applicable sections before relying on their rules/, /before relying on their rules/],
+			["Lifecycle directory", /Beside Lifecycle:/, /Beside Lifecycle:/],
+		];
+		const tacticalDuties = [
+			["worker-only bounded actions", /only through bounded `thread` actions/, /only through bounded/],
+			["no direct edits", /You cannot edit files/, /edit files/],
+			["no direct commands", /You cannot [^.]*run commands/, /run commands/],
+			["parallel independent dispatch", /Dispatch independent actions in parallel in one turn/, /in parallel/],
+			["one action per new thread", /Each `thread` call starts a new thread for one action/, /for one action/],
+			["new follow-up threads", /Follow-ups need new threads/, /new threads/],
+			["no cross-thread conversation", /No worker conversation crosses (?:threads|that boundary)/, /(?<=crosses )threads/],
+			["episode references", /Pass prior episode ids in `context`, not repeated content/, /not repeated content/],
+			["Slate loads worker context", /Slate loads them in worker prompts/, /Slate loads them/],
+			["read-only orientation", /Orient with read-only tools/, /read-only/],
+			["delegate substantial work", /Delegate substantial work/, /Delegate substantial work/],
+			["strategy after every episode", /Update strategy after each episode/, /after each episode/],
+			["failed partial episodes", /Partial responses become failed episodes/, /failed episodes/],
+			["fixed no-response episodes", /No-response failures use fixed episodes/, /fixed episodes/],
+			["adapt to failure", /Adapt to STATUS: FAILED/, /Adapt to/],
+			["no blind retry", /Never retry blindly/, /Never retry blindly/],
+			["strategic messages", /Messages stay strategic: goals, routing, synthesis/, /strategic: goals, routing, synthesis/],
+		];
+		const rationaleDuties = [
+			["explain Slate", /Read only to explain or change slate/, /explain/],
+			["change Slate", /Read only to explain or change slate/, /change slate/],
+			["unusual routing", /for unusual routing or compaction/, /unusual routing/],
+			["unusual compaction", /for unusual routing or compaction/, /compaction/],
+			["no routine read", /Never for routine dispatch/, /Never for routine dispatch/],
+			["skip existing context", /Skip if in context/, /Skip if in context/],
+		];
+		const pointer = (text) => text.match(/   Beside Lifecycle: [^\n]+/g) ?? [];
+		const tactical = trusted.slice(trusted.indexOf("\n1. "), trusted.indexOf("\n8. "));
+		const rationale = trusted.match(/10\. Design rationale: [^\n]+/)?.[0] ?? "";
+		const protect = (text, duties) => duties.every(([, requirement]) => requirement.test(text));
+		const discriminate = (text, duties) => duties.every(([, , removal]) => {
+			const matches = [...text.matchAll(new RegExp(removal.source, "g"))];
+			const changed = text.replace(removal, "");
+			return matches.length === 1 && changed !== text && !protect(changed, duties);
+		});
+		const exportsSource = readFileSync(join(REPO, "extension", "paths.ts"), "utf8");
+		const filenames = [["CHANGE_RECORDS_DOC", "change-records.md"], ["RECURSIVE_WORKFLOW_DOC", "recursive-workflow.md"]];
+		const fixedPrefixes = (text, count) => text.split(`${directory}${sep}`).length - 1 === count && pointer(text).length === 1 && !pointer(text)[0].includes(directory);
+		checkAll("doctrine-duty-contract", "fixed filename pointers resolve beside Lifecycle in all trust cases and each reviewed loading, tactical, and rationale duty rejects its removal", [
+			["unique shipped exports resolve in the Lifecycle directory", filenames.every(([name, filename]) => paths[name] === join(directory, filename) && existsSync(paths[name]) && exportsSource.split(`export const ${name} =`).length === 2), filenames],
+			["pointer is unconditional and unique", [trusted, untrusted, published].every((text) => pointer(text).length === 1 && protect(pointer(text)[0], pointerDuties)), [pointer(trusted), pointer(untrusted)]],
+			["fixed pointers add no installed prefix", [trusted, untrusted, published].every((text, i) => fixedPrefixes(text, [5, 4, 6][i])), directory],
+			["an added absolute filename prefix is rejected", filenames.every(([, filename]) => !fixedPrefixes(trusted.replace(filename, join(directory, filename)), 5)), filenames],
+			["each loading clause removal is rejected", discriminate(pointer(trusted)[0], pointerDuties) && discriminate(pointer(untrusted)[0], pointerDuties), pointerDuties.map(([name]) => name)],
+			["each filename change is rejected", filenames.every(([, filename]) => !protect(pointer(trusted)[0].replace(filename, "wrong.md"), pointerDuties)), filenames],
+			["missing untrusted pointer is rejected", pointer(untrusted.replace(pointer(untrusted)[0], "")).length === 0, untrusted],
+			["tactical positive and removal controls", protect(tactical, tacticalDuties) && discriminate(tactical, tacticalDuties), tactical],
+			["unqualified conversation restriction is rejected", !protect(tactical.replace(/crosses threads/, "continues"), tacticalDuties), tactical],
+			["rationale retains its installed document", rationale.includes(paths.DESIGN_PRINCIPLES_DOC), rationale],
+			["rationale positive and removal controls", protect(rationale, rationaleDuties) && discriminate(rationale, rationaleDuties), rationale],
+			["P14 does not enter either trust-state doctrine", [trusted, untrusted].every((text) => !/P1[34] —|Workflow steps in code/.test(text))],
+			["design planning retains the conditional section read", readFileSync(paths.RECURSIVE_WORKFLOW_DOC, "utf8").includes("Use [design-principles.md](design-principles.md) § 4. Operating principles for proportional process.")],
+			["rationale remains tier two", readFileSync(paths.DESIGN_PRINCIPLES_DOC, "utf8").includes("**Tier 2 — on demand.** This document.")],
 		]);
 	});
 
@@ -2944,7 +3210,7 @@ review, track-packet, user-note, blocking track-acceptance, final-acceptance,
 or finding-disposition requirements. Retain the current change folder's
 research log and every implementer report through and after delivery. Only
 the user may delete the change folder.
-Manual records and leftover record temporary files never enter a pull request.`),
+Every path under \`slate-changes/\` stays outside pull requests, including \`tmp/\` and leftover action files.`),
 				},
 				{
 					id: "publishing-after-merge",
@@ -3346,7 +3612,7 @@ A mismatch pauses work. Reconcile it in the log. Use marker commits and Git
 history as boundary authority. The track table is display-only.`);
 			const recursiveRecordUnits = [
 				{ id: "identifiers-ranges", source: commonRecords, start: "## Identifiers, code ranges, and design markers", extract: headingUnit("## Identifiers, code ranges, and design markers"), expected: "06a2a0822448a5112173b65c04826364d3a3094f7930ba98ecd7f17300e19ed8" },
-				{ id: "tool-records-and-recovery", source: commonRecords, start: "## Manual records and safe writes", extract: headingUnit("## Manual records and safe writes"), expected: "12e295235aae2fc57ec1dac7ef2d12ebfeac10f293cee4116283f8294a3f28c9" },
+				{ id: "tool-records-and-recovery", source: commonRecords, start: "## Manual records and safe writes", extract: headingUnit("## Manual records and safe writes"), expected: "8ec25b74e709c2f8a72556947aecee40f0cff2f38947976e9609c0e2436b47e0" },
 				{ id: "resume-forks", source: recursive, start: "## Resume and folder forks", extract: headingUnit("## Resume and folder forks"), expected: "0bf3c8bcc7b36ee0dd8a5a6fd514b73f5e19b5514f5a3a1711034ac2b051729e" },
 				{ id: "handoff-pointer", source: recursive, start: "## Handoff boundaries", extract: headingUnit("## Handoff boundaries"), expected: "fc5ca34c11f5f1defb5989c10af42cbac9af901c102dc18c6c8d1b55a98cd52f" },
 				{ id: "marker-identity", source: workflow, extract: markedUnit("marker-identity-policy"), expected: "ae24e23298695b323c803f31515c87ee8de5777cd0b0a13dba90d747c9df4308" },
@@ -3368,10 +3634,14 @@ history as boundary authority. The track table is display-only.`);
 					{ id: unit.id, kind: "duplicate", changed: true, rejected: !acceptsRecordUnit(unit, `${unit.source}\n${unit.source}`) },
 				];
 			});
+			// The 3.3.5.2 boundary freezes directWriteBlock, common G-TMP text,
+			// placement attacks, system blocks, hidden action message, report guidance and figures.
+			// 3.3.5.3 owns review-common-policy.md, all twelve reviewer totals,
+			// review-rules.md input amendments and RG9 common-text mutations.
 			// Independent reviewed pins protect the common owner.
 			const commonUnits = [
 				{ id: "identifiers", start: "## Identifiers, code ranges, and design markers", expected: "06a2a0822448a5112173b65c04826364d3a3094f7930ba98ecd7f17300e19ed8" },
-				{ id: "records", start: "## Manual records and safe writes", expected: "12e295235aae2fc57ec1dac7ef2d12ebfeac10f293cee4116283f8294a3f28c9" },
+				{ id: "records", start: "## Manual records and safe writes", expected: "8ec25b74e709c2f8a72556947aecee40f0cff2f38947976e9609c0e2436b47e0" },
 			];
 			const acceptsCommon = (source) => commonUnits.every(({ start, expected }) => {
 				const region = headingUnit(start)(source);
@@ -3379,7 +3649,7 @@ history as boundary authority. The track table is display-only.`);
 			});
 			const privacyHeading = "### Design authority and privacy";
 			const commonHeadings = [...commonUnits.map(({ start }) => start), privacyHeading];
-			const completeCommonDigest = "3199117504b26ca37d6ae94cefac484ef9cd2d049c514b293da782b68012e3a3";
+			const completeCommonDigest = "e5254e60acf82c0d96dc896b796839c0ed6ca8d75cbf361ca59a37ca8b9a9e50";
 			const acceptsCompleteCommon = (source) => createHash("sha256").update(source).digest("hex") === completeCommonDigest;
 			const completeCommonAttacks = [
 				["title", commonRecords.replace("# Common change records", "# Nested change records")],
@@ -3521,13 +3791,13 @@ Use [change-records.md](change-records.md) § Design authority and privacy.`) },
 				["record-only-task-record-names-removed", "The orchestrator names the records in the worker's task."],
 				["record-only-task-assigned-method-removed", "Each record-only task states the write and check method of these rules for each assigned record."],
 				["record-only-task-source-rule-removed", "When a source folder exists, the task states the read-only source rule."],
-				["start-copy-removed", "the worker copies the record to a temporary file outside `slate-changes/`."],
-				["start-copy-location-inside-records", "copies the record to a temporary file outside `slate-changes/`"],
+				["start-copy-removed", "the worker copies the record to a temporary file in its supplied action folder."],
+				["start-copy-location-inside-records", "copies the record to a temporary file in its supplied action folder"],
 				["start-copy-after-first-write", "Before its first write to a record in an action,"],
 				["new-record-empty-start-copy-removed", "For a record that does not exist yet, that copy is an empty file."],
-				["new-text-temporary-file-removed", "The worker writes each new text to its own temporary file outside `slate-changes/` before it writes the record."],
+				["new-text-temporary-file-removed", "The worker writes each new text to its own temporary file in its supplied action folder before it writes the record."],
 				["new-text-temporary-file-shared", "each new text to its own temporary file"],
-				["new-text-temporary-file-inside-records", "writes each new text to its own temporary file outside `slate-changes/`"],
+				["new-text-temporary-file-inside-records", "writes each new text to its own temporary file in its supplied action folder"],
 				["new-text-temporary-file-after-write", "before it writes the record."],
 				["new-log-first-temporary-append-removed", "A worker creates a new log or report by appending its first temporary file with `>>`."],
 				["new-report-first-temporary-append-removed", "A worker creates a new log or report by appending its first temporary file with `>>`."],
@@ -3607,13 +3877,13 @@ Use [change-records.md](change-records.md) § Design authority and privacy.`) },
 				["record-only-task-record-names-removed", recursive.replace("The orchestrator names the records in the worker's task.", "")],
 				["record-only-task-assigned-method-removed", recursive.replace("Each record-only task states the write and check method of these rules for each assigned record.", "Each record-only task states the method for only one assigned record.")],
 				["record-only-task-source-rule-removed", recursive.replace("When a source folder exists, the task states the read-only source rule.", "")],
-				["start-copy-removed", recursive.replace("the worker copies the record to a temporary file outside `slate-changes/`.", "the worker makes no start copy.")],
-				["start-copy-location-inside-records", recursive.replace("copies the record to a temporary file outside `slate-changes/`", "copies the record to a temporary file inside `slate-changes/`")],
+				["start-copy-removed", recursive.replace("the worker copies the record to a temporary file in its supplied action folder.", "the worker makes no start copy.")],
+				["start-copy-location-inside-records", recursive.replace("copies the record to a temporary file in its supplied action folder", "copies the record to a temporary file beside retained records, outside its action folder")],
 				["start-copy-after-first-write", recursive.replace("Before its first write to a record in an action,", "After its first write to a record in an action,")],
 				["new-record-empty-start-copy-removed", recursive.replace("For a record that does not exist yet, that copy is an empty file.", "")],
-				["new-text-temporary-file-removed", recursive.replace("The worker writes each new text to its own temporary file outside `slate-changes/` before it writes the record.", "The worker writes each new text directly to the record.")],
+				["new-text-temporary-file-removed", recursive.replace("The worker writes each new text to its own temporary file in its supplied action folder before it writes the record.", "The worker writes each new text directly to the record.")],
 				["new-text-temporary-file-shared", recursive.replace("each new text to its own temporary file", "all new texts to one shared temporary file")],
-				["new-text-temporary-file-inside-records", recursive.replace("writes each new text to its own temporary file outside `slate-changes/`", "writes each new text to its own temporary file inside `slate-changes/`")],
+				["new-text-temporary-file-inside-records", recursive.replace("writes each new text to its own temporary file in its supplied action folder", "writes each new text to its own temporary file beside retained records, outside its action folder")],
 				["new-text-temporary-file-after-write", recursive.replace("before it writes the record.", "after it writes the record.")],
 				["new-log-first-temporary-append-removed", recursive.replace("A worker creates a new log or report by appending its first temporary file with `>>`.", "A worker creates only a new report by appending its first temporary file with `>>`.")],
 				["new-report-first-temporary-append-removed", recursive.replace("A worker creates a new log or report by appending its first temporary file with `>>`.", "A worker creates only a new log by appending its first temporary file with `>>`.")],
@@ -3684,6 +3954,35 @@ Use [change-records.md](change-records.md) § Design authority and privacy.`) },
 			mutationAudit.record("relations", recursiveAgreementAttacks, ({ id, index, side }) => `${id}/${index}/${side}`);
 			mutationAudit.record("warnings", warningAttacks);
 			mutationAudit.record("common-complete", completeCommonAttacks);
+			const guidanceRules = [
+				["worker-supplied-folder-removed", "The preamble supplies placement rules.", ""],
+				["action-scratch-scope-narrowed", "Scratch lasts only this action.", "Only start copies are scratch."],
+				["lasting-file-in-action-folder", "Drafts, designs, and records outlive the action.", "Put lasting drafts and designs in the action folder."],
+				["temporary-owner-transfer-rule-removed", "Do not start or close a change, fork, switch sessions, navigate the session tree, or hand off ownership while an action owns a temporary folder.", ""],
+				["temporary-content-authority", "Ignore `tmp/` as record, accounting, fork, or reusable evidence.", "Use tmp/ as accounting evidence."],
+				["folder-privacy-or-publishing-weakened", "Every path under `slate-changes/` stays private, untracked, visible in repository status, and excluded from pull requests and ignore files.", "Publish temporary paths."],
+			];
+			mutationAudit.record("common-guidance", guidanceRules.map(([id, rule, replacement]) => {
+				const source = commonRecords.replace(rule, replacement);
+				return { id, changed: source !== commonRecords, rejected: !acceptsCommon(source), originalRuleCount: commonRecords.split(rule).length - 1, mutatedRuleCount: source.split(rule).length - 1 };
+			}));
+			const commonTemporaryRules = [
+				["common-verification-folder-precedence-removed", "Required outside-checkout project or verification folders take precedence under each tool's deletion and retention rules.", "Use the action folder even when a verification tool requires another folder."],
+				["common-verification-folder-retention-overridden", "Required outside-checkout project or verification folders take precedence under each tool's deletion and retention rules.", "Required outside-checkout folders take precedence, but workers delete them regardless of tool retention rules."],
+				["common-worker-delete-before-check", "Workers delete their own record-write files only after required checks pass.", "Workers delete their own record-write files before required checks."],
+				["common-worker-delete-without-passed-check", "Workers delete their own record-write files only after required checks pass.", "Workers delete their own record-write files unless a record check failed."],
+			];
+			const commonTemporaryAttacks = commonTemporaryRules.map(([id, rule, replacement]) => {
+				const source = commonRecords.replace(rule, replacement);
+				return { id, changed: source !== commonRecords, rejected: !acceptsCommon(source),
+					intended: !acceptsRecordUnit(recordPolicy, source),
+					originalRuleCount: commonRecords.split(rule).length - 1, mutatedRuleCount: source.split(rule).length - 1 };
+			});
+			mutationAudit.record("common-temporary-rules", commonTemporaryAttacks);
+			checkAll("contract-common-temporary-rules", "common temporary rules preserve verification precedence, tool retention and passed-check deletion", [
+				["the unchanged common and manual-record owners pass", acceptsCommon(commonRecords) && acceptsRecordUnit(recordPolicy, commonRecords), "positive control"],
+				["four single-occurrence violations fail their intended manual-record protection", commonTemporaryAttacks.every(({ changed, rejected, intended, originalRuleCount, mutatedRuleCount }) => changed && rejected && intended && originalRuleCount === 1 && mutatedRuleCount === 0), commonTemporaryAttacks],
+			]);
 			const rulePreservingRecord = commonRecords.replace(directWriteBlock, `${directWriteBlock}\nThe worker reads plain text.`);
 			const recordRuleControls = [...recordContractRules].map(([id, rule]) => ({ id, count: recordRuleCount(rulePreservingRecord, rule) }));
 			const authoritativeReaders = (commonSource, publishingSource, deliverySource, nestedSource = recursive) => {
@@ -3950,7 +4249,7 @@ Use [track-workflow.md](track-workflow.md) for the common lifecycle.`);
 				{ id: "repairs", source: recursive, start: "## Review-fix subtrees and repair limits", expected: protectedRepairSummary },
 				{ id: "aggregate", source: recursive, start: "## Whole-subtree acceptance", expected: "1f24e067a0261b1d51efb8b48339cf249837f82cf130bbfabbcbf8ee4970c616" },
 				{ id: "issues", source: recursive, start: "## Packages, attribution, and issues", end: null, expected: "895b87ee7afdda0d4d85e071c978727e0cf962f9af42e68c534c022ac010a5a3" },
-				{ id: "sources", source: deliveryPackages, start: "## Durable accounting", expected: "0290011f87f851339953c34ee14f7ae286adf1a53485db60ac6f168781c2c7d1" },
+				{ id: "sources", source: deliveryPackages, start: "## Durable accounting", expected: "1c88b7de207fe30c6c7edbebe5bd97d66c70b15aafdbb671d64dd84667d55cd3" },
 				{ id: "workflow-accounting", source: workflow, start: "### Delivery history and accounting", expected: "f3b0ab0c04dc351736f3b3ffd5f15af737d2e31fb4965d01f82415fa6527ac10" },
 				{ id: "notes-accounting", source: userNotes, start: "### Final accounting preparation", expected: "27a19ef36cc0fc14fbd2c14fc1699d6d3ddeadfe8a284f2d85ab76481faaa352" },
 				{ id: "publishing-sync", source: publishing, start: "## Keeping the PR in sync", expected: "fb386e6f14c2f051a842cd050cc4e2834dea5e2674853cc22794792cd4c1a7cc" },
@@ -4610,6 +4909,8 @@ history rewrites, rebased-marker mappings, range updates, and unavailable histor
 				{
 					id: "private-set", source: commonRecords, extract: headingUnit("### Design authority and privacy"),
 					expected: normalizeText(`The **private set** contains every path under \`slate-changes/\`, saved-session text, and private reasoning.
+Umask limits private creation permissions.
+Same-user processes can still access folders.
 **Private bytes** are bytes from that set.
 A write approves no design and grants no completion or gate authority.
 The owning log records approved design hashes.
@@ -5156,9 +5457,9 @@ A stale description fails the "deep enough" test.`),
 			// Whitespace-only reflow passes because normalizeText collapses whitespace.
 			// HTML comments count. The word layer is best-effort during refresh review.
 			// Known word-layer escapes include "retention branches" and "branches kept for retention".
-			const EXPECTED_PUBLISHING_SHA256 = "83c6f712aa99ab5f9b6d9ef5e71dc41262474ff7abfd20d067d9983c34dbaccc";
-			const EXPECTED_TRACK_WORKFLOW_SHA256 = "50021a5b115e06500cdd9b8d596847cddc391b8e31cb1b69c682e708f5a7b539";
-			const EXPECTED_DELIVERY_PACKAGES_SHA256 = "4068a068778e12f54cd096daa9ea28f68ca69b4c4d0ab03a7789da828c7b08e8";
+			const EXPECTED_PUBLISHING_SHA256 = "689fa7f59aa8fd4a7809a726745431c2275ce82fa42d69aeeffa5cf6ebd5e557";
+			const EXPECTED_TRACK_WORKFLOW_SHA256 = "d1dd674297f63a929e0105c0e43d130223e8069a657493d207674d82c7cedee1";
+			const EXPECTED_DELIVERY_PACKAGES_SHA256 = "97e5e052918072a6a4d0f6c11a1154dc21ae9b618b53186ac6e48580ae4a3ec6";
 			const peerRetentionOwners = [
 				{ id: "nested", source: recursive, units: [historyUnit] },
 				{ id: "common", source: commonRecords, units: [privateSetUnit] },
@@ -5323,7 +5624,7 @@ A later track builds on the accepted boundary before it.`),
 			]);
 			const benignOrderingDocuments = Object.fromEntries(Object.entries(orderingDocuments).map(([id, source]) => [id, `${source}\n<!-- Outside ordering control. -->\n`]));
 			checkAll("contract-level-publishing", "level membership, dependency order, pauses, local retention, approval, delivery, cleanup, rebase mappings, unavailable evidence, and publishing defaults have owned rules and reviewed peer-document pins", [
-				["reviewed peer-document pins reject unreviewed additions while scoped pointers and the word layer discriminate known copies", peerRetentionOwners.every((owner) => !peerPinFailure(owner, owner.source) && acceptsPeerRetention(owner, owner.source)) && pinnedPeerOwners.length === 3 && peerPinRules.length === 6 && peerPinAttacks.length === 252 && peerPinAttacks.every(({ changed, rejected }) => changed && rejected) && reviewedBranchControls.length === 5 && reviewedBranchControls.every(({ changed, accepted }) => changed && accepted) && wordLayerControls.length === 3 && wordLayerControls.every(({ rejected }) => rejected) && peerOutsideControls.every(({ accepted }) => accepted) && peerPlacementNames.length === 7 && peerPlacementVerbs.length === 14 && peerEscapeAttacks.length === 687 && ownerSentenceCopies.length === 1365 && [...peerRetentionAttacks, ...peerEscapeAttacks, ...ownerSentenceCopies, ...pointerAttacks].every(({ changed, rejected }) => changed && rejected), { baseline: peerRetentionOwners.map((owner) => [owner.id, peerPinFailure(owner, owner.source), peerRetentionFailure(owner, owner.source)]), peerPinAttacks: peerPinAttacks.filter(({ changed, rejected }) => !changed || !rejected), reviewedBranchControls, wordLayerControls, peerOutsideControls, peerRetentionAttacks, peerEscapeAttacks, ownerSentenceCopies: ownerSentenceCopies.filter(({ changed, rejected }) => !changed || !rejected), pointerAttacks }],
+				["reviewed peer-document pins reject unreviewed additions while scoped pointers and the word layer discriminate known copies", peerRetentionOwners.every((owner) => !peerPinFailure(owner, owner.source) && acceptsPeerRetention(owner, owner.source)) && pinnedPeerOwners.length === 3 && peerPinRules.length === 6 && peerPinAttacks.length === 252 && peerPinAttacks.every(({ changed, rejected }) => changed && rejected) && reviewedBranchControls.length === 5 && reviewedBranchControls.every(({ changed, accepted }) => changed && accepted) && wordLayerControls.length === 3 && wordLayerControls.every(({ rejected }) => rejected) && peerOutsideControls.every(({ accepted }) => accepted) && peerPlacementNames.length === 7 && peerPlacementVerbs.length === 14 && peerEscapeAttacks.length === 687 && ownerSentenceCopies.length === 1371 && [...peerRetentionAttacks, ...peerEscapeAttacks, ...ownerSentenceCopies, ...pointerAttacks].every(({ changed, rejected }) => changed && rejected), { baseline: peerRetentionOwners.map((owner) => [owner.id, peerPinFailure(owner, owner.source), peerRetentionFailure(owner, owner.source)]), peerPinAttacks: peerPinAttacks.filter(({ changed, rejected }) => !changed || !rejected), reviewedBranchControls, wordLayerControls, peerOutsideControls, peerRetentionAttacks, peerEscapeAttacks, ownerSentenceCopies: ownerSentenceCopies.filter(({ changed, rejected }) => !changed || !rejected), pointerAttacks }],
 				["closed-folder routes and post-close exceptions fail, including a request with all former folder checks", acceptsCleanupRoutes(recursive) && forbiddenCleanupMutations.length === 5 && wrappedForbiddenCleanupMutations.length === 16 && [...forbiddenCleanupMutations, ...wrappedForbiddenCleanupMutations].every(({ changed, rejected }) => changed && rejected), { forbiddenCleanupMutations, wrappedForbiddenCleanupMutations }],
 				["restored cleanup safety sentences have independent expectations and removal mutations", restoredCleanupSentences.length === 11 && restoredCleanupSentences.every(([id, rule]) => historyUnit.expected.includes(rule) && cleanupMutations.some((mutation) => mutation.id === `restored-${id}` && mutation.changed && mutation.rejected)), restoredCleanupSentences],
 				["recorded authorized deletions have independent exclusions, absence checks, and removal mutations", recordedDeletionSentences.length === 10 && recordedDeletionSentences.every(([id, rule]) => historyUnit.expected.includes(rule) && cleanupMutations.some((mutation) => mutation.id === `deleted-${id}` && mutation.changed && mutation.rejected)), recordedDeletionSentences],
@@ -5339,8 +5640,8 @@ A later track builds on the accepted boundary before it.`),
 				["wrapped inspection passes and keeps all named mutations discriminating", wrappedRetention !== recursive && acceptsLevelUnit(historyUnit, wrappedRetention) && wrappedRetentionMutations.every(({ changed, rejected, retained }) => changed && rejected && retained), wrappedRetentionMutations],
 				["the inspection pointer reaches the unique common privacy subsection", acceptsInspectionDestination(recursive, commonRecords), inspectionDestination(recursive, commonRecords).count],
 				["every unit matches its independent expectation", levelPolicyUnits.every((unit) => acceptsLevelUnit(unit, unit.source)), levelPolicyUnits.filter((unit) => !acceptsLevelUnit(unit, unit.source)).map(({ id }) => id)],
-				["every rule mutation changes input and fails", levelRuleMutations.length === 611 && levelRuleMutations.every(({ changed, rejected }) => changed && rejected), levelRuleMutations],
-				["every safety sentence removal changes its owned input and fails", safetySentenceRemovals.length === 688 && safetySentenceRemovals.filter(({ id }) => id === "history").length === 443 && !safetySentenceRemovals.some(({ id }) => id === "cleanup-writes") && safetySentenceRemovals.every(({ changed, rejected }) => changed && rejected), safetySentenceRemovals],
+				["every rule mutation changes input and fails", levelRuleMutations.length === 613 && levelRuleMutations.every(({ changed, rejected }) => changed && rejected), levelRuleMutations],
+				["every safety sentence removal changes its owned input and fails", safetySentenceRemovals.length === 690 && safetySentenceRemovals.filter(({ id }) => id === "history").length === 443 && !safetySentenceRemovals.some(({ id }) => id === "cleanup-writes") && safetySentenceRemovals.every(({ changed, rejected }) => changed && rejected), safetySentenceRemovals],
 				["ordering, pause reconciliation, and local retention agree across all four documents", agreesOnOrderAndLocalRetention(), "complete independent history, planning, resume, roadmap, and publishing expectations"],
 				["unsafe pauses, conflicting bases, missing scope or events, and ordinary duties in either publishing setting fail", orderAndRetentionMutations.every(({ changed, rejected }) => changed && rejected), orderAndRetentionMutations],
 				["moving an intact event sentence outside the marker fails", eventMoveRejected(orderingDocuments), "event remains present beyond the protected marker"],
@@ -5490,7 +5791,7 @@ A later track builds on the accepted boundary before it.`),
 			const appendixUnit = markedUnit("track-acceptance")(reviewsWithAppendix);
 			const workflowElsewhere = `${workflow}\n\n<!-- resolver benign acceptance control -->`;
 			const elsewhereUnits = acceptanceUnits.filter((unit) => unit.source === workflow).map((unit) => unit.extract(workflowElsewhere));
-			const doctrineElsewhere = sessionDoctrine.replace("Never read it for routine dispatching.", "Do not read it for routine dispatching.");
+			const doctrineElsewhere = sessionDoctrine.replace("Never for routine dispatch.", "Do not read for routine dispatch.");
 			const doctrineElsewhereUnit = acceptanceUnits[4].extract(doctrineElsewhere);
 			checkAll("contract-acceptance-mutations", "every unit rejects a contradictory waiver, a removed blocking fact, an inverted blocking fact, an inverted no-acceptance fact, and a stale canonical copy. Benign text in another section, including text appended after the terminal end marker, leaves every unit exact", [
 				["every mutation really changes the text it attacks", inertMutations.length === 0, inertMutations],
@@ -5875,12 +6176,12 @@ verbatim retention of every tool result.`);
 			].join("\n");
 			const contextBudget = readFileSync(join(REPO, "docs", "context-budget.md"), "utf8");
 			const expectedInjected = [
-				["Reviewer I", 8575, 8452], ["Concurrency reviewer", 7329, 7206],
-				["Data loss and recovery reviewer", 7524, 7401], ["Security reviewer", 7471, 7348],
-				["Performance reviewer", 7526, 7403], ["Test-quality and structure reviewer", 8780, 8657],
-				["Prose reviewer", 7738, 7615], ["Licensing reviewer", 7469, 7346],
-				["Non-local logic defect reviewer", 8466, 8343], ["Consumer contract break reviewer", 8750, 8627],
-				["Governing-rule defect reviewer", 8859, 8736], ["Unreported failure reviewer", 8391, 8268],
+				["Reviewer I", 8664, 8541], ["Concurrency reviewer", 7418, 7295],
+				["Data loss and recovery reviewer", 7613, 7490], ["Security reviewer", 7560, 7437],
+				["Performance reviewer", 7615, 7492], ["Test-quality and structure reviewer", 8869, 8746],
+				["Prose reviewer", 7827, 7704], ["Licensing reviewer", 7558, 7435],
+				["Non-local logic defect reviewer", 8555, 8432], ["Consumer contract break reviewer", 8839, 8716],
+				["Governing-rule defect reviewer", 8948, 8825], ["Unreported failure reviewer", 8480, 8357],
 			];
 			const docsPrefix = paths.REVIEW_RULES_DOC.slice(0, -"review-rules.md".length);
 			const extensionPrefix = paths.WRITING_CHECKER.slice(0, -"writing-check.mjs".length);
@@ -5892,9 +6193,10 @@ verbatim retention of every tool result.`);
 				.map((match) => [match[1], Number(match[2].replaceAll(",", "")), Number(match[3].replaceAll(",", ""))]);
 			checkAll("contract-review-sizes", "production-rendered per-perspective injected bytes, portable path basis, and published table match exact independent pins", [
 				["all twelve portable sizes are exact and rendered bytes add both installed path prefixes", injected.every(([, rendered, portable], i) => portable === expectedInjected[i][2] && rendered === portable + Buffer.byteLength(docsPrefix, "utf8") + Buffer.byteLength(extensionPrefix, "utf8")), injected],
-				["all twelve published rows match the measured installation and portable pins", JSON.stringify(publishedInjected) === JSON.stringify(expectedInjected), publishedInjected],
+				["all twelve published rows use the declared 123-byte prefix basis and exact portable pins", JSON.stringify(publishedInjected) === JSON.stringify(expectedInjected) && publishedInjected.every(([, rendered, portable]) => rendered === portable + 123) && contextBudget.includes("prefixes totaling 123 UTF-8 bytes") && contextBudget.includes("Prefixes totaling 145 bytes add 22 bytes"), publishedInjected],
+				["policy growth stays within 100 bytes and reviewer-rule growth within 400 bytes", Buffer.byteLength(readFileSync(paths.REVIEW_COMMON_POLICY_DOC, "utf8")) - 2841 === 89 && Buffer.byteLength(reviews) - 22912 <= 400, { policy: Buffer.byteLength(readFileSync(paths.REVIEW_COMMON_POLICY_DOC, "utf8")) - 2841, reviewRules: Buffer.byteLength(reviews) - 22912 }],
 				["all approved perspective content matches independent snapshots", Object.entries(approvedContentDigests).every(([id, expected]) => hash(roleFiles[id] ?? "") === expected), Object.fromEntries(Object.entries(roleFiles).map(([id, content]) => [id, hash(content)]))],
-				["common and implementation text keep independent approved snapshots", hash(readFileSync(paths.REVIEW_COMMON_POLICY_DOC, "utf8")) === "809e2b2eed0fbbb6f7519b3299b3c75cb8c5e3718b259be0f1e82e3c2e45321f" && hash(readFileSync(paths.REVIEW_IMPLEMENTATION_INPUT_DOC, "utf8")) === "e8bbe7a6b03f175a41cb25af633e8fc32e0bce17c85b4db5061d508bc10b0872", "two shared source files"],
+				["common and implementation text keep independent approved snapshots", hash(readFileSync(paths.REVIEW_COMMON_POLICY_DOC, "utf8")) === "bbf3bd833faabba61dad28de933320d88c8cb77ab34c450e361ce77139311227" && hash(readFileSync(paths.REVIEW_IMPLEMENTATION_INPUT_DOC, "utf8")) === "e8bbe7a6b03f175a41cb25af633e8fc32e0bce17c85b4db5061d508bc10b0872", "two shared source files"],
 			]);
 
 			// Complete owned policy units use independent expectations. Exact equality is
@@ -5930,7 +6232,16 @@ For changes that load the nested sections, follow [recursive-workflow.md](recurs
 				{
 					id: "reviewer-input-contract",
 					source: reviews,
-					extract: regionUnit(/^### Reviewer input contract\n\n([\s\S]*?)(?=^A design-stage adversarial review also judges)/gm),
+					extract: (source) => {
+						const unit = headingUnit("### Reviewer input contract")(source);
+						const start = "### Reviewer input contract\n", end = "## Reviewer sets, merge rule and charters\n";
+						const boundary = source.indexOf(end), body = source.indexOf(start) + start.length;
+						if (unit.count !== 1) return unit;
+						if (!source.includes(start) || source.split(end).length !== 2 || boundary < body)
+							return { count: 0, text: "", rawText: "" };
+						const rawText = source.slice(body, boundary).trim();
+						return { count: 1, text: normalizeText(rawText), rawText };
+					},
 					expected: normalizeText(`No reviewer may receive or directly read a manual status file, leftover record temporary file, their references or contents, the research log, a research-log reference, a research-log extract, an implementer report, private orchestrator triage, or implementer reasoning. The reviewer must not seek those sources, even when repository tools can reach them. Private orchestrator triage means the orchestrator's private deliberation and implementation rationale. Implementer reasoning means private reasoning produced by an implementer. These are distinct sources.
 
 This restriction applies to a design-stage adversary, Reviewer I, every implementation specialist, an agentic fix gate, a user-review fix-range gate, and a stuck-fix consultation. Ordinary repository and library evidence needed for the assigned work remains available. This permission is not a closed changed-file allowlist.
@@ -5941,7 +6252,13 @@ Reviewer I and implementation specialists receive the approved review range, tra
 
 An agentic fix gate and a user-review fix-range gate receive the compact finding index, fix diff, approved scope context, and ordinary evidence needed to verify the fix. The compact index may contain only finding identifiers, evidence, validated severity, and required disposition. It contains no private orchestrator deliberation or implementer reasoning. Both gates receive no implementer episode or direct private source.
 
-The stuck-fix consultation in § Stuck-fix consultation is the only reviewer role that can receive an implementer episode. Its whole-episode rule does not permit a direct private read or a separately supplied private source.`),
+The stuck-fix consultation in § Stuck-fix consultation is the only reviewer role that can receive an implementer episode. Its whole-episode rule does not permit a direct private read or a separately supplied private source.
+
+The supplied action temporary folder permits only the reviewer's own writing-checker diff and adds no reviewer input. A reviewer never lists tmp/ or reads another action's folder.
+
+A design-stage adversarial review also judges the simplest solution. The review checks the approved high-level design against slate's simplest-solution requirement. That requirement asks for the simplest solution with the fewest changes that keeps every approved goal, the product and implementation quality, and every required gate. The review judges the design as a whole and not one track at a time. This duty adds no artifact, no phase and no gate.
+
+Every reviewer uses the [common review policy](review-common-policy.md) for writing checks, evidence, severity, identifiers, and output format. Resolve its writing-checker path from the installed package as \`../extension/writing-check.mjs\`. Resolve its writing-guidance path as \`writing-guidance.md\` beside the policy. Manual reviews combine this policy with their stage-specific input contract and applicable charter.`),
 				},
 				{
 					id: "stuck-fix-policy",
@@ -5968,6 +6285,82 @@ Record each grant in the override log.`),
 			});
 			const dispatchUnitResults = resolveDispatchUnits();
 			const dispatchUnitById = new Map(dispatchUnitResults.map((result) => [result.id, result]));
+			const reviewerInput = dispatchPolicyUnits.find(({ id }) => id === "reviewer-input-contract");
+			const amendment = "The supplied action temporary folder permits only the reviewer's own writing-checker diff and adds no reviewer input. A reviewer never lists tmp/ or reads another action's folder.";
+			const originalParagraphDigests = [
+				"861dc9144bb1e16eacf358b3fb1815b2e2ae080a206d28c7a3229c5021275d34", "f9f0228001b9e056eb489d5c6c3fee415fcf95ac23df822bd029f27eb0b1f3b3",
+				"97bdc4a6e0c6c02859805227869b9c748580adbd694349c75b79b1793212e0da", "527f29a60ddd3564dfcbde73d357f3c43d867bb0b808b9d3852ddb3b385d48b1",
+				"3d991b3f9e25a2710869ef6bd13c69c1239e1dea6fa4378bb527b01a32384315", "bb64471333eef93ce91baac46799ce3ad4ff1c244b9ce34bc184c44d3c4e405f",
+				"2ddf2a77aff76b073c243ddff077dabcaa939fc205295e5ba3d746a18df6c9ab", "432813aee3332b7e91b0648bc96aa5fe7a5138c5c37c261e51a292cb0805ffa0",
+			];
+			const reviewerRawHash = (text) => createHash("sha256").update(text).digest("hex");
+			const inputParagraphs = (source) => reviewerInput.extract(source).rawText.trim().split(/\n\n/).filter((paragraph) => paragraph !== amendment);
+			const writeScope = "reviewer does not edit reviewed artifacts. The common review policy permits\nonly the reviewer's own writing-checker diff.";
+			const acceptsReviewerInputs = (source) => {
+				const unit = reviewerInput.extract(source), paragraphs = inputParagraphs(source);
+				return unit.count === 1 && unit.text === reviewerInput.expected && paragraphs.length === 8
+					&& source.split(writeScope).length === 2
+					&& paragraphs.every((paragraph, index) => reviewerRawHash(paragraph) === originalParagraphDigests[index]);
+			};
+			const reviewerInputAttacksFor = (reviewSource) => [
+				["reviewer-contract-design-grant", amendment, amendment.slice(0, -1) + " and may read design records in the supplied folder."],
+				["reviewer-contract-folder-restriction", amendment, amendment.slice(0, -1) + " and all reviewer evidence must come from that folder."],
+				["reviewer-contract-outside-range-grant", "Every reviewer uses the [common review policy]", "Reviewer I may directly read private research logs.\n\nEvery reviewer follows the [common review policy]"],
+				["reviewer-reads-other-action", amendment, amendment.slice(0, -1) + " and may list tmp/ and read another action's files."],
+				...inputParagraphs(reviews).map((paragraph, index) => [`reviewer-contract-stage-paragraph-changed/${index}`, paragraph, paragraph.slice(0, -1) + " and Reviewer I may read private triage."]),
+				["reviewer-contract-sibling-heading-grant", "\n\n## Reviewer sets, merge rule and charters\n", "\n\n### Reviewer read exceptions\n\nReviewers may read the research log.\n## Reviewer sets, merge rule and charters\n"],
+				["reviewer-write-scope-weakened", writeScope, "reviewer may edit or delete any record and any action folder."],
+			].map(([id, rule, replacement]) => {
+				const source = reviewSource.replace(rule, replacement);
+				return { id, changed: source !== reviewSource, rejected: !acceptsReviewerInputs(source),
+					intended: id === "reviewer-write-scope-weakened" ? source.split(writeScope).length !== 2
+						: reviewerInput.extract(source).text !== reviewerInput.expected,
+					originalRuleCount: reviewSource.split(rule).length - 1, mutatedRuleCount: source.split(rule).length - 1 };
+			});
+			const reviewerInputAttacks = reviewerInputAttacksFor(reviews);
+			mutationAudit.record("reviewer-inputs", reviewerInputAttacks);
+			checkAll("contract-review-inputs", "the complete input section protects all eight raw paragraphs and destination-only restrictions", [
+				["all eight original paragraphs remain byte-identical and ordered", acceptsReviewerInputs(reviews), inputParagraphs(reviews).map(reviewerRawHash)],
+				["each input attack fails complete section content, including the later grant", reviewerInputAttacks.every(({ changed, rejected, intended, originalRuleCount, mutatedRuleCount }) => changed && rejected && intended && originalRuleCount === 1 && mutatedRuleCount === 0), reviewerInputAttacks],
+				["an unrelated appendix preserves the input contract and write scope", acceptsReviewerInputs(reviews + "\n## Editorial appendix\n\nNo policy here.\n"), "positive outside control"],
+				["a duplicated outside-range anchor fails its own occurrence evidence", (() => {
+					const duplicate = reviews + "\n## Editorial appendix\n\nEvery reviewer uses the [common review policy]\n";
+					const row = reviewerInputAttacksFor(duplicate).find(({ id }) => id === "reviewer-contract-outside-range-grant");
+					const audit = createMutationAudit({ fixture: ["reviewer-contract-outside-range-grant"] });
+					audit.record("fixture", [row]);
+					return row.originalRuleCount === 2 && row.mutatedRuleCount === 1 && !audit.inspect().ok;
+				})(), "two-anchor counterexample"],
+			]);
+			const commonReview = readFileSync(paths.REVIEW_COMMON_POLICY_DOC, "utf8");
+			const placement = "In a Slate action with an open change, write the checker diff only in the supplied action folder.";
+			const fallback = "Otherwise, use a private operating-system temporary folder outside the checkout.";
+			const deletion = "Delete only your own diff after use.";
+			const hiddenDestination = readFileSync(join(REPO, "extension", "threads.ts"), "utf8").match(/^\s*content: (`Action temporary folder:[^\n]+`),$/m)?.[1];
+			const expectedDestination = '`Action temporary folder: ${path}\\nFollow the folder rules in the worker preamble.\\n`';
+			const acceptsReviewDestination = (source, hidden = hiddenDestination) => reviewerRawHash(source) === "5e88766faf4b58aba0715e704b38619c02cb9a0c851c037700600d554f6a5784" && hidden === expectedDestination;
+			const reviewerDestinationAttacks = [
+				["reviewer-owned-diff-exception-removed", placement, ""],
+				["reviewer-no-change-fallback-removed", fallback, ""],
+				["reviewer-no-change-deletion-removed", deletion, ""],
+				["reviewer-design-bytes-denied", placement, "Write only tracked-range bytes in every writing-checker diff, including design reviews."],
+				["reviewer-manual-fallback-removed", placement, "With an open change, write the checker diff only in the supplied action folder."],
+				["reviewer-extra-write-limit-removed", "Write nothing else.", ""],
+			].map(([id, rule, replacement]) => {
+				const source = commonReview.replace(rule, replacement);
+				return { id, changed: source !== commonReview, rejected: !acceptsReviewDestination(source), intended: hash(source) !== hash(commonReview),
+					originalRuleCount: commonReview.split(rule).length - 1, mutatedRuleCount: source.split(rule).length - 1 };
+			});
+			const privateDestination = hiddenDestination + " Research log: slate-changes/private/research-log.md";
+			const destinationInsertion = commonReview.replace(placement, "Write only your own writing-checker diff in the supplied action folder.");
+			reviewerDestinationAttacks.push({ id: "reviewer-action-path-private-reference", changed: privateDestination !== hiddenDestination,
+				rejected: !acceptsReviewDestination(commonReview, privateDestination), intended: privateDestination !== expectedDestination });
+			mutationAudit.record("reviewer-destinations", reviewerDestinationAttacks);
+			checkAll("contract-review-destinations", "both change states allow only the owned diff and the hidden destination adds no private reference", [
+				["the unchanged policy and generated destination pass", acceptsReviewDestination(commonReview) && acceptsReviewerInputs(reviews), "positive control"],
+				["every owned-diff, fallback, deletion, design-byte and private-reference attack fails", reviewerDestinationAttacks.every(({ changed, rejected, intended }) => changed && rejected && intended), reviewerDestinationAttacks],
+				["open-change and no-change grants agree with the common policy", worker.changeGuidance("change-20261008T000000Z-00000000000000000000000000000000", true).includes("Write only your own writing-checker diff in the supplied action folder. Write nothing else.") && worker.changeGuidance(undefined, true).includes("Delete the diff and its private folder after use. Write nothing else."), "both change states"],
+				["rewording is not silently blessed by agreement elsewhere", !acceptsReviewDestination(destinationInsertion), "independent source pin"],
+			]);
 			const policyMutationSources = [
 				["every-to-first", workflow.replace("Every implementation dispatch carries", "The first implementation dispatch carries"), reviews],
 				["every-to-some", workflow.replace("Every implementation dispatch carries", "Some implementation dispatches carry"), reviews],
@@ -5992,7 +6385,7 @@ Record each grant in the override log.`),
 			const reportRule = regionUnit(/^For each code track, the implementer creates\n([\s\S]*?)(?=^Tracks are contiguous)/gm);
 			const forkRule = regionUnit(/^Use a safe write method\. ([\s\S]*?)(?=^### Handoff summary\n)/gm);
 			const expectedReportRule = normalizeText(`\`track-<number>-implementer-report.md\` in the current change folder when the track starts. The dispatch gives the exact path. The report is untracked working material. After a session with a different identifier takes ownership, create a report in the new change folder. If the source folder has this track's report, name it as read-only in the new report's first entry. Continue the work in the new report. The report has four required sections: changes to the high-level design with the reason for each, the low-level design, diagrams where they help, and checks run with their results. The report states the approximate track size in counted lines. Later fix rounds append to that report in the current change folder.`);
-			const expectedForkRule = normalizeText(`Follow the direct-write and retry rules for change records, including implementer reports. Use [change-records.md](change-records.md) § Manual records and safe writes for write methods, record checks, and inspection before retries. Research logs and implementer reports are append-only. A correction is a new entry. Slate checks the folder chain when it creates the change. Keep all manual records and leftover temporary files untracked and visible in repository status. Do not add them to an ignore file or a pull request. Exclude their references and contents from reviewer inputs. Never overwrite a record from a stale in-memory copy. When a session adopts a change owned by a different Pi session identifier, Slate starts a new folder. Its log first names the direct source folder as a read-only earlier log. Each source log's first entry links to its own source. Follow those links to read the full history. The source remains in place without copying. A resume or reload with the same identifier continues the current folder. A /tree move to parent history with a different owner creates a new folder on reload. A handoff makes the successor the owner of the current folder. If folder allocation fails, Slate saves no open change and reports the failure. If that save fails, Slate reports it too. A legacy root \`research-log.md\` remains read-only. Only the user deletes a delivered or abandoned change folder.`);
+			const expectedForkRule = normalizeText(`Follow the direct-write and retry rules for change records, including implementer reports. Use [change-records.md](change-records.md) § Manual records and safe writes for write methods, record checks, and inspection before retries. Research logs and implementer reports are append-only. A correction is a new entry. Slate checks the folder chain when it creates the change. Keep all manual records and leftover temporary files untracked and visible in repository status. Do not add them to an ignore file or a pull request. Exclude their references and contents from reviewer inputs. Use the common record rules for supplied action folders and temporary-reader exclusions. Never overwrite a record from a stale in-memory copy. When a session adopts a change owned by a different Pi session identifier, Slate starts a new folder. Its log first names the direct source folder as a read-only earlier log. Each source log's first entry links to its own source. Follow those links to read the full history. The source remains in place without copying. A resume or reload with the same identifier continues the current folder. A /tree move to parent history with a different owner creates a new folder on reload. A handoff makes the successor the owner of the current folder. If folder allocation fails, Slate saves no open change and reports the failure. If that save fails, Slate reports it too. A legacy root \`research-log.md\` remains read-only. Only the user deletes a delivered or abandoned change folder.`);
 			const acceptsLateRules = (source) => {
 				const report = reportRule(source);
 				const fork = forkRule(source);
@@ -6023,7 +6416,7 @@ omitted and why.`);
 				resolveDispatchUnits(workflow, reviews.replace("## Stuck-fix consultation", "## Diagnostic consultation"))[3],
 			];
 			const duplicatedWorkflow = `${workflow}\n\nEvery implementation dispatch carries this focused current-context block:\n\n> ${dispatchReference.trim()}\n\nThe block states the current approved design when one exists, the current task and acceptance condition, assigned findings and compact evidence when fixing, affected code or documents, relevant decisions, and unresolved relevant questions. The orchestrator supplies these inputs through specific section references or bounded excerpts. Implementers and fixers use the supplied current context. The full log remains available for unresolved relevant questions and retention. No implementation dispatch requires reading the entire historical log. This rule does not change reviewer input restrictions.\n\nEvery implementation dispatch either carries a trigger.\n\nStart a change with \`slate_change start\` before the first implementation dispatch. Slate creates \`slate-changes/<change>/research-log.md\` without waiting for a retained trigger. It records the generated folder name and owning Pi session identifier in saved state. Each track creates its implementer report there at track start. Append a retained entry immediately when any trigger below fires. \`slate_change close\` clears the current change after delivery or abandonment. It deletes no files.\n\n- a second non-obvious decision.\n- a surprise about repository behaviour.\n- a NAMED focus area.\n- a session boundary.\n- multiple tracks.\n- a plan-changing ruling.\n- a user request.\n- an unresolved question needed later.\n\nOpen these sections:`;
-			const duplicatedReviews = `${reviews}\n\n### Reviewer input contract\n\n${dispatchUnitById.get("reviewer-input-contract")?.text}\n\nA design-stage adversarial review also judges.\n\n## Stuck-fix consultation\n\n${dispatchUnitById.get("stuck-fix-policy")?.text}\n\n## Termination and deferred-work routing`;
+			const duplicatedReviews = `${reviews}\n\n### Reviewer input contract\n\n${dispatchUnitById.get("reviewer-input-contract")?.text}\n\n## Reviewer sets, merge rule and charters\n\n## Stuck-fix consultation\n\n${dispatchUnitById.get("stuck-fix-policy")?.text}\n\n## Termination and deferred-work routing`;
 			const duplicateUnitOutcomes = resolveDispatchUnits(duplicatedWorkflow, duplicatedReviews);
 			const benignWorkflow = `${workflow}\n\n<!-- resolver benign dispatch-context control -->`;
 			const benignReviews = `${reviews}\n\n## Editorial appendix\n\nThis note changes no dispatch policy.`;
@@ -6494,14 +6887,40 @@ The accounting covers:`),
 				["a reminder miss uses the exact warning channel and remains non-fatal", /routeWarn\(\s*["']slate: a worker tool result reached the reminder handler, but the reminder is missing\. Review the worker transcript before you rely on the result\.["']\s*\)\s*;\s*emit\(false\)/.test(reminderDispatchBlock), reminderDispatchBlock],
 			]);
 
+			const canonicalChange = "change-20261008T000000Z-" + "0".repeat(32);
+			const recordBlock = `Change folder: slate-changes/${canonicalChange}\nPut assigned drafts, designs, records, and other lasting files in the change folder under safe-write rules.\nPut scratch files in the supplied action folder, except for required outside-checkout folders.\nA project rule or verification tool requiring an outside-checkout folder takes precedence.\nThe tool keeps its own private folder under its own deletion and retention rules.\nThis exception gives no alternate destination for start copies or payloads.\nFor your record-write files:\nDelete your files after your record check passes.\nFor scratch files without a record:\nDelete your scratch files before you finish.\nIf no action folder is supplied, create no scratch file in the checkout and pause any record write.`;
+			const reviewBlock = `Change folder: slate-changes/${canonicalChange}\nWrite only your own writing-checker diff in the supplied action folder. Write nothing else.\nDelete the diff before finishing.\nIf no action folder is supplied, create no scratch file in the checkout and pause the checker diff.`;
+			const noRecordBlock = "No change is open. Do not write workflow records.\nIf no action folder is supplied, create no scratch file in the checkout and pause any record write.";
+			const noReviewBlock = "No change is open. Do not write workflow records.\nA no-change review is outside the workflow temporary-file rule. Write only your own writing-checker diff in a private operating-system temporary folder outside the checkout.\nDelete the diff and its private folder after use. Write nothing else.";
+			const guidanceStates = [[canonicalChange, false, recordBlock, 799, 800], [canonicalChange, true, reviewBlock, 313, 350], [undefined, false, noRecordBlock, 151, 180], [undefined, true, noReviewBlock, 295, 300]];
+			const preambleMutations = [
+				["worker-change-preamble-removed", recordBlock, recordBlock.split("\n").slice(1).join("\n"), recordBlock.split("\n")[0]],
+				["worker-change-preamble-rules-weakened", recordBlock, recordBlock.replace("in the change folder under safe-write rules", "in the action folder"), "in the change folder under safe-write rules"],
+				["reviewer-preamble-extra-write", reviewBlock, reviewBlock.replace("Write nothing else.", "Write records too."), "Write nothing else."],
+				...["worker-delete-before-check", "worker-delete-without-passed-check"].map((id) => [id, recordBlock, recordBlock.replace("Delete your files after your record check passes.", id === "worker-delete-before-check" ? "Delete your files before your record check." : "Delete your scratch files before finishing unless a record check failed."), "Delete your files after your record check passes."]),
+				["verification-folder-precedence-removed", recordBlock, recordBlock.replace("A project rule or verification tool requiring an outside-checkout folder takes precedence.", "Use only the action folder."), "A project rule or verification tool requiring an outside-checkout folder takes precedence."],
+				["verification-folder-retention-overridden", recordBlock, recordBlock.replace("under its own deletion and retention rules", "under the action deletion rule"), "under its own deletion and retention rules"],
+				["alternate-payload-destination", recordBlock, recordBlock.replace("This exception gives no alternate destination for start copies or payloads.", "Put payloads outside the checkout."), "This exception gives no alternate destination for start copies or payloads."],
+				["reviewer-owned-diff-exception-removed", reviewBlock, reviewBlock.replace("Write only your own writing-checker diff", "Write no writing-checker diff"), "Write only your own writing-checker diff"],
+			];
+			mutationAudit.record("worker-guidance", preambleMutations.map(([id, original, source, rule]) => ({ id, changed: source !== original, rejected: !guidanceStates.some(([, , expected]) => source === expected), originalRuleCount: original.split(rule).length - 1, mutatedRuleCount: source.split(rule).length - 1 })));
+			const reportRule = '"Report a failed record check as a failure."';
+			const reportSource = readFileSync(join(REPO, "extension", "tools.ts"), "utf8");
+			const reportMutation = reportSource.replace(reportRule, '""');
+			mutationAudit.record("report-guidance", [{ id: "failed-record-check-report-removed", changed: reportMutation !== reportSource, rejected: !reportMutation.includes(reportRule), originalRuleCount: reportSource.split(reportRule).length - 1, mutatedRuleCount: reportMutation.split(reportRule).length - 1 }]);
+			const folderBudget = readFileSync(join(REPO, "docs", "context-budget.md"), "utf8");
 			checkAll("worker-preamble", "common worker guidance keeps its exact text, writing guidance is keyed only by trust, and the removed configuration parameter is absent", [
+				["four change guidance states match independent complete expectations and measured limits including separators", guidanceStates.every(([change, review, expected, bytes, limit]) => worker.changeGuidance(change, review) === expected && Buffer.byteLength(worker.changeGuidance(change, review)) + 2 === bytes && bytes <= limit), guidanceStates.map(([change, review]) => Buffer.byteLength(worker.changeGuidance(change, review)) + 2)],
+				["same-group guidance precedes selected instructions and prompt documents without action paths", guidanceStates.every(([change, review, expected]) => JSON.stringify(worker.workerSystemPromptBlocks(true, review, "SELECTED", ["DOC"], worker.changeGuidance(change, review))) === JSON.stringify([worker.workerPreamble(true, review), expected, "SELECTED", "DOC"]) && !expected.includes("/tmp/action.")), guidanceStates],
+				["published system figures match production and keep independent limits", guidanceStates.every(([change, review, , , limit], i) => { const bytes = Buffer.byteLength(worker.changeGuidance(change, review)); return folderBudget.includes(`| ${i < 2 ? "Open-change" : "No-change"} ${review ? "review" : "record-writing"} system | ${bytes} | 2 | ${bytes + 2} | ${limit} |`); }), guidanceStates],
+				["published system totals use production preambles and change blocks", [false, true].every((review) => { const totals = [false, true].map((trusted) => Buffer.byteLength(worker.workerSystemPromptBlocks(trusted, review, undefined, [], worker.changeGuidance(canonicalChange, review)).join("\n\n")).toLocaleString("en-US")); return folderBudget.includes(`Open-change ${review ? "review" : "record-writing"} system totals are ${totals[0]} or ${totals[1]} bytes without or with writing guidance.`); }), folderBudget],
 				["untrusted preamble is the 544-byte common text", worker.WORKER_PREAMBLE === commonPreamble && Buffer.byteLength(worker.workerPreamble(false, false)) === 544, worker.workerPreamble(false, false)],
 				["parallel tool guidance appears exactly once across every worker configuration", [worker.workerPreamble(false, false), worker.workerPreamble(true, false), worker.workerPreamble(false, true), worker.workerPreamble(true, true)].every((preamble) => preamble.split(parallelToolRule).length === 2), { base: worker.workerPreamble(false, false), writing: worker.workerPreamble(true, false), reviewer: worker.workerPreamble(false, true), both: worker.workerPreamble(true, true) }],
 				["the two cost-reason sentences appear exactly once across every worker configuration", [worker.workerPreamble(false, false), worker.workerPreamble(true, false), worker.workerPreamble(false, true), worker.workerPreamble(true, true)].every((preamble) => reasonSentences.every((sentence) => preamble.split(sentence).length === 2)), { sentences: reasonSentences, base: worker.workerPreamble(false, false) }],
 				["false trust omits writing guidance with or without the reviewer charter", worker.workerPreamble(false, false) === commonPreamble && !worker.workerPreamble(false, true).includes(currentGuidance), { plain: worker.workerPreamble(false, false), reviewer: worker.workerPreamble(false, true) }],
 				["true trust enables the current 1097-byte preamble with writing guidance", worker.WORKER_WRITING_GUIDANCE === currentGuidance && worker.workerPreamble(true, false) === `${commonPreamble} ${currentGuidance}` && Buffer.byteLength(worker.workerPreamble(true, false)) === 1097, worker.workerPreamble(true, false)],
 				["reviewer variants match the current measured byte boundaries", Buffer.byteLength(worker.workerPreamble(false, true)) === 2699 && Buffer.byteLength(worker.workerPreamble(true, true)) === 3252, { reviewer: Buffer.byteLength(worker.workerPreamble(false, true)), both: Buffer.byteLength(worker.workerPreamble(true, true)) }],
-				["worker prompt uses permitted Slate configuration and passes charter and selected guidance to the system blocks", /const configPermitted = permitsSlateConfig\(opts\.config, trusted\)/.test(workerSource) && /appendSystemPrompt\s*:\s*workerSystemPromptBlocks\(configPermitted\s*,\s*opts\.reviewerCharter\s*===\s*true\s*,\s*opts\.reviewGuidance\s*,\s*promptDocs\)\s*,/.test(workerSource), workerSource.match(/appendSystemPrompt\s*:[^\n]*/)?.[0] ?? "not found"],
+				["worker prompt uses permitted Slate configuration and passes charter and selected guidance to the system blocks", /const configPermitted = permitsSlateConfig\(opts\.config, trusted\)/.test(workerSource) && /appendSystemPrompt\s*:\s*workerSystemPromptBlocks\(configPermitted\s*,\s*opts\.reviewerCharter\s*===\s*true\s*,\s*opts\.reviewGuidance\s*,\s*promptDocs\s*,\s*opts\.changeGuidance\)\s*,/.test(workerSource), workerSource.match(/appendSystemPrompt\s*:[^\n]*/)?.[0] ?? "not found"],
 				["the removed writingCheck parameter and dispatch field are absent", !/writingCheck/.test(workerSource) && !/writingCheck/.test(threadsSource), { worker: workerSource.match(/writingCheck/)?.[0] ?? "absent", threads: threadsSource.match(/writingCheck/)?.[0] ?? "absent" }],
 				["ThreadManager derives the charter switch from effective thread type through the shared judgement-type predicate", /effectiveThreadType\(args\.thread\s*,\s*args\.report\)/.test(threadsSource) && /reviewerCharter\s*:\s*isJudgementThreadType\(type\)/.test(threadsSource) && worker.JUDGEMENT_THREAD_TYPES?.join(",") === "reviewer,adversarial", { typeRead: threadsSource.match(/effectiveThreadType\([^)]*\)/)?.[0] ?? "not found", charter: threadsSource.match(/reviewerCharter\s*:[^,\n]*/)?.[0] ?? "not found", judgementTypes: worker.JUDGEMENT_THREAD_TYPES }],
 				["the dispatch routes an unrecognised-type report through its user-visible warning channel", /report\s*:\s*routeWarn/.test(threadsSource), threadsSource.match(/report\s*:[^,\n]*/)?.[0] ?? "not found"],
@@ -7508,7 +7927,14 @@ The accounting covers:`),
 		const injected = { role: "user", content: "loaded episode text" };
 		const assistant = { role: "assistant", content: "result" };
 		const compacted = { role: "compactionSummary", content: "summary" };
+		const action = { role: "custom", ...threads.actionTemporaryMessage("slate-changes/change-20261008T000000Z-" + "0".repeat(32) + "/tmp/action.aaaaaa") };
+		const expectedAction = "Action temporary folder: slate-changes/change-20261008T000000Z-" + "0".repeat(32) + "/tmp/action.aaaaaa\nFollow the folder rules in the worker preamble.\n";
+		const actionBytes = Buffer.byteLength(action.content);
+		const folderBudget = readFileSync(join(REPO, "docs", "context-budget.md"), "utf8");
 		checkAll("worker-reminder-compression", "episode compression removes every worker reminder while preserving unrelated custom messages and exact prompt filtering", [
+			["canonical hidden message matches independent bytes including every line feed and stays under 180", action.content === expectedAction && action.customType === "slate-action-temporary" && action.display === false && actionBytes === 162 && actionBytes <= 180, action],
+			["published message figure is computed from the production builder", folderBudget.includes(`| Open-change hidden action message | ${actionBytes} | 0 | ${actionBytes} | 180 |`) && folderBudget.includes("| No-change hidden action message | 0 | 0 | 0 | 0 |"), actionBytes],
+			["action message exclusion preserves worker and tool evidence that quotes the path", (() => { const user = { role: "user", content: "task" }, tool = { role: "toolResult", content: action.content }, failed = { role: "assistant", stopReason: "error", content: action.content }; return JSON.stringify(threads.messagesForCompression([action, user, tool, failed, action])) === JSON.stringify([user, tool, failed]); })(), "generated custom type only"],
 			["all reminder copies are removed without an injected prompt", JSON.stringify(threads.messagesForCompression([reminderMessage, assistant, reminderMessage, otherCustom])) === JSON.stringify([assistant, otherCustom]), threads.messagesForCompression([reminderMessage, assistant, reminderMessage, otherCustom])],
 			["all reminder copies and one exact injected prompt are removed together", JSON.stringify(threads.messagesForCompression([compacted, reminderMessage, injected, assistant, reminderMessage, otherCustom], "loaded episode text")) === JSON.stringify([compacted, assistant, otherCustom]), threads.messagesForCompression([compacted, reminderMessage, injected, assistant, reminderMessage, otherCustom], "loaded episode text")],
 			["an unrelated custom type is retained", threads.messagesForCompression([otherCustom, reminderMessage])[0] === otherCustom, threads.messagesForCompression([otherCustom, reminderMessage])],
@@ -7532,7 +7958,7 @@ The accounting covers:`),
 	// check or a renamed id shows up here instead of vanishing into a clean exit.
 	const EXPECTED = [
 		"off-inert", "off-doctrine",
-		"doctrine-logical", "doctrine-untrusted", "doctrine-numbering", "doctrine-inject", "doctrine-no-trace", "doctrine-budget", "doctrine-budget-boundaries",
+		"doctrine-logical", "doctrine-untrusted", "doctrine-numbering", "doctrine-inject", "doctrine-no-trace", "doctrine-budget", "doctrine-budget-boundaries", "doctrine-duty-contract", "doctrine-original-base", "doctrine-original-controls", "doctrine-p14", "doctrine-p14-controls",
 		"writing-config-default", "writing-config-reminder-turns", "writing-config-reminder-trigger", "writing-config-trigger-interaction", "writing-config-sentence-limit", "writing-config-status-window", "writing-config-show-status", "writing-config-findings", "writing-config-reminder-ignored", "writing-config-reminder-percent", "writing-config-invalid", "writing-config-hostile",
 		"writing-reminder-load", "writing-reminder-roster", "writing-copy-independence", "writing-reminder-render", "writing-reminder-full-render", "writing-reminder-size", "writing-reminder-model-visible-rules", "writing-reminder-counter", "writing-reminder-cadence", "writing-reminder-delivery-mode", "writing-reminder-gates", "writing-reminder-state-machine",
 		"writing-reminder-mode-send", "writing-reminder-mode-delivery", "writing-reminder-trigger", "writing-reminder-trigger-switch", "writing-reminder-trigger-reset", "writing-reminder-mode-gates", "writing-reminder-delivery-failure-independent", "writing-reminder-checker-failure-independent", "writing-reminder-findings-off", "writing-reminder-retry-boundary", "writing-reminder-completed-shapes", "writing-reminder-abort-round", "writing-reminder-summary-staleness", "writing-reminder-session-reset", "writing-reminder-local-reset", "writing-reminder-round-gate", "writing-reminder-gate-claim-order", "writing-reminder-claim-delivery", "writing-reminder-correlation", "writing-reminder-runtime-only", "writing-reminder-budget", "writing-reminder-handoff-order",
@@ -7568,12 +7994,12 @@ The accounting covers:`),
 	const uncovered = VOIDABLE.flatMap(([prefix, list, loadId]) =>
 		EXPECTED.filter((id) => id.startsWith(prefix) && id !== loadId && !list.includes(id)),
 	);
-	// THE COUNTERS AGAINST THE ROSTER. `reported` and pass/fail/notrun are written by
-	// the same three functions (check, checkAll, skip) but are separate state, so
+	// THE COUNTERS AGAINST THE ROSTER. Reporting functions update both `reported`
+	// and pass/fail/notrun/excluded. These are separate state, so
 	// this term pins them together: every counted verdict is a rostered id and every
 	// rostered id was counted. Read BEFORE the roster reports itself, so both sides
 	// exclude it.
-	const counted = pass + fail + notrun;
+	const counted = pass + fail + notrun + excluded;
 	const countsAgree = counted === reported.length;
 	// WHY THE TWO NUMBERS IN THE OUTPUT DIFFER BY ONE, stated here and in the summary
 	// line so nobody has to re-derive it: this line counts EXPECTED CHECKS, the
@@ -7591,17 +8017,17 @@ The accounting covers:`),
 			["none reported twice", duplicated.length === 0, duplicated],
 			["none unexpected", unexpected.length === 0, unexpected],
 			["every voidable check is on a NOT RUN list", uncovered.length === 0, uncovered],
-			["pass+fail+notrun equals the number of rostered ids", countsAgree, { counted, rostered: reported.length }],
+			[`${EXCLUDED.size ? "pass+fail+notrun+excluded" : "pass+fail+notrun"} equals the number of rostered ids`, countsAgree, { counted, rostered: reported.length }],
 		],
 	);
 
 	// The reconciliation is COMPUTED, never claimed: on a failing run (a crashed
 	// section adds an id, a deleted check removes one) the residual is printed as
 	// "unaccounted" and points at the roster line instead of silently going wrong.
-	const resultLines = pass + fail + notrun;
+	const resultLines = pass + fail + notrun + excluded;
 	const unaccounted = resultLines - (EXPECTED.length + 1); // +1: the roster audit reports itself
 	console.log(
-		`== summary: ${pass} pass, ${fail} fail, ${notrun} not run ` +
+		`== summary: ${pass} pass, ${fail} fail, ${notrun} not run${EXCLUDED.size ? `, ${excluded} excluded` : ""} ` +
 			`(${resultLines} result lines = ${EXPECTED.length} expected checks + this roster audit` +
 			`${unaccounted === 0 ? "" : `, ${unaccounted > 0 ? "+" : "−"}${Math.abs(unaccounted)} unaccounted — see the roster line`}) ==`,
 	);
