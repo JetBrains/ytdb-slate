@@ -63,7 +63,6 @@ Use [track-workflow.md](track-workflow.md) § Track size and split for level con
 
 ## Proportional process
 
-Use [design-principles.md](design-principles.md) § 4. Operating principles for proportional process.
 Use [track-workflow.md](track-workflow.md) § Recursive planning and loading for record triggers.
 Entering a design track triggers its research log and nested gates.
 An ordinary code track or a high-level design alone triggers neither extra record.

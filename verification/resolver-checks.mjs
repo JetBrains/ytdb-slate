@@ -8,8 +8,9 @@
 // the active logical-model policy and runtime, the model-spec vocabulary
 // (extension/state.ts), and the orchestrator base-model tracker
 // (extension/base-model.ts) through jiti, and exercises them against
-// wholly fabricated in-memory inputs. No network, no real pi session; every file
-// it creates lives under the work dir the wrapper owns and removes.
+// fabricated inputs, tracked files, and original-base repository Git objects.
+// A shallow clone without those objects fails the default comparisons.
+// No network or real pi session is used. Created files stay in the work dir.
 //
 // Output contract (TS1–TS3):
 //   · one `CHECK <id> <PASS|FAIL|NOT RUN|EXCLUDED> — <detail>` line per check, plus an
@@ -1505,7 +1506,7 @@ try {
 	const originalDoctrineResults = async () => {
 		const original = "d8bca25ef8947e370a92a68a4d98d0e2ec9f1a53";
 		const git = (...args) => {
-			const result = spawnSync("git", ["-C", REPO, ...args], { encoding: "utf8", timeout: 10000, maxBuffer: 4 * 1024 * 1024 });
+			const result = spawnSync("git", ["-C", REPO, ...args], { encoding: "utf8", timeout: 10000, maxBuffer: 4 * 1024 * 1024, env: { ...process.env, LC_ALL: "C", LANGUAGE: "C" } });
 			if (result.error || result.status !== 0) throw new Error(`Cannot read original doctrine base ${original}: ${result.error?.message ?? result.stderr}`);
 			return result.stdout;
 		};
@@ -1640,7 +1641,7 @@ try {
 		const published = [
 			"P14 enters neither injected totals nor the always-loaded principle subset.",
 			"Read P14 only when reading [design-principles.md](design-principles.md).",
-			"Design-track planning reads § 4 of design-principles.md.",
+			"Design-track planning alone does not require design-principles.md.",
 			"Explaining or changing Slate can require design-principles.md.",
 			"Unusual routing or compaction can also require design-principles.md.",
 			"Routine dispatch does not require design-principles.md.",
@@ -1732,7 +1733,12 @@ try {
 			["rationale retains its installed document", rationale.includes(paths.DESIGN_PRINCIPLES_DOC), rationale],
 			["rationale positive and removal controls", protect(rationale, rationaleDuties) && discriminate(rationale, rationaleDuties), rationale],
 			["P14 does not enter either trust-state doctrine", [trusted, untrusted].every((text) => !/P1[34] —|Workflow steps in code/.test(text))],
-			["design planning retains the conditional section read", readFileSync(paths.RECURSIVE_WORKFLOW_DOC, "utf8").includes("Use [design-principles.md](design-principles.md) § 4. Operating principles for proportional process.")],
+			["proportional process has no rationale read and retains all four rules", (() => {
+				const retained = "Use [track-workflow.md](track-workflow.md) § Recursive planning and loading for record triggers.\nEntering a design track triggers its research log and nested gates.\nAn ordinary code track or a high-level design alone triggers neither extra record.\nQuestions follow unresolved decisions rather than record or track counts.\n";
+				const actual = readFileSync(paths.RECURSIVE_WORKFLOW_DOC, "utf8").split("## Proportional process\n\n")[1].split("\n## ")[0];
+				const valid = (text) => text === retained && !text.includes("Use [design-principles.md]");
+				return valid(actual) && !valid(`Use [design-principles.md](design-principles.md) § 4. Operating principles for proportional process.\n${actual}`) && !valid(actual.replace("neither", "both"));
+			})()],
 			["rationale remains tier two", readFileSync(paths.DESIGN_PRINCIPLES_DOC, "utf8").includes("**Tier 2 — on demand.** Doctrine rule 10 points to this document.")],
 		]);
 	});
@@ -3496,7 +3502,6 @@ Use [track-workflow.md](track-workflow.md) § Track size and split for level con
 
 ## Proportional process
 
-Use [design-principles.md](design-principles.md) § 4. Operating principles for proportional process.
 Use [track-workflow.md](track-workflow.md) § Recursive planning and loading for record triggers.
 ${recordRules.join("\n")}
 
@@ -3705,7 +3710,7 @@ Use [change-records.md](change-records.md) § Design authority and privacy.`) },
 				["each comparison rejects its changed input and disabling it accepts that violation", pointerComparisonControls.every(({ changed, rejected, disabledAccepts }) => changed && rejected && disabledAccepts), pointerComparisonControls],
 				["outside-region edits preserve the pointer expectations", acceptsNestedPointers(`${recursive}\n## Outside pointer control\nUnrelated text.\n`), "outside control"],
 			]);
-			const completeNestedDigest = "9af8b4396248cf3cc041a343255e9127c9b26a01043f305990aac458f81b6e2a";
+			const completeNestedDigest = "4958462c44b5ddbae786b53a54a4c4a048e95c4c8d021531e11172f075b8c52b";
 			const acceptsCompleteNested = (source) => createHash("sha256").update(source).digest("hex") === completeNestedDigest;
 			const completeNestedAttacks = [
 				["weaker-record-rule", `${recursive}\n## Additional record guidance\nWorkers may replace earlier log entries.\n`],

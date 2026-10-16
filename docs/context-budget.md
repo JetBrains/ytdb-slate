@@ -424,7 +424,7 @@ principle subset.
 
 P14 enters neither injected totals nor the always-loaded principle subset.
 Read P14 only when reading [design-principles.md](design-principles.md).
-Design-track planning reads § 4 of design-principles.md.
+Design-track planning alone does not require design-principles.md.
 Explaining or changing Slate can require design-principles.md.
 Unusual routing or compaction can also require design-principles.md.
 Routine dispatch does not require design-principles.md.
@@ -500,3 +500,97 @@ against that registry but does not compare it with a second profile window.
   A larger worker-extension roster also adds context beyond the representative
   fixtures. Slate imposes no runtime doctrine-size limit. This content simply
   leaves less room under the context budget.
+
+
+<!-- workflow-phase:start -->
+## Workflow context by phase
+
+The doctrine is the workflow guidance rendered for the orchestrator. Each row
+adds cumulative required document reads to that guidance. Earlier reads stay
+in later rows. A later whole-file read replaces section ranges. Overlapping
+ranges count once. Section ranges include headings, subsections, separators,
+and final line feeds up to the next heading of the same or higher level.
+
+Each fixture uses trusted shipped policy, no worker extensions, and one open
+change with a 56-character name. It has no source change. Deferred issues and
+routing recommendations are off. Ordinary plans have no nested trigger.
+Nested plans read the recursive workflow during research. Publishing adds
+the publishing document during research. These are allowed compositions,
+not maximum configurations. The nine rows follow the lifecycle order.
+
+UTF-8 means Unicode Transformation Format, 8-bit. Bytes use UTF-8 source text.
+Only the installed documentation-directory prefix is removed from doctrine.
+Filenames and all other text remain. Estimated tokens equal ceil(bytes / 4)
+for each complete total. This estimate is not a tokenizer result.
+The excluded installed path cost is 5 times the prefix byte length with
+publishing off and 6 times that length with publishing on. Tests measure
+this cost separately. It depends on the installation path.
+
+Limits below are proposals pending user approval. Each initial byte limit
+is ceil(baseline bytes * 1.05). Tests enforce total <= stored literal limit.
+The token limit is ceil(byte limit / 4). Reserve is checked at approval,
+not recalculated as text grows. A maximum includes all applicable optional
+reads. Any subset fits because removing ranges cannot increase union size.
+
+| Phase | Publishing | Plan | Required bytes | Estimated tokens | Byte limit | Token limit | Conditional maximum bytes | Estimated tokens | Byte limit | Token limit |
+| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1. Research | off | ordinary | 72243 | 18061 | 75856 | 18964 | 139211 | 34803 | 144492 | 36123 |
+| 1. Research | off | nested | 122987 | 30747 | 129137 | 32285 | 189955 | 47489 | 197773 | 49444 |
+| 1. Research | on | ordinary | 88285 | 22072 | 92700 | 23175 | 155253 | 38814 | 161336 | 40334 |
+| 1. Research | on | nested | 139029 | 34758 | 145981 | 36496 | 205997 | 51500 | 214617 | 53655 |
+| 2. Risk approval | off | ordinary | 108953 | 27239 | 114401 | 28601 | 175921 | 43981 | 183038 | 45760 |
+| 2. Risk approval | off | nested | 159697 | 39925 | 167682 | 41921 | 226665 | 56667 | 236319 | 59080 |
+| 2. Risk approval | on | ordinary | 124995 | 31249 | 131245 | 32812 | 191963 | 47991 | 199882 | 49971 |
+| 2. Risk approval | on | nested | 175739 | 43935 | 184526 | 46132 | 242707 | 60677 | 253163 | 63291 |
+| 3. Design validation | off | ordinary | 108953 | 27239 | 114401 | 28601 | 175921 | 43981 | 183038 | 45760 |
+| 3. Design validation | off | nested | 159697 | 39925 | 167682 | 41921 | 226665 | 56667 | 236319 | 59080 |
+| 3. Design validation | on | ordinary | 124995 | 31249 | 131245 | 32812 | 191963 | 47991 | 199882 | 49971 |
+| 3. Design validation | on | nested | 175739 | 43935 | 184526 | 46132 | 242707 | 60677 | 253163 | 63291 |
+| 4. Focus reconfirmation | off | ordinary | 108953 | 27239 | 114401 | 28601 | 175921 | 43981 | 183038 | 45760 |
+| 4. Focus reconfirmation | off | nested | 159697 | 39925 | 167682 | 41921 | 226665 | 56667 | 236319 | 59080 |
+| 4. Focus reconfirmation | on | ordinary | 124995 | 31249 | 131245 | 32812 | 191963 | 47991 | 199882 | 49971 |
+| 4. Focus reconfirmation | on | nested | 175739 | 43935 | 184526 | 46132 | 242707 | 60677 | 253163 | 63291 |
+| 5. Adversarial design review | off | ordinary | 132145 | 33037 | 138753 | 34689 | 226897 | 56725 | 236562 | 59141 |
+| 5. Adversarial design review | off | nested | 182889 | 45723 | 192034 | 48009 | 277641 | 69411 | 289844 | 72461 |
+| 5. Adversarial design review | on | ordinary | 148187 | 37047 | 155597 | 38900 | 242939 | 60735 | 253406 | 63352 |
+| 5. Adversarial design review | on | nested | 198931 | 49733 | 208878 | 52220 | 293683 | 73421 | 306688 | 76672 |
+| 6. Final design approval | off | ordinary | 132145 | 33037 | 138753 | 34689 | 226897 | 56725 | 236562 | 59141 |
+| 6. Final design approval | off | nested | 182889 | 45723 | 192034 | 48009 | 277641 | 69411 | 289844 | 72461 |
+| 6. Final design approval | on | ordinary | 148187 | 37047 | 155597 | 38900 | 242939 | 60735 | 253406 | 63352 |
+| 6. Final design approval | on | nested | 198931 | 49733 | 208878 | 52220 | 293683 | 73421 | 306688 | 76672 |
+| 7. Track loop | off | ordinary | 155603 | 38901 | 163384 | 40846 | 290099 | 72525 | 302924 | 75731 |
+| 7. Track loop | off | nested | 206347 | 51587 | 216665 | 54167 | 290099 | 72525 | 302924 | 75731 |
+| 7. Track loop | on | ordinary | 171645 | 42912 | 180228 | 45057 | 306141 | 76536 | 319769 | 79943 |
+| 7. Track loop | on | nested | 222389 | 55598 | 233509 | 58378 | 306141 | 76536 | 319769 | 79943 |
+| 8. Final acceptance | off | ordinary | 155603 | 38901 | 163384 | 40846 | 290099 | 72525 | 302924 | 75731 |
+| 8. Final acceptance | off | nested | 206347 | 51587 | 216665 | 54167 | 290099 | 72525 | 302924 | 75731 |
+| 8. Final acceptance | on | ordinary | 171645 | 42912 | 180228 | 45057 | 306141 | 76536 | 319769 | 79943 |
+| 8. Final acceptance | on | nested | 222389 | 55598 | 233509 | 58378 | 306141 | 76536 | 319769 | 79943 |
+| 9. Delivery | off | ordinary | 155603 | 38901 | 163384 | 40846 | 290099 | 72525 | 302924 | 75731 |
+| 9. Delivery | off | nested | 206347 | 51587 | 216665 | 54167 | 290099 | 72525 | 302924 | 75731 |
+| 9. Delivery | on | ordinary | 171645 | 42912 | 180228 | 45057 | 306141 | 76536 | 319769 | 79943 |
+| 9. Delivery | on | nested | 222389 | 55598 | 233509 | 58378 | 306141 | 76536 | 319769 | 79943 |
+
+Conditional sets have the following whole-document costs. Early notes cost
+zero extra after required notes enter phase 7. Unusual prose costs zero extra
+when manual review already includes writing guidance. Nested plans already
+include the recursive workflow. Ordinary plans add it to their maximum from
+phase 7 before a split proposal. Manual review includes common policy, writing
+guidance, and all twelve charters from phase 5. Built-in review loads its
+implementation input for workers only. It adds no orchestrator read.
+
+| Conditional set | Bytes | Estimated tokens |
+| --- | ---: | ---: |
+| Rationale | 27892 | 6973 |
+| Unusual prose | 28076 | 7019 |
+| Early notes | 11000 | 2750 |
+| Ordinary split | 50744 | 12686 |
+| Manual review | 55860 | 13965 |
+
+Private evidence, designs, reports, source chains, project additions, configured
+prompt documents, provider framing, tools, results, message wrappers, repeated
+reads, and the incoming system prompt are excluded. These variable costs can
+exceed every total. Compaction can reduce retained text but not this metric.
+The reference scanner checks filenames and reviewed contexts, not read semantics.
+A reviewer checks recipients, conditions, dependencies, and first-read phases.
+<!-- workflow-phase:end -->

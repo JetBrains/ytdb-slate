@@ -33,8 +33,9 @@
 # tool, a bad --repo, a missing exact-pinned TypeScript compiler, no resolvable
 # pi CLI, or jiti could not be located).
 #
-# Everything runs against fabricated in-memory inputs — no network, no real pi
-# session. The only writes land in a throwaway temp dir this script creates and
+# Inputs include fabricated state, tracked files, and original-base repository
+# Git objects. A shallow clone without those objects fails the default suite.
+# No network or real pi session is used. Writes land in a temp dir it creates and
 # removes on exit; it never touches real pi state or the repository. The TS is
 # loaded through the jiti bundled with pi (node's strip-only TypeScript mode
 # cannot load the modules), so `node` must be on PATH, the checkout's exact-pinned

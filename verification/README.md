@@ -787,8 +787,10 @@ Also expected, and not a harness problem:
 
 The pure-resolver harness loads current production modules through Pi's bundled
 Jiti TypeScript loader. It uses fabricated registries, policies, events, stores,
-and extension rosters. It starts no Pi session, uses no network, and writes only
-to its disposable work directory.
+and extension rosters, plus tracked files and original-base repository Git
+objects. A shallow clone without those objects fails the default comparisons.
+It starts no Pi session, uses no network, and writes only to its disposable work
+directory.
 
 It also checks the workflow contract for requirement-level investigation after
 two same-requirement repair rounds (`contract-requirement-investigation`). The
@@ -947,7 +949,40 @@ file, `verification/resolver-checks.mjs`, `test/doctrine-contract.test.ts`, and
 The logical limits remain 19,400 characters and 105 lines. The all-tail limit
 remains 24,600 characters. The whole-doctrine ceiling is 26,300 characters.
 
+## Workflow-phase context maintenance
+
+`test/workflow-context-budget.test.ts` owns phase measurements, read-reference
+coverage, literal-limit enforcement, mutation controls, and publication equality.
+`verification/workflow-context-map.mjs` holds the reviewed read assignments and
+proposed literal limits. The user must approve fresh baseline limits.
+
+On failure, inspect the reported scenario, phase, source ranges, total, limit,
+and excess bytes. Check for a wrong read assignment or unintended growth first.
+For intended growth, present old and new byte totals, token estimates, affected
+conditions, and proposed literal limits. Obtain user approval before changing
+limits. Update the map and publication together from a fresh production render.
+Run the native phase tests and both package-content commands, including the
+self-test. Retain existing doctrine caps. Review read timing, recipients,
+dependencies, and exclusions against the prose. A scanner cannot infer duties
+that name no file.
+
+## Original-base replacement
+
+Preserve the previous approved reference and explain why intended doctrine
+growth needs another comparison base. Obtain user approval for the exact
+replacement commit, extension tree, manifest blob, and comparison consequences.
+Update both historical helpers and every independent identity expectation
+together in `verification/resolver-checks.mjs` and
+`test/doctrine-contract.test.ts`. Keep export-byte verification, provenance
+controls, matrix domains, prefix-count checks, and raw-versus-portable controls.
+Run both complete comparisons. Report the old and new basis and their results.
+A failed comparison grants no authority to replace its base.
+
 ## Re-run triggers
+
+Re-run phase tests after changes to mapped reads, document exports, doctrine,
+phase assignments, limits, or the published phase section. Run both independent
+package-content commands and their self-test for package evidence.
 
 Re-run the strict suite after changes to active logical-model modules,
 `mode.ts`, `paths.ts`, worker-extension doctrine, state sanitizers, base-model

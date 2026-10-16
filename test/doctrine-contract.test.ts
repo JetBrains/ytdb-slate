@@ -148,7 +148,7 @@ test("logical doctrine production renders match published portable measurements"
 test("every declared doctrine composition fits the original production hook", { timeout: 60000 }, async () => {
   const original = "d8bca25ef8947e370a92a68a4d98d0e2ec9f1a53";
   const git = (...args: string[]): string => {
-    const result = spawnSync("git", ["-C", process.cwd(), ...args], { encoding: "utf8", timeout: 10000, maxBuffer: 4 * 1024 * 1024 });
+    const result = spawnSync("git", ["-C", process.cwd(), ...args], { encoding: "utf8", timeout: 10000, maxBuffer: 4 * 1024 * 1024, env: { ...process.env, LC_ALL: "C", LANGUAGE: "C" } });
     assert.equal(result.error, undefined, `Cannot read original doctrine base ${original}: ${result.error?.message}`);
     assert.equal(result.status, 0, `Cannot read original doctrine base ${original}: ${result.stderr}`);
     return result.stdout;
@@ -281,7 +281,7 @@ test("P14 preserves exact conditional text, P13, and published byte figures", { 
   const published = [
     "P14 enters neither injected totals nor the always-loaded principle subset.",
     "Read P14 only when reading [design-principles.md](design-principles.md).",
-    "Design-track planning reads § 4 of design-principles.md.",
+    "Design-track planning alone does not require design-principles.md.",
     "Explaining or changing Slate can require design-principles.md.",
     "Unusual routing or compaction can also require design-principles.md.",
     "Routine dispatch does not require design-principles.md.",
@@ -539,7 +539,12 @@ test("fixed doctrine preserves loading clauses and resolves filenames beside Lif
     assert.match(doctrine, /Read only to explain or change slate or for unusual routing or compaction/);
     assert.match(doctrine, /Never for routine dispatch\. Skip if in context\./);
     assert.doesNotMatch(doctrine, /P1[34] —|Workflow steps in code/);
-    assert.ok(readFileSync(RECURSIVE_WORKFLOW_DOC, "utf8").includes("Use [design-principles.md](design-principles.md) § 4. Operating principles for proportional process."));
+    const proportional = readFileSync(RECURSIVE_WORKFLOW_DOC, "utf8").split("## Proportional process\n\n")[1]!.split("\n## ")[0]!;
+    const retained = "Use [track-workflow.md](track-workflow.md) § Recursive planning and loading for record triggers.\nEntering a design track triggers its research log and nested gates.\nAn ordinary code track or a high-level design alone triggers neither extra record.\nQuestions follow unresolved decisions rather than record or track counts.\n";
+    const valid = (text: string) => text === retained && !text.includes("Use [design-principles.md]");
+    assert.ok(valid(proportional));
+    assert.equal(valid(`Use [design-principles.md](design-principles.md) § 4. Operating principles for proportional process.\n${proportional}`), false);
+    assert.equal(valid(proportional.replace("neither", "both")), false);
     assert.ok(readFileSync(DESIGN_PRINCIPLES_DOC, "utf8").includes("**Tier 2 — on demand.** Doctrine rule 10 points to this document."));
   }
 });
