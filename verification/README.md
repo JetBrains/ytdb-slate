@@ -954,7 +954,7 @@ remains 24,600 characters. The whole-doctrine ceiling is 26,300 characters.
 `test/workflow-context-budget.test.ts` owns phase measurements, read-reference
 coverage, literal-limit enforcement, mutation controls, and publication equality.
 `verification/workflow-context-map.mjs` holds the reviewed read assignments and
-proposed literal limits. The user must approve fresh baseline limits.
+literal limits approved by the user on 2026-10-16. The user must approve fresh baseline limits.
 
 On failure, inspect the reported scenario, phase, source ranges, total, limit,
 and excess bytes. Check for a wrong read assignment or unintended growth first.

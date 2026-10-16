@@ -509,7 +509,7 @@ The doctrine is the workflow guidance rendered for the orchestrator. Each row
 adds cumulative required document reads to that guidance. Earlier reads stay
 in later rows. A later whole-file read replaces section ranges. Overlapping
 ranges count once. Section ranges include headings, subsections, separators,
-and final line feeds up to the next heading of the same or higher level.
+and final line feeds up to the next heading of the same or higher level. These rows describe one session from research to delivery. A change with more than one track hands off before each track, and the user runs each handoff. A session after a handoff holds less context than the rows for phases 7 to 9.
 
 Each fixture uses trusted shipped policy, no worker extensions, and one open
 change with a 56-character name. It has no source change. Deferred issues and
@@ -526,7 +526,7 @@ The excluded installed path cost is 5 times the prefix byte length with
 publishing off and 6 times that length with publishing on. Tests measure
 this cost separately. It depends on the installation path.
 
-Limits below are proposals pending user approval. Each initial byte limit
+The user approved these limits on 2026-10-16. Each initial byte limit
 is ceil(baseline bytes * 1.05). Tests enforce total <= stored literal limit.
 The token limit is ceil(byte limit / 4). Reserve is checked at approval,
 not recalculated as text grows. A maximum includes all applicable optional

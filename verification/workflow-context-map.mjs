@@ -1,4 +1,4 @@
-// Reviewed source-read assignments. Limits are proposals pending user approval.
+// Reviewed source-read assignments. The user approved these limits on 2026-10-16.
 export const phases = ["Research", "Risk approval", "Design validation", "Focus reconfirmation", "Adversarial design review", "Final design approval", "Track loop", "Final acceptance", "Delivery"];
 export const lifecycle = ["research.", "propose the eleven-line risk record and obtain user approval.", "design and validate for a multi-track change, a proved DESIGN-TRIGGERING area, or a per-track estimate above 100 counted lines.", "when a design exists, reconfirm the focus list against the validated design.", "when a design exists, run one adversarial design review for each proved DESIGN-TRIGGERING area that has not reviewed the applicable design.", "when a design exists, obtain final design approval.", "run the track loop.", "obtain blocking final acceptance.", "deliver."];
 export const scenarios = ["off ordinary", "off nested", "on ordinary", "on nested"];
