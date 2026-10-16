@@ -1627,7 +1627,8 @@ try {
 		const budget = readFileSync(join(REPO, "docs", "context-budget.md"), "utf8");
 		const body = "- **P14 — Put workflow steps in code.** *(Repo-local note, not from the report.)*\n"
 			+ "  Move a workflow step into Slate code when code can perform or check it in a mechanical, deterministic way.\n"
-			+ "  A step stays as prompt text when code would cost more than the protection it adds, or when the user decided to keep it as text.\n";
+			+ "  The move reduces the prompt text in the orchestrator context, and code performs the step the same way each time.\n"
+			+ "  A step stays as prompt text when the move would not reduce context usage, or when the user decided to keep it as text.\n";
 		const block = `### Workflow steps in code\n\n${body}`;
 		const row = "| P14 mechanical workflow steps | `action-temporary.ts` manages temporary folders. Other existing rules remain future work for a tracked issue. |";
 		const valid = (text) => {
@@ -1643,21 +1644,21 @@ try {
 			"Explaining or changing Slate can require design-principles.md.",
 			"Unusual routing or compaction can also require design-principles.md.",
 			"Routine dispatch does not require design-principles.md.",
-			"The P14 body contains 323 UTF-8 bytes, including the final line feed.",
-			"The heading and body contain 351 bytes.",
+			"The P14 body contains 429 UTF-8 bytes, including the final line feed.",
+			"The heading and body contain 457 bytes.",
 			"The separate principle-table row contains 145 bytes without its final line feed.",
-			"A blank separator before § 5 of design-principles.md adds one byte outside the 351-byte figure.",
-			"The complete design-principles.md document adds 498 bytes for P14.",
+			"A blank separator before § 5 of design-principles.md adds one byte outside the 457-byte figure.",
+			"The complete design-principles.md document adds 604 bytes for P14.",
 		];
 		const validBudget = (text) => published.every((line) => text.split(line).length === 2);
 		checkAll("doctrine-p14", "P14 has the exact conditional principle, final table row, and independently stated byte figures", [
 			["exact principle and placement", valid(source)],
-			["independent byte figures", Buffer.byteLength(body) === 323 && Buffer.byteLength(block) === 351 && Buffer.byteLength(row) === 145],
+			["independent byte figures", Buffer.byteLength(body) === 429 && Buffer.byteLength(block) === 457 && Buffer.byteLength(row) === 145],
 			["published figures and read boundary", validBudget(budget)],
 			["P13 raw body is unchanged", createHash("sha256").update(source.slice(source.indexOf("- **P13"), source.indexOf("### Workflow steps in code") - 2)).digest("hex") === "b04cb0d7429c9e202451af7d3c2f695ea326561e263e6423159d8ee23175f5e7"],
 			["principle stays out of always-loaded text", !(await doctrineFor()).includes("Put workflow steps in code")],
 		]);
-		const attacks = [source.replace(block, ""), source.replace("*(Repo-local note, not from the report.)*\n  Move", "*(From the report.)*\n  Move"), source.replace("when the user decided to keep it as text", "even when the user requires code"), source.replace(row, ""), source.replace(row, row.replace("future work", "completed work")), source.replace(block, `${block}${body}`), source.replace(block, "").replace("### Built-in focus-area authoring", `${block}\n### Built-in focus-area authoring`)];
+		const attacks = [source.replace(block, ""), source.replace("*(Repo-local note, not from the report.)*\n  Move", "*(From the report.)*\n  Move"), source.replace("when the user decided to keep it as text", "even when the user requires code"), source.replace("when the move would not reduce context usage", "when the move would reduce context usage"), source.replace("when the move would not reduce context usage", "when code would cost more than the protection it adds"), source.replace(row, ""), source.replace(row, row.replace("future work", "completed work")), source.replace(block, `${block}${body}`), source.replace(block, "").replace("### Built-in focus-area authoring", `${block}\n### Built-in focus-area authoring`)];
 		check("doctrine-p14-controls", attacks.every((text) => text !== source && !valid(text)) && published.every((line) => !validBudget(budget.replace(line, ""))), "principle mutations and removal of each published read condition or byte figure fail the exact P14 check");
 	});
 

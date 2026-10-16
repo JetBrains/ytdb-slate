@@ -429,11 +429,11 @@ Explaining or changing Slate can require design-principles.md.
 Unusual routing or compaction can also require design-principles.md.
 Routine dispatch does not require design-principles.md.
 
-The P14 body contains 323 UTF-8 bytes, including the final line feed.
-The heading and body contain 351 bytes.
+The P14 body contains 429 UTF-8 bytes, including the final line feed.
+The heading and body contain 457 bytes.
 The separate principle-table row contains 145 bytes without its final line feed.
-A blank separator before § 5 of design-principles.md adds one byte outside the 351-byte figure.
-The complete design-principles.md document adds 498 bytes for P14.
+A blank separator before § 5 of design-principles.md adds one byte outside the 457-byte figure.
+The complete design-principles.md document adds 604 bytes for P14.
 
 ## Using GPT-5.6's full 1.05M window
 

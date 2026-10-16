@@ -266,7 +266,8 @@ test("P14 preserves exact conditional text, P13, and published byte figures", { 
   const source = readFileSync(DESIGN_PRINCIPLES_DOC, "utf8"), budget = readFileSync(join(process.cwd(), "docs", "context-budget.md"), "utf8");
   const body = "- **P14 — Put workflow steps in code.** *(Repo-local note, not from the report.)*\n"
     + "  Move a workflow step into Slate code when code can perform or check it in a mechanical, deterministic way.\n"
-    + "  A step stays as prompt text when code would cost more than the protection it adds, or when the user decided to keep it as text.\n";
+    + "  The move reduces the prompt text in the orchestrator context, and code performs the step the same way each time.\n"
+    + "  A step stays as prompt text when the move would not reduce context usage, or when the user decided to keep it as text.\n";
   const block = `### Workflow steps in code\n\n${body}`;
   const row = "| P14 mechanical workflow steps | `action-temporary.ts` manages temporary folders. Other existing rules remain future work for a tracked issue. |";
   const valid = (text: string): boolean => {
@@ -276,7 +277,7 @@ test("P14 preserves exact conditional text, P13, and published byte figures", { 
       && text.split(row).length === 2 && text.slice(table).split("\n\n")[1]?.endsWith(row) === true;
   };
   assert.ok(valid(source));
-  assert.deepEqual([Buffer.byteLength(body), Buffer.byteLength(block), Buffer.byteLength(row)], [323, 351, 145]);
+  assert.deepEqual([Buffer.byteLength(body), Buffer.byteLength(block), Buffer.byteLength(row)], [429, 457, 145]);
   const published = [
     "P14 enters neither injected totals nor the always-loaded principle subset.",
     "Read P14 only when reading [design-principles.md](design-principles.md).",
@@ -284,11 +285,11 @@ test("P14 preserves exact conditional text, P13, and published byte figures", { 
     "Explaining or changing Slate can require design-principles.md.",
     "Unusual routing or compaction can also require design-principles.md.",
     "Routine dispatch does not require design-principles.md.",
-    "The P14 body contains 323 UTF-8 bytes, including the final line feed.",
-    "The heading and body contain 351 bytes.",
+    "The P14 body contains 429 UTF-8 bytes, including the final line feed.",
+    "The heading and body contain 457 bytes.",
     "The separate principle-table row contains 145 bytes without its final line feed.",
-    "A blank separator before § 5 of design-principles.md adds one byte outside the 351-byte figure.",
-    "The complete design-principles.md document adds 498 bytes for P14.",
+    "A blank separator before § 5 of design-principles.md adds one byte outside the 457-byte figure.",
+    "The complete design-principles.md document adds 604 bytes for P14.",
   ];
   const validBudget = (text: string): boolean => published.every((line) => text.split(line).length === 2);
   assert.ok(validBudget(budget));
@@ -296,7 +297,7 @@ test("P14 preserves exact conditional text, P13, and published byte figures", { 
   const p13 = source.slice(source.indexOf("- **P13"), source.indexOf("### Workflow steps in code") - 2);
   assert.equal(createHash("sha256").update(p13).digest("hex"), "b04cb0d7429c9e202451af7d3c2f695ea326561e263e6423159d8ee23175f5e7");
   assert.doesNotMatch(await renderDoctrine(), /Put workflow steps in code/);
-  for (const changed of [source.replace(block, ""), source.replace("*(Repo-local note, not from the report.)*\n  Move", "*(From the report.)*\n  Move"), source.replace("when the user decided to keep it as text", "even when the user requires code"), source.replace(row, ""), source.replace(row, row.replace("future work", "completed work")), source.replace(block, `${block}${body}`), source.replace(block, "").replace("### Built-in focus-area authoring", `${block}\n### Built-in focus-area authoring`)]) {
+  for (const changed of [source.replace(block, ""), source.replace("*(Repo-local note, not from the report.)*\n  Move", "*(From the report.)*\n  Move"), source.replace("when the user decided to keep it as text", "even when the user requires code"), source.replace("when the move would not reduce context usage", "when the move would reduce context usage"), source.replace("when the move would not reduce context usage", "when code would cost more than the protection it adds"), source.replace(row, ""), source.replace(row, row.replace("future work", "completed work")), source.replace(block, `${block}${body}`), source.replace(block, "").replace("### Built-in focus-area authoring", `${block}\n### Built-in focus-area authoring`)]) {
     assert.notEqual(changed, source);
     assert.equal(valid(changed), false);
   }
