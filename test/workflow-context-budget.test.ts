@@ -74,10 +74,20 @@ function checkLimit(value: number, limit: number, label: string): void {
 }
 // Reference candidates include inline, reference-style, angle, bare, and absolute paths.
 // Exact line hashes retain reviewed occurrence context without copying prose.
-function references(text: string, origin: string): any[] {
+function references(text: string, origin: string, installedPrefix = directory): any[] {
   const result: any[] = [];
-  for (const line of text.split("\n")) {
-    const candidates = line.replace(/\[([^\]]+)\]\(([^)]+\.md(?:#[^)]*)?)\)/g, "($2)");
+  const normalized = text.split(installedPrefix).join("");
+  const label = (value: string) => value.trim().replace(/\s+/g, " ").toLowerCase();
+  const definitions = new Map([...normalized.matchAll(/^ {0,3}\[([^\]]+)\]:\s*<?([^\s>]+)>?.*$/gm)]
+    .map((m) => [label(m[1]!), m[2]!]));
+  for (const line of normalized.split("\n")) {
+    const inline = line.replace(/\[([^\]]+)\]\(([^)]+\.md(?:#[^)]*)?)\)/g, "($2)");
+    const candidates = /^ {0,3}\[[^\]]+\]:/.test(line) ? inline : inline.replace(
+      /\[([^\]]+)\](?:\[([^\]]*)\])?/g,
+      (use, text: string, alias: string | undefined) => {
+        const target = definitions.get(label(alias || text));
+        return target ? `(${target})` : use;
+      });
     const found = [...candidates.matchAll(/(?:[\w./<>`*{}-]+\/)?[\w*{}-]+\.md\b/g)];
     for (const match of found) {
       const raw = match[0].replace(/^[<`]+/, "");
@@ -85,7 +95,7 @@ function references(text: string, origin: string): any[] {
       if (raw.startsWith(directory)) target = relative(directory, raw);
       else if (raw.startsWith("/") || /[*{}]|slate-changes\//.test(raw) || /(?:research-log|implementer-report|design|vN|observation)\.md$/.test(raw)) target = `variable:${raw}`;
       else target = relative(directory, resolve(origin.startsWith("doctrine") ? directory : dirname(join(directory, origin)), raw));
-      result.push({ source: origin, target, context: createHash("sha256").update(line.split(directory).join("")).digest("hex") });
+      result.push({ source: origin, target, context: createHash("sha256").update(line).digest("hex") });
     }
   }
   return result;
@@ -103,7 +113,21 @@ function coverage(actual: any[], roster = occurrences): void {
     assert.ok(item.reason || (item.recipient === "orchestrator" && item.condition && item.phase >= 1 && item.phase <= 9), `missing classification ${JSON.stringify(item)}`);
     if (!item.reason) assert.ok(reads.some((r: Read) => exported[r[0]] === join(directory, item.target) && r[1] === item.phase && r[2] === item.condition));
   }
+  for (const [id, phase, condition, recipient] of reads as Read[]) assert.ok(roster.some((r: any) =>
+    !r.reason && join(directory, r.target) === exported[id] && r.phase === phase && r.condition === condition && r.recipient === recipient),
+    `unbacked read ${id} phase ${phase} condition ${condition}`);
   for (const [from, to] of dependencies) assert.ok(roster.some((r: any) => r.source === relative(directory, exported[from]!) && r.target === relative(directory, exported[to]!) && !r.reason), `unclassified dependency ${from} -> ${to}`);
+}
+const expectedKeys = phases.flatMap((_: string, i: number) => scenarios.map((scenario: string) => `${i + 1} ${scenario}`));
+function validateLimitKeys(values: Record<string, number[]>): void {
+  assert.equal(expectedKeys.length, 36);
+  assert.equal(new Set(expectedKeys).size, 36);
+  assert.deepEqual(Object.keys(values).sort(), [...expectedKeys].sort(), "limit key set");
+}
+function validatePublication(text: string, expected: string): void {
+  const blocks = [...text.matchAll(/<!-- workflow-phase:start -->[\s\S]*?<!-- workflow-phase:end -->/g)];
+  assert.equal(blocks.length, 1, "publication block count");
+  assert.equal(blocks[0]![0], expected, "publication content");
 }
 function table(rows: string[], costs: string[]): string {
   return ["<!-- workflow-phase:start -->", "## Workflow context by phase", "",
@@ -117,7 +141,7 @@ function table(rows: string[], costs: string[]): string {
     "routing recommendations are off. Ordinary plans have no nested trigger.",
     "Nested plans read the recursive workflow during research. Publishing adds",
     "the publishing document during research. These are allowed compositions,",
-    "not maximum configurations. The nine rows follow the lifecycle order.", "",
+    "not maximum configurations. The 36 rows follow the lifecycle order, with four scenarios for each phase.", "",
     "UTF-8 means Unicode Transformation Format, 8-bit. Bytes use UTF-8 source text.",
     "Only the installed documentation-directory prefix is removed from doctrine.",
     "Filenames and all other text remain. Estimated tokens equal ceil(bytes / 4)",
@@ -160,7 +184,8 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
   }
   const doctrines = await Promise.all([render(false), render(true)]);
   doctrines.forEach((text, i) => { sources[`doctrine-${i}`] = text; });
-  const rows: string[] = [], measured: any[] = [];
+  validateLimitKeys(limits);
+  const rows: string[] = [], measured: any[] = [], emittedKeys: string[] = [];
   for (let phase = 1; phase <= 9; phase++) for (const scenario of scenarios) {
     const [publishing, nesting] = scenario.split(" ");
     const required = (reads as Read[]).filter((r) => r[1] <= phase && (r[2] === "always" || r[2] === "nested" && nesting === "nested" || r[2] === "publishing" && publishing === "on"));
@@ -177,12 +202,12 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
     const requiredBytes = doctrine + total(required), maximumBytes = doctrine + total(maximum);
     const key = `${phase} ${scenario}`, pair = limits[key];
     measured.push({ key, requiredBytes, maximumBytes, proposed: [Math.ceil(requiredBytes * 1.05), Math.ceil(maximumBytes * 1.05)] });
-    if (pair) {
-      const label = `${key} sources ${required.map((r) => `${r[0]}:${r[4].join(",") || "whole"}`).join(" ")}`;
-      checkLimit(requiredBytes, pair[0], label);
-      checkLimit(maximumBytes, pair[1], `${key} maximum sources ${maximum.map((r) => r[0]).join(" ")}`);
-      rows.push(`| ${phase}. ${phases[phase - 1]} | ${publishing} | ${nesting} | ${requiredBytes} | ${tokens(requiredBytes)} | ${pair[0]} | ${tokens(pair[0])} | ${maximumBytes} | ${tokens(maximumBytes)} | ${pair[1]} | ${tokens(pair[1])} |`);
-    }
+    assert.ok(pair, `missing limit pair ${key}`);
+    const label = `${key} sources ${required.map((r) => `${r[0]}:${r[4].join(",") || "whole"}`).join(" ")}`;
+    checkLimit(requiredBytes, pair[0], label);
+    checkLimit(maximumBytes, pair[1], `${key} maximum sources ${maximum.map((r) => r[0]).join(" ")}`);
+    rows.push(`| ${phase}. ${phases[phase - 1]} | ${publishing} | ${nesting} | ${requiredBytes} | ${tokens(requiredBytes)} | ${pair[0]} | ${tokens(pair[0])} | ${maximumBytes} | ${tokens(maximumBytes)} | ${pair[1]} | ${tokens(pair[1])} |`);
+    emittedKeys.push(key);
     assert.ok(required.every((r) => maximum.includes(r)), key);
     for (const optional of maximum) assert.ok(total([...required, optional]) <= total(maximum), key);
   }
@@ -195,13 +220,34 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
   const publication = table(rows, costs);
   if (process.env.SLATE_PHASE_INSPECT === "1") console.log(JSON.stringify({ measured, references: scan(sources), publication, excluded, costs }));
   assert.equal(Object.keys(limits).length, 36);
+  assert.equal(rows.length, 36);
+  assert.equal(new Set(emittedKeys).size, 36);
+  assert.deepEqual(emittedKeys, expectedKeys);
+  const renamed = { ...limits, "unknown scenario": limits[expectedKeys[0]!] };
+  delete renamed[expectedKeys[0]!];
+  assert.throws(() => validateLimitKeys(renamed), /limit key set/);
   coverage(scan(sources));
   const published = source("CONTEXT_BUDGET_DOC");
-  const blocks = [...published.matchAll(/<!-- workflow-phase:start -->[\s\S]*?<!-- workflow-phase:end -->/g)];
-  assert.equal(blocks.length, 1);
-  assert.equal(blocks[0]![0], publication);
-  for (const mutated of [publication.replace(/\| \d+ \|/, "| 0 |"), publication.replace("Research", "Unknown"), publication.replace(rows[0]!, ""), publication.replace(rows[0]!, `${rows[0]}\n${rows[0]}`), publication.replace(costs[0]!, "| Rationale | 0 | 0 |")]) assert.notEqual(mutated, publication);
+  validatePublication(published, publication);
+  for (const mutated of [publication.replace(/\| \d+ \|/, "| 0 |"), publication.replace("| 18061 |", "| 18062 |"), publication.replace("Research", "Unknown"), publication.replace(rows[0]!, ""), publication.replace(rows[0]!, `${rows[0]}\n${rows[0]}`), publication.replace(costs[0]!, "| Rationale | 0 | 0 |"), "", `${publication}\n${publication}`]) assert.throws(() => validatePublication(mutated, publication), /publication/);
   for (const origin of ["doctrine-0", "review-rules.md", "user-notes.md"]) for (const added of ["Read new-duty.md.", "Read [x](new-duty.md).", "Read [x][alias].\n[alias]: new-duty.md", `Read <${paths.MODEL_ROUTING_DOC}>.`]) assert.throws(() => coverage(scan({ ...sources, [origin]: `${sources[origin]}\n${added}` })), /unknown reference/);
+  for (const use of ["[guide]", "[guide][guide]", "[guide][]", "[x][alias]"]) {
+    const origin = "review-rules.md", definition = "\n[guide]: track-workflow.md\n[alias]: track-workflow.md";
+    const first = { ...sources, [origin]: `${sources[origin]}\nRead ${use} now.${definition}` };
+    const firstScan = scan(first);
+    const baselineKeys = new Set(scan(sources).map((r) => JSON.stringify(r)));
+    const controlRoster = [...occurrences, ...firstScan.filter((r) => !baselineKeys.has(JSON.stringify(r))).map((r) => ({ ...r, count: 1, reason: "Control reference." }))];
+    coverage(firstScan, controlRoster);
+    const second = { ...first, [origin]: `${first[origin]}\nRead ${use} before continuing.` };
+    assert.throws(() => coverage(scan(second), controlRoster), /unknown reference/);
+    assert.equal(references(`Read ${use}.\n${definition}`, origin).length, 3);
+  }
+  const spacedPrefix = "/tmp/slate checkout/docs/";
+  assert.deepEqual(references(`Read <${spacedPrefix}track-workflow.md>.`, "doctrine-0", spacedPrefix), references(`Read <${directory}track-workflow.md>.`, "doctrine-0"));
+  for (const condition of ["ordinary split proposal", "early note or owner triage"]) {
+    const withoutBacking = occurrences.map((r: any) => r.condition === condition ? { ...r, reason: "Control exclusion." } : r);
+    assert.throws(() => coverage(scan(sources), withoutBacking), /unbacked read/);
+  }
   assert.throws(() => coverage(scan(sources), [...occurrences, occurrences[0]]), /duplicate classification/);
   assert.throws(() => coverage(scan(sources), occurrences.slice(1)), /unknown reference/);
   const missing = { ...exported }; delete missing.TRACK_WORKFLOW_DOC;

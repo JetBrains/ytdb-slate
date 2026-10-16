@@ -516,7 +516,7 @@ change with a 56-character name. It has no source change. Deferred issues and
 routing recommendations are off. Ordinary plans have no nested trigger.
 Nested plans read the recursive workflow during research. Publishing adds
 the publishing document during research. These are allowed compositions,
-not maximum configurations. The nine rows follow the lifecycle order.
+not maximum configurations. The 36 rows follow the lifecycle order, with four scenarios for each phase.
 
 UTF-8 means Unicode Transformation Format, 8-bit. Bytes use UTF-8 source text.
 Only the installed documentation-directory prefix is removed from doctrine.
