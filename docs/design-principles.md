@@ -185,7 +185,8 @@ required reviews, ordered gates, user authority, or final acceptance.
 
 - **P14 — Put workflow steps in code.** *(Repo-local note, not from the report.)*
   Move a workflow step into Slate code when code can perform or check it in a mechanical, deterministic way.
-  A step stays as prompt text when code would cost more than the protection it adds, or when the user decided to keep it as text.
+  The move reduces the prompt text in the orchestrator context, and code performs the step the same way each time.
+  A step stays as prompt text when the move would not reduce context usage, or when the user decided to keep it as text.
 
 ## 5. Where each principle lives in the code
 
