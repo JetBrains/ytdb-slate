@@ -1,10 +1,12 @@
 # Common change records
 
-A change record is a research log, status file, implementer report, or design file.
-This document contains copies of common change rules.
-[recursive-workflow.md](recursive-workflow.md) owns the rules in these sections.
-References to "this document" in the copied sections mean that document.
+For record writing, a **change record** is a research log, status file, implementer report, or design file.
+[change-records.md](change-records.md) owns the common record rules below.
+[recursive-workflow.md](recursive-workflow.md) owns nested-track rules.
 Use [track-workflow.md](track-workflow.md) § Recursive planning and loading for document loading.
+
+[writing-guidance.md](writing-guidance.md) separately defines change records for the writing convention.
+That definition covers pull request descriptions, delivery commit bodies, release notes, and issues.
 
 ## Identifiers, code ranges, and design markers
 
@@ -65,7 +67,7 @@ A cell grants no round.
 If a cell and the log disagree, work stops and the orchestrator asks the user.
 No automatic correction lowers a count.
 A change without a design track or review-fix child has no `status.md`.
-A user-chosen split in such a change creates review-fix children, loads this document, and creates `status.md`.
+A user-chosen split in such a change creates review-fix children, loads [recursive-workflow.md](recursive-workflow.md), and creates `status.md`.
 Create `track-<number>-research-log.md` when entering a design track.
 Here `<number>` is the canonical path number defined above.
 Each log owns its subtree's decisions and accepted history bindings.

@@ -158,8 +158,8 @@ Obtain each new track's required approvals before implementation.
 The exception changes neither review requirements nor repair budgets.
 Track numbers remain stable and are never reused.
 
-Every change reads § Identifiers, code ranges, and design markers and § Manual records and safe writes in [recursive-workflow.md](recursive-workflow.md).
-Load its other sections when the current or proposed plan contains a design track or review-fix child track.
+Every change reads [change-records.md](change-records.md) § Identifiers, code ranges, and design markers and § Manual records and safe writes.
+Load [recursive-workflow.md](recursive-workflow.md) when the current or proposed plan contains a design track or review-fix child track.
 A review-fix child track repairs outstanding work under a user-approved split.
 Check the loading condition during planning and again during resume reconciliation.
 Load the document before proposing a review-fix split.
@@ -349,7 +349,7 @@ before investigation starts.
 Record the trigger, proposed scope, user corrections, approved scope, findings,
 evidence, limits, holistic solution, verification plan, and decision as typed
 entries in the affected code track's owning research log.
-Use [recursive-workflow.md](recursive-workflow.md) § Manual records and safe writes for record ownership.
+Use [change-records.md](change-records.md) § Manual records and safe writes for record ownership.
 The investigation must distinguish a symptom
 repair from closure of the full approved requirement. After investigation,
 present a holistic solution for the full requirement and wait for a separate
@@ -554,7 +554,7 @@ data into the log. Record a privacy exception as a typed ruling. State what was
 omitted and why.
 
 Use a safe write method. Follow the direct-write and retry rules for change records, including implementer reports.
-Use [recursive-workflow.md](recursive-workflow.md) § Manual records and safe writes
+Use [change-records.md](change-records.md) § Manual records and safe writes
 for write methods, record checks, and inspection before retries.
 Research logs and implementer reports are append-only.
 A correction is a new entry.
@@ -690,7 +690,7 @@ A code track contributes one cumulative implementation commit and zero or more
 user-review fix commits. It also contributes zero or more correction commits,
 as defined later in [track-workflow.md](track-workflow.md) § Delivery and
 termination. Each code track in a multi-track change also contributes one marker
-commit. For design markers, use [recursive-workflow.md](recursive-workflow.md)
+commit. For design markers, use [change-records.md](change-records.md)
 § Identifiers, code ranges, and design markers. During machine review, the implementer commits fixes separately so a
 gate thread can inspect each fix difference. Before user review, squash the
 original implementation commit and every agentic-review fix commit into the cumulative
@@ -761,7 +761,7 @@ track N is the range after marker N-1 through marker N.
 Do not rename those markers or rewrite their history.
 Marker commits remain the boundary authority.
 For current code ranges and design markers, use
-[recursive-workflow.md](recursive-workflow.md) § Identifiers, code ranges, and design markers.
+[change-records.md](change-records.md) § Identifiers, code ranges, and design markers.
 A single-track change has no marker.
 <!-- marker-identity-policy:end -->
 
