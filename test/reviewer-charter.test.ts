@@ -22,6 +22,7 @@ const { ThreadManager } = await import("../extension/threads.ts");
 const {
   REVIEWER_CHARTER,
   workerPreamble,
+  changeGuidance,
   WORKER_PREAMBLE,
   WORKER_WRITING_GUIDANCE,
 } = await import("../extension/worker.ts");
@@ -195,7 +196,7 @@ test("public dispatch delivers selected guidance to the worker loader and leaves
       const expected = selected === undefined ? undefined : [common, input, ...selected.map((name) =>
         readFileSync(REVIEW_PERSPECTIVES.find((role) => role.name === name)!.file, "utf8").trim(),
       )].join("\n\n");
-      assert.deepEqual(blocks, expected === undefined ? [workerPreamble(true, true)] : [workerPreamble(true, true), expected]);
+      assert.deepEqual(blocks, [workerPreamble(true, true), changeGuidance(undefined, true), ...(expected === undefined ? [] : [expected])]);
       assert.equal((blocks?.[0]?.split(REVIEWER_CHARTER).length ?? 0) - 1, 1);
       if (selected === undefined) assert.doesNotMatch(blocks?.join("\n") ?? "", /Implementation design quality|Design-quality questions/);
       if (selected !== undefined && expected !== undefined) {

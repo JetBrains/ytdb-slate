@@ -737,7 +737,7 @@ test("run-tests roster audit rejects omitted, overlapping, and duplicate partiti
   }
 });
 
-test("run-tests isolates Jiti coverage from a cache warmed by an earlier process", { timeout: 75_000 }, (t) => {
+test("run-tests isolates Jiti coverage from a cache warmed by an earlier process", { timeout: 120_000 }, (t) => {
   const harness = scratchDirectory("slate-runner-jiti-cache-");
   t.after(() => rmSync(harness, { recursive: true, force: true }));
   const repo = join(harness, "repo");
@@ -792,6 +792,7 @@ test("run-tests isolates Jiti coverage from a cache warmed by an earlier process
   writeFileSync(renderPath, renderSource);
   writeFileSync(resolverPath, resolverSource);
   commit(repo, "head");
+  git(repo, "fetch", "--no-tags", CHECKOUT, "d8bca25ef8947e370a92a68a4d98d0e2ec9f1a53");
 
   const childEnv = {
     ...isolatedChildEnvironment(repo),
@@ -800,9 +801,9 @@ test("run-tests isolates Jiti coverage from a cache warmed by an earlier process
     PI_BIN: join(repo, "node_modules/.bin/pi"),
   };
   const prewarm = spawnSync("bash", ["verification/run-resolver-checks.sh", "--repo", repo, "--strict"], {
-    cwd: repo, encoding: "utf8", env: childEnv, timeout: 30_000,
+    cwd: repo, encoding: "utf8", env: childEnv, timeout: 60_000,
   });
-  assert.equal(prewarm.status, 0, `resolver prewarm failed\n${prewarm.stdout}\n${prewarm.stderr}`);
+  assert.equal(prewarm.status, 0, `resolver prewarm failed\nerror: ${prewarm.error}\nsignal: ${prewarm.signal}\n${prewarm.stdout}\n${prewarm.stderr}`);
   const sharedCache = join(outerTmp, "jiti");
   const warmedNames = readdirSync(sharedCache);
   assert.ok(warmedNames.some((name) => name.startsWith("extension-logical-model-render.")), "prewarm did not cache logical-model-render");

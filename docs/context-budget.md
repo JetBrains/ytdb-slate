@@ -198,27 +198,27 @@ characters. Tool names use 64 characters. Descriptions use 140 characters.
 | fixture | paths | portable characters | lines |
 | --- | ---: | ---: | ---: |
 | shipped logical section | 0 | 3,596 | 11 |
-| trusted shipped-default doctrine | 5 | 8,461 | 81 |
-| untrusted doctrine without a home configuration file | 4 | 2,768 | 40 |
-| draft pull requests, shipped policy | 6 | 8,529 | 82 |
-| capped workers, shipped policy | 5 | 9,808 | 91 |
-| draft plus capped workers | 6 | 9,876 | 92 |
-| deferred issues plus capped workers | 5 | 9,882 | 92 |
-| routing recommendations plus capped workers | 5 | 9,905 | 92 |
-| draft plus deferred issues and capped workers | 6 | 9,950 | 93 |
-| draft plus routing recommendations and capped workers | 6 | 9,969 | 93 |
-| deferred issues plus routing recommendations and capped workers | 5 | 9,979 | 93 |
-| canonical maximal baseline with all workflow options | 6 | 10,043 | 94 |
-| maximal baseline with an open change | 6 | 10,241 | 95 |
-| maximal baseline with source and legacy root log | 6 | 10,471 | 97 |
-| dogfood `.pi/slate.json` and its two extension units | 6 | 9,168 | 93 |
-| runtime boundary plus draft and capped workers, source and legacy log | 6 | 26,108 | 95 |
-| runtime boundary plus draft and deferred issues, source and legacy log | 6 | 26,182 | 96 |
-| runtime boundary plus routing recommendations, source and legacy log | 5 | 26,137 | 95 |
-| runtime boundary plus deferred issues and routing recommendations, source and legacy log | 5 | 26,211 | 96 |
-| runtime boundary plus draft and routing recommendations, source and legacy log | 6 | 26,201 | 96 |
-| same boundary composition plus deferred issues | 6 | 26,275 | 97 |
-| valid shipped policy plus 88 capped worker tools, source and legacy log | 6 | 28,145 | 180 |
+| trusted shipped-default doctrine | 5 | 8,461 | 74 |
+| untrusted doctrine without a home configuration file | 4 | 2,768 | 33 |
+| draft pull requests, shipped policy | 6 | 8,529 | 75 |
+| capped workers, shipped policy | 5 | 9,808 | 84 |
+| draft plus capped workers | 6 | 9,876 | 85 |
+| deferred issues plus capped workers | 5 | 9,882 | 85 |
+| routing recommendations plus capped workers | 5 | 9,905 | 85 |
+| draft plus deferred issues and capped workers | 6 | 9,950 | 86 |
+| draft plus routing recommendations and capped workers | 6 | 9,969 | 86 |
+| deferred issues plus routing recommendations and capped workers | 5 | 9,979 | 86 |
+| canonical maximal baseline with all workflow options | 6 | 10,043 | 87 |
+| maximal baseline with an open change | 6 | 10,241 | 88 |
+| maximal baseline with source and legacy root log | 6 | 10,471 | 90 |
+| dogfood `.pi/slate.json` and its two extension units | 6 | 9,168 | 86 |
+| runtime boundary plus draft and capped workers, source and legacy log | 6 | 26,108 | 88 |
+| runtime boundary plus draft and deferred issues, source and legacy log | 6 | 26,182 | 89 |
+| runtime boundary plus routing recommendations, source and legacy log | 5 | 26,137 | 88 |
+| runtime boundary plus deferred issues and routing recommendations, source and legacy log | 5 | 26,211 | 89 |
+| runtime boundary plus draft and routing recommendations, source and legacy log | 6 | 26,201 | 89 |
+| same boundary composition plus deferred issues | 6 | 26,275 | 90 |
+| valid shipped policy plus 88 capped worker tools, source and legacy log | 6 | 28,145 | 173 |
 
 An untrusted session with an empty home `slate.json` receives the same doctrine
 as the trusted shipped-default fixture above. It includes routing and writing
@@ -281,6 +281,42 @@ needs one separating newline. The current text uses UTF-8 punctuation, so byte
 and character counts can differ.
 This separate figure states the worker-session cost without presenting
 it as orchestrator doctrine.
+
+### Change-folder guidance
+
+Each admitted action adds one change-level system block after the preamble.
+Record-writing types share one block. Review types share another.
+The canonical change name uses a date stamp and 32 lowercase hexadecimal characters.
+Its action path adds `/tmp/action.` and six allocator characters.
+
+| Canonical addition | Block bytes | Separator bytes | Complete bytes | Limit |
+| --- | ---: | ---: | ---: | ---: |
+| Open-change record-writing system | 797 | 2 | 799 | 800 |
+| Open-change review system | 311 | 2 | 313 | 350 |
+| No-change record-writing system | 149 | 2 | 151 | 180 |
+| No-change review system | 293 | 2 | 295 | 300 |
+| Open-change hidden action message | 162 | 0 | 162 | 180 |
+| No-change hidden action message | 0 | 0 | 0 | 0 |
+
+The message includes both final line feeds. System blocks have no final line feed.
+Open-change record-writing system totals are 1,343 or 1,896 bytes without or with writing guidance.
+Open-change review system totals are 3,012 or 3,565 bytes without or with writing guidance.
+These totals exclude selected review guidance, prompt documents, base Pi text, and provider framing.
+
+The parent-session cache key stays unchanged.
+System blocks vary by change and type group, never by action.
+Otherwise matching inputs share a system prefix within that group and change.
+Across changes, the shared prefix ends before the changed folder name.
+
+Slate delivers the action path only in its generated hidden action message.
+Compression input excludes that message.
+Slate keeps the path out of system guidance and generated episode fields.
+Worker messages, tool results, and compaction summaries can still quote the path.
+Compaction preserves the change-level system block but can lose the hidden action message.
+A worker without that path pauses destination-dependent writes.
+
+Scratch placement excepts required outside-checkout tool folders under their own rules.
+The record-writing block includes that exception within its 800-byte limit.
 
 ### Implementer task guidance
 
@@ -359,18 +395,22 @@ selected file once and does not repeat the shared files.
 
 | selected perspective | rendered injected bytes | path-normalized injected bytes |
 | --- | ---: | ---: |
-| Reviewer I | 8,575 | 8,452 |
-| Concurrency reviewer | 7,329 | 7,206 |
-| Data loss and recovery reviewer | 7,524 | 7,401 |
-| Security reviewer | 7,471 | 7,348 |
-| Performance reviewer | 7,526 | 7,403 |
-| Test-quality and structure reviewer | 8,780 | 8,657 |
-| Prose reviewer | 7,738 | 7,615 |
-| Licensing reviewer | 7,469 | 7,346 |
-| Non-local logic defect reviewer | 8,466 | 8,343 |
-| Consumer contract break reviewer | 8,750 | 8,627 |
-| Governing-rule defect reviewer | 8,859 | 8,736 |
-| Unreported failure reviewer | 8,391 | 8,268 |
+| Reviewer I | 8,664 | 8,541 |
+| Concurrency reviewer | 7,418 | 7,295 |
+| Data loss and recovery reviewer | 7,613 | 7,490 |
+| Security reviewer | 7,560 | 7,437 |
+| Performance reviewer | 7,615 | 7,492 |
+| Test-quality and structure reviewer | 8,869 | 8,746 |
+| Prose reviewer | 7,827 | 7,704 |
+| Licensing reviewer | 7,558 | 7,435 |
+| Non-local logic defect reviewer | 8,555 | 8,432 |
+| Consumer contract break reviewer | 8,839 | 8,716 |
+| Governing-rule defect reviewer | 8,948 | 8,825 |
+| Unreported failure reviewer | 8,480 | 8,357 |
+
+The rendered column uses installed directory prefixes totaling 123 UTF-8 bytes.
+Prefixes totaling 145 bytes add 22 bytes to each rendered row. Portable counts stay unchanged.
+These totals exclude the separate change-level review block and hidden action message.
 
 The focused-reference figure measures one reference copy in one implementation
 dispatch. It excludes the research log and every other task input. Worker history
@@ -381,6 +421,19 @@ P13 author guideline body contains 2,292 UTF-8 bytes. Its subsection heading
 and following blank line add 35 bytes. The heading and body together contain
 2,327 bytes. Its separate principle-table row contains 201 bytes. Neither enters injected totals or the always-loaded
 principle subset.
+
+P14 enters neither injected totals nor the always-loaded principle subset.
+Read P14 only when reading [design-principles.md](design-principles.md).
+Design-track planning alone does not require design-principles.md.
+Explaining or changing Slate can require design-principles.md.
+Unusual routing or compaction can also require design-principles.md.
+Routine dispatch does not require design-principles.md.
+
+The P14 body contains 429 UTF-8 bytes, including the final line feed.
+The heading and body contain 457 bytes.
+The separate principle-table row contains 145 bytes without its final line feed.
+A blank separator before § 5 of design-principles.md adds one byte outside the 457-byte figure.
+The complete design-principles.md document adds 604 bytes for P14.
 
 ## Using GPT-5.6's full 1.05M window
 
@@ -447,3 +500,97 @@ against that registry but does not compare it with a second profile window.
   A larger worker-extension roster also adds context beyond the representative
   fixtures. Slate imposes no runtime doctrine-size limit. This content simply
   leaves less room under the context budget.
+
+
+<!-- workflow-phase:start -->
+## Workflow context by phase
+
+The doctrine is the workflow guidance rendered for the orchestrator. Each row
+adds cumulative required document reads to that guidance. Earlier reads stay
+in later rows. A later whole-file read replaces section ranges. Overlapping
+ranges count once. Section ranges include headings, subsections, separators,
+and final line feeds up to the next heading of the same or higher level. These rows describe one session from research to delivery. A change with more than one track hands off before each track, and the user runs each handoff. A session after a handoff holds less context than the rows for phases 7 to 9.
+
+Each fixture uses trusted shipped policy, no worker extensions, and one open
+change with a 56-character name. It has no source change. Deferred issues and
+routing recommendations are off. Ordinary plans have no nested trigger.
+Nested plans read the recursive workflow during research. Publishing adds
+the publishing document during research. These are allowed compositions,
+not maximum configurations. The 36 rows follow the lifecycle order, with four scenarios for each phase.
+
+UTF-8 means Unicode Transformation Format, 8-bit. Bytes use UTF-8 source text.
+Only the installed documentation-directory prefix is removed from doctrine.
+Filenames and all other text remain. Estimated tokens equal ceil(bytes / 4)
+for each complete total. This estimate is not a tokenizer result.
+The excluded installed path cost is 5 times the prefix byte length with
+publishing off and 6 times that length with publishing on. Tests measure
+this cost separately. It depends on the installation path.
+
+The user approved these limits on 2026-10-16. Each initial byte limit
+is ceil(baseline bytes * 1.05). Tests enforce total <= stored literal limit.
+The token limit is ceil(byte limit / 4). Reserve is checked at approval,
+not recalculated as text grows. A maximum includes all applicable optional
+reads. Any subset fits because removing ranges cannot increase union size.
+
+| Phase | Publishing | Plan | Required bytes | Estimated tokens | Byte limit | Token limit | Conditional maximum bytes | Estimated tokens | Byte limit | Token limit |
+| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1. Research | off | ordinary | 72243 | 18061 | 75856 | 18964 | 139211 | 34803 | 144492 | 36123 |
+| 1. Research | off | nested | 122987 | 30747 | 129137 | 32285 | 189955 | 47489 | 197773 | 49444 |
+| 1. Research | on | ordinary | 88285 | 22072 | 92700 | 23175 | 155253 | 38814 | 161336 | 40334 |
+| 1. Research | on | nested | 139029 | 34758 | 145981 | 36496 | 205997 | 51500 | 214617 | 53655 |
+| 2. Risk approval | off | ordinary | 108953 | 27239 | 114401 | 28601 | 175921 | 43981 | 183038 | 45760 |
+| 2. Risk approval | off | nested | 159697 | 39925 | 167682 | 41921 | 226665 | 56667 | 236319 | 59080 |
+| 2. Risk approval | on | ordinary | 124995 | 31249 | 131245 | 32812 | 191963 | 47991 | 199882 | 49971 |
+| 2. Risk approval | on | nested | 175739 | 43935 | 184526 | 46132 | 242707 | 60677 | 253163 | 63291 |
+| 3. Design validation | off | ordinary | 108953 | 27239 | 114401 | 28601 | 175921 | 43981 | 183038 | 45760 |
+| 3. Design validation | off | nested | 159697 | 39925 | 167682 | 41921 | 226665 | 56667 | 236319 | 59080 |
+| 3. Design validation | on | ordinary | 124995 | 31249 | 131245 | 32812 | 191963 | 47991 | 199882 | 49971 |
+| 3. Design validation | on | nested | 175739 | 43935 | 184526 | 46132 | 242707 | 60677 | 253163 | 63291 |
+| 4. Focus reconfirmation | off | ordinary | 108953 | 27239 | 114401 | 28601 | 175921 | 43981 | 183038 | 45760 |
+| 4. Focus reconfirmation | off | nested | 159697 | 39925 | 167682 | 41921 | 226665 | 56667 | 236319 | 59080 |
+| 4. Focus reconfirmation | on | ordinary | 124995 | 31249 | 131245 | 32812 | 191963 | 47991 | 199882 | 49971 |
+| 4. Focus reconfirmation | on | nested | 175739 | 43935 | 184526 | 46132 | 242707 | 60677 | 253163 | 63291 |
+| 5. Adversarial design review | off | ordinary | 132145 | 33037 | 138753 | 34689 | 226897 | 56725 | 236562 | 59141 |
+| 5. Adversarial design review | off | nested | 182889 | 45723 | 192034 | 48009 | 277641 | 69411 | 289844 | 72461 |
+| 5. Adversarial design review | on | ordinary | 148187 | 37047 | 155597 | 38900 | 242939 | 60735 | 253406 | 63352 |
+| 5. Adversarial design review | on | nested | 198931 | 49733 | 208878 | 52220 | 293683 | 73421 | 306688 | 76672 |
+| 6. Final design approval | off | ordinary | 132145 | 33037 | 138753 | 34689 | 226897 | 56725 | 236562 | 59141 |
+| 6. Final design approval | off | nested | 182889 | 45723 | 192034 | 48009 | 277641 | 69411 | 289844 | 72461 |
+| 6. Final design approval | on | ordinary | 148187 | 37047 | 155597 | 38900 | 242939 | 60735 | 253406 | 63352 |
+| 6. Final design approval | on | nested | 198931 | 49733 | 208878 | 52220 | 293683 | 73421 | 306688 | 76672 |
+| 7. Track loop | off | ordinary | 155603 | 38901 | 163384 | 40846 | 290099 | 72525 | 302924 | 75731 |
+| 7. Track loop | off | nested | 206347 | 51587 | 216665 | 54167 | 290099 | 72525 | 302924 | 75731 |
+| 7. Track loop | on | ordinary | 171645 | 42912 | 180228 | 45057 | 306141 | 76536 | 319769 | 79943 |
+| 7. Track loop | on | nested | 222389 | 55598 | 233509 | 58378 | 306141 | 76536 | 319769 | 79943 |
+| 8. Final acceptance | off | ordinary | 155603 | 38901 | 163384 | 40846 | 290099 | 72525 | 302924 | 75731 |
+| 8. Final acceptance | off | nested | 206347 | 51587 | 216665 | 54167 | 290099 | 72525 | 302924 | 75731 |
+| 8. Final acceptance | on | ordinary | 171645 | 42912 | 180228 | 45057 | 306141 | 76536 | 319769 | 79943 |
+| 8. Final acceptance | on | nested | 222389 | 55598 | 233509 | 58378 | 306141 | 76536 | 319769 | 79943 |
+| 9. Delivery | off | ordinary | 155603 | 38901 | 163384 | 40846 | 290099 | 72525 | 302924 | 75731 |
+| 9. Delivery | off | nested | 206347 | 51587 | 216665 | 54167 | 290099 | 72525 | 302924 | 75731 |
+| 9. Delivery | on | ordinary | 171645 | 42912 | 180228 | 45057 | 306141 | 76536 | 319769 | 79943 |
+| 9. Delivery | on | nested | 222389 | 55598 | 233509 | 58378 | 306141 | 76536 | 319769 | 79943 |
+
+Conditional sets have the following whole-document costs. Early notes cost
+zero extra after required notes enter phase 7. Unusual prose costs zero extra
+when manual review already includes writing guidance. Nested plans already
+include the recursive workflow. Ordinary plans add it to their maximum from
+phase 7 before a split proposal. Manual review includes common policy, writing
+guidance, and all twelve charters from phase 5. Built-in review loads its
+implementation input for workers only. It adds no orchestrator read.
+
+| Conditional set | Bytes | Estimated tokens |
+| --- | ---: | ---: |
+| Rationale | 27892 | 6973 |
+| Unusual prose | 28076 | 7019 |
+| Early notes | 11000 | 2750 |
+| Ordinary split | 50744 | 12686 |
+| Manual review | 55860 | 13965 |
+
+Private evidence, designs, reports, source chains, project additions, configured
+prompt documents, provider framing, tools, results, message wrappers, repeated
+reads, and the incoming system prompt are excluded. These variable costs can
+exceed every total. Compaction can reduce retained text but not this metric.
+The reference scanner checks filenames and reviewed contexts, not read semantics.
+A reviewer checks recipients, conditions, dependencies, and first-read phases.
+<!-- workflow-phase:end -->

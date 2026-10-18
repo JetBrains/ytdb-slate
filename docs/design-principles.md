@@ -181,6 +181,13 @@ required reviews, ordered gates, user authority, or final acceptance.
   8. Update the code list of review perspectives, finding prefix, both focus-area tables, class list, structure and agreement checks, and published size figure. Keep all of them consistent.
   9. Put a project-only rule in a project-added charter through `reviewPerspectivesPath`, not a built-in area.
 
+### Workflow steps in code
+
+- **P14 — Put workflow steps in code.** *(Repo-local note, not from the report.)*
+  Move a workflow step into Slate code when code can perform or check it in a mechanical, deterministic way.
+  The move reduces the prompt text in the orchestrator context, and code performs the step the same way each time.
+  A step stays as prompt text when the move would not reduce context usage, or when the user decided to keep it as text.
+
 ## 5. Where each principle lives in the code
 
 | Principle | Implementation |
@@ -198,6 +205,7 @@ required reviews, ordered gates, user authority, or final acceptance.
 | P11 proportional process | The shipped workflow documents apply it to gates, artifacts, and review actions. It has no code home. |
 | P12 reader understanding | `writing-check.mjs` reports sentence-length findings. The writing guidance and review rules apply it to project prose. |
 | P13 risk-based focus-area authorship | no runtime code home for author research or approval. Focus definitions, reviewer content, the code roster, and structure and agreement checks apply the rule. |
+| P14 mechanical workflow steps | `action-temporary.ts` manages temporary folders. Other existing rules remain future work for a tracked issue. |
 
 Repo-local note (not from the report): `maxConcurrent` defaults to 4.
 The cap must be at least 1. Slate does not enforce that condition.

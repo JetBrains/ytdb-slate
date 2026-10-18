@@ -54,7 +54,7 @@ The typecheck reads `extension/**/*.ts`, `.pi/extensions/require-main-worktree.t
 
 ### CI (`.github/workflows/ci.yml`)
 
-CI references no secret. Every check uses fabricated inputs and a plain checkout. Dependency setup reaches the network for Node, npm dependencies and Linux read-back packages. The checks need no external network. The SSH terminal read-back and portable push checks use IPv4 loopback only. The macOS and Windows jobs start no pi session. The macOS native read-back case needs the runner's notification service and a readable user notification store. The Windows native read-back case needs the runner's toast service, a Windows PowerShell Start entry and readable operating system toast history. The packaging guards reach no registry, and they pass when npm runs offline.
+CI references no secret. Every check uses fabricated inputs and tracked checkout files. The default resolver suite also reads repository Git objects from the original base. A shallow clone without those objects fails. Dependency setup reaches the network for Node, npm dependencies and Linux read-back packages. The checks need no external network. The SSH terminal read-back and portable push checks use IPv4 loopback only. The macOS and Windows jobs start no pi session. The macOS native read-back case needs the runner's notification service and a readable user notification store. The Windows native read-back case needs the runner's toast service, a Windows PowerShell Start entry and readable operating system toast history. The packaging guards reach no registry, and they pass when npm runs offline.
 
 **The checks do NOT prove that no credential reaches a child process.** The load check scrubs the child environment by variable-name pattern, and not by a list of permitted variables, so a credential under a name the pattern list does not cover reaches the child. A gate measured `AWS_ACCESS_KEY_ID` doing exactly that. What holds instead is that a session has nothing to spend a credential on: every session runs with `PI_OFFLINE=1`, without `models.json` and without `auth.json`, and it contacts no provider. The permitted-variable list is the stronger design, and it is deferred.
 
@@ -225,7 +225,9 @@ Record `pi --version` with the run. The ladder requires pi on `PATH` and has no 
 ### Pure-resolver checks
 
 `verification/run-resolver-checks.sh` tests pure production pipelines with
-fabricated in-memory inputs. It starts no Pi session and reads no real state.
+fabricated in-memory inputs and tracked files. The default suite also reads
+repository Git objects from the original base. A shallow clone without those
+objects fails. It starts no Pi session and uses no network.
 The closed roster includes these current areas:
 
 - worker-extension selection, load units, barriers, collisions, and doctrine
@@ -369,7 +371,7 @@ The self-test uses temporary fixtures outside the checkout. It proves recursive 
 
 `npm test` runs `verification/run-tests.sh`: it runs `verification/link-peers.sh`, then partitions the discovered `node:test` roster into a native TypeScript process and a separate mandatory real-Pi host process, then runs the patch-coverage gate in `verification/coverage-gate.mjs`. The host process contains only `test/recovery-ownership-host.test.ts`. It has an independent temporary directory and Jiti cache, and it writes separate host LCOV. It receives no patch-coverage credit. The native LCOV remains the only gate input. The runner requires a disjoint, exhaustive roster, and either process can fail the run. It needs `node`, `git` and a pi. The linker resolves `PI_BIN`, then the exact-pinned `node_modules/.bin/pi`, then `PATH`, and deliberately refuses to start without one.
 
-**CI runs this net on both exact-pinned Linux Node legs.** The checkout uses `fetch-depth: 0`, because the gate measures a COMMITTED `<base>..HEAD` diff. The base is event-specific and explicit. `pull_request.base.sha` against GitHub's synthetic PR merge commit measures that PR candidate. `merge_group.base_sha` against the queue's synthetic head measures the queued candidate. `github.event.before` against a push head measures that push to `main` or a release branch. A branch-creation push has no base and runs the tests without patch coverage with a visible warning.
+**CI runs this net on both exact-pinned Linux Node legs.** The checkout uses `fetch-depth: 0`, because the gate measures a COMMITTED `<base>..HEAD` diff and the default resolver suite reads original-base repository Git objects. A shallow clone without those objects fails. The base is event-specific and explicit. `pull_request.base.sha` against GitHub's synthetic PR merge commit measures that PR candidate. `merge_group.base_sha` against the queue's synthetic head measures the queued candidate. `github.event.before` against a push head measures that push to `main` or a release branch. A branch-creation push has no base and runs the tests without patch coverage with a visible warning.
 
 A missing, all-zero, absent or HEAD-equal base exits 2. `workflow_dispatch` has no event change boundary. It runs the tests with `--no-gate` and emits a GitHub warning plus a job-summary section. It does not invent a diff or pass silently.
 

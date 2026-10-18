@@ -4,7 +4,8 @@ These rules govern machine review of worker-produced changes. Review threads
 are created dynamically. The orchestrator composes them from the track's proved focus areas and the implementer's approximate track size.
 
 Every review uses a fresh thread with type `reviewer` or `adversarial`. A
-reviewer is read-only. Independent reviewers run in parallel.
+reviewer does not edit reviewed artifacts. The common review policy permits
+only the reviewer's own writing-checker diff. Independent reviewers run in parallel.
 
 ### Reviewer input contract
 
@@ -44,6 +45,8 @@ implementer episode or direct private source.
 The stuck-fix consultation in § Stuck-fix consultation is the only reviewer
 role that can receive an implementer episode. Its whole-episode rule does not
 permit a direct private read or a separately supplied private source.
+
+The supplied action temporary folder permits only the reviewer's own writing-checker diff and adds no reviewer input. A reviewer never lists tmp/ or reads another action's folder.
 
 A design-stage adversarial review also judges the simplest solution. The review checks the approved high-level design against slate's simplest-solution requirement. That requirement asks for the simplest solution with the fewest changes that keeps every approved goal, the product and implementation quality, and every required gate. The review judges the design as a whole and not one track at a time. This duty adds no artifact, no phase and no gate.
 

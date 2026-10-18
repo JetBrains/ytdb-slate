@@ -562,6 +562,7 @@ Slate checks the folder chain when it creates the change.
 Keep all manual records and leftover temporary files untracked and visible in repository status.
 Do not add them to an ignore file or a pull request.
 Exclude their references and contents from reviewer inputs.
+Use the common record rules for supplied action folders and temporary-reader exclusions.
 Never overwrite a record from a stale in-memory copy. When a session adopts a
 change owned by a different Pi session identifier, Slate starts a new folder.
 Its log first names the direct source folder as a read-only earlier log. Each
