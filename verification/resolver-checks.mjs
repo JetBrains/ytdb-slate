@@ -3,7 +3,7 @@
 // =============================================================================
 // Imported and run by run-resolver-checks.sh, never on its own: it takes the
 // repo path, the bundled-jiti entry point, a throwaway work directory and an
-// optional "strict" flag as argv, imports the worker-extension resolver
+// optional "strict" flag and --exclude or --only option as argv, imports the worker-extension resolver
 // (extension/worker-extensions.ts), the doctrine builder (extension/mode.ts),
 // the active logical-model policy and runtime, the model-spec vocabulary
 // (extension/state.ts), and the orchestrator base-model tracker
@@ -22,6 +22,7 @@
 //     section runs inside its own guard and the summary sits in a `finally`.
 // Exit code is set via process.exitCode (never process.exit, which can truncate
 // piped output): 1 if anything failed, or if a NOT RUN happened under --strict.
+// A selected NOT RUN always fails its roster, even without --strict.
 // See verification/README.md.
 // =============================================================================
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
@@ -29,8 +30,7 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { dirname, join, sep } from "node:path";
 import { pathToFileURL } from "node:url";
-import { createMutationAudit, loadWithMutationAudit, mutationAuditControls } from "./record-mutation-roster.mjs";
-const mutationAudit = createMutationAudit();
+import { EXPECTED_MUTATIONS, createMutationAudit, loadWithMutationAudit, mutationAuditControls } from "./record-mutation-roster.mjs";
 
 const [, , REPO, JITI, WORK, ...OPTIONS] = process.argv;
 function refuse(reason) {
@@ -42,15 +42,26 @@ const STRICT = OPTIONS[0] === "strict";
 if (STRICT || OPTIONS[0] === "") OPTIONS.shift();
 const EXCLUDABLE = ["doctrine-original-base", "doctrine-original-controls"];
 const EXCLUDED = new Set();
+const SELECTABLE = { "contract-heading-regions": ["heading-policy"], "contract-delivery-packages": [] };
+const SELECTED = new Set();
 if (OPTIONS.length) {
-	if (OPTIONS.length !== 2 || OPTIONS[0] !== "--exclude") refuse("expected one --exclude <id,id> option");
+	if (OPTIONS.length !== 2 || !["--exclude", "--only"].includes(OPTIONS[0])) refuse("expected one --exclude or --only <id,id> option, not both");
+	const only = OPTIONS[0] === "--only";
+	const allowed = only ? Object.keys(SELECTABLE) : EXCLUDABLE;
+	const chosen = only ? SELECTED : EXCLUDED;
 	for (const id of OPTIONS[1].split(",")) {
-		if (!EXCLUDABLE.includes(id)) refuse(`unknown exclusion id '${id}' (allowed: ${EXCLUDABLE.join(",")})`);
-		if (EXCLUDED.has(id)) refuse(`duplicate exclusion id '${id}'`);
-		EXCLUDED.add(id);
+		if (!allowed.includes(id)) refuse(`unknown ${only ? "selection" : "exclusion"} id '${id}' (allowed: ${allowed.join(",")})`);
+		if (chosen.has(id)) refuse(`duplicate ${only ? "selection" : "exclusion"} id '${id}'`);
+		chosen.add(id);
 	}
-	console.log(`NOTE --exclude ${[...EXCLUDED].join(",")}`);
+	console.log(`NOTE ${OPTIONS[0]} ${[...chosen].join(",")}`);
 }
+const ONLY = SELECTED.size > 0;
+const wants = (id) => !ONLY || SELECTED.has(id);
+const selectedFamilies = [...new Set([...SELECTED].flatMap((id) => SELECTABLE[id]))];
+const mutationAudit = createMutationAudit(ONLY
+	? Object.fromEntries(selectedFamilies.map((family) => [family, EXPECTED_MUTATIONS[family]]))
+	: EXPECTED_MUTATIONS);
 
 // One value feeds each doctrine-budget assertion and each maintained published
 // statement. The independent JSON pin below protects the approved ceilings from
@@ -73,21 +84,23 @@ const DOCTRINE_LIMITS = Object.freeze({
 
 // Production initialization records failures before the final audit runs.
 let startupError;
-async function startupImport(load) {
+async function startupImport(load, selectedNeeded = false) {
+	if (ONLY && !selectedNeeded) return {};
 	const result = await loadWithMutationAudit(mutationAudit, load);
 	startupError ??= result.error;
 	return result.module ?? {};
 }
 // Use pi's TypeScript loader for the same module resolution as the host.
-const { createJiti } = await startupImport(() => import(pathToFileURL(JITI).href));
-const jiti = await startupImport(() => createJiti(import.meta.url));
+const { createJiti } = await startupImport(() => import(pathToFileURL(JITI).href), true);
+const jiti = await startupImport(() => createJiti(import.meta.url), true);
 const we = await startupImport(() => jiti.import(`${REPO}/extension/worker-extensions.ts`));
 const mode = await startupImport(() => jiti.import(`${REPO}/extension/mode.ts`));
-const paths = await startupImport(() => jiti.import(`${REPO}/extension/paths.ts`));
+const paths = await startupImport(() => jiti.import(`${REPO}/extension/paths.ts`), true);
 // The router and the profile table are imported defensively: a missing or broken
 // module of either must not take the rest of the suite down with it. It becomes
 // one loud FAIL plus explicit NOT RUN lines for the checks it voids.
 async function tryImport(rel) {
+	if (ONLY) return {};
 	try {
 		return { module: await jiti.import(`${REPO}/${rel}`) };
 	} catch (error) {
@@ -198,6 +211,7 @@ function skip(id, reason) {
 // TS1: one crashing oracle must not silence the checks after it. Every section
 // runs inside this guard, and a throw becomes a FAIL naming the section.
 async function section(name, body) {
+	if (ONLY && name !== "doctrine-contracts") return;
 	try {
 		await body();
 	} catch (error) {
@@ -474,6 +488,7 @@ const VOIDABLE = [
 // ------------------------------------------------------------------ fixtures --
 try {
 	if (startupError) throw startupError;
+	if (!ONLY) {
 	const A = mkpkg("pkgA", ["./extension/index.ts"], ["extension/index.ts"]); // single literal entry, host runs it
 	const B = mkpkg("pkgB", ["./extensions/*.ts"], ["extensions/one.ts"]); // globbed manifest
 	const C = mkpkg("pkgC", ["./a.ts", "./b.ts"], ["a.ts", "b.ts"]); // b.ts declared but host runs no tool from it
@@ -2166,6 +2181,7 @@ try {
 			]);
 		});
 
+	}
 		await section("doctrine-contracts", async () => {
 			const workflow = readFileSync(join(REPO, "docs", "track-workflow.md"), "utf8");
 			const blast = readFileSync(join(REPO, "docs", "blast-radius.md"), "utf8");
@@ -2201,6 +2217,22 @@ try {
 				}
 				return pattern;
 			};
+			// Selected prerequisites stay outside full-only spans, including writes.
+			// Heading: document reads, normalization, regionUnit/headingUnit, markedUnit,
+			// recursive/commonRecords, protectedRepairOwners/protectedRepairSummary,
+			// recordDigest, resumeOrderExpected, recursiveRecordUnits, acceptsRecordUnit,
+			// policyRegion, roadmapExpected, recursiveDeliveryUnits, repairEscalationDigest,
+			// authorGuidelines, headingOwnedUnits and heading-policy recording.
+			// Packages: document reads, block, normalization, ACCEPTANCE_FACTS, markedUnit,
+			// EXPECTED_DELIVERY_PACKAGES_SHA256 and the complete package block below,
+			// including discoverPackageDocs("docs") which fills packageDocuments.
+			let fact, renderFact, composeUnit, focusClassesPattern, publishingActivation, trackSizePublishingUnits;
+			let recursiveUnits, acceptsRecursiveUnit, loadingRules, nestedRules, recordRules, recursivePrefix, recursivePrefixExpected;
+			let sharedRecursiveRules, recursiveSummariesAgree, recursiveAgreementAttacks;
+			let commonUnits, privacyHeading, acceptsNestedPointers, commonWarnings, publishingMigrationUnits;
+			let reviewerICharter, reviewRows, reviewPolicy, reviewPolicyMutations, approvedContentDigests, roles, roleFiles, hash;
+			let expectedPerspectiveFocus, perspectiveBlastRows, indexRows;
+			if (!ONLY) {
 			const safetyWorkflow = block(workflow, "safety-floor");
 			const safetyReviews = block(reviews, "safety-floor");
 			const floorPhrases = [
@@ -2920,6 +2952,7 @@ required reviews, ordered gates, user authority, or final acceptance.`;
 			 * rendering of the SAME fact, never a second expected source. The inverted
 			 * wordings exist for the mutation check below and are never expected text.
 			 */
+			}
 			const ACCEPTANCE_FACTS = Object.freeze({
 				blocking: Object.freeze({
 					document: "User acceptance of a track is blocking when that track proves at least one DESIGN-TRIGGERING area.",
@@ -2949,14 +2982,16 @@ required reviews, ordered gates, user authority, or final acceptance.`;
 				}),
 			});
 			/** A segment that renders one canonical fact. A plain string is local framing. */
-			const fact = (key) => ({ fact: key });
-			const renderFact = (facts, key, rendering) => facts[key]?.[rendering] ?? "";
-			const composeUnit = (unit, facts) => normalizeText(unit.segments.map((segment) => typeof segment === "string" ? segment : renderFact(facts, segment.fact, unit.rendering)).join(" "));
+			if (!ONLY) {
+			fact = (key) => ({ fact: key });
+			renderFact = (facts, key, rendering) => facts[key]?.[rendering] ?? "";
+			composeUnit = (unit, facts) => normalizeText(unit.segments.map((segment) => typeof segment === "string" ? segment : renderFact(facts, segment.fact, unit.rendering)).join(" "));
 			/**
 			 * Resolution is EXACT-ONCE and FAILS CLOSED: zero matches, several matches or
 			 * an unusable marked block all report count !== 1 and empty text, so a moved
 			 * anchor cannot silently turn a protected unit into no check at all.
 			 */
+			}
 			const regionUnit = (pattern) => (source) => {
 				const matches = [...source.matchAll(pattern)].map((match) => normalizeText(match[1] ?? "")).filter((text) => text !== "");
 				return { count: matches.length, text: matches.length === 1 ? matches[0] : "" };
@@ -2989,6 +3024,7 @@ required reviews, ordered gates, user authority, or final acceptance.`;
 			};
 			// Each active copy has its own bounded, independent text expectation. An
 			// addition inside a rule fails even when the required phrases remain.
+			if (!ONLY) {
 			const sizeCopyUnits = [
 				{
 					id: "blast-trigger",
@@ -3129,14 +3165,16 @@ Late areas add only specialists if Reviewer I ran.`),
 				["each independent bounded rule copy resolves once and matches", sizeCopies.every(({ count, text, expected }) => count === 1 && text === expected), sizeCopies.filter(({ count, text, expected }) => count !== 1 || text !== expected)],
 				["each reviewer-set, exception, late-area, and boundary mutation changes input and fails", sizeMutationsRejected.every(({ changed, rejected }) => changed && rejected), sizeMutationsRejected],
 			]);
+			}
 			const markedUnit = (name) => (source) => {
 				const found = block(source, name);
 				const resolved = found.count === 1 && found.endCount === 1 && found.text !== "";
 				const pairs = Math.max(found.count, found.endCount);
 				return { count: resolved ? 1 : pairs > 1 ? pairs : 0, text: resolved ? normalizeText(found.text) : "" };
 			};
-			const focusClassesPattern = /^## Focus classes and gates\n([\s\S]*?)(?=^<!-- focus-area-table:begin -->)/gm;
-			const publishingActivation = {
+			if (!ONLY) {
+			focusClassesPattern = /^## Focus classes and gates\n([\s\S]*?)(?=^<!-- focus-area-table:begin -->)/gm;
+			publishingActivation = {
 				extract: regionUnit(/^(Publishing depends on `workflow\.draftPRs`[\s\S]*?)(?=^## Track size and split)/gm),
 				expected: normalizeText(`Publishing depends on \`workflow.draftPRs\` in \`slate.json\`. When enabled, use
 [pr-publishing.md](pr-publishing.md) § One draft pull request for level publishing.
@@ -3144,7 +3182,7 @@ Its § Creation sets the draft timing. When publishing is disabled, create no pu
 The retained research log is the durable workflow record.`),
 			};
 
-			const trackSizePublishingUnits = [
+			trackSizePublishingUnits = [
 				{
 					id: "track-size",
 					extract: markedUnit("track-size-policy"),
@@ -3293,9 +3331,11 @@ nothing. Keep its folder and reports.`),
 				["missing and duplicated marker boundaries fail closed", missingTrackSizePublishing.every(({ count, text }) => count === 0 && text === "") && duplicateTrackSizePublishing.every(({ count }) => count === 2), { missingTrackSizePublishing, duplicateTrackSizePublishing }],
 			]);
 
+			}
 			const recursive = readFileSync(join(REPO, "docs", "recursive-workflow.md"), "utf8");
 			const commonRecords = readFileSync(join(REPO, "docs", "change-records.md"), "utf8");
-			const recursiveUnits = [
+			if (!ONLY) {
+			recursiveUnits = [
 				{
 					id: "lifecycle-planning", source: workflow,
 					extract: markedUnit("recursive-planning-policy"),
@@ -3376,7 +3416,7 @@ Do not merge an incomplete level into the default branch.
 limits, the implementer-requested exception, and the recursive-document loading condition.`),
 				},
 			];
-			const acceptsRecursiveUnit = (unit, source) => {
+			acceptsRecursiveUnit = (unit, source) => {
 				const result = unit.extract(source);
 				return result.count === 1 && result.text === unit.expected;
 			};
@@ -3428,14 +3468,14 @@ limits, the implementer-requested exception, and the recursive-document loading 
 			// Protect the complete implemented prefix, including pointer-only sections.
 			// Later tracks own the sections after this boundary. Shared summaries must
 			// also match the lifecycle owner, not merely independent document pins.
-			const loadingRules = [
+			loadingRules = [
 				"Every change reads [change-records.md](change-records.md) § Identifiers, code ranges, and design markers and § Manual records and safe writes.",
 				"Load [recursive-workflow.md](recursive-workflow.md) when the current or proposed plan contains a design track or review-fix child track.",
 				"Check the loading condition during planning and again during resume reconciliation.",
 				"Load the document before proposing a review-fix split.",
 				"Read the applicable sections before relying on their rules.",
 			];
-			const nestedRules = [
+			nestedRules = [
 				"Expand a design track when work reaches it.",
 				"Each subtree root receives its own high-level design and independent risk assessment.",
 				"A multi-track change requires a high-level design.",
@@ -3444,13 +3484,13 @@ limits, the implementer-requested exception, and the recursive-document loading 
 				"Each design track completes the gates of a nested multi-track change.",
 				"Each code track keeps its independent gates.",
 			];
-			const recordRules = [
+			recordRules = [
 				"Entering a design track triggers its research log and nested gates.",
 				"An ordinary code track or a high-level design alone triggers neither extra record.",
 				"Questions follow unresolved decisions rather than record or track counts.",
 			];
-			const recursivePrefix = regionUnit(/^# Recursive workflow\n([\s\S]*?)(?=^## Level publishing and retained history\n)/gm);
-			const recursivePrefixExpected = normalizeText(`Use [track-workflow.md](track-workflow.md) for the lifecycle.
+			recursivePrefix = regionUnit(/^# Recursive workflow\n([\s\S]*?)(?=^## Level publishing and retained history\n)/gm);
+			recursivePrefixExpected = normalizeText(`Use [track-workflow.md](track-workflow.md) for the lifecycle.
 This document owns nested-track relations.
 
 ## Terms and scope
@@ -3509,14 +3549,16 @@ ${recordRules.join("\n")}
 
 Use [track-workflow.md](track-workflow.md) § Migration for compatibility.
 Use its § Session handoff and the research log for ownership.`);
+			}
 			const protectedRepairOwners = Object.freeze({
 				"repair-rounds": "25a681e30d96285c7d65fa9285b46c073a958fe1c9500b206273b64ba28a873b",
 				"repair-consultations": "86f0f04219e871881c7f99263689d848fc78772d2b034e3d359cdc6662f4d780",
 				"child-fix-title": "748f0126285376546b073320e72e044f91970294058931c7a51cafc8d6098edb",
 			});
 			const protectedRepairSummary = "f1bfd2437621d5ba83c8a04619f92b71c5e4e0862e8454957fb7757471e69874";
+			if (!ONLY) {
 			const agreementDigest = (text) => createHash("sha256").update(normalizeText(text)).digest("hex");
-			const sharedRecursiveRules = [
+			sharedRecursiveRules = [
 				{ id: "loading", rules: loadingRules, extract: regionUnit(/^## Loading and planning\n([\s\S]*?)(?=^## Nested designs and gates\n)/gm) },
 				{ id: "nested", rules: nestedRules, extract: markedUnit("nested-design-policy") },
 				{ id: "records", rules: recordRules, extract: regionUnit(/^## Proportional process\n([\s\S]*?)(?=^## Recorded-workflow compatibility\n)/gm) },
@@ -3540,12 +3582,12 @@ Use its § Session handoff and the research log for ownership.`);
 						&& rules.every((rule) => owningUnit.text.includes(rule) && summary.text.includes(rule)) };
 				});
 			};
-			const recursiveSummariesAgree = (...sources) => recursiveSummaryResults(...sources).every(({ agrees }) => agrees);
+			recursiveSummariesAgree = (...sources) => recursiveSummaryResults(...sources).every(({ agrees }) => agrees);
 			const acceptsRecursivePrefix = (source) => {
 				const result = recursivePrefix(source);
 				return result.count === 1 && result.text === recursivePrefixExpected;
 			};
-			const recursiveAgreementAttacks = sharedRecursiveRules.flatMap(({ id, rules, document = "workflow" }) => rules.flatMap((rule, index) => ["summary", "owner"].map((side) => {
+			recursiveAgreementAttacks = sharedRecursiveRules.flatMap(({ id, rules, document = "workflow" }) => rules.flatMap((rule, index) => ["summary", "owner"].map((side) => {
 				const commonSide = side === "summary" && commonRelationIds.has(id);
 				const source = side === "summary" ? (commonSide ? commonRecords : recursive) : { workflow, reviews, delivery: deliveryPackages }[document];
 				const normalized = normalizeText(source);
@@ -3591,6 +3633,7 @@ Use its § Session handoff and the research log for ownership.`);
 				["harmless changes outside either owned unit pass", acceptsRecursivePrefix(benignRecursive) && recursiveSummariesAgree(benignRecursive, workflow) && recursiveSummariesAgree(recursive, benignOwner), "outside-unit controls"],
 			]);
 
+			}
 			const recordDigest = (text) => createHash("sha256").update(normalizeText(text)).digest("hex");
 			const resumeOrderExpected = normalizeText(`Resume in this fixed order:
 
@@ -3629,6 +3672,7 @@ history as boundary authority. The track table is display-only.`);
 				const resolved = unit.extract(source);
 				return resolved.count === 1 && recordDigest(resolved.text) === unit.expected;
 			};
+			if (!ONLY) {
 			const recordUnitAttacks = recursiveRecordUnits.flatMap((unit) => {
 				const text = unit.extract(unit.source).text;
 				const rawPattern = new RegExp(text.slice(0, 70).replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+"), "g");
@@ -3644,7 +3688,7 @@ history as boundary authority. The track table is display-only.`);
 			// 3.3.5.3 owns review-common-policy.md, all twelve reviewer totals,
 			// review-rules.md input amendments and RG9 common-text mutations.
 			// Independent reviewed pins protect the common owner.
-			const commonUnits = [
+			commonUnits = [
 				{ id: "identifiers", start: "## Identifiers, code ranges, and design markers", expected: "06a2a0822448a5112173b65c04826364d3a3094f7930ba98ecd7f17300e19ed8" },
 				{ id: "records", start: "## Manual records and safe writes", expected: "8ec25b74e709c2f8a72556947aecee40f0cff2f38947976e9609c0e2436b47e0" },
 			];
@@ -3652,7 +3696,7 @@ history as boundary authority. The track table is display-only.`);
 				const region = headingUnit(start)(source);
 				return region.count === 1 && region.reason === "content" && recordDigest(region.text) === expected;
 			});
-			const privacyHeading = "### Design authority and privacy";
+			privacyHeading = "### Design authority and privacy";
 			const commonHeadings = [...commonUnits.map(({ start }) => start), privacyHeading];
 			const completeCommonDigest = "e5254e60acf82c0d96dc896b796839c0ed6ca8d75cbf361ca59a37ca8b9a9e50";
 			const acceptsCompleteCommon = (source) => createHash("sha256").update(source).digest("hex") === completeCommonDigest;
@@ -3684,7 +3728,7 @@ Use [change-records.md](change-records.md) § Design authority and privacy.`) },
 				const region = headingUnit(unit.start)(source);
 				return region.count === 1 && region.reason === "content" && (!compare || region.text === unit.expected);
 			};
-			const acceptsNestedPointers = (source) => nestedPointers.every((unit) => acceptsNestedPointer(unit, source));
+			acceptsNestedPointers = (source) => nestedPointers.every((unit) => acceptsNestedPointer(unit, source));
 			const nestedPointerAttacks = nestedPointers.flatMap((unit) => {
 				const raw = headingUnit(unit.start)(recursive).rawText;
 				return [
@@ -3755,7 +3799,7 @@ Use [change-records.md](change-records.md) § Design authority and privacy.`) },
 				["the runtime export is unique and package-relative", acceptsCommonExport(paths) && expectedCommonPath === join(REPO, "docs", "change-records.md") && readFileSync(paths.CHANGE_RECORDS_DOC, "utf8") === commonRecords, paths.CHANGE_RECORDS_DOC],
 				["missing, duplicate, and wrong-destination exports fail", !acceptsCommonExport({ ...paths, CHANGE_RECORDS_DOC: undefined }) && !acceptsCommonExport({ ...paths, EXTRA_DOC: expectedCommonPath }) && !acceptsCommonExport({ ...paths, CHANGE_RECORDS_DOC: join(WORK, "change-records.md") }), "export counterfactuals"],
 			]);
-			const commonWarnings = [
+			commonWarnings = [
 				{ id: "session", text: "Record contents can also appear in saved worker sessions and command text." },
 				{ id: "perms", text: "Pi saves session files with default permissions, which can expose record text to other local users." },
 				{ id: "issue", text: "[Issue #499](https://github.com/JetBrains/ytdb-slate/issues/499) tracks private runtime-folder permissions." },
@@ -4052,7 +4096,7 @@ Use [change-records.md](change-records.md) § Design authority and privacy.`) },
 
 			// Publishing and migration are complete bounded policy units. Their
 			// expectations are authored here rather than derived from candidate text.
-			const publishingMigrationUnits = [
+			publishingMigrationUnits = [
 				{
 					id: "publishing-creation",
 					source: publishing,
@@ -4228,6 +4272,7 @@ The split bypasses no stuck-fix consultation or required fix gate.`) },
 				["unrelated outside edits pass", splitPointers.every((unit) => acceptsSplitPointer(unit, `${unit.source}\n<!-- Outside split control. -->`)), "outside controls"],
 			]);
 
+			}
 			// These pins cover complete owned policies. Source-set pins protect every record kind.
 			const policyRegion = (start, end, endAtLineStart = false) => regionUnit(new RegExp(`^${start.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([\\s\\S]*?)(?=${endAtLineStart ? "^" : ""}${end.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gm"));
 			const roadmapExpected = normalizeText(`The current workflow supports nested planning through design tracks.
@@ -4270,6 +4315,9 @@ Use [track-workflow.md](track-workflow.md) for the common lifecycle.`);
 					return regionUnit(/^## Packages, attribution, and issues([\s\S]*)(?![\s\S])/gm)(parts[0] + marker + visibleTail);
 				}
 				: unit.id === "public-workflow" ? policyRegion(unit.start, unit.end, unit.endAtLineStart) : headingUnit(unit.start) }));
+			const repairEscalationDigest = "b9ebf47c2dceb335adfd3fb1cd694e2e23e6d210f5d962ef5c5c6d709cdc3de4";
+			const EXPECTED_DELIVERY_PACKAGES_SHA256 = "97e5e052918072a6a4d0f6c11a1154dc21ae9b618b53186ac6e48580ae4a3ec6";
+			if (!ONLY) {
 			const acceptsRecursiveDelivery = (unit, source) => {
 				const resolved = unit.extract(source);
 				return resolved.count === 1 && recordDigest(resolved.text) === unit.expected;
@@ -4366,7 +4414,6 @@ Verify every level record and all root-wide accounting before root closure.`);
 				["outside edits preserve the sequence", acceptsTransfer(`${deliveryPackages}\n<!-- Outside transfer control. -->`), "outside control"],
 			]);
 			const repairEscalation = headingUnit("## Mandatory escalation set");
-			const repairEscalationDigest = "b9ebf47c2dceb335adfd3fb1cd694e2e23e6d210f5d962ef5c5c6d709cdc3de4";
 			const repairState = regionUnit(/^(Its plain-text \*\*repair state\*\* column[\s\S]*?)(?=^Create `track-<number>-research-log\.md`)/gm);
 			const repairStateExpected = normalizeText(`Its plain-text **repair state** column shows each code track and review-fix child's repair use.
 Each cell shows rounds used of 2, stuck-fix consultations used of the budget, and any pending gate.
@@ -5464,7 +5511,6 @@ A stale description fails the "deep enough" test.`),
 			// Known word-layer escapes include "retention branches" and "branches kept for retention".
 			const EXPECTED_PUBLISHING_SHA256 = "689fa7f59aa8fd4a7809a726745431c2275ce82fa42d69aeeffa5cf6ebd5e557";
 			const EXPECTED_TRACK_WORKFLOW_SHA256 = "d1dd674297f63a929e0105c0e43d130223e8069a657493d207674d82c7cedee1";
-			const EXPECTED_DELIVERY_PACKAGES_SHA256 = "97e5e052918072a6a4d0f6c11a1154dc21ae9b618b53186ac6e48580ae4a3ec6";
 			const peerRetentionOwners = [
 				{ id: "nested", source: recursive, units: [historyUnit] },
 				{ id: "common", source: commonRecords, units: [privateSetUnit] },
@@ -5935,14 +5981,14 @@ verbatim retention of every tool result.`);
 				["read-only with no episode or proof", /Receive no implementer episode or area proof[\s\S]*?Remain read-only/.test(composite), composite.slice(0, 500)],
 			]);
 
-			const reviewerICharter = readFileSync(join(REPO, "docs", "review-perspectives", "ri.md"), "utf8");
-			const reviewRows = [...reviews.matchAll(/^\| (?:one or more proved areas|no proved area, more than 100 counted lines, not documentation-only|no proved area, at most 100 counted lines or documentation-only) \| (.+) \|$/gm)].map((match) => match[1]);
-			const reviewPolicy = (source, ri = reviewerICharter) => {
+			reviewerICharter = readFileSync(join(REPO, "docs", "review-perspectives", "ri.md"), "utf8");
+			reviewRows = [...reviews.matchAll(/^\| (?:one or more proved areas|no proved area, more than 100 counted lines, not documentation-only|no proved area, at most 100 counted lines or documentation-only) \| (.+) \|$/gm)].map((match) => match[1]);
+			reviewPolicy = (source, ri = reviewerICharter) => {
 				const flat = normalizeText(source);
 				const rows = [...source.matchAll(/^\| (?:one or more proved areas|no proved area, more than 100 counted lines, not documentation-only|no proved area, at most 100 counted lines or documentation-only) \| (.+) \|$/gm)].map((match) => match[1]);
 				return rows.length === 3 && rows[0].startsWith("exactly one Reviewer I plus one specialist for every proved area") && rows[1] === "exactly one Reviewer I" && rows[2] === "none; report routine implementation review as `NOT REQUIRED`" && flat.includes("Reviewer I always runs in its own fresh thread") && flat.includes("It never merges with any specialist") && ri.includes("does not absorb an absent specialist charter");
 			};
-			const reviewPolicyMutations = [
+			reviewPolicyMutations = [
 				[reviews.replace("exactly one Reviewer I", "no Reviewer I"), reviewerICharter],
 				[reviews.replace("exactly one Reviewer I", "exactly two Reviewer I reviewers"), reviewerICharter],
 				[reviews.replace("It never merges with any\nspecialist", "It may merge with a specialist"), reviewerICharter],
@@ -5966,7 +6012,7 @@ verbatim retention of every tool result.`);
 				gr: "275af27cfca56a905dc72b6c73ec484e6533d1e8e15e8b363d812c1e62bfb2ef",
 				uf: "d63fddb00199e3c8c4a4081d8c79c45f4032b36c1ca2be9618dd05af9caaa9fd",
 			});
-			const approvedContentDigests = Object.freeze({
+			approvedContentDigests = Object.freeze({
 				ri: "c23a1624fa6910fa914743a4daf3d406431ce17360e4ef1e94ba12fde3ab60a9",
 				cn: "9353b4d0727cc6643c3a87fdf6065683e9afaf6937a5d1a63d91668f0c51dd5a",
 				du: "c071f183e9800ae2bc1f5699cd082b4c8db257254b1d11bb5db3f27fa352a116",
@@ -5980,12 +6026,12 @@ verbatim retention of every tool result.`);
 				gr: "d5fad1c142feb9f6e6f5c7df417fa3912d682ad51778209a2fd96dca24eaacd6",
 				uf: "efb19733563bb215894cd47cbdc5fa2ac36e1bb064c290df528243cd03b2ca5e",
 			});
-			const roles = reviewPerspectives?.REVIEW_PERSPECTIVES ?? [];
-			const roleFiles = Object.fromEntries(roles.map((role) => { let content = ""; try { content = readFileSync(role.file, "utf8"); } catch { /* contract-review-structure reports the missing file */ } return [role.prefix.toLowerCase(), content]; }));
+			roles = reviewPerspectives?.REVIEW_PERSPECTIVES ?? [];
+			roleFiles = Object.fromEntries(roles.map((role) => { let content = ""; try { content = readFileSync(role.file, "utf8"); } catch { /* contract-review-structure reports the missing file */ } return [role.prefix.toLowerCase(), content]; }));
 			const shippedIds = existsSync(join(REPO, "docs", "review-perspectives"))
 				? readdirSync(join(REPO, "docs", "review-perspectives")).sort() : [];
 			const expectedIds = Object.keys(approvedDigests).map((id) => `${id}.md`).sort();
-			const hash = (text) => createHash("sha256").update(normalizeText(text)).digest("hex");
+			hash = (text) => createHash("sha256").update(normalizeText(text)).digest("hex");
 			const hasQuestions = (source) => {
 				const [before, after, ...extra] = source.split("**Design-quality questions**\n\n");
 				return extra.length === 0 && !!after && before.includes("**Charter.**")
@@ -6000,7 +6046,7 @@ verbatim retention of every tool result.`);
 				["every charter has at least one design-quality question", roles.every((role) => hasQuestions(roleFiles[role.prefix.toLowerCase()] ?? "")), roles.map((role) => role.prefix)],
 				["removing every question fails, without requiring evidence examples", withoutQuestions !== roleFiles.ri && !hasQuestions(withoutQuestions) && hasQuestions((roleFiles.ri ?? "").split("**Examples of useful evidence**")[0]), { changed: withoutQuestions !== roleFiles.ri, questionAbsent: !hasQuestions(withoutQuestions) }],
 			]);
-			const expectedPerspectiveFocus = [
+			expectedPerspectiveFocus = [
 				["concurrency defect", "one area reviewer for concurrency", "Concurrency reviewer", "CN"],
 				["data loss", "one area reviewer for data loss and recovery", "Data loss and recovery reviewer", "DU"],
 				["security weakness", "one area reviewer for security", "Security reviewer", "SE"],
@@ -6013,12 +6059,14 @@ verbatim retention of every tool result.`);
 				["governing-rule defect", "one area reviewer for governing-rule defects", "Governing-rule defect reviewer", "GR"],
 				["unreported failure", "one area reviewer for unreported failures", "Unreported failure reviewer", "UF"],
 			];
-			const perspectiveBlastRows = [...block(blast, "focus-area-table").text.matchAll(/^\| (\d+) \| ([^|]+) \| ([^|]+) \|/gm)].map((match) => [match[2].trim(), match[3].trim()]);
-			const indexRows = [...reviews.matchAll(/^\| (.*?) \| ([A-Z]{2}) \| (.*?) \| \[([^\]]+)\]\(review-perspectives\/([a-z]+)\.md\) \|$/gm)].map((match) => [match[1].trim(), match[2], match[3].trim(), match[5]]);
+			perspectiveBlastRows = [...block(blast, "focus-area-table").text.matchAll(/^\| (\d+) \| ([^|]+) \| ([^|]+) \|/gm)].map((match) => [match[2].trim(), match[3].trim()]);
+			indexRows = [...reviews.matchAll(/^\| (.*?) \| ([A-Z]{2}) \| (.*?) \| \[([^\]]+)\]\(review-perspectives\/([a-z]+)\.md\) \|$/gm)].map((match) => [match[1].trim(), match[2], match[3].trim(), match[5]]);
+			}
 			const authorGuidelines = readFileSync(join(REPO, "docs", "design-principles.md"), "utf8");
 			const authorRegion = headingUnit("### Built-in focus-area authoring")(authorGuidelines);
 			const authorPrinciple = authorRegion.rawText;
 			// The roster uses current document owners. Marker contracts stay separate.
+			if (wants("contract-heading-regions")) {
 			const headingOwnedUnits = [
 				...recursiveRecordUnits.filter((unit) => unit.id !== "marker-identity").map((unit) => ({ ...unit, id: unit.id === "tool-records-and-recovery" ? "manual-records" : unit.id })),
 				...recursiveDeliveryUnits.filter((unit) => !["issues", "public-workflow"].includes(unit.id)),
@@ -6141,6 +6189,8 @@ verbatim retention of every tool result.`);
 				["removing each restored anchor sentence fails its complete owning pin", keptAnchorRemovals.every(({ changed, rejected }) => changed && rejected), keptAnchorRemovals],
 				["the lower-level privacy subsection stays protected by the complete manual-record pin", privacyMutation !== commonRecords && privacyUnit.extract(commonRecords).text.includes("### Design authority and privacy") && privacyUnit.extract(commonRecords).text.includes(privacyRule) && !acceptsRecordUnit(privacyUnit, privacyMutation), "privacy sentence removal"],
 			]);
+			}
+			if (!ONLY) {
 			const authorRow = "| P13 risk-based focus-area authorship | no runtime code home for author research or approval. Focus definitions, reviewer content, the code roster, and structure and agreement checks apply the rule. |";
 			checkAll("contract-review-agreement", "runtime names, prefixes and focus areas agree with the canonical focus table and linked index; Reviewer I has no focus row", [
 				["canonical eleven focus rows and reviewer labels are exact", JSON.stringify(perspectiveBlastRows) === JSON.stringify(expectedPerspectiveFocus.map((row) => row.slice(0, 2))), perspectiveBlastRows],
@@ -6449,6 +6499,8 @@ omitted and why.`);
 				["the published scope states one dispatch copy, possible history resend, separate charters, and no total-cost or runtime-limit promise", /The focused-reference figure measures one reference copy in one implementation\s+dispatch/.test(contextBudget) && /Worker history\s+can\s+resend that reference/.test(contextBudget) && /Each charter row measures one role file/.test(contextBudget) && /not a total\s+conversation-size or billing promise/.test(contextBudget) && /add no runtime limit/.test(contextBudget), contextBudget.match(/### Implementation reference[\s\S]*?(?=^## Using GPT)/m)?.[0]],
 			]);
 
+			}
+			if (wants("contract-delivery-packages")) {
 			const packageContract = block(deliveryPackages, "delivery-package-contract");
 			const digest = (text) => createHash("sha256").update(normalizeText(text)).digest("hex");
 			const acceptsPackageContract = (source) => {
@@ -6722,6 +6774,8 @@ The accounting covers:`),
 				["former verbose and optional-routing rules are absent from active copies", !/these twelve fields|No empty or no-evidence block|required no placeholder block|requires no placeholder block|Omit the block when|omission is not a failed gate|advice is optional and never edits/i.test(stalePackageRules), stalePackageRules.match(/.{0,80}(?:these twelve fields|no-evidence block|placeholder block|omit the block|omission is not|advice is optional).{0,100}/i)?.[0]],
 			]);
 
+			}
+			if (!ONLY) {
 			const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 			const headingCount = (source, name) => (source.match(new RegExp(`^## ${escapeRegex(name)}$`, "gm")) ?? []).length;
 			const targetDocs = [
@@ -6747,8 +6801,10 @@ The accounting covers:`),
 				["unescaped counterfactual differs", defectiveHeadingCount(metacharSource, metacharHeading) !== 1, defectiveHeadingCount(metacharSource, metacharHeading)],
 				["duplicated focus-gates counterfactual fails uniqueness", headingCount(duplicatedFocus, "Focus classes and gates") === 2 && headingCount(duplicatedFocus, "Focus classes and gates") !== 1, headingCount(duplicatedFocus, "Focus classes and gates")],
 			]);
+			}
 		});
 
+	if (!ONLY) {
 		checkAll("worker-reminder-contract", "the worker reminder module keeps the exact independent contract and text", [
 			["module loads", workerReminder !== undefined, workerReminderLoad.error?.stack ?? workerReminderLoad.error],
 			["custom type is exact", workerReminder?.WORKER_REMINDER_CUSTOM_TYPE === "slate-worker-reminder", workerReminder?.WORKER_REMINDER_CUSTOM_TYPE],
@@ -7947,6 +8003,7 @@ The accounting covers:`),
 		]);
 	}
 
+	}
 } catch (error) {
 	// Nothing above should reach here (every section is guarded), but a throw in
 	// the scaffolding itself must still be a loud FAIL with a summary, not a
@@ -7955,10 +8012,27 @@ The accounting covers:`),
 	check("driver", false, "the driver threw outside every guarded section", error?.stack ?? String(error));
 } finally {
 	const memberAudit = mutationAudit.inspect();
+	if (!ONLY) {
 	check("contract-mutation-members", memberAudit.ok, "independent mutation identities execute once with useful outcomes even after a production crash", memberAudit.problems);
 	const auditControls = await mutationAuditControls();
 	check("contract-mutation-controls", auditControls.every(({ discriminates }) => discriminates), "missing, duplicate, skipped, crashed, and throwing-production controls fail while complete execution passes", auditControls);
+	} else {
+		check("selected-mutation-audit", memberAudit.ok, "selected mutation families execute once with useful outcomes and no crash or outside family", memberAudit.problems);
+	}
 	console.log(`NOTE executed mutation counts: ${JSON.stringify(memberAudit.counts)}`);
+	if (ONLY) {
+		const expected = [...SELECTED, "selected-mutation-audit"];
+		checkAll("roster", "selected checks and scoped audit report exactly once with no NOT RUN or unexpected id", [
+			["none missing", expected.every((id) => reported.includes(id)), expected.filter((id) => !reported.includes(id))],
+			["none reported twice", new Set(reported).size === reported.length, reported],
+			["none unexpected", reported.every((id) => expected.includes(id)), reported.filter((id) => !expected.includes(id))],
+			["none NOT RUN", notrun === 0, notrun],
+			["counters agree", pass + fail + notrun === reported.length, reported.length],
+		]);
+		const resultLines = pass + fail + notrun;
+		const residual = resultLines - (SELECTED.size + 2);
+		console.log(`== summary: ${pass} pass, ${fail} fail, ${notrun} not run (${resultLines} result lines = ${SELECTED.size} selected checks + scoped mutation audit + this roster audit${residual ? `, ${residual} unaccounted — see the roster line` : ""}) ==`);
+	} else {
 	// TS3: the roster proves the run was COMPLETE. A crashed section, a deleted
 	// check or a renamed id shows up here instead of vanishing into a clean exit.
 	const EXPECTED = [
@@ -8036,6 +8110,7 @@ The accounting covers:`),
 			`(${resultLines} result lines = ${EXPECTED.length} expected checks + this roster audit` +
 			`${unaccounted === 0 ? "" : `, ${unaccounted > 0 ? "+" : "−"}${Math.abs(unaccounted)} unaccounted — see the roster line`}) ==`,
 	);
+	}
 	// process.exitCode, never process.exit: the latter can truncate piped stdout
 	// before the summary above is flushed.
 	process.exitCode = fail > 0 || (STRICT && notrun > 0) ? 1 : 0;

@@ -817,6 +817,26 @@ fail `--strict`. The roster still requires every expected identifier exactly
 once. Without this option, the wrapper runs every check and keeps the default
 output format.
 
+`--only <id,id>` accepts only `contract-delivery-packages` and
+`contract-heading-regions`, individually or together. The driver owns this list.
+The wrapper validates option shape and passes the value through. Unknown or
+empty identifiers, duplicate identifiers, repeated options, `roster`, and any
+combination with `--exclude` refuse startup with exit 2. The wrapper reports
+`verification: refused to start — <reason>`.
+
+Selection loads only required modules and runs only the requested checks and
+their prerequisites. Checks retain their full-run implementations. The independent
+mutation roster supplies identities for selected families. Heading selection
+requires all 860 `heading-policy` identities. Package selection has an empty
+mutation scope. Missing, duplicate, incomplete, outside-family or crashed mutation
+execution fails `selected-mutation-audit`. Crash and driver failure lines always
+report. A separate `roster` audit requires each requested check and scoped audit
+exactly once. Missing, duplicate, unexpected and `NOT RUN` results fail the roster,
+even without `--strict`. The selected summary counts requested checks, scoped
+mutation audit and roster. A failed scoped audit does not itself fail the roster.
+A passing selected run proves only its target checks and scoped accounting.
+It does not prove that the full suite accepts the documents.
+
 ## Current coverage
 
 The suite covers worker-extension resolution and doctrine, logical-model defaults
@@ -872,11 +892,16 @@ instructions that omit the literal filename. Those forms remain outside the
 approved guarantee.
 
 `test/delivery-reference-contract.test.ts` runs disposable mutations through the
-real strict resolver wrapper. Each negative case requires exit 1 and a failed
-`contract-delivery-packages` result. Its child runs pass
-`--exclude doctrine-original-base,doctrine-original-controls` and require exactly
-those two exclusions. Positive controls require every other check to pass.
-The default resolver run still covers both original-base checks.
+real strict resolver wrapper. The clean case runs the full suite with
+`--exclude doctrine-original-base,doctrine-original-controls`. The 51 changed
+cases select their package or heading check with `--only`. Each rejected case
+requires exit 1 and its target failure. Each changed case requires the exact
+selected report identifiers, roster PASS and selected summary. Heading-anchor
+removals also require scoped mutation audit FAIL. Accepted changed cases prove
+only target-check acceptance, not whole-suite acceptance of the edit.
+An unchanged-document equivalence case compares both selected verdicts and
+executed mutation counts with the clean full run. The default resolver run
+still covers both original-base checks.
 Run this test and the strict resolver suite after changing the scanner,
 its reviewed roster, or a reference-bearing documentation context.
 

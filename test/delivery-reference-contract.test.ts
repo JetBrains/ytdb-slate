@@ -30,7 +30,15 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
     const loading = workflow.slice(workflow.indexOf(begin), workflow.indexOf(end) + end.length);
     assert.ok(readme.includes(readmeReference) && workflow.includes(actor) && loading.includes("Immediately before"));
 
-    async function check(name: string, changes: Record<string, string>, accepted = false, contract = "contract-delivery-packages"): Promise<void> {
+    let cleanOutput = "";
+    const mutationCounts = (output: string): Record<string, number> => JSON.parse(output.match(/^NOTE executed mutation counts: (.+)$/m)![1]!);
+    function selectedOutput(output: string, contract: string, accepted: boolean, auditAccepted = true): void {
+      assert.match(output, new RegExp(`^CHECK +selected-mutation-audit +${auditAccepted ? "PASS" : "FAIL"}\\b`, "m"));
+      assert.deepEqual([...output.matchAll(/^CHECK +(\S+) /gm)].map((match) => match[1]), [contract, "selected-mutation-audit", "roster"]);
+      const failures = Number(!accepted) + Number(!auditAccepted);
+      assert.match(output, new RegExp(`^== summary: ${3 - failures} pass, ${failures} fail, 0 not run \\(3 result lines = 1 selected checks \\+ scoped mutation audit \\+ this roster audit\\) ==$`, "m"));
+    }
+    async function check(name: string, changes: Record<string, string>, accepted = false, contract = "contract-delivery-packages", auditAccepted = true): Promise<void> {
       await t.test(name, { timeout: 65_000 }, () => {
         const originals = new Map<string, string | undefined>();
         try {
@@ -42,7 +50,7 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
             mkdirSync(dirname(path), { recursive: true });
             writeFileSync(path, source);
           }
-          const result = spawnSync("bash", [join(fixture, "verification/run-resolver-checks.sh"), "--repo", fixture, "--strict", "--exclude", excluded.join(",")], {
+          const result = spawnSync("bash", [join(fixture, "verification/run-resolver-checks.sh"), "--repo", fixture, "--strict", ...(name === "clean source" ? ["--exclude", excluded.join(",")] : ["--only", contract])], {
             cwd: fixture, encoding: "utf8", timeout: 60_000, maxBuffer: 2 * 1024 * 1024,
             env: { ...process.env, JITI_FS_CACHE: "true" },
           });
@@ -52,9 +60,11 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
           assert.equal(result.status, accepted ? 0 : 1, output);
           assert.match(output, new RegExp(`^CHECK +${contract} +${accepted ? "PASS" : "FAIL"}\\b`, "m"));
           assert.match(output, /^CHECK +roster +PASS\b/m);
-          assert.deepEqual([...output.matchAll(/^CHECK +(\S+) +EXCLUDED\b/gm)].map((match) => match[1]), excluded);
-          assert.doesNotMatch(output, /^CHECK +doctrine-original-(?:base|controls) +PASS\b/m);
-          assert.match(output, /^== summary: \d+ pass, \d+ fail, 0 not run, 2 excluded \(209 result lines = 208 expected checks \+ this roster audit\) ==$/m);
+          if (name === "clean source") {
+            cleanOutput = output;
+            assert.deepEqual([...output.matchAll(/^CHECK +(\S+) +EXCLUDED\b/gm)].map((match) => match[1]), excluded);
+            assert.match(output, /^== summary: 207 pass, 0 fail, 0 not run, 2 excluded \(209 result lines = 208 expected checks \+ this roster audit\) ==$/m);
+          } else selectedOutput(output, contract, accepted, auditAccepted);
         } finally {
           for (const [path, original] of originals) {
             if (original === undefined) rmSync(path);
@@ -65,6 +75,21 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
     }
 
     await check("clean source", {}, true);
+    await t.test("selected checks equal clean full-run verdicts and mutation counts", { timeout: 10_000 }, () => {
+      for (const contract of ["contract-heading-regions", "contract-delivery-packages"]) {
+        const result = spawnSync("bash", [join(fixture, "verification/run-resolver-checks.sh"), "--repo", fixture, "--only", contract], {
+          encoding: "utf8", timeout: 5_000, maxBuffer: 2 * 1024 * 1024,
+        });
+        const output = `${result.stdout}\n${result.stderr}`;
+        assert.equal(result.error, undefined, output);
+        assert.equal(result.status, 0, output);
+        const verdict = new RegExp(`^CHECK +${contract} +(PASS|FAIL|NOT RUN)`, "m");
+        assert.equal(output.match(verdict)?.[1], cleanOutput.match(verdict)?.[1], output);
+        assert.match(output, /^CHECK +roster +PASS\b/m);
+        selectedOutput(output, contract, true);
+        assert.deepEqual(mutationCounts(output), contract === "contract-heading-regions" ? { "heading-policy": mutationCounts(cleanOutput)["heading-policy"] } : {});
+      }
+    });
     const forms = {
       "raw path": "At session start, read docs/delivery-packages.md.",
       "reference link": "At session start, read [package rules][early-package].\n\n[early-package]: delivery-packages.md",
@@ -112,7 +137,7 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
     ] as const) {
       const source = readFileSync(join(fixture, file), "utf8");
       assert.ok(source.includes(rule));
-      await check(`removed kept anchor: ${rule}`, { [file]: source.replace(rule, "") }, false, "contract-heading-regions");
+      await check(`removed kept anchor: ${rule}`, { [file]: source.replace(rule, "") }, false, "contract-heading-regions", false);
     }
     await check("changed owned loading rule", { [workflowFile]: workflow.replace("Immediately before preparing any track package or final change package", "At session start") });
     await check("moved owned loading unit", { [workflowFile]: workflow.replace(loading, "") + `\n## Early reads\n\n${loading}\n` });

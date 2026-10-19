@@ -597,8 +597,8 @@ test("resolver exclusions are explicit and preserve the complete default roster"
   const repo = process.cwd();
   const ids = ["doctrine-original-base", "doctrine-original-controls"];
   const wrapper = join(repo, "verification/run-resolver-checks.sh");
-  const run = (script: string, args: string[] = []) => {
-    const result = spawnSync("bash", [script, "--repo", repo, "--strict", ...args], {
+  const run = (script: string, args: string[] = [], strict = true) => {
+    const result = spawnSync("bash", [script, "--repo", repo, ...(strict ? ["--strict"] : []), ...args], {
       encoding: "utf8", timeout: 60_000, maxBuffer: 2 * 1024 * 1024,
     });
     const output = `${result.stdout}\n${result.stderr}`;
@@ -637,9 +637,67 @@ test("resolver exclusions are explicit and preserve the complete default roster"
     assert.equal(direct.status, 2, direct.stdout + direct.stderr);
     assert.match(direct.stderr, /unknown exclusion id 'unknown-check'/);
 
+    const selectedIds = ["contract-heading-regions", "contract-delivery-packages"];
+    for (const selection of [selectedIds, [...selectedIds].reverse()]) {
+      const selected = run(wrapper, ["--only", selection.join(",")], false);
+      assert.equal(selected.status, 0, selected.output);
+      assert.deepEqual([...selected.output.matchAll(/^CHECK +(\S+) /gm)].map((match) => match[1]), [...selectedIds, "selected-mutation-audit", "roster"]);
+      assert.match(selected.output, /^NOTE executed mutation counts: {"heading-policy":860}$/m);
+      assert.match(selected.output, /^== summary: 4 pass, 0 fail, 0 not run \(4 result lines = 2 selected checks \+ scoped mutation audit \+ this roster audit\) ==$/m);
+    }
+    for (const args of [
+      ["--only"], ["--only", ""], ["--only", "unknown-check"], ["--only", "roster"],
+      ["--only", `${selectedIds[0]},`], ["--only", `,${selectedIds[0]}`],
+      ["--only", `${selectedIds[0]},${selectedIds[0]}`],
+      ["--only", selectedIds[0]!, "--only", selectedIds[1]!],
+      ["--only", selectedIds[0]!, "--exclude", ids[0]!],
+      ["--exclude", ids[0]!, "--only", selectedIds[0]!],
+    ]) {
+      const rejected = run(wrapper, args);
+      assert.equal(rejected.status, 2, rejected.output);
+      assert.match(rejected.output, /verification: refused to start —/);
+      assert.doesNotMatch(rejected.output, /^CHECK /m);
+    }
     cpSync(join(repo, "verification"), join(root, "verification"), { recursive: true });
     const driver = join(root, "verification/resolver-checks.mjs");
     const source = readFileSync(driver, "utf8");
+    const target = 'checkAll("contract-delivery-packages",';
+    const controls: [string, string, string, string, string][] = [
+      ["missing", target, "void (", selectedIds[1]!, "roster"],
+      ["duplicate", target, 'check("contract-delivery-packages", true, "duplicate control"); ' + target, selectedIds[1]!, "roster"],
+      ["unexpected", target, 'check("unexpected-control", true, "unexpected control"); ' + target, selectedIds[1]!, "roster"],
+      ["NOT RUN", target, 'skip("contract-delivery-packages", "control"); void (', selectedIds[1]!, "roster"],
+      ["crash", target, 'throw new Error("selected control crash"); ' + target, selectedIds.join(","), "roster"],
+      ["driver crash", 'if (startupError) throw startupError;', 'throw new Error("driver control crash");', selectedIds[1]!, "roster"],
+      ["mutation missing", 'mutationAudit.record("heading-policy", headingPolicyAttacks,', 'mutationAudit.record("heading-policy", headingPolicyAttacks.slice(1),', selectedIds[0]!, "selected-mutation-audit"],
+      ["mutation outside scope", target, 'mutationAudit.record("outside-control", []); ' + target, selectedIds[1]!, "selected-mutation-audit"],
+      ["mutation incomplete", 'mutationAudit.record("heading-policy", headingPolicyAttacks,', 'mutationAudit.record("heading-policy", headingPolicyAttacks.map((row, i) => i ? row : { ...row, rejected: false }),', selectedIds[0]!, "selected-mutation-audit"],
+    ];
+    for (const [name, before, after, selection, failedId] of controls) {
+      assert.ok(source.includes(before), `${name}: control must change driver code`);
+      writeFileSync(driver, source.replace(before, after));
+      const result = run(join(root, "verification/run-resolver-checks.sh"), ["--only", selection], false);
+      assert.equal(result.status, 1, `${name}\n${result.output}`);
+      assert.match(result.output, new RegExp(`^CHECK +${failedId} +FAIL\\b`, "m"));
+      if (failedId === "selected-mutation-audit") assert.match(result.output, /^CHECK +roster +PASS\b/m);
+      if (name === "crash") {
+        assert.match(result.output, /^CHECK +contract-heading-regions +PASS\b/m);
+        assert.match(result.output, /^CHECK +doctrine-contracts-crash +FAIL\b/m);
+        assert.match(result.output, /^CHECK +selected-mutation-audit +FAIL\b/m);
+      }
+      if (name === "driver crash") assert.match(result.output, /^CHECK +driver +FAIL\b/m);
+    }
+    for (const [before, after, status] of [
+      ['() => jiti.import(`${REPO}/extension/worker-extensions.ts`)', '() => { throw new Error("unneeded import control"); }', 0],
+      ['const A = mkpkg', 'throw new Error("unneeded setup control"); const A = mkpkg', 0],
+      ['() => jiti.import(`${REPO}/extension/paths.ts`)', '() => { throw new Error("required import control"); }', 1],
+    ] as const) {
+      assert.ok(source.includes(before));
+      writeFileSync(driver, source.replace(before, after));
+      const result = run(join(root, "verification/run-resolver-checks.sh"), ["--only", selectedIds[1]!]);
+      assert.equal(result.status, status, result.output);
+      assert.match(result.output, new RegExp(`^CHECK +roster +${status ? "FAIL" : "PASS"}\\b`, "m"));
+    }
     const deleted = source.replace(/^\s*check\("off-inert",[^\n]+\n/m, "\n");
     assert.notEqual(deleted, source, "missing-check fixture must delete an actual check");
     writeFileSync(driver, deleted);
