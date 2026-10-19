@@ -2,7 +2,7 @@
  * Global model-default restore: put the user's GLOBAL pi defaults back after a
  * slate-initiated model switch.
  *
- * Pi 1.2.0 keeps ordinary extension model and thinking-level switches inside
+ * Pi 1.3.0 keeps ordinary extension model and thinking-level switches inside
  * the current session. AgentSession changes global defaults only when a caller
  * explicitly requests persistence. Slate requests no persistence. This guard
  * covers explicit persistence fixtures and hosts that persist switches. If a
@@ -86,7 +86,7 @@ type ThinkingLevel = ReturnType<ExtensionAPI["getThinkingLevel"]>;
  * busy-waits SYNCHRONOUSLY, so an attempt's cost is set by contention, not by
  * slate — a count-based bound would leave the stall unbounded.
  *
- * WORST-CASE STALL, derived from this file as written (pi 1.2.0: a contended
+ * WORST-CASE STALL, derived from this file as written (pi 1.3.0: a contended
  * acquisition makes ten attempts with nine 20 ms waits, about 180 ms):
  * five lock acquisitions per attempt — post-switch read (construction IS a
  * read), write-manager construction, the pair write, the separate
@@ -517,7 +517,7 @@ function switchMayHavePersisted<T>(predicate: ((result: T) => boolean) | undefin
  * `performSwitch` must contain every setter call for that switch.
  * The post-switch read must follow the last write.
  * Explicit persistence or a host that persists switches can write the thinking
- * default alone during handoff adoption. Ordinary pi 1.2.0 switches write no
+ * default alone during handoff adoption. Ordinary pi 1.3.0 switches write no
  * global defaults.
  *
  * The restore runs even when `performSwitch` throws.

@@ -385,12 +385,6 @@ test("project startup settings merge causally and select Opus 5.5 at high when u
   });
   assert.strictEqual(scoped.model, other, "the scoped set must constrain startup selection");
   assert.equal(scoped.thinkingLevel, "low");
-  const explicit = await resolverModule.findInitialModel({
-    cliProvider: other.provider, cliModel: other.id, scopedModels: [], isContinuing: false,
-    defaultProvider: manager.getDefaultProvider(), defaultModelId: manager.getDefaultModel(),
-    defaultThinkingLevel: manager.getDefaultThinkingLevel(), modelRuntime: runtime,
-  });
-  assert.strictEqual(explicit.model, other, "an explicit command-line model must outrank the project default");
   const restored = await resolverModule.restoreModelFromSession(other.provider, other.id, opus, false, runtime);
   assert.strictEqual(restored.model, other, "a usable restored model must replace the startup default");
   const untrusted = settingsModule.SettingsManager.create(process.cwd(), agentDir, { projectTrusted: false });
@@ -399,7 +393,9 @@ test("project startup settings merge causally and select Opus 5.5 at high when u
   assert.deepEqual(untrusted.getProjectSettings(), {});
 });
 
-test("real Pi startup prefers Opus 5.5 anywhere in the scoped model set", { timeout: 15000 }, () => {
+for (const explicitModel of [false, true]) test(explicitModel
+  ? "real Pi startup gives an explicit command-line model precedence over a conflicting project default"
+  : "real Pi startup prefers Opus 5.5 anywhere in the scoped model set", { timeout: 15000 }, () => {
   const trackedSettings = JSON.parse(readFileSync(join(process.cwd(), ".pi", "settings.json"), "utf8"));
   const trackedDefaults = {
     defaultProvider: trackedSettings.defaultProvider,
@@ -424,6 +420,20 @@ test("real Pi startup prefers Opus 5.5 anywhere in the scoped model set", { time
     writeFileSync(join(projectDir, ".pi", "settings.json"), JSON.stringify(trackedDefaults));
     writeFileSync(join(agentDir, "models.json"), JSON.stringify({
       providers: {
+        openai: {
+          baseUrl: "http://127.0.0.1:9/v1",
+          apiKey: "literal-offline-startup-key",
+          api: "openai-completions",
+          models: [{
+            id: "explicit-startup-model",
+            name: "Explicit startup model",
+            reasoning: false,
+            input: ["text"],
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 128_000,
+            maxTokens: 4096,
+          }],
+        },
         anthropic: {
           baseUrl: "http://127.0.0.1:9/v1",
           apiKey: "literal-offline-startup-key",
@@ -450,7 +460,9 @@ test("real Pi startup prefers Opus 5.5 anywhere in the scoped model set", { time
       "--mode", "rpc",
       "-a",
       "--no-session",
-      "--models", "anthropic/claude-opus-5-5",
+      ...(explicitModel
+        ? ["--provider", "openai", "--model", "explicit-startup-model"]
+        : ["--models", "anthropic/claude-opus-5-5"]),
     ], {
       cwd: projectDir,
       env: {
@@ -481,9 +493,11 @@ test("real Pi startup prefers Opus 5.5 anywhere in the scoped model set", { time
       .find((entry) => entry.id === "state");
     assert.ok(response, `missing get_state response: ${result.stdout.slice(0, 4096)}`);
     assert.equal(response.success, true);
-    assert.equal(response.data?.model?.provider, "anthropic");
-    assert.equal(response.data?.model?.id, "claude-opus-5-5");
-    assert.equal(response.data?.thinkingLevel, "high");
+    assert.equal(response.data?.model?.provider, explicitModel ? "openai" : "anthropic",
+      "an explicit command-line provider must outrank the conflicting project default");
+    assert.equal(response.data?.model?.id, explicitModel ? "explicit-startup-model" : "claude-opus-5-5",
+      "an explicit command-line model must outrank the conflicting project default");
+    if (!explicitModel) assert.equal(response.data?.thinkingLevel, "high");
   } finally {
     rmSync(cliScratch, { recursive: true, force: true });
   }
