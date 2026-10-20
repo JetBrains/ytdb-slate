@@ -456,6 +456,8 @@ export async function openWorkerSession(opts: {
 	promptCacheKey?: string; // the main session's shared OpenAI Responses cache-routing key
 	requestThrottle?: RequestThrottle; // the main session's shared per-model request throttle
 	requestContract?: WorkerRequestContract; // action-local expected pair and accepted attribution
+	/** Internal test seam. Production dispatch does not enable codemode. */
+	testOnlyCodemode?: boolean;
 	report?: (message: string) => void; // lifecycle failures visible to the dispatch and host
 	onCreated?: (session: WorkerSession) => void; // publish ownership and install capture before session_start begins
 	deferShutdownOnOpenFailure?: boolean; // ThreadManager persists captured startup facts before shutdown
@@ -517,6 +519,17 @@ export async function openWorkerSession(opts: {
 	// Pi still controls which extensions are present in the host registry.
 	const extensionPaths = configPermitted ? (opts.extensionPaths ?? []) : [];
 	const workerReminder = createWorkerReminderRuntime();
+	const warn = (msg: string) => {
+		try {
+			if (opts.report) opts.report(msg);
+			else if (ctx.hasUI) ctx.ui.notify(msg, "warning");
+			else console.warn(msg);
+		} catch {
+			// A reporting sink must not interrupt the worker lifecycle.
+			try { console.warn(msg); } catch { /* no remaining reporting channel */ }
+		}
+	};
+	const codemode = opts.testOnlyCodemode === true ? await import("./worker-codemode.ts") : undefined;
 	const loader = new DefaultResourceLoader({
 		cwd: ctx.cwd,
 		agentDir,
@@ -534,6 +547,11 @@ export async function openWorkerSession(opts: {
 				factory: workerReminder.extension,
 				hidden: true,
 			},
+			...(codemode === undefined ? [] : [{
+				name: codemode.WORKER_CODEMODE_COMPONENT_NAME,
+				factory: codemode.createWorkerCodemodeComponent(warn),
+				hidden: true,
+			}]),
 		],
 		noSkills: true,
 		noPromptTemplates: true,
@@ -544,17 +562,6 @@ export async function openWorkerSession(opts: {
 	});
 	await loader.reload();
 	const loaded = loader.getExtensions();
-	const warn = (msg: string) => {
-		try {
-			if (opts.report) opts.report(msg);
-			else if (ctx.hasUI) ctx.ui.notify(msg, "warning");
-			else console.warn(msg);
-		} catch {
-			// A reporting sink must never turn a fail-soft extension error into an
-			// unobserved lifecycle interruption.
-			try { console.warn(msg); } catch { /* no remaining reporting channel */ }
-		}
-	};
 	// A worker extension or the internal reminder component must not vanish
 	// silently. Surface every loader error naming the path. Paths and messages
 	// are extension-supplied and flow to the UI, the console and the persisted
@@ -639,6 +646,7 @@ export async function openWorkerSession(opts: {
 			...new Set([
 				...(opts.tools && opts.tools.length > 0 ? opts.tools : DEFAULT_WORKER_TOOLS),
 				...extensionToolNames,
+				...(opts.testOnlyCodemode === true ? ["codemode"] : []),
 				...(extensionPaths.length > 0 ? (opts.extensionToolNames ?? []) : []),
 			]),
 		],
