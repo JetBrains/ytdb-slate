@@ -555,7 +555,7 @@ export async function openWorkerSession(opts: {
 			},
 			...(codemode === undefined ? [] : [{
 				name: codemode.WORKER_CODEMODE_COMPONENT_NAME,
-				factory: codemode.createWorkerCodemodeComponent(warn),
+				factory: codemode.createWorkerCodemodeComponent(warn, nestedLifecycle.closeSignal),
 				hidden: true,
 			}]),
 			{

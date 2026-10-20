@@ -13,6 +13,20 @@ function fixture() {
   return { lifecycle, emit, warnings };
 }
 
+test('close signal fires synchronously once with admission already closed', { timeout: 1000 }, () => {
+  const { lifecycle, emit } = fixture();
+  let count = 0;
+  lifecycle.closeSignal.addEventListener('abort', () => {
+    count++;
+    assert.deepEqual(emit('tool_call'), { block: true, reason: WORKER_NESTED_CLOSED_REASON });
+  });
+  lifecycle.close();
+  assert.equal(lifecycle.closeSignal.aborted, true);
+  assert.equal(count, 1);
+  lifecycle.close();
+  assert.equal(count, 1);
+});
+
 test('nested counters retain multiplicity and ignore unmatched and top-level ends', { timeout: 1000 }, async () => {
   const { lifecycle, emit, warnings } = fixture();
   emit('tool_execution_start'); emit('tool_call');
