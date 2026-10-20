@@ -129,7 +129,7 @@ test("offline worker loading registers no Slate notification dispatcher", { time
   const activity = t.mock.method(NotificationDispatcher.prototype, "activity");
   await offlineWorkerTest(t, () => [{ type: "text", text: "worker complete" }], async (session) => {
     const loaded = session.resourceLoader.getExtensions().extensions;
-    assert.deepEqual(loaded.filter((item) => !item.path.startsWith("builtin:")).map((item) => item.path), ["<inline:slate-worker-reminder>"]);
+    assert.deepEqual(loaded.filter((item) => !item.path.startsWith("builtin:")).map((item) => item.path), ["<inline:slate-worker-reminder>", "<inline:slate-worker-nested-lifecycle>"]);
     await session.prompt("Complete this bounded worker action.");
     assert.equal(start.mock.callCount(), 0);
     assert.equal(settle.mock.callCount(), 0);
@@ -662,6 +662,20 @@ export default function (pi) {
     await session.shutdownWorker();
     assert.equal(readFileSync(marker, "utf8"), "start\nstarted\nshutdown\n");
     assert.equal(reports.filter((message) => /shutdown failed.*shutdown exploded/.test(message)).length, 1);
+  });
+});
+
+test("standalone worker warnings reach console when host notification throws", { timeout: 10000 }, async (t) => {
+  await isolatedWorkerTest(t, async (root) => {
+    const output: string[] = [];
+    t.mock.method(console, "warn", (message: string) => { output.push(message); });
+    const ctx = context(root);
+    ctx.hasUI = true;
+    ctx.ui = { notify() { throw new Error("stale context"); } } as unknown as ExtensionContext["ui"];
+    const path = fixture(root, `export default pi => { pi.on('session_shutdown', () => { throw new Error('standalone shutdown'); }); }`);
+    const session = await openWorkerSession({ ctx, extensionPaths: [path] });
+    await session.shutdownWorker();
+    assert.equal(output.filter(message => /shutdown failed.*standalone shutdown/.test(message)).length, 1);
   });
 });
 

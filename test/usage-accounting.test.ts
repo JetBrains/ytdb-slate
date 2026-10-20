@@ -1752,6 +1752,45 @@ test("fixed episode write failure leaves a terminal reason and no orphan episode
   await assertNoEpisodeConsumers(internalStore, cwd, "t1.e1", snapshots.at(-1));
 });
 
+test("nested settlement diagnostics preserve the primary failure and terminal progress", { timeout: 1000 }, async (t) => {
+  const cwd = temporaryProject(t);
+  const session = fakeSession(async () => { throw new Error("primary worker failure"); });
+  const manager = managerWithSessions([session]);
+  const internals = manager as unknown as {
+    teardownStarted: boolean;
+    store: InstanceType<typeof SlateStore>;
+    openWorkerFor(args: { report(message: string): void }): Promise<unknown>;
+  };
+  const open = internals.openWorkerFor.bind(internals);
+  internals.openWorkerFor = async (args) => {
+    const result = await open(args);
+    Object.assign(session, { async settleManagedOperations() {
+      internals.teardownStarted = true;
+      args.report('slate: nested tool call has not reported its end — identifier "worker extension startup failed/1", tool "worker extension failed to load", count 1. Settlement is still waiting.');
+    } });
+    const shutdown = session.shutdownWorker.bind(session);
+    session.shutdownWorker = async () => {
+      await shutdown();
+      args.report("slate: worker extension shutdown failed — ordinary shutdown warning");
+    };
+    return result;
+  };
+  mkdirSync(join(cwd, ".pi", "slate", internals.store.runtimeFolder, "episodes", "t1.e1.md"), { recursive: true });
+  const updates: boolean[] = [];
+  await assert.rejects(manager.dispatch({ ...TEST_ROUTE, task: "preserve primary failure", type: "general" }, context(cwd), undefined,
+    update => { updates.push(update.done); }), (error: Error) => {
+      assert.match(error.message, /could not store episode/);
+      assert.doesNotMatch(error.message, /cancelled/);
+      const lifecycle = error.message.slice(error.message.indexOf("Lifecycle failures:"));
+      assert.match(lifecycle, /ordinary shutdown warning/);
+      assert.doesNotMatch(lifecycle, /has not reported its end/);
+      return true;
+    });
+  assert.equal(internals.store.threads.get("t1")?.status, "failed", "the pending warning is not startup-failure evidence");
+  assert.equal(updates.at(-1), true);
+  assert.equal(updates.slice(updates.indexOf(true) + 1).includes(false), false, "no running update follows the terminal update");
+});
+
 test("fixed failure reports a thread-record save failure", { timeout: 1000 }, async (t) => {
   const cwd = temporaryProject(t);
   const session = fakeSession(async () => { throw new Error("worker failed without output"); });

@@ -54,6 +54,7 @@ import {
 } from "./worker.ts";
 import { EMPTY_WORKER_EXTENSION_SET, type WorkerExtensionSet } from "./worker-extensions.ts";
 import { isWorkerReminderMessage, workerReminderDeliveryMissing } from "./worker-reminder.ts";
+import { NESTED_SETTLEMENT_WARNING_PREFIX } from "./worker-nested-lifecycle.ts";
 import { loadImplementationReviewGuidance, validateReviewPerspectives, type ReviewFileReader } from "./review-perspectives.ts";
 
 /**
@@ -714,7 +715,10 @@ export class ThreadManager {
 			warnings.push(message);
 			lines.push(`⚠ ${message}`);
 		};
+		let terminalProgressSent = false;
 		const emit = (done: boolean, status?: "ok" | "failed") => {
+			if (terminalProgressSent && !done) return;
+			if (done) terminalProgressSent = true;
 			try {
 				onProgress?.({ threadId: thread.id, threadName: thread.name, lines, usage, done, status });
 			} catch (error) {
@@ -797,15 +801,17 @@ export class ThreadManager {
 		// while the action runs) and the tool result (so the ORCHESTRATOR reads them —
 		// a cost cliff or an evidence gap is its decision to make, not the user's).
 		const routeWarn = (message: string) => {
-			if (isStartupWarning(message)) {
+			const nestedSettlement = message.startsWith(NESTED_SETTLEMENT_WARNING_PREFIX);
+			if (!nestedSettlement && isStartupWarning(message)) {
 				if (message.startsWith(startupWarningPrefix)) reportedStartupDetails.push(message.slice(startupWarningPrefix.length));
 				if (this.teardownStarted) observeCancellation("session teardown");
 				observeStartupFailure();
 			}
-			if (isLifecycleWarning(message)) lifecycleWarnings.push(message);
+			if (!nestedSettlement && isLifecycleWarning(message)) lifecycleWarnings.push(message);
 			warnings.push(message);
 			lines.push(`⚠ ${message}`);
 			if (captureExecutionReports && executionReport === undefined) executionReport = message;
+			if (nestedSettlement) emit(false);
 		};
 		// ONE action-scoped refusal report at the managed request boundary. Worker
 		// startup, initial work, a later turn, recovery continuation and worker

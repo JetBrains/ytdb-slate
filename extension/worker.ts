@@ -50,6 +50,7 @@ import type { LogicalModelEffort } from "./logical-model-definitions.ts";
 import type { RecoveryCandidate } from "./logical-model-recovery.ts";
 import { RequestThrottleAbort, type RequestThrottle } from "./request-throttle.ts";
 import { createWorkerReminderRuntime } from "./worker-reminder.ts";
+import { createWorkerNestedLifecycle } from "./worker-nested-lifecycle.ts";
 import { describeSpecDefect, splitModelSpec, type SlateConfig, type ThreadType } from "./state.ts";
 import { PI_BUILTIN_TOOL_NAMES, SLATE_TOOL_NAMES } from "./worker-extensions.ts";
 
@@ -458,6 +459,8 @@ export async function openWorkerSession(opts: {
 	requestContract?: WorkerRequestContract; // action-local expected pair and accepted attribution
 	/** Internal test seam. Production dispatch does not enable codemode. */
 	testOnlyCodemode?: boolean;
+	/** Internal test seam for the fixed nested-settlement diagnostic interval. */
+	testOnlyNestedWarningMs?: number;
 	report?: (message: string) => void; // lifecycle failures visible to the dispatch and host
 	onCreated?: (session: WorkerSession) => void; // publish ownership and install capture before session_start begins
 	deferShutdownOnOpenFailure?: boolean; // ThreadManager persists captured startup facts before shutdown
@@ -519,16 +522,19 @@ export async function openWorkerSession(opts: {
 	// Pi still controls which extensions are present in the host registry.
 	const extensionPaths = configPermitted ? (opts.extensionPaths ?? []) : [];
 	const workerReminder = createWorkerReminderRuntime();
-	const warn = (msg: string) => {
+	const warn = (msg: string, notifyHost = false) => {
+		let retained = false;
 		try {
-			if (opts.report) opts.report(msg);
-			else if (ctx.hasUI) ctx.ui.notify(msg, "warning");
-			else console.warn(msg);
-		} catch {
-			// A reporting sink must not interrupt the worker lifecycle.
+			if (opts.report) { opts.report(msg); retained = true; }
+		} catch { /* fall back when the report sink rejects the warning */ }
+		if ((!opts.report || notifyHost) && ctx.hasUI) {
+			try { ctx.ui.notify(msg, "warning"); return; } catch { /* a replaced host context can reject notification */ }
+		}
+		if (!retained) {
 			try { console.warn(msg); } catch { /* no remaining reporting channel */ }
 		}
 	};
+	const nestedLifecycle = createWorkerNestedLifecycle(message => warn(message, true), opts.testOnlyNestedWarningMs);
 	const codemode = opts.testOnlyCodemode === true ? await import("./worker-codemode.ts") : undefined;
 	const loader = new DefaultResourceLoader({
 		cwd: ctx.cwd,
@@ -552,6 +558,11 @@ export async function openWorkerSession(opts: {
 				factory: codemode.createWorkerCodemodeComponent(warn),
 				hidden: true,
 			}]),
+			{
+				name: "slate-worker-nested-lifecycle",
+				factory: nestedLifecycle.extension,
+				hidden: true,
+			},
 		],
 		noSkills: true,
 		noPromptTemplates: true,
@@ -690,6 +701,7 @@ export async function openWorkerSession(opts: {
 		workerReminderHandledToolResult: workerReminder.handledToolResult,
 		closeManagedOperations(): void {
 			managedAdmissionOpen = false;
+			nestedLifecycle.close();
 		},
 		activeManagedOperationCount(): number {
 			return activeManagedOperations.size;
@@ -702,15 +714,17 @@ export async function openWorkerSession(opts: {
 		},
 		settleManagedOperations(): Promise<void> {
 			if (settlementPromise !== undefined) return settlementPromise;
-			managedAdmissionOpen = false;
-			settlementPromise = (async () => {
+			settlementPromise = Promise.resolve().then(async () => {
 				try { await session.abort(); } catch { /* classification uses captured messages */ }
 				try { await startupPromise; } catch { /* startup failure remains independently visible */ }
 				while (activeManagedOperations.size > 0) {
 					await Promise.allSettled([...activeManagedOperations]);
 				}
 				try { await session.waitForIdle(); } catch { /* shutdown still runs */ }
-			})();
+				try { await nestedLifecycle.join(); } finally { nestedLifecycle.clearWarning(); }
+			});
+			workerSession.closeManagedOperations();
+			nestedLifecycle.startWarning();
 			return settlementPromise;
 		},
 		shutdownWorker(): Promise<void> {
