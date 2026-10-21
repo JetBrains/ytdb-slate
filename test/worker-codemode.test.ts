@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -25,6 +25,7 @@ async function worker(
   enabled = true,
   checkpointOnly = false,
   onReport?: (message: string) => void,
+  successfulCompression = false,
 ): Promise<void> {
   const root = mkdtempSync(join(tmpdir(), "wc-"));
   const env = { agent: process.env.PI_CODING_AGENT_DIR, offline: process.env.PI_OFFLINE };
@@ -55,11 +56,11 @@ async function worker(
           maxTokens: 1000, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }],
       streamSimple(model, request) {
         requests.push(structuredClone(request));
-        const content = model.id === "compressor" ? [] : next;
+        const content = model.id === "compressor" ? (successfulCompression ? [{ type: "text" as const, text: "## Intent\nOUTER-PRINTED-SENTINEL" }] : []) : next;
         next = [{ type: "text", text: "complete" }];
-        const stopReason = model.id === "compressor" ? "error" : content.some(part => part.type === "toolCall") ? "toolUse" : "stop";
+        const stopReason = model.id === "compressor" && !successfulCompression ? "error" : content.some(part => part.type === "toolCall") ? "toolUse" : "stop";
         const message: AssistantMessage = { role: "assistant", api: model.api, provider: model.provider, model: model.id,
-          content, stopReason, errorMessage: model.id === "compressor" ? "fixture compression failure" : undefined, timestamp: 1, usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2,
+          content, stopReason, errorMessage: stopReason === "error" ? "fixture compression failure" : undefined, timestamp: 1, usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2,
             cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } };
         const stream = createAssistantMessageEventStream();
         if (stopReason === 'error') stream.push({ type: 'error', reason: 'error', error: message });
@@ -454,7 +455,7 @@ test("empty model identifier cannot bypass script checkpoint decisions", { timeo
 
 test("manager retains compact nested outcomes and counts only outer failures", { timeout: 180000 }, async () => {
   for (const parent of ['', 'outer']) {
-    for (const failOuter of [false, true]) {
+    for (const [failOuter, successfulCompression] of [[false, false], [false, true], [true, false], [true, true]]) {
       await worker(`register('good', { execute: async () => ({ content: [
         { type: 'text', text: 'RAW-NESTED-SUCCESS' }, { type: 'image', data: 'RAW-NESTED-IMAGE', mimeType: 'image/png' }
       ], details: { private: 'RAW-NESTED-DETAILS' } }) });
@@ -487,10 +488,19 @@ test("manager retains compact nested outcomes and counts only outer failures", {
           const compressorInput = JSON.stringify(requests.filter(request => JSON.stringify(request).includes('Transcript:')));
           assert.match(compressorInput, /nested tool: good.*succeeded/);
           assert.match(compressorInput, /nested tool: bad.*failed/);
-          assert.match(result.episodeText, /\[nested tool: good\]\nsucceeded/);
-          assert.match(result.episodeText, /\[nested tool: bad\]\nfailed/);
-          assert.equal(result.episodeText.match(/nested tool: good/g)?.length, 2);
-          assert.equal(result.episodeText.match(/nested tool: bad/g)?.length, 1);
+          const saved = readFileSync(result.episode.file, 'utf8');
+          assert.equal(saved, result.episodeText);
+          assert.deepEqual(saved.split('\n').filter(line => line.startsWith('> nested tool calls:')),
+            ['> nested tool calls: bad 1 failed, good 2 succeeded']);
+          if (successfulCompression) {
+            assert.match(saved, /compressor: codemode-offline\/compressor/);
+            assert.doesNotMatch(saved, /\[nested tool:/);
+          } else {
+            assert.match(saved, /\[nested tool: good\]\nsucceeded/);
+            assert.match(saved, /\[nested tool: bad\]\nfailed/);
+            assert.equal(saved.match(/nested tool: good/g)?.length, 2);
+            assert.equal(saved.match(/nested tool: bad/g)?.length, 1);
+          }
           for (const text of [compressorInput, result.episodeText]) {
             assert.doesNotMatch(text, /RAW-NESTED-/);
             assert.match(text, /OUTER-PRINTED-SENTINEL/);
@@ -500,7 +510,7 @@ test("manager retains compact nested outcomes and counts only outer failures", {
           if (failOuter) assert.match(failures[0]!, /codemode \(1\)/);
           assert.equal(result.warnings.some(warning => warning.includes('reminder')), false);
         } finally { await manager.disposeAll(); }
-      });
+      }, true, false, undefined, successfulCompression);
     }
   }
 });

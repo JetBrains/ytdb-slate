@@ -785,6 +785,7 @@ export class ThreadManager {
 		const completedFacts = createCompletedFactRecorder();
 		// Count completed errors independently of bounded transcript facts.
 		const toolErrors = new Map<string, number>();
+		const nestedToolCounts = new Map<string, { failed: number; succeeded: number }>();
 		let frozenCompletedFacts: FrozenCompletedFacts | undefined;
 		let status: "ok" | "failed" = "ok";
 		let diagnostics: string | undefined;
@@ -871,6 +872,9 @@ export class ThreadManager {
 			} else if (event.type === "tool_execution_end") {
 				const tool = event as unknown as { toolName: string; result: unknown; isError: boolean };
 				if (typeof event.parentToolCallId === "string") {
+					const counts = nestedToolCounts.get(tool.toolName) ?? { failed: 0, succeeded: 0 };
+					counts[tool.isError ? "failed" : "succeeded"]++;
+					nestedToolCounts.set(tool.toolName, counts);
 					completedFacts.addNestedTool(tool.toolName, tool.isError);
 				} else {
 					completedFacts.addTool(tool.toolName, tool.result, tool.isError);
@@ -1456,6 +1460,7 @@ export class ThreadManager {
 				completedText: completedWorkerText,
 				completedFacts: frozenCompletedFacts,
 				toolErrorWarning,
+				nestedToolCounts,
 				logicalRuntime: this.logicalRuntime!,
 				admission: admission!,
 				retryPolicy: this.compressorRetryPolicy,

@@ -271,6 +271,23 @@ export function headerField(value: unknown, max = HEADER_FIELD_MAX): string | un
 	return clean === "" ? undefined : clean;
 }
 
+export type NestedToolCounts = ReadonlyMap<string, Readonly<{ failed: number; succeeded: number }>>;
+
+/** Render at most five tool/outcome entries, independent of bounded facts. */
+function nestedToolHeader(counts: NestedToolCounts | undefined): string[] {
+	const entries: string[] = [];
+	let total = 0;
+	for (const name of [...(counts?.keys() ?? [])].sort()) {
+		const outcomes = counts!.get(name)!;
+		for (const outcome of ["failed", "succeeded"] as const) {
+			if (outcomes[outcome] === 0) continue;
+			total++;
+			if (entries.length < 5) entries.push(`${headerField(name, 80) ?? "(unknown)"} ${outcomes[outcome]} ${outcome}`);
+		}
+	}
+	return total === 0 ? [] : [`> nested tool calls: ${entries.join(", ")}${total > entries.length ? `, and ${total - entries.length} more entries omitted` : ""}`];
+}
+
 const EPISODE_SECTIONS = [
 	"## Intent",
 	"## Actions Taken",
@@ -408,6 +425,7 @@ export interface CompressEpisodeOptions {
 	diagnostics?: string; // failure diagnostics (D6)
 	/** Tool names and error counts rendered outside the compressed body. */
 	toolErrorWarning?: string;
+	nestedToolCounts?: NestedToolCounts;
 	messages: unknown[]; // AgentMessages produced during this action, used for observation compatibility
 	/** Stable bounded facts captured before mutable Pi history can be rewritten. */
 	completedFacts?: FrozenCompletedFacts;
@@ -706,6 +724,7 @@ export async function compressEpisode(opts: CompressEpisodeOptions): Promise<Com
 		`> date: ${new Date().toISOString()}${ranOn ? ` | ran: ${headerField(ranOn, 120)}` : ""} | compressor: ${headerField(compressor, 120) ?? "(unknown)"}`,
 		...(failure ? [`> failure: ${failure}`] : []),
 		...(opts.toolErrorWarning ? [`> warning: ${opts.toolErrorWarning}`] : []),
+		...nestedToolHeader(opts.nestedToolCounts),
 		"",
 		"",
 	].join("\n");

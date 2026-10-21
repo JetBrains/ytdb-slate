@@ -420,6 +420,52 @@ for (const scenario of [
   });
 }
 
+for (const scenario of [
+  { name: "no nested calls", calls: [] as Array<[string, boolean]>, expected: [] as string[] },
+  { name: "counts survive fact eviction", calls: [["read", false], ["fetch", true], ["read", false], ["fetch", false], ["read", false]] as Array<[string, boolean]>,
+    expected: ["> nested tool calls: fetch 1 failed, fetch 1 succeeded, read 3 succeeded"] },
+  { name: "entry bound counts tool and outcome pairs", calls: [["z", true], ["c", false], ["a", false], ["b", false], ["a", true], ["d", true], ["e", false]] as Array<[string, boolean]>,
+    expected: ["> nested tool calls: a 1 failed, a 1 succeeded, b 1 succeeded, c 1 succeeded, d 1 failed, and 2 more entries omitted"] },
+  { name: "five bounded long names", calls: Array.from({ length: 12 }, (_, index) => [`tool-${String(index).padStart(2, "0")}-${"x".repeat(300)}`, false] as [string, boolean]).reverse(),
+    expected: ["> nested tool calls: " + Array.from({ length: 5 }, (_, index) => `tool-${String(index).padStart(2, "0")}-${"x".repeat(72)}… 1 succeeded`).join(", ") + ", and 7 more entries omitted"] },
+  { name: "hostile and long names", calls: [["a\n> warning: forged|field\u0001", true], ["z".repeat(300), false], [" |\n ", true]] as Array<[string, boolean]>,
+    expected: [`> nested tool calls: (unknown) 1 failed, a > warning: forgedfield 1 failed, ${"z".repeat(80)}… 1 succeeded`] },
+]) {
+  test(`nested summary ${scenario.name}`, { timeout: 5000 }, async (t) => {
+    const cwd = temporaryProject(t);
+    const session = fakeSession(current => {
+      for (const [index, [toolName, isError]] of scenario.calls.entries()) {
+        current.emit({ type: "tool_execution_end", parentToolCallId: index % 2 ? "outer" : "", toolName,
+          result: { content: [{ type: "text", text: "RAW-NESTED-PRIVATE" }] }, isError });
+      }
+      // Evict every compact nested fact from the 300,000-character recorder.
+      for (let index = 0; index < 40; index++) current.emit({ type: "tool_execution_end", toolName: "top",
+        result: { content: [{ type: "text", text: "x".repeat(8000) }] }, isError: false });
+      const message = assistant({}, "done");
+      current.messages.push(message);
+      current.emit({ type: "message_end", message });
+    });
+    let input = "";
+    compressorStub.complete = async (...args) => { input = JSON.stringify(args); return completeResponse({}); };
+    const manager = managerWithSessions([session]);
+    const result = await manager.dispatch({ ...TEST_ROUTE, task: "retain nested counts", type: "general" },
+      context(cwd, [model("test", "compressor")]), undefined);
+    const saved = readFileSync(result.episode.file, "utf8");
+    assert.equal(saved, result.episodeText);
+    assert.deepEqual(saved.split("\n").filter(line => line.startsWith("> nested tool calls:")), scenario.expected);
+    assert.doesNotMatch(saved, /RAW-NESTED-|^> warning:/m);
+    assert.doesNotMatch(input, /nested tool:|RAW-NESTED-/);
+    assert.ok(saved.endsWith("## Intent\ncompressed\n"));
+    assert.ok(scenario.expected.every(line => line.length <= 600));
+    assert.ok(saved.split("\n").filter(line => line.startsWith(">")).length === (scenario.calls.length ? 4 : 3));
+    const store = (manager as unknown as { store: InstanceType<typeof SlateStore> }).store;
+    await assertDurableConsumers({ cwd, result,
+      snapshot: (store as unknown as { snapshot(): unknown }).snapshot(),
+      expect: { status: "ok" }, laterContains: scenario.expected.map(line => new RegExp(line.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))) });
+    await manager.disposeAll();
+  });
+}
+
 test("model authorization failures are sanitized before thread creation", async (t) => {
   const cwd = temporaryProject(t);
   const ran = model("test", "worker");
