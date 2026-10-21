@@ -129,7 +129,7 @@ test("offline worker loading registers no Slate notification dispatcher", { time
   const activity = t.mock.method(NotificationDispatcher.prototype, "activity");
   await offlineWorkerTest(t, () => [{ type: "text", text: "worker complete" }], async (session) => {
     const loaded = session.resourceLoader.getExtensions().extensions;
-    assert.deepEqual(loaded.filter((item) => !item.path.startsWith("builtin:")).map((item) => item.path), ["<inline:slate-worker-reminder>", "<inline:slate-worker-nested-lifecycle>"]);
+    assert.deepEqual(loaded.filter((item) => !item.path.startsWith("builtin:")).map((item) => item.path), ["<inline:slate-worker-reminder>", "<inline:slate-worker-codemode>", "<inline:slate-worker-nested-lifecycle>"]);
     await session.prompt("Complete this bounded worker action.");
     assert.equal(start.mock.callCount(), 0);
     assert.equal(settle.mock.callCount(), 0);

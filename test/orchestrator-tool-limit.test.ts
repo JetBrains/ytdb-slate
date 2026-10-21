@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { createAgentSession, createCodemodeExtension, DefaultResourceLoader, SessionManager, SettingsManager, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { registerSlateMode } from "../extension/mode.ts";
 import { SlateStore } from "../extension/state.ts";
 import { EMPTY_WORKER_EXTENSION_SET } from "../extension/worker-extensions.ts";
@@ -56,6 +59,35 @@ function harness(initial: string[], options: { seedDefault?: boolean; registered
 }
 
 const prompt = { systemPrompt: "Base prompt" };
+
+test("real official codemode stays outside the orchestrator tool limit", { timeout: 10000 }, async () => {
+	const root = mkdtempSync(join(tmpdir(), "slate-orchestrator-codemode-"));
+	const settingsManager = SettingsManager.inMemory();
+	let session: Awaited<ReturnType<typeof createAgentSession>>["session"] | undefined;
+	try {
+		const loader = new DefaultResourceLoader({ cwd: root, agentDir: root, settingsManager,
+			noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true,
+			extensionFactories: [
+				{ name: "official-codemode", factory: createCodemodeExtension({ mode: "on", models: false }) },
+				{ name: "orchestrator", factory(pi) {
+					const store = new SlateStore(pi);
+					store.orchestratorMode = true;
+					registerSlateMode(pi, store, { startHandoff: async () => {}, effectiveContextBudget: () => undefined },
+						() => ({}), () => EMPTY_WORKER_EXTENSION_SET);
+				} },
+			] });
+		await loader.reload();
+		({ session } = await createAgentSession({ cwd: root, agentDir: root, resourceLoader: loader,
+			settingsManager, sessionManager: SessionManager.inMemory(), tools: ["read", "codemode"] }));
+		assert.equal(session.getAllTools().find(tool => tool.name === "codemode")?.sourceInfo.path, "<inline:official-codemode>");
+		assert.ok(session.getActiveToolNames().includes("codemode"));
+		await session.bindExtensions({ mode: "print" });
+		assert.equal(session.getActiveToolNames().includes("codemode"), false);
+		const blocked = await session.extensionRunner.emitToolCall({ type: "tool_call", toolCallId: "real-script",
+			toolName: "codemode", input: { code: "return 1;" } });
+		assert.deepEqual(blocked, { block: true, reason: "slate: orchestrator mode does not allow this tool." });
+	} finally { session?.dispose(); rmSync(root, { recursive: true, force: true }); }
+});
 
 test("later extension tools stay limited and return when orchestrator mode ends", { timeout: 1000 }, async () => {
 	const f = harness(["read", "bash", "slate_change"]);

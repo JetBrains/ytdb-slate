@@ -124,8 +124,8 @@ export const SLATE_TOOL_NAMES = ["thread", "threads", "episode", "slate_change"]
 /** pi's built-in tools — a unit registering any of these would overwrite a worker's own (AD44/RG2). */
 export const PI_BUILTIN_TOOL_NAMES = ["read", "bash", "edit", "write", "grep", "find", "ls"];
 
-/** Orchestrator and built-in tool names for the collision barrier. */
-const COLLISION_NAMES = new Set([...SLATE_TOOL_NAMES, ...PI_BUILTIN_TOOL_NAMES]);
+/** Worker extensions cannot replace orchestrator tools, built-ins, or owned codemode. */
+const COLLISION_NAMES = new Set([...SLATE_TOOL_NAMES, ...PI_BUILTIN_TOOL_NAMES, "codemode"]);
 
 /** Slate's package identity. A unit test pins this constant to package.json. */
 export const SLATE_PACKAGE_NAME = "ytdb-slate";

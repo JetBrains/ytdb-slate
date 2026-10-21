@@ -22,7 +22,6 @@ type Arguments = Extract<AssistantMessage["content"][number], { type: "toolCall"
 async function worker(
   body: string,
   run: (session: TestWorkerSession, root: string, requests: TranscriptContext[], reports: string[], ctx: ExtensionContext, fixture: string, setNext: (content: AssistantMessage['content']) => void) => Promise<void>,
-  enabled = true,
   checkpointOnly = false,
   onReport?: (message: string) => void,
   successfulCompression = false,
@@ -86,7 +85,7 @@ async function worker(
       await session.bindExtensions({ mode: 'print' });
     } else {
       session = await openWorkerSession({ ctx, tools: ["read"], extensionPaths: [fixture],
-        testOnlyCodemode: enabled, testOnlyNestedWarningMs: 15,
+        testOnlyNestedWarningMs: 15,
         report: message => { reports.push(message); onReport?.(message); } });
     }
     // Drive real model tool calls without substituting Pi's tool pipeline.
@@ -128,13 +127,12 @@ test("worker codemode keeps normal declarations and has no models or discovered 
   });
 });
 
-test("production worker does not load or activate the internal codemode component", { timeout: 10000 }, async () => {
-  await worker("", async (session, _root, _requests, reports) => {
+test("worker extension deactivation of owned codemode stays silent", { timeout: 10000 }, async () => {
+  await worker("pi.on('session_start', () => pi.setActiveTools(pi.getActiveTools().filter(name => name !== 'codemode')));", async (session, _root, _requests, reports) => {
     assert.deepEqual(session.getActiveToolNames(), ["read"]);
-    assert.equal(session.getAllTools().some(tool => tool.name === "codemode"), false);
-    assert.deepEqual(session.resourceLoader.getExtensions().extensions.filter(ext => ext.path.startsWith("<inline:")).map(ext => ext.path), ["<inline:slate-worker-reminder>", "<inline:slate-worker-nested-lifecycle>"]);
+    assert.equal(session.getAllTools().find(tool => tool.name === 'codemode')?.sourceInfo.path, '<inline:slate-worker-codemode>');
     assert.deepEqual(reports, []);
-  }, false);
+  });
 });
 
 test("checkpoint denies inactive deferred tools and rechecks active membership during a script", { timeout: 20000 }, async () => {
@@ -192,7 +190,7 @@ test("component denies all four Slate tools without the worker excludeTools guar
         assert.ok(output.includes(`Slate scripts cannot call the Slate tool "${name}"`), output);
       }
       assert.equal(existsSync(join(root, "executed")), false);
-    }, true, true);
+    }, true);
     }
   }
 });
@@ -272,7 +270,7 @@ test("nested settlement joins detached calls, rejects repeated identifiers and b
         await terminal;
         assert.equal(settled, true);
         } finally { release.resolve(); }
-      }, false, false, () => warned.resolve());
+      }, false, () => warned.resolve());
     } finally { release.resolve(); delete (globalThis as Record<symbol, unknown>)[symbol]; }
   }
 });
@@ -322,7 +320,7 @@ test(`manager teardown joins nested work and publishes the warning through all t
         assert.equal(notifications.length, 1, 'ordinary dispatch warnings stay in the report sink');
         await manager.disposeAll();
       } finally { release.resolve(); await manager.disposeAll(); }
-    }, false);
+    });
   } finally { release.resolve(); delete (globalThis as Record<symbol, unknown>)[symbol]; }
 });
 }
@@ -342,7 +340,7 @@ if (process.env.SLATE_NESTED_MISSING_END === '1') {
         assert.match(await call(session, 'bridge', {}), /Cannot read properties of undefined/);
         await session.settleManagedOperations();
         throw new Error('missing end incorrectly completed settlement');
-      }, false, false, message => { process.stdout.write(`CN104:${message}\n`); });
+      }, false, message => { process.stdout.write(`CN104:${message}\n`); });
   });
 } else {
   test('nested missing end warns in a disposable child without completing settlement', { timeout: 15000 }, async () => {
@@ -472,7 +470,7 @@ test("manager retains compact nested outcomes and counts only outer failures", {
           observeSession?: (session: WorkerSession) => void;
         }): Promise<{ session: WorkerSession }> };
         internals.openWorkerFor = async args => {
-          const session = await openWorkerSession({ ctx, tools: ['read'], extensionPaths: [path], testOnlyCodemode: true,
+          const session = await openWorkerSession({ ctx, tools: ['read'], extensionPaths: [path],
             requestContract: args.requestContract, onCreated: args.observeSession });
           internals.live.set(args.thread.id, session);
           return { session };
@@ -510,7 +508,7 @@ test("manager retains compact nested outcomes and counts only outer failures", {
           if (failOuter) assert.match(failures[0]!, /codemode \(1\)/);
           assert.equal(result.warnings.some(warning => warning.includes('reminder')), false);
         } finally { await manager.disposeAll(); }
-      }, true, false, undefined, successfulCompression);
+      }, false, undefined, successfulCompression);
     }
   }
 });

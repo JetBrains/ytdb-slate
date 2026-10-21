@@ -803,12 +803,13 @@ export class ThreadManager {
 		// a cost cliff or an evidence gap is its decision to make, not the user's).
 		const routeWarn = (message: string) => {
 			const nestedSettlement = message.startsWith(NESTED_SETTLEMENT_WARNING_PREFIX);
-			if (!nestedSettlement && isStartupWarning(message)) {
+			const missingCodemode = message.startsWith("slate: codemode is unavailable for this worker — ");
+			if (!nestedSettlement && !missingCodemode && isStartupWarning(message)) {
 				if (message.startsWith(startupWarningPrefix)) reportedStartupDetails.push(message.slice(startupWarningPrefix.length));
 				if (this.teardownStarted) observeCancellation("session teardown");
 				observeStartupFailure();
 			}
-			if (!nestedSettlement && isLifecycleWarning(message)) lifecycleWarnings.push(message);
+			if (!nestedSettlement && !missingCodemode && isLifecycleWarning(message)) lifecycleWarnings.push(message);
 			warnings.push(message);
 			lines.push(`⚠ ${message}`);
 			if (captureExecutionReports && executionReport === undefined) executionReport = message;

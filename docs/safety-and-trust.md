@@ -4,7 +4,7 @@ The [How Slate works](../README.md#how-slate-works) section defines orchestrator
 
 ## Worker extensions (`workerExtensions`)
 
-By default worker threads load no project or discovered extensions. Slate supplies one internal reminder component to every worker session. After tool results reach its handler, the component tells the worker to issue independent tool calls in one turn. It sends the reminder once for each such turn. The reminder persists in the worker transcript and stays hidden from the user in the normal terminal interface. The component is not gated on project trust.
+By default worker threads load no project or discovered extensions. Slate supplies three internal worker components: reminder, nested-call lifecycle, and codemode. The lifecycle component joins admitted nested tool calls before action settlement completes. Codemode is a pi tool that runs JavaScript that calls other tools. If codemode cannot load, the worker runs without it and reports a warning. A worker extension can deactivate codemode without a warning. After top-level tool results reach the reminder handler, the component tells the worker to issue independent tool calls in one turn. It sends the reminder once for each such turn. The reminder persists in the worker transcript and stays hidden from the user in the normal terminal interface. These components do not depend on project trust.
 
 This key is a list of regex patterns that select extensions the **host session has already loaded** and load them into every worker too. Each pattern is matched **unanchored** (unlike `contextBudget.overrides`, which is anchored) against a load unit's recorded source spec (e.g. `npm:pi-web-search@1.3.1`), its load-unit path, or the entry path of any tool that unit contributes, so a bare package name matches:
 
@@ -16,7 +16,7 @@ This key is a list of regex patterns that select extensions the **host session h
 
 Every worker then gets the fetch and web-search tools **on top of** `workerTools` (and on top of the per-dispatch `tools` argument of the `thread` tool — those two govern the built-in tools only). The orchestrator itself does **not** gain these tools — orchestrator mode keeps its restricted set — but its doctrine gains a rule naming each whitelisted extension and its tools, so it knows what it can delegate.
 
-For project and discovered extensions, pi's discovery, project-trust gating, and dedup remain the only ingress. A worker cannot load a whitelisted extension that the host is not running. An extension that registers no tools cannot be whitelisted. A host started with extensions disabled offers nothing to whitelist. Slate's internal reminder component is the separate always-loaded input described above.
+For project and discovered extensions, pi's discovery, project-trust gating, and dedup remain the only ingress. A worker cannot load a whitelisted extension that the host is not running. An extension that registers no tools cannot be whitelisted. A host started with extensions disabled offers nothing to whitelist. Slate loads its three internal components separately. Slate withholds any host extension unit that registers `codemode`. The `workerTools` and dispatch `tools` lists select built-in tools only. Neither list limits the owned codemode tool.
 
 **What to know before whitelisting** — it reaches past Slate's isolation, so it is an operator decision:
 
