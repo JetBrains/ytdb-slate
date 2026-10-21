@@ -141,10 +141,10 @@ test("reserved tools protect a slate copy whose package name is unreadable", () 
 		writeFileSync(entry, "// fixture\n");
 		assert.equal(existsSync(join(root, "package.json")), false, "the candidate-owned directories must expose no manifest");
 		const warnings: string[] = [];
-		const resolved = resolveWorkerExtensions(fakePi(entry, root, SLATE_TOOL_NAMES), [".*"], (message) => warnings.push(message));
+		const resolved = resolveWorkerExtensions(fakePi(entry, root, [...SLATE_TOOL_NAMES, "codemode"]), [".*"], (message) => warnings.push(message));
 		assert.deepEqual(resolved.units, [], "reserved slate tool names must withhold the local-file copy");
 		assert.equal(warnings.length, 1);
-		for (const name of SLATE_TOOL_NAMES) assert.match(warnings[0] ?? "", new RegExp(`"${name}"`));
+		for (const name of [...SLATE_TOOL_NAMES, "codemode"]) assert.match(warnings[0] ?? "", new RegExp(`"${name}"`));
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}

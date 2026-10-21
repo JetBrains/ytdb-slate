@@ -95,7 +95,7 @@ The five Linux checks follow. Each command reproduces its check on a Linux machi
 | pure-resolver checks | `bash verification/run-resolver-checks.sh --repo . --strict` |
 | unit tests + patch coverage | `npm test` |
 
-**Keep `--ignore-scripts` on the install.** The pinned pi SDK is a devDependency. Its dependency tree declares two install scripts: `@google/genai` (preinstall) and `protobufjs` (postinstall). `package-lock.json` carries two entries with `hasInstallScript`, one for each package. The published pi 1.2.0 package has no `npm-shrinkwrap.json`, so this repository's lockfile fixes its transitive versions. A plain `npm ci` runs both scripts. CI needs neither script, so the flag prevents their execution. npm creates `node_modules/.bin` without those scripts, so the `pi` and `tsc` launchers remain available.
+**Keep `--ignore-scripts` on the install.** The pinned pi SDK is a devDependency. Its dependency tree declares two install scripts: `@google/genai` (preinstall) and `protobufjs` (postinstall). `package-lock.json` carries two entries with `hasInstallScript`, one for each package. The published pi 1.3.0 package has no `npm-shrinkwrap.json`, so this repository's lockfile fixes its transitive versions. A plain `npm ci` runs both scripts. CI needs neither script, so the flag prevents their execution. npm creates `node_modules/.bin` without those scripts, so the `pi` and `tsc` launchers remain available.
 
 **How the harnesses find pi.** Three of the five Linux checks need a pi binary, and all three start with the same two steps:
 
@@ -150,9 +150,9 @@ Run all five Linux checks before you commit. Run each narrow-job command directl
   - **A mismatch between the pin and the installed pi** stops the run. The message carries the remedy `run 'npm ci --ignore-scripts'`, which is the install that CI runs. The rpc output shapes hold for one pi version only.
 - **The verification ladder stays outside CI on purpose** (issue #24). It takes about 3 minutes, and most of that time is wall-clock wait in timing-sensitive rungs. It needs GNU coreutils, and it refuses to run as root. On a slow machine, or on a machine without the optional tools, it reports NOT RUN instead of PASS. A required check with that behaviour gives unreliable results, so the ladder stays a check for a person to read. Run it as § Verification ladder describes.
 
-### How extension-load failures surface (pi 1.2.0)
+### How extension-load failures surface (pi 1.3.0)
 
-The lists below describe extension-load behavior in pinned pi 1.2.0. Check both the exit code and the diagnostic channels.
+The lists below describe extension-load behavior in pinned pi 1.3.0. Check both the exit code and the diagnostic channels.
 
 pi **reports** each failure below on stderr with `Error: Failed to load extension "<path>": <detail>`. Each failure **exits 1**.
 
@@ -189,7 +189,7 @@ The following failures leave the exit code at 0. Their diagnostic channels diffe
 
 `verification/run-ladder.sh` is the deepest regression net in this repo. It is not the only net. § CI names the five Linux checks and the narrow macOS and Windows push jobs that run on every pull request. The sections below add the package-content check, the writing checker's two nets and the writing-reminder integration check. The ladder is the only net that touches the global model-default machinery. It covers:
 
-- `extension/model-default.ts` and both switch sites (`extension/failover.ts` failover, `extension/handoff.ts` handoff adoption): pi 1.2.0 production setters must write zero global-settings bytes. A test-only `persist:true` fixture keeps the compatibility restore, per-key rule, untrustworthy-read stand-downs, retry budget and reporting channels under test.
+- `extension/model-default.ts` and both switch sites (`extension/failover.ts` failover, `extension/handoff.ts` handoff adoption): pi 1.3.0 production setters must write zero global-settings bytes. A test-only `persist:true` fixture keeps the compatibility restore, per-key rule, untrustworthy-read stand-downs, retry budget and reporting channels under test.
 - `extension/worker.ts`'s worker-session settings isolation, in rung `WK1`: a **worker-side per-dispatch model AND effort switch** — what every routed action performs — writes zero bytes to the global settings file and does not survive into a reopened session as a sticky default. A file-backed control uses explicit persistence to prove the read-only worker settings boundary has teeth. It is the only automated net for that guarantee, and the only rung that opens a worker session at all.
 
 Everything runs against fake offline providers in a throwaway agent directory, so real pi settings are never touched (the run fails if the real file changes).

@@ -19,7 +19,7 @@ const WORKER_SUCCESS = "WORKER_REMINDER_CONTINUATION_OK_51c824";
 const HOST_SUCCESS = "WORKER_REMINDER_DISPATCH_OK_51c824";
 const REMINDER_TYPE = "slate-worker-reminder";
 const REMINDER_TEXT =
-	"Reminder: ALL INDEPENDENT TOOL CALLS MUST be issued SIMULTANEOUSLY in ONE TURN. Use separate turns only when results depend on each other or conflict.";
+	"Reminder: ALL INDEPENDENT TOOL CALLS MUST be issued SIMULTANEOUSLY in ONE TURN. Use separate turns only when results depend on each other or conflict. When codemode is available, use it to run independent tool calls together, chain dependent calls, or filter large output while keeping large intermediate data in script variables.";
 const COMPRESSED_EPISODE = `## Intent
 Complete the deterministic worker reminder canary action.
 

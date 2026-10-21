@@ -80,7 +80,7 @@ test("workerPreamble keeps unchanged reviewer guidance independent of writing tr
   }
   assert.deepEqual(
     [untrusted, trusted, untrustedReviewer, trustedReviewer].map((preamble) => Buffer.byteLength(preamble)),
-    [544, 1097, 2699, 3252],
+    [1017, 1570, 3172, 3725],
   );
   assert.equal(untrustedReviewer.match(/^- /gm)?.length, 10);
   assert.equal(trustedReviewer.match(/^- /gm)?.length, 10);

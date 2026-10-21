@@ -3,7 +3,7 @@ import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 export const WORKER_REMINDER_CUSTOM_TYPE = "slate-worker-reminder";
 
 export const WORKER_REMINDER_TEXT =
-	"Reminder: ALL INDEPENDENT TOOL CALLS MUST be issued SIMULTANEOUSLY in ONE TURN. Use separate turns only when results depend on each other or conflict.";
+	"Reminder: ALL INDEPENDENT TOOL CALLS MUST be issued SIMULTANEOUSLY in ONE TURN. Use separate turns only when results depend on each other or conflict. When codemode is available, use it to run independent tool calls together, chain dependent calls, or filter large output while keeping large intermediate data in script variables.";
 
 export interface WorkerReminderRuntime {
 	extension: ExtensionFactory;
@@ -19,7 +19,8 @@ export function createWorkerReminderRuntime(): WorkerReminderRuntime {
 			if (event.message.role === "assistant") sentThisTurn = false;
 		});
 
-		pi.on("tool_result", () => {
+		pi.on("tool_result", (event) => {
+			if (event.parentToolCallId !== undefined || event.toolCallId.startsWith("/")) return;
 			handledToolResult = true;
 			if (sentThisTurn) return;
 			sentThisTurn = true;

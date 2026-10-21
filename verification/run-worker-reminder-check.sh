@@ -157,7 +157,7 @@ node - "$STDOUT" "$HOST_SESSION" "$WORKER_SESSION" "$EVIDENCE" "$PROJECT" "$REPO
 const fs = require("node:fs");
 const [outFile, hostFile, workerFile, evidenceFile, project, repo, analysisFile] = process.argv.slice(2);
 const REMINDER_TYPE = "slate-worker-reminder";
-const REMINDER_TEXT = "Reminder: ALL INDEPENDENT TOOL CALLS MUST be issued SIMULTANEOUSLY in ONE TURN. Use separate turns only when results depend on each other or conflict.";
+const REMINDER_TEXT = "Reminder: ALL INDEPENDENT TOOL CALLS MUST be issued SIMULTANEOUSLY in ONE TURN. Use separate turns only when results depend on each other or conflict. When codemode is available, use it to run independent tool calls together, chain dependent calls, or filter large output while keeping large intermediate data in script variables.";
 const MISS_WARNING = "slate: a worker tool result reached the reminder handler, but the reminder is missing";
 function jsonLines(file) {
   if (!file || !fs.existsSync(file)) return { values: [], bad: ["missing file"] };

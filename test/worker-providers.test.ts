@@ -570,7 +570,7 @@ test("the first real worker request uses inherited native auth and behavior with
 		});
 		assert.deepEqual(
 			session.getAllTools().map((tool) => tool.name).sort(),
-			["bash", "edit", "find", "grep", "ls", "read", "write"],
+			["bash", "codemode", "edit", "find", "grep", "ls", "read", "write"],
 			"the provider-only host registration adds no worker tool",
 		);
 

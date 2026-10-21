@@ -237,8 +237,11 @@ Slate's own tools to every worker. The optional `workerExtensions`
 key selects host extensions to load into workers. Home or trusted project
 settings supply the key in `slate.json`.
 See the [configuration reference](configuration.md).
-Slate also loads its internal worker reminder component, even when the
-extension allowlist is empty. The component supplies no dispatch tools.
+Slate loads three internal worker components, even with an empty
+extension allowlist: reminder, nested-call lifecycle, and codemode.
+The lifecycle component joins admitted nested tool calls during settlement.
+Codemode is a pi tool that runs JavaScript that calls other tools. If it cannot load, the worker
+runs without it and reports a warning. These components supply no dispatch tools.
 
 Selection applies to a **load unit**, meaning one entry file or one package
 directory that pi loads as a whole. Slate uses a package directory only
@@ -247,8 +250,8 @@ Otherwise, Slate selects individual entry files. Three load-time barriers
 limit which host extensions can load:
 
 1. Only allowlisted host units load through pi's resource loader.
-   Automatic extension discovery is disabled. The internal reminder loads
-   separately as a Slate-owned factory. Loader errors produce warnings.
+   Automatic extension discovery is disabled. The three internal components
+   load separately as Slate-owned factories. Loader errors produce warnings.
    Candidates come from extensions represented in the host tool registry.
    An extension with no registered tools is not a candidate on its own.
    A host with no loaded extensions supplies no candidates.
@@ -257,6 +260,9 @@ limit which host extensions can load:
 3. Slate rejects the whole unit if any registered tool name collides with
    `thread`, `threads`, `episode`, or `slate_change`, or with a pi built-in tool.
    The built-ins are `read`, `bash`, `edit`, `write`, `grep`, `find`, and `ls`.
+   Slate also reserves `codemode` for its internal component. A worker extension
+   that registers this name is withheld. The built-in tool lists do not limit
+   owned codemode. A worker extension can deactivate codemode without a warning.
    Pi allows an extension tool to replace a same-named built-in.
 
 Exclusion happens before loading the unit. Loading an extension activates

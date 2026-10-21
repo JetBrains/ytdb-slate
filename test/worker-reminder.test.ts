@@ -61,9 +61,9 @@ test("worker reminder contract is exact and separate from the writing reminder",
 	assert.equal(WORKER_REMINDER_CUSTOM_TYPE, "slate-worker-reminder");
 	assert.equal(
 		WORKER_REMINDER_TEXT,
-		"Reminder: ALL INDEPENDENT TOOL CALLS MUST be issued SIMULTANEOUSLY in ONE TURN. Use separate turns only when results depend on each other or conflict.",
+		"Reminder: ALL INDEPENDENT TOOL CALLS MUST be issued SIMULTANEOUSLY in ONE TURN. Use separate turns only when results depend on each other or conflict. When codemode is available, use it to run independent tool calls together, chain dependent calls, or filter large output while keeping large intermediate data in script variables.",
 	);
-	assert.equal(Buffer.byteLength(WORKER_REMINDER_TEXT), 150);
+	assert.equal(Buffer.byteLength(WORKER_REMINDER_TEXT), 330);
 	assert.match(WORKER_REMINDER_TEXT, /^[\x00-\x7f]+$/);
 	assert.notEqual(WORKER_REMINDER_CUSTOM_TYPE, "slate-writing-reminder");
 });
@@ -92,6 +92,27 @@ test("factory sends once per turn without changing the tool result", () => {
 	fixture.emit("message_end", { message: { role: "assistant", content: [] } });
 	fixture.emit("tool_result", { ...toolResult, toolCallId: "call-4" });
 	assert.equal(fixture.sent.length, 2);
+});
+
+test("nested results leave both reminder state fields untouched", () => {
+	for (const event of [
+		{ ...toolResult, parentToolCallId: "parent" },
+		{ ...toolResult, parentToolCallId: "" },
+		{ ...toolResult, toolCallId: "/1" },
+	]) {
+		const fixture = reminderFixture();
+		fixture.emit("tool_result", event);
+		assert.equal(fixture.handledToolResult(), false);
+		assert.equal(workerReminderDeliveryMissing([], fixture.handledToolResult(), false), false);
+		assert.deepEqual(fixture.sent, []);
+		fixture.emit("tool_result", { ...toolResult, toolCallId: "ordinary/middle" });
+		assert.equal(fixture.sent.length, 1);
+		fixture.emit("message_end", { message: { role: "assistant" } });
+		fixture.emit("tool_result", event);
+		assert.equal(fixture.sent.length, 1, "late nested result cannot claim the next turn");
+		fixture.emit("tool_result", toolResult);
+		assert.equal(fixture.sent.length, 2);
+	}
 });
 
 test("factory claims synchronously and retries after a synchronous send failure", () => {

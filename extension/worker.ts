@@ -3,7 +3,7 @@
  *
  * A worker loads NO skills, prompt templates, or themes (DefaultResourceLoader
  * no* options), and by default no project or discovered extensions. Slate
- * supplies an internal reminder component. The structural excludeTools guard
+ * supplies internal reminder, nested-call lifecycle, and codemode components. The structural excludeTools guard
  * keeps orchestrator tools out (depth-1 guard). It inherits the HOST session's
  * project-trust state via an explicit SettingsManager, so untrusted projects get
  * neither project-local settings nor the project SYSTEM.md override in workers.
@@ -39,6 +39,7 @@ import {
 	SessionManager,
 	SettingsManager,
 	type ExtensionContext,
+	type ExtensionFactory,
 	type ModelRegistry,
 	type ModelRuntime,
 } from "@earendil-works/pi-coding-agent";
@@ -50,6 +51,7 @@ import type { LogicalModelEffort } from "./logical-model-definitions.ts";
 import type { RecoveryCandidate } from "./logical-model-recovery.ts";
 import { RequestThrottleAbort, type RequestThrottle } from "./request-throttle.ts";
 import { createWorkerReminderRuntime } from "./worker-reminder.ts";
+import { createWorkerNestedLifecycle } from "./worker-nested-lifecycle.ts";
 import { describeSpecDefect, splitModelSpec, type SlateConfig, type ThreadType } from "./state.ts";
 import { PI_BUILTIN_TOOL_NAMES, SLATE_TOOL_NAMES } from "./worker-extensions.ts";
 
@@ -78,7 +80,7 @@ export function isJudgementThreadType(type: unknown): type is (typeof JUDGEMENT_
 	return (JUDGEMENT_THREAD_TYPES as readonly unknown[]).includes(type);
 }
 
-// pi-ai 1.2.0 declares this value in
+// pi-ai 1.3.0 declares this value in
 // @earendil-works/pi-ai/dist/api/openai-prompt-cache.js. pi's extension loader
 // aliases the package root to the compat.js FILE, so an extension cannot safely
 // import that deep subpath. The node test pins this copy to pi-ai's declaration.
@@ -94,6 +96,10 @@ export const WORKER_PREAMBLE = [
 	"The harness runs calls issued in one turn at the same time. Cumulative token cost grows with the square of the number of turns because each turn resends the conversation history.",
 	"Your final message must state: what you did, what you found, files you touched,",
 	"and anything the orchestrator must know.",
+	"When codemode is available, use one script to run independent tool calls together, chain dependent calls, or filter large output.",
+	"Keep large intermediate data, such as copied text, in script variables instead of the context.",
+	"If a script fails because the process-wide codemode script limit is reached, use normal tool calls.",
+	"A codemode script can call only tools you can also call directly. Slate blocks every other tool named in the codemode description or a tool search.",
 ].join(" ");
 
 export const WORKER_WRITING_GUIDANCE =
@@ -180,7 +186,7 @@ function installPromptCacheKey(session: WorkerSession, promptCacheKey?: string):
 		}
 
 		try {
-			// pi-ai 1.2.0 api/openai-responses.js buildParams always creates
+			// pi-ai 1.3.0 api/openai-responses.js buildParams always creates
 			// prompt_cache_key and assigns undefined when resolved cacheRetention is
 			// "none". Own-property presence therefore distinguishes that deliberate
 			// opt-out from a payload shape that never considered this field.
@@ -315,7 +321,7 @@ export function createWorkerRequestContract(): WorkerRequestContract {
  *
  * The wrapper preserves the software development kit (SDK) authentication branch.
  * AgentSession._getSummarizationRequestAuth takes its strict branch only when
- * agent.streamFunction === streamSimple. In pinned pi 1.2.0, createAgentSession
+ * agent.streamFunction === streamSimple. In pinned pi 1.3.0, createAgentSession
  * installs its own stream function, so fresh worker sessions take the lenient
  * branch. test/request-throttle-worker.test.ts checks that identity.
  *
@@ -456,6 +462,8 @@ export async function openWorkerSession(opts: {
 	promptCacheKey?: string; // the main session's shared OpenAI Responses cache-routing key
 	requestThrottle?: RequestThrottle; // the main session's shared per-model request throttle
 	requestContract?: WorkerRequestContract; // action-local expected pair and accepted attribution
+	/** Internal test seam for the fixed nested-settlement diagnostic interval. */
+	testOnlyNestedWarningMs?: number;
 	report?: (message: string) => void; // lifecycle failures visible to the dispatch and host
 	onCreated?: (session: WorkerSession) => void; // publish ownership and install capture before session_start begins
 	deferShutdownOnOpenFailure?: boolean; // ThreadManager persists captured startup facts before shutdown
@@ -470,7 +478,7 @@ export async function openWorkerSession(opts: {
 	// user has NOT trusted. Carry the host session's actual trust decision into
 	// both the resource loader and the session.
 	//
-	// READ-ONLY view (AF8/AF9): pi 1.2.0 keeps ordinary session.setModel and
+	// READ-ONLY view (AF8/AF9): pi 1.3.0 keeps ordinary session.setModel and
 	// setThinkingLevel calls inside the session. Slate requests no persistence.
 	// This storage protects global settings from calls with persist:true and
 	// from hosts that persist switches. A file-backed manager would save those
@@ -517,6 +525,31 @@ export async function openWorkerSession(opts: {
 	// Pi still controls which extensions are present in the host registry.
 	const extensionPaths = configPermitted ? (opts.extensionPaths ?? []) : [];
 	const workerReminder = createWorkerReminderRuntime();
+	const warn = (msg: string, notifyHost = false) => {
+		let retained = false;
+		try {
+			if (opts.report) { opts.report(msg); retained = true; }
+		} catch { /* fall back when the report sink rejects the warning */ }
+		if ((!opts.report || notifyHost) && ctx.hasUI) {
+			try { ctx.ui.notify(msg, "warning"); return; } catch { /* a replaced host context can reject notification */ }
+		}
+		if (!retained) {
+			try { console.warn(msg); } catch { /* no remaining reporting channel */ }
+		}
+	};
+	const nestedLifecycle = createWorkerNestedLifecycle(message => warn(message, true), opts.testOnlyNestedWarningMs);
+	let codemodePath: string | undefined;
+	let codemodeName: string | undefined;
+	let codemodeFactory: ExtensionFactory | undefined;
+	let codemodeFailure: unknown;
+	try {
+		const codemode = await import("./worker-codemode.ts");
+		codemodeName = codemode.WORKER_CODEMODE_COMPONENT_NAME;
+		codemodePath = `<inline:${codemodeName}>`;
+		codemodeFactory = codemode.createWorkerCodemodeComponent(warn, nestedLifecycle.closeSignal);
+	} catch (error) {
+		codemodeFailure = error;
+	}
 	const loader = new DefaultResourceLoader({
 		cwd: ctx.cwd,
 		agentDir,
@@ -534,6 +567,16 @@ export async function openWorkerSession(opts: {
 				factory: workerReminder.extension,
 				hidden: true,
 			},
+			...(codemodeFactory === undefined ? [] : [{
+				name: codemodeName!,
+				factory: codemodeFactory,
+				hidden: true,
+			}]),
+			{
+				name: "slate-worker-nested-lifecycle",
+				factory: nestedLifecycle.extension,
+				hidden: true,
+			},
 		],
 		noSkills: true,
 		noPromptTemplates: true,
@@ -544,23 +587,16 @@ export async function openWorkerSession(opts: {
 	});
 	await loader.reload();
 	const loaded = loader.getExtensions();
-	const warn = (msg: string) => {
-		try {
-			if (opts.report) opts.report(msg);
-			else if (ctx.hasUI) ctx.ui.notify(msg, "warning");
-			else console.warn(msg);
-		} catch {
-			// A reporting sink must never turn a fail-soft extension error into an
-			// unobserved lifecycle interruption.
-			try { console.warn(msg); } catch { /* no remaining reporting channel */ }
-		}
-	};
-	// A worker extension or the internal reminder component must not vanish
-	// silently. Surface every loader error naming the path. Paths and messages
-	// are extension-supplied and flow to the UI, the console and the persisted
-	// episode, so sanitize them like every other displayed string.
+	// Codemode load failures get their own warning. Other loader errors also warn.
 	for (const err of loaded.errors ?? []) {
+		if (err.path === codemodePath) { codemodeFailure = err.error; continue; }
 		warn(`slate: worker extension failed to load — ${sanitizeForNotify(String(err.path))}: ${sanitizeForNotify(String(err.error))}`);
+	}
+	const ownedCodemode = codemodeFailure === undefined && (loaded.extensions ?? []).some(ext =>
+		ext.path === codemodePath && ext.tools instanceof Map && ext.tools.has("codemode"));
+	if (!ownedCodemode) {
+		const reason = codemodeFailure instanceof Error ? codemodeFailure.message : String(codemodeFailure ?? "internal component did not register codemode");
+		warn(`slate: codemode is unavailable for this worker — ${sanitizeForNotify(reason)}`);
 	}
 
 	// Extension tool names actually registered by the whitelisted units — needed
@@ -590,7 +626,7 @@ export async function openWorkerSession(opts: {
 				// gap-closer (the worker needs the real built-in), so this scan catches a
 				// LOAD-TIME shadow and fails the dispatch closed; a deferred shadow cannot
 				// be prevented.
-				if (SLATE_TOOL_NAMES.includes(name) || PI_BUILTIN_TOOL_NAMES.includes(name)) {
+				if (SLATE_TOOL_NAMES.includes(name) || PI_BUILTIN_TOOL_NAMES.includes(name) || (name === "codemode" && e.path !== codemodePath)) {
 					const path = typeof e.path === "string" ? e.path : "extension";
 					collisions.push(`${sanitizeForNotify(path)} → "${sanitizeForNotify(name)}"`);
 				}
@@ -612,11 +648,23 @@ export async function openWorkerSession(opts: {
 		? SessionManager.open(opts.sessionFile)
 		: SessionManager.create(ctx.cwd, ensureRuntimeDirectory(ctx.cwd, opts.runtimeFolder ?? defaultArtifactFolder(), "threads"));
 
-	// In pi 1.2.0, createAgentSession creates a ModelRuntime when none is passed.
+	// In pi 1.3.0, createAgentSession creates a ModelRuntime when none is passed.
 	// It uses auth.json, models.json and models-store.json under agentDir.
 	// SDK creation enables network catalog refresh only with allowModelNetwork.
 	// This call supplies no runtime option, so creation uses no network catalog
 	// refresh. PI_OFFLINE also disables model-network access.
+	const baseTools = opts.tools && opts.tools.length > 0 ? opts.tools : DEFAULT_WORKER_TOOLS;
+	const modifierTools = baseTools.every(name => name.startsWith("+") || name.startsWith("-"));
+	const isCodemode = (name: string) => /^(?:[+-])?codemode$/.test(name);
+	const appendedTools = [
+		...extensionToolNames,
+		...(extensionPaths.length > 0 ? (opts.extensionToolNames ?? []) : []),
+	].filter(name => !isCodemode(name));
+	if (ownedCodemode) appendedTools.push("codemode");
+	const workerTools = [...new Set([
+		...baseTools.filter(name => !isCodemode(name)),
+		...appendedTools.map(name => modifierTools ? `+${name}` : name),
+	])];
 	const { session } = await createAgentSession({
 		cwd: ctx.cwd,
 		agentDir,
@@ -634,21 +682,15 @@ export async function openWorkerSession(opts: {
 		// only; pi's allowlist gates extension tools too, so the whitelisted
 		// extensions' registered tool names are unioned in (de-duplicated) — without
 		// this the extensions would load but stay inert (present in the registry,
-		// absent from the active set). A colliding built-in name was rejected above.
-		tools: [
-			...new Set([
-				...(opts.tools && opts.tools.length > 0 ? opts.tools : DEFAULT_WORKER_TOOLS),
-				...extensionToolNames,
-				...(extensionPaths.length > 0 ? (opts.extensionToolNames ?? []) : []),
-			]),
-		],
+		// absent from the active set). Only the owned component can add codemode.
+		tools: workerTools,
 		// STRUCTURAL depth-1 guard (SE20): slate's dispatch tools are denied to EVERY
 		// worker session. excludeTools applies AFTER the allowlist and the SDK
 		// re-applies it on every tool-registry refresh, so a tool named
 		// thread/threads/episode is filtered out no matter when it is registered
 		// (including a deferred before_agent_start registration) — a worker can never
 		// re-enter the orchestrator's dispatch surface (D7).
-		excludeTools: SLATE_TOOL_NAMES,
+		excludeTools: ownedCodemode ? SLATE_TOOL_NAMES : [...SLATE_TOOL_NAMES, "codemode"],
 		resourceLoader: loader,
 		sessionManager,
 		settingsManager,
@@ -682,6 +724,7 @@ export async function openWorkerSession(opts: {
 		workerReminderHandledToolResult: workerReminder.handledToolResult,
 		closeManagedOperations(): void {
 			managedAdmissionOpen = false;
+			nestedLifecycle.close();
 		},
 		activeManagedOperationCount(): number {
 			return activeManagedOperations.size;
@@ -694,15 +737,17 @@ export async function openWorkerSession(opts: {
 		},
 		settleManagedOperations(): Promise<void> {
 			if (settlementPromise !== undefined) return settlementPromise;
-			managedAdmissionOpen = false;
-			settlementPromise = (async () => {
+			settlementPromise = Promise.resolve().then(async () => {
 				try { await session.abort(); } catch { /* classification uses captured messages */ }
 				try { await startupPromise; } catch { /* startup failure remains independently visible */ }
 				while (activeManagedOperations.size > 0) {
 					await Promise.allSettled([...activeManagedOperations]);
 				}
 				try { await session.waitForIdle(); } catch { /* shutdown still runs */ }
-			})();
+				try { await nestedLifecycle.join(); } finally { nestedLifecycle.clearWarning(); }
+			});
+			workerSession.closeManagedOperations();
+			nestedLifecycle.startWarning();
 			return settlementPromise;
 		},
 		shutdownWorker(): Promise<void> {
@@ -805,7 +850,7 @@ export async function openWorkerSession(opts: {
 			const candidate = ext as unknown as { path?: unknown; tools?: unknown };
 			if (!(candidate.tools instanceof Map)) continue;
 			for (const name of candidate.tools.keys()) {
-				if (typeof name !== "string" || (!SLATE_TOOL_NAMES.includes(name) && !PI_BUILTIN_TOOL_NAMES.includes(name))) continue;
+				if (typeof name !== "string" || (!SLATE_TOOL_NAMES.includes(name) && !PI_BUILTIN_TOOL_NAMES.includes(name) && !(name === "codemode" && candidate.path !== codemodePath))) continue;
 				const path = typeof candidate.path === "string" ? candidate.path : "extension";
 				startupCollisions.push(`${sanitizeForNotify(path)} → "${sanitizeForNotify(name)}"`);
 			}

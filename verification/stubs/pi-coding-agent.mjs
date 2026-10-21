@@ -24,6 +24,11 @@ export const codingAgentStub = {
     getDefaultThinkingLevel: () => "medium",
   }),
 };
+export const createCodemodeExtension = () => (pi) => pi.registerTool({
+  name: "codemode", label: "codemode", description: "codemode fixture",
+  parameters: { type: "object", properties: {} },
+  execute: async () => { throw new Error("codemode fixture must not execute"); },
+});
 export const getAgentDir = (...args) => codingAgentStub.getAgentDir(...args);
 export const shouldCompact = (...args) => codingAgentStub.shouldCompact(...args);
 const ESTIMATED_IMAGE_CHARS = 4800;

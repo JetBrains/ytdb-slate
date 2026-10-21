@@ -54,6 +54,7 @@ import {
 } from "./worker.ts";
 import { EMPTY_WORKER_EXTENSION_SET, type WorkerExtensionSet } from "./worker-extensions.ts";
 import { isWorkerReminderMessage, workerReminderDeliveryMissing } from "./worker-reminder.ts";
+import { NESTED_SETTLEMENT_WARNING_PREFIX } from "./worker-nested-lifecycle.ts";
 import { loadImplementationReviewGuidance, validateReviewPerspectives, type ReviewFileReader } from "./review-perspectives.ts";
 
 /**
@@ -714,7 +715,10 @@ export class ThreadManager {
 			warnings.push(message);
 			lines.push(`⚠ ${message}`);
 		};
+		let terminalProgressSent = false;
 		const emit = (done: boolean, status?: "ok" | "failed") => {
+			if (terminalProgressSent && !done) return;
+			if (done) terminalProgressSent = true;
 			try {
 				onProgress?.({ threadId: thread.id, threadName: thread.name, lines, usage, done, status });
 			} catch (error) {
@@ -781,6 +785,7 @@ export class ThreadManager {
 		const completedFacts = createCompletedFactRecorder();
 		// Count completed errors independently of bounded transcript facts.
 		const toolErrors = new Map<string, number>();
+		const nestedToolCounts = new Map<string, { failed: number; succeeded: number }>();
 		let frozenCompletedFacts: FrozenCompletedFacts | undefined;
 		let status: "ok" | "failed" = "ok";
 		let diagnostics: string | undefined;
@@ -797,15 +802,18 @@ export class ThreadManager {
 		// while the action runs) and the tool result (so the ORCHESTRATOR reads them —
 		// a cost cliff or an evidence gap is its decision to make, not the user's).
 		const routeWarn = (message: string) => {
-			if (isStartupWarning(message)) {
+			const nestedSettlement = message.startsWith(NESTED_SETTLEMENT_WARNING_PREFIX);
+			const missingCodemode = message.startsWith("slate: codemode is unavailable for this worker — ");
+			if (!nestedSettlement && !missingCodemode && isStartupWarning(message)) {
 				if (message.startsWith(startupWarningPrefix)) reportedStartupDetails.push(message.slice(startupWarningPrefix.length));
 				if (this.teardownStarted) observeCancellation("session teardown");
 				observeStartupFailure();
 			}
-			if (isLifecycleWarning(message)) lifecycleWarnings.push(message);
+			if (!nestedSettlement && !missingCodemode && isLifecycleWarning(message)) lifecycleWarnings.push(message);
 			warnings.push(message);
 			lines.push(`⚠ ${message}`);
 			if (captureExecutionReports && executionReport === undefined) executionReport = message;
+			if (nestedSettlement) emit(false);
 		};
 		// ONE action-scoped refusal report at the managed request boundary. Worker
 		// startup, initial work, a later turn, recovery continuation and worker
@@ -864,8 +872,15 @@ export class ThreadManager {
 				emit(false);
 			} else if (event.type === "tool_execution_end") {
 				const tool = event as unknown as { toolName: string; result: unknown; isError: boolean };
-				completedFacts.addTool(tool.toolName, tool.result, tool.isError);
-				if (tool.isError) toolErrors.set(tool.toolName, (toolErrors.get(tool.toolName) ?? 0) + 1);
+				if (typeof event.parentToolCallId === "string") {
+					const counts = nestedToolCounts.get(tool.toolName) ?? { failed: 0, succeeded: 0 };
+					counts[tool.isError ? "failed" : "succeeded"]++;
+					nestedToolCounts.set(tool.toolName, counts);
+					completedFacts.addNestedTool(tool.toolName, tool.isError);
+				} else {
+					completedFacts.addTool(tool.toolName, tool.result, tool.isError);
+					if (tool.isError) toolErrors.set(tool.toolName, (toolErrors.get(tool.toolName) ?? 0) + 1);
+				}
 			} else if (event.type === "auto_retry_start") {
 				// Keep the failed attempt until another assistant response actually replaces it.
 				// Pi can cancel during backoff without producing a replacement message.
@@ -1446,6 +1461,7 @@ export class ThreadManager {
 				completedText: completedWorkerText,
 				completedFacts: frozenCompletedFacts,
 				toolErrorWarning,
+				nestedToolCounts,
 				logicalRuntime: this.logicalRuntime!,
 				admission: admission!,
 				retryPolicy: this.compressorRetryPolicy,
