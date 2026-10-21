@@ -6834,7 +6834,7 @@ The accounting covers:`),
 						},
 					};
 					const emit = (name, event) => {
-						for (const handler of handlers.get(name) ?? []) handler(event, {});
+						for (const handler of handlers.get(name) ?? []) handler(name === "tool_result" ? { toolCallId: "fixture", ...event } : event, {});
 					};
 					const runtime = workerReminder.createWorkerReminderRuntime();
 					runtime.extension(api);

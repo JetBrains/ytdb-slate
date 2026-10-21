@@ -94,6 +94,27 @@ test("factory sends once per turn without changing the tool result", () => {
 	assert.equal(fixture.sent.length, 2);
 });
 
+test("nested results leave both reminder state fields untouched", () => {
+	for (const event of [
+		{ ...toolResult, parentToolCallId: "parent" },
+		{ ...toolResult, parentToolCallId: "" },
+		{ ...toolResult, toolCallId: "/1" },
+	]) {
+		const fixture = reminderFixture();
+		fixture.emit("tool_result", event);
+		assert.equal(fixture.handledToolResult(), false);
+		assert.equal(workerReminderDeliveryMissing([], fixture.handledToolResult(), false), false);
+		assert.deepEqual(fixture.sent, []);
+		fixture.emit("tool_result", { ...toolResult, toolCallId: "ordinary/middle" });
+		assert.equal(fixture.sent.length, 1);
+		fixture.emit("message_end", { message: { role: "assistant" } });
+		fixture.emit("tool_result", event);
+		assert.equal(fixture.sent.length, 1, "late nested result cannot claim the next turn");
+		fixture.emit("tool_result", toolResult);
+		assert.equal(fixture.sent.length, 2);
+	}
+});
+
 test("factory claims synchronously and retries after a synchronous send failure", () => {
 	let fixture: ReturnType<typeof reminderFixture>;
 	let calls = 0;

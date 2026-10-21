@@ -69,6 +69,7 @@ export interface CompletedFactRecorder {
 	/** Record bounded finalized assistant content and return its bounded text view. */
 	addAssistant(content: unknown, stopReason: string | undefined): string;
 	addTool(toolName: string, result: unknown, isError: boolean): void;
+	addNestedTool(toolName: string, isError: boolean): void;
 	freeze(): FrozenCompletedFacts;
 }
 
@@ -219,6 +220,9 @@ export function createCompletedFactRecorder(): CompletedFactRecorder {
 				false,
 				true,
 			));
+		},
+		addNestedTool(toolName, isError) {
+			add(boundedFact("tool", `nested tool: ${toolName}`, isError ? "failed" : "succeeded", false, false));
 		},
 		freeze() {
 			if (frozen !== undefined) return frozen;

@@ -132,7 +132,7 @@ export function createWorkerCodemodeComponent(warn: (message: string) => void, c
 			},
 		});
 		pi.on("tool_call", (event) => {
-			const nested = event.parentToolCallId !== undefined;
+			const nested = event.parentToolCallId !== undefined || event.toolCallId.startsWith("/");
 			if (event.toolName === "codemode") {
 				if (nested) return { block: true, reason: "Slate blocks nested codemode calls. Call tools from the current script." };
 				const source = pi.getAllTools().find((tool) => tool.name === "codemode")?.sourceInfo.path;

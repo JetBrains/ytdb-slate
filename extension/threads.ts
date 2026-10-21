@@ -870,8 +870,12 @@ export class ThreadManager {
 				emit(false);
 			} else if (event.type === "tool_execution_end") {
 				const tool = event as unknown as { toolName: string; result: unknown; isError: boolean };
-				completedFacts.addTool(tool.toolName, tool.result, tool.isError);
-				if (tool.isError) toolErrors.set(tool.toolName, (toolErrors.get(tool.toolName) ?? 0) + 1);
+				if (typeof event.parentToolCallId === "string") {
+					completedFacts.addNestedTool(tool.toolName, tool.isError);
+				} else {
+					completedFacts.addTool(tool.toolName, tool.result, tool.isError);
+					if (tool.isError) toolErrors.set(tool.toolName, (toolErrors.get(tool.toolName) ?? 0) + 1);
+				}
 			} else if (event.type === "auto_retry_start") {
 				// Keep the failed attempt until another assistant response actually replaces it.
 				// Pi can cancel during backoff without producing a replacement message.

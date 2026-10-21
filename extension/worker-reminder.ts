@@ -19,7 +19,8 @@ export function createWorkerReminderRuntime(): WorkerReminderRuntime {
 			if (event.message.role === "assistant") sentThisTurn = false;
 		});
 
-		pi.on("tool_result", () => {
+		pi.on("tool_result", (event) => {
+			if (event.parentToolCallId !== undefined || event.toolCallId.startsWith("/")) return;
 			handledToolResult = true;
 			if (sentThisTurn) return;
 			sentThisTurn = true;

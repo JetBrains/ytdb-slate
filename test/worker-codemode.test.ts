@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { createAgentSession, DefaultResourceLoader, SessionManager, SettingsManager, ModelRegistry, ModelRuntime, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createAssistantMessageEventStream, type AssistantMessage, type TranscriptContext } from "@earendil-works/pi-ai";
 import { openWorkerSession, type WorkerSession } from "../extension/worker.ts";
+import { isWorkerReminderMessage, workerReminderDeliveryMissing } from "../extension/worker-reminder.ts";
 import { WORKER_NESTED_CLOSED_REASON } from "../extension/worker-nested-lifecycle.ts";
 import { ThreadManager } from "../extension/threads.ts";
 import { SlateStore } from "../extension/state.ts";
@@ -49,17 +50,20 @@ async function worker(
     host.registerProvider("codemode-offline", {
       api: "codemode-offline-api", apiKey: "fixture", baseUrl: "http://127.0.0.1:9",
       models: [{ id: "worker", name: "worker", reasoning: false, input: ["text"], contextWindow: 100_000,
-        maxTokens: 1000, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }],
+        maxTokens: 1000, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } },
+        { id: "compressor", name: "compressor", reasoning: false, input: ["text"], contextWindow: 100_000,
+          maxTokens: 1000, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }],
       streamSimple(model, request) {
         requests.push(structuredClone(request));
-        const content = next;
+        const content = model.id === "compressor" ? [] : next;
         next = [{ type: "text", text: "complete" }];
-        const stopReason = content.some(part => part.type === "toolCall") ? "toolUse" : "stop";
+        const stopReason = model.id === "compressor" ? "error" : content.some(part => part.type === "toolCall") ? "toolUse" : "stop";
         const message: AssistantMessage = { role: "assistant", api: model.api, provider: model.provider, model: model.id,
-          content, stopReason, timestamp: 1, usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2,
+          content, stopReason, errorMessage: model.id === "compressor" ? "fixture compression failure" : undefined, timestamp: 1, usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2,
             cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } };
         const stream = createAssistantMessageEventStream();
-        stream.push({ type: "done", reason: stopReason, message });
+        if (stopReason === 'error') stream.push({ type: 'error', reason: 'error', error: message });
+        else stream.push({ type: "done", reason: stopReason, message });
         stream.end();
         return stream;
       },
@@ -168,21 +172,27 @@ test("checkpoint blocks a deferred replacement codemode and reports a warning", 
   });
 });
 
-test("component denies all four Slate tools without the worker excludeTools guard", { timeout: 20000 }, async () => {
+test("component denies all four Slate tools without the worker excludeTools guard", { timeout: 180000 }, async () => {
   for (const exposure of ['direct', 'deferred']) {
+    for (const parent of ['normal', '']) {
     await worker(`pi.on('before_agent_start', () => {
       for (const name of ${JSON.stringify(SLATE_TOOL_NAMES)}) register(name, { exposure: '${exposure}' });
       pi.setActiveTools([...pi.getActiveTools(), ...${JSON.stringify(SLATE_TOOL_NAMES)}]);
-    });`, async (session, root) => {
-      const output = await script(session, `for (const name of ${JSON.stringify(SLATE_TOOL_NAMES)}) {
+    });`, async (session, root, _requests, _reports, _ctx, _path, setNext) => {
+      setNext([{ type: 'toolCall', id: parent, name: 'codemode', arguments: { code: `for (const name of ${JSON.stringify(SLATE_TOOL_NAMES)}) {
         try { await tools[name]({}); } catch (e) { text(e.message); }
-      }`);
+      }` } }]);
+      await session.prompt('Run script');
+      const result = session.messages.filter(message => message.role === 'toolResult').at(-1)!;
+      assert.equal(result.role, 'toolResult');
+      const output = result.content.filter(part => part.type === 'text').map(part => part.text).join('\n');
       for (const name of SLATE_TOOL_NAMES) {
         assert.ok(session.getActiveToolNames().includes(name));
         assert.ok(output.includes(`Slate scripts cannot call the Slate tool "${name}"`), output);
       }
       assert.equal(existsSync(join(root, "executed")), false);
     }, true, true);
+    }
   }
 });
 
@@ -357,6 +367,177 @@ if (process.env.SLATE_NESTED_MISSING_END === '1') {
     }
   });
 }
+
+test("real nested identifiers and reminder state follow the hook and execution contracts", { timeout: 90000 }, async () => {
+  const symbol = Symbol.for('slate-t7-events');
+  const state = { hooks: [] as Array<{ toolCallId: string; parentToolCallId?: string }>,
+    calls: [] as Array<{ toolCallId: string; parentToolCallId?: string }>,
+    starts: [] as Array<{ toolCallId: string; parentToolCallId?: string }>,
+    ends: [] as Array<{ toolCallId: string; parentToolCallId?: string; handled: boolean }> };
+  (globalThis as Record<symbol, unknown>)[symbol] = state;
+  try {
+    await worker(`const state = globalThis[Symbol.for('slate-t7-events')];
+      pi.on('tool_result', event => { state.hooks.push(event); });
+      pi.on('tool_call', event => { state.calls.push(event); });
+      register('leaf');
+      register('bridge', { execute: async (_id, _args, _signal, _update, ctx) => {
+        await ctx.executeTool('leaf', {}); return { content: [], details: undefined };
+      }});`, async (raw, _root, _requests, _reports, _ctx, _path, setNext) => {
+      const session = raw as WorkerSession;
+      session.subscribe(event => {
+        if (event.type === 'tool_execution_start') state.starts.push(event);
+        if (event.type === 'tool_execution_end') state.ends.push({ toolCallId: event.toolCallId,
+          parentToolCallId: event.parentToolCallId, handled: session.workerReminderHandledToolResult() });
+      });
+      for (const parent of ['', 'parent']) {
+        state.hooks.length = 0;
+        state.calls.length = 0;
+        state.starts.length = 0;
+        state.ends.length = 0;
+        const before = session.messages.filter(isWorkerReminderMessage).length;
+        setNext([{ type: 'toolCall', id: parent, name: 'codemode', arguments: {
+          code: 'await tools.bridge({}); await tools.leaf({}); text("OUTER");',
+        } }]);
+        await session.prompt('Run script');
+        assert.deepEqual(state.starts.map(event => event.toolCallId), [parent, `${parent}/1`, `${parent}/1/1`, `${parent}/2`]);
+        assert.deepEqual(state.starts.map(event => event.parentToolCallId), [undefined, parent, `${parent}/1`, parent]);
+        const nestedCalls = state.calls.filter(event => event.toolCallId !== parent);
+        assert.deepEqual(nestedCalls.map(event => event.toolCallId), [`${parent}/1`, `${parent}/1/1`, `${parent}/2`]);
+        if (parent === '') {
+          for (const event of [...nestedCalls, ...state.hooks].filter(event => event.toolCallId === '/1' || event.toolCallId === '/2')) {
+            assert.equal(Object.hasOwn(event, 'parentToolCallId'), false);
+          }
+        }
+        assert.deepEqual(state.ends.map(event => event.toolCallId), [`${parent}/1/1`, `${parent}/1`, `${parent}/2`, parent]);
+        assert.deepEqual(state.ends.map(event => event.parentToolCallId), [`${parent}/1`, parent, parent, undefined]);
+        const nestedHooks = state.hooks.filter(event => event.toolCallId !== parent);
+        assert.deepEqual(nestedHooks.map(event => event.toolCallId), [`${parent}/1/1`, `${parent}/1`, `${parent}/2`]);
+        assert.equal(nestedHooks[0]!.parentToolCallId, `${parent}/1`);
+        for (const event of nestedHooks.slice(1)) assert.equal(event.parentToolCallId, parent || undefined);
+        if (parent === '') assert.deepEqual(state.ends.slice(0, 3).map(event => event.handled), [false, false, false]);
+        assert.equal(session.messages.filter(isWorkerReminderMessage).length - before, 1);
+      }
+      const before = session.messages.filter(isWorkerReminderMessage).length;
+      setNext([{ type: 'toolCall', id: 'ordinary/middle', name: 'codemode', arguments: { code: 'text("MIDDLE-ID-OUTPUT");' } }]);
+      await session.prompt('Run top-level script');
+      const result = session.messages.filter(message => message.role === 'toolResult').at(-1)!;
+      assert.equal(result.role, 'toolResult');
+      assert.equal(result.isError, false);
+      assert.match(JSON.stringify(result.content), /MIDDLE-ID-OUTPUT/);
+      assert.equal(session.messages.filter(isWorkerReminderMessage).length - before, 1);
+    });
+  } finally { delete (globalThis as Record<symbol, unknown>)[symbol]; }
+});
+
+test("empty model identifier cannot bypass script checkpoint decisions", { timeout: 90000 }, async () => {
+  await worker(`pi.on('before_agent_start', () => register('mcp__inactive__read', { exposure: 'deferred' }));
+    register('bridge', { execute: async (_id, _args, _signal, _update, ctx) => {
+      register('codemode', { exposure: 'deferred' });
+      const result = await ctx.executeTool('codemode', {});
+      return { content: result.result.content, details: undefined };
+    }});`, async (session, root, _requests, _reports, _ctx, _path, setNext) => {
+    setNext([{ type: 'toolCall', id: '', name: 'codemode', arguments: { code: `
+      try { await tools.thread({}); } catch (e) { text(e.message); }
+      try { await tools.mcp__inactive__read({}); } catch (e) { text(e.message); }
+      text(await tools.bridge({}));` } }]);
+    await session.prompt('Run empty-id script');
+    const output = JSON.stringify(session.messages.filter(message => message.role === 'toolResult').at(-1));
+    assert.match(output, /tools.thread does not exist/);
+    assert.match(output, /Slate scripts cannot call inactive tool/);
+    assert.match(output, /Slate blocks nested codemode calls/);
+    setNext([{ type: 'toolCall', id: '', name: 'bridge', arguments: {} }]);
+    await session.prompt('Run empty-id bridge');
+    assert.match(JSON.stringify(session.messages.filter(message => message.role === 'toolResult').at(-1)), /Slate blocks nested codemode calls/);
+    assert.equal(existsSync(join(root, 'executed')), false);
+  });
+});
+
+test("manager retains compact nested outcomes and counts only outer failures", { timeout: 180000 }, async () => {
+  for (const parent of ['', 'outer']) {
+    for (const failOuter of [false, true]) {
+      await worker(`register('good', { execute: async () => ({ content: [
+        { type: 'text', text: 'RAW-NESTED-SUCCESS' }, { type: 'image', data: 'RAW-NESTED-IMAGE', mimeType: 'image/png' }
+      ], details: { private: 'RAW-NESTED-DETAILS' } }) });
+      register('bad', { execute: async () => { throw new Error('RAW-NESTED-FAILURE'); } });`, async (_session, _root, requests, _reports, ctx, path, setNext) => {
+        const runtime = createLogicalRuntime({ trusted: true, projectConfig: { router: {
+          models: { include: [], add: [{ model: 'fixture', capabilityRating: 50, costRating: 50, effort: 'off', preferredProvider: 'codemode-offline', providers: { 'codemode-offline': 'worker' }, guidelines: [], cautions: [] }],
+            replace: [{ model: 'claude-sonnet-5.5', preferredProvider: 'codemode-offline', providers: { 'codemode-offline': 'compressor' } }] },
+          compressor: { models: [{ model: 'claude-sonnet-5.5', effort: 'off' }] },
+        } } });
+        const manager = new ThreadManager(new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI), {}, undefined, runtime);
+        // Replace only Slate's opening seam. Pi runs the real script and event pipeline.
+        const internals = manager as unknown as { live: Map<string, WorkerSession>; openWorkerFor(args: {
+          thread: { id: string }; requestContract: import('../extension/worker.ts').WorkerRequestContract;
+          observeSession?: (session: WorkerSession) => void;
+        }): Promise<{ session: WorkerSession }> };
+        internals.openWorkerFor = async args => {
+          const session = await openWorkerSession({ ctx, tools: ['read'], extensionPaths: [path], testOnlyCodemode: true,
+            requestContract: args.requestContract, onCreated: args.observeSession });
+          internals.live.set(args.thread.id, session);
+          return { session };
+        };
+        setNext([{ type: 'toolCall', id: parent, name: 'codemode', arguments: { code: `
+          await tools.good({secret: 'RAW-NESTED-ARGS'});
+          await tools.good({});
+          try { await tools.bad({}); } catch {}
+          text('OUTER-PRINTED-SENTINEL');
+          ${failOuter ? "throw new Error('outer failure');" : ''}` } }]);
+        try {
+          const result = await manager.dispatch({ model: 'fixture', reason: 'compact facts', task: 'run script', type: 'general' }, ctx, undefined);
+          const compressorInput = JSON.stringify(requests.filter(request => JSON.stringify(request).includes('Transcript:')));
+          assert.match(compressorInput, /nested tool: good.*succeeded/);
+          assert.match(compressorInput, /nested tool: bad.*failed/);
+          assert.match(result.episodeText, /\[nested tool: good\]\nsucceeded/);
+          assert.match(result.episodeText, /\[nested tool: bad\]\nfailed/);
+          assert.equal(result.episodeText.match(/nested tool: good/g)?.length, 2);
+          assert.equal(result.episodeText.match(/nested tool: bad/g)?.length, 1);
+          for (const text of [compressorInput, result.episodeText]) {
+            assert.doesNotMatch(text, /RAW-NESTED-/);
+            assert.match(text, /OUTER-PRINTED-SENTINEL/);
+          }
+          const failures = result.warnings.filter(warning => warning.includes('tool calls failed'));
+          assert.equal(failures.length, failOuter ? 1 : 0, JSON.stringify(result.warnings));
+          if (failOuter) assert.match(failures[0]!, /codemode \(1\)/);
+          assert.equal(result.warnings.some(warning => warning.includes('reminder')), false);
+        } finally { await manager.disposeAll(); }
+      });
+    }
+  }
+});
+
+test("detached nested-only results do not set reminder evidence or rearm after an outer result", { timeout: 90000 }, async () => {
+  const entered = gate();
+  const release = gate();
+  const ended = gate();
+  const symbol = Symbol.for('slate-t7-detached');
+  const state = { entered: entered.resolve, release: release.promise,
+    execute: undefined as undefined | (() => Promise<unknown>) };
+  (globalThis as Record<symbol, unknown>)[symbol] = state;
+  try {
+    await worker(`const state = globalThis[Symbol.for('slate-t7-detached')];
+      register('held', { execute: async () => { state.entered(); await state.release; return { content: [], details: undefined }; } });
+      register('bridge', { execute: async (_id, _args, _signal, _update, ctx) => {
+        state.execute = () => ctx.executeTool('held', {});
+        void state.execute(); return { content: [], details: undefined };
+      }});`, async raw => {
+      const session = raw as WorkerSession;
+      session.subscribe(event => { if (event.type === 'tool_execution_end' && event.toolName === 'held') ended.resolve(); });
+      try {
+        await script(session, 'await tools.bridge({}); text("outer");');
+        await entered.promise;
+        assert.equal(session.messages.filter(isWorkerReminderMessage).length, 1);
+        release.resolve();
+        await ended.promise;
+        // A subsequent real nested call has no outer result to supply a reminder.
+        const before = session.messages.length;
+        await state.execute!();
+        assert.equal(session.messages.filter(isWorkerReminderMessage).length, 1);
+        assert.equal(workerReminderDeliveryMissing(session.messages, session.workerReminderHandledToolResult(), false), false);
+        assert.equal(session.messages.slice(before).filter(isWorkerReminderMessage).length, 0);
+      } finally { release.resolve(); }
+    });
+  } finally { release.resolve(); delete (globalThis as Record<symbol, unknown>)[symbol]; }
+});
 
 test("checkpoint blocks nested codemode through the real nested tool pipeline", { timeout: 20000 }, async () => {
   await worker(`register('bridge', { execute: async (_id, _args, _signal, _update, ctx) => {
