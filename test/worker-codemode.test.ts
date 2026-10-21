@@ -340,12 +340,14 @@ if (process.env.SLATE_NESTED_MISSING_END === '1') {
         assert.match(await call(session, 'bridge', {}), /Cannot read properties of undefined/);
         await session.settleManagedOperations();
         throw new Error('missing end incorrectly completed settlement');
-      }, false, message => { process.stdout.write(`CN104:${message}\n`); });
+      }, false, message => { process.stdout.write(`CN104-PID:${process.pid}\nCN104:${message}\n`); });
   });
 } else {
   test('nested missing end warns in a disposable child without completing settlement', { timeout: 15000 }, async () => {
     const root = mkdtempSync(join(tmpdir(), 'cn104-'));
-    const child = spawn(process.execPath, ['--test', '--test-name-pattern=^nested missing end child$', fileURLToPath(import.meta.url)], {
+    const isolation = process.allowedNodeEnvironmentFlags.has('--test-isolation')
+      ? '--test-isolation=none' : '--experimental-test-isolation=none';
+    const child = spawn(process.execPath, ['--test', isolation, '--test-name-pattern=^nested missing end child$', fileURLToPath(import.meta.url)], {
       env: { ...process.env, NODE_TEST_CONTEXT: undefined, SLATE_NESTED_MISSING_END: '1', TMPDIR: root }, stdio: ['ignore', 'pipe', 'pipe'],
     });
     let output = '';
@@ -358,10 +360,13 @@ if (process.env.SLATE_NESTED_MISSING_END === '1') {
         child.once('exit', code => reject(new Error(`child exited ${code}: ${output}`)));
       });
       assert.match(output, /has not reported its end.*identifier "call-0\/2", tool "bad", count 1/);
+      // The fixture must run in the direct child, not in a test-runner descendant.
+      assert.match(output, new RegExp(`CN104-PID:${child.pid}\\b`));
       assert.equal(child.exitCode, null);
     } finally {
       child.kill('SIGKILL');
       await closed;
+      assert.throws(() => process.kill(child.pid!, 0), { code: 'ESRCH' });
       rmSync(root, { recursive: true, force: true });
     }
   });

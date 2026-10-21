@@ -96,6 +96,10 @@ export const WORKER_PREAMBLE = [
 	"The harness runs calls issued in one turn at the same time. Cumulative token cost grows with the square of the number of turns because each turn resends the conversation history.",
 	"Your final message must state: what you did, what you found, files you touched,",
 	"and anything the orchestrator must know.",
+	"When codemode is available, use one script to run independent tool calls together, chain dependent calls, or filter large output.",
+	"Keep large intermediate data, such as copied text, in script variables instead of the context.",
+	"If a script fails because the process-wide codemode script limit is reached, use normal tool calls.",
+	"A codemode script can call only tools you can also call directly. Slate blocks every other tool named in the codemode description or a tool search.",
 ].join(" ");
 
 export const WORKER_WRITING_GUIDANCE =

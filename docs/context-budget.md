@@ -266,10 +266,10 @@ per-turn doctrine.
 
 | Worker preamble form | UTF-8 bytes | Increase from base |
 | --- | ---: | ---: |
-| Base | 544 | — |
-| Base + writing guidance | 1,097 | 553 |
-| Base + reviewer charter | 2,699 | 2,155 |
-| Base + writing guidance + reviewer charter | 3,252 | 2,708 |
+| Base | 1,017 | — |
+| Base + writing guidance | 1,570 | 553 |
+| Base + reviewer charter | 3,172 | 2,155 |
+| Base + writing guidance + reviewer charter | 3,725 | 2,708 |
 
 The preamble explains that the harness runs calls issued in one turn at the
 same time. It also explains that cumulative token cost grows with the square of
@@ -299,8 +299,8 @@ Its action path adds `/tmp/action.` and six allocator characters.
 | No-change hidden action message | 0 | 0 | 0 | 0 |
 
 The message includes both final line feeds. System blocks have no final line feed.
-Open-change record-writing system totals are 1,343 or 1,896 bytes without or with writing guidance.
-Open-change review system totals are 3,012 or 3,565 bytes without or with writing guidance.
+Open-change record-writing system totals are 1,816 or 2,369 bytes without or with writing guidance.
+Open-change review system totals are 3,485 or 4,038 bytes without or with writing guidance.
 These totals exclude selected review guidance, prompt documents, base Pi text, and provider framing.
 
 The parent-session cache key stays unchanged.
@@ -329,8 +329,8 @@ The count excludes the original task and its separating newlines.
 
 | Writing guidance | System preamble bytes | Task guidance bytes, no source / source | Sum, no source / source |
 | --- | ---: | ---: | ---: |
-| Off | 544 | 995 / 1,377 | 1,539 / 1,921 |
-| On | 1,097 | 995 / 1,377 | 2,092 / 2,474 |
+| Off | 1,017 | 995 / 1,377 | 2,012 / 2,394 |
+| On | 1,570 | 995 / 1,377 | 2,565 / 2,947 |
 
 The sums exclude message and provider framing.
 They do not join the preamble and task as one system block.
@@ -345,18 +345,18 @@ validation, and recovery.
 
 | Worker context item | Measured UTF-8 bytes per copy | Copies after N turns | Cumulative appearances across N requests |
 | --- | ---: | ---: | ---: |
-| Simultaneous-tool-call reminder | 150 text; 203 converted request message; 319 persisted JSONL line | N - 1 | N × (N - 1) / 2 |
+| Simultaneous-tool-call reminder | 330 text; 383 converted request message; 499 persisted JSONL line | N - 1 | N × (N - 1) / 2 |
 
 The reminder tells a worker to issue independent tool calls in one turn. `N` is
 the total number of provider turns in one action. The first `N - 1` turns have
 tool results that reach the reminder handler. The final turn returns the answer.
 
-The 150-byte figure is the exact ASCII production text. The 203-byte figure is
+The 330-byte figure is the exact ASCII production text. The 383-byte figure is
 the compact JSON form after pi converts the reminder to a provider request user
 message with one text part. It excludes the volatile timestamp.
 
-The 319-byte figure is one compact persisted `custom_message` record from pi
-1.0.0. It includes two eight-character identifiers, the timestamp, JSON framing
+The 499-byte figure measures one compact persisted `custom_message` JSONL line
+from pi 1.3.0. It includes two eight-character identifiers, the timestamp, JSON framing
 and the final line-feed byte. These figures contain no installed path, so the
 portable and rendered counts are identical.
 

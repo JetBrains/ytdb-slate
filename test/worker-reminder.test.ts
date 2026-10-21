@@ -61,9 +61,9 @@ test("worker reminder contract is exact and separate from the writing reminder",
 	assert.equal(WORKER_REMINDER_CUSTOM_TYPE, "slate-worker-reminder");
 	assert.equal(
 		WORKER_REMINDER_TEXT,
-		"Reminder: ALL INDEPENDENT TOOL CALLS MUST be issued SIMULTANEOUSLY in ONE TURN. Use separate turns only when results depend on each other or conflict.",
+		"Reminder: ALL INDEPENDENT TOOL CALLS MUST be issued SIMULTANEOUSLY in ONE TURN. Use separate turns only when results depend on each other or conflict. When codemode is available, use it to run independent tool calls together, chain dependent calls, or filter large output while keeping large intermediate data in script variables.",
 	);
-	assert.equal(Buffer.byteLength(WORKER_REMINDER_TEXT), 150);
+	assert.equal(Buffer.byteLength(WORKER_REMINDER_TEXT), 330);
 	assert.match(WORKER_REMINDER_TEXT, /^[\x00-\x7f]+$/);
 	assert.notEqual(WORKER_REMINDER_CUSTOM_TYPE, "slate-writing-reminder");
 });
