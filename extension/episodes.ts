@@ -277,9 +277,10 @@ export type NestedToolCounts = ReadonlyMap<string, Readonly<{ failed: number; su
 function nestedToolHeader(counts: NestedToolCounts | undefined): string[] {
 	const entries: string[] = [];
 	let total = 0;
-	for (const name of [...(counts?.keys() ?? [])].sort()) {
-		const outcomes = counts!.get(name)!;
-		for (const outcome of ["failed", "succeeded"] as const) {
+	const names = [...(counts?.keys() ?? [])].sort();
+	for (const outcome of ["failed", "succeeded"] as const) {
+		for (const name of names) {
+			const outcomes = counts!.get(name)!;
 			if (outcomes[outcome] === 0) continue;
 			total++;
 			if (entries.length < 5) entries.push(`${headerField(name, 80) ?? "(unknown)"} ${outcomes[outcome]} ${outcome}`);
