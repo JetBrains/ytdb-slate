@@ -54,10 +54,11 @@ if [ "${#unsafe_git_names[@]}" -gt 0 ]; then
   fail "unsafe inherited Git settings detected before repository inspection: $joined. Unset these settings before running the suite, for example with 'env -u GIT_DIR npm test -- --base <ref>'."
 fi
 
-# Preserve the caller's process environment except for the explicit script-pool
-# input at each test launch. Replace every Git
-# system, global, and command-line configuration source before Git or a
-# descendant can inspect the checkout.
+# Test launches override PI_CODEMODE_MAX_WORKERS, PI_CODING_AGENT_DIR, TMPDIR,
+# and JITI_FS_CACHE. Other process settings pass through except for the Git
+# configuration sources replaced below.
+# Replace every Git system, global, and command-line configuration source
+# before Git or a descendant can inspect the checkout.
 export GIT_CONFIG_NOSYSTEM=1
 export GIT_CONFIG_SYSTEM=/dev/null
 export GIT_CONFIG_GLOBAL=/dev/null
