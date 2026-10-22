@@ -3264,7 +3264,8 @@ Every path under \`slate-changes/\` stays outside pull requests, including \`tmp
 					extract: regionUnit(/^## After the merge\n\n([\s\S]*?)(?=^Any cleanup)/gm),
 					expected: normalizeText(`After the user merges a level pull request, verify that level's delivery accounting.
 Verify the observed merge commit's identity and parents against its accepted history and pull request.
-Record the observed merge-result binding in the reachable description and owning log.
+Record the observed merge-result binding only in the owning research log.
+Report the delivery state in the next applicable package.
 The merge commit itself supplies that binding, including for the last level.
 The root final package lists every level delivery.
 It distinguishes merged levels from every level waiting for merge, including levels held behind an unmerged foundation.
@@ -4156,7 +4157,7 @@ Every creation path keeps these safeguards:
 				{
 					id: "publishing-ready-no-design",
 					source: publishing,
-					extract: regionUnit(/^(- All commits landed since the last user-approved gate are presented[\s\S]*?)(?=^- Every ignored finding)/gm),
+					extract: regionUnit(/^(- All commits landed since the last user-approved gate are presented[\s\S]*?)(?=^- Report every ignored finding)/gm),
 					expected: normalizeText(`- All commits landed since the last user-approved gate are presented
   to the user. For a change without a design gate, present the description here
   because no design approval presented it before implementation.`),
@@ -4205,7 +4206,7 @@ The publishing setting and its disabled default remain unchanged.`),
 				resolvePublishingMigration(publishing.replace("All commits landed since", "Commits landed since"), workflow)[1],
 				resolvePublishingMigration(publishing, workflow.replace("## Migration", "## Workflow migration"))[2],
 			];
-			const duplicatedPublishing = `${publishing}\n\n## Creation\n\n${publishingMigrationResults[0].text}\n\n## Description rules\n\n- All commits landed since the last user-approved gate are presented\n  to the user. For a change without a design gate, present the description here\n  because no design approval presented it before implementation.\n- Every ignored finding`;
+			const duplicatedPublishing = `${publishing}\n\n## Creation\n\n${publishingMigrationResults[0].text}\n\n## Description rules\n\n- All commits landed since the last user-approved gate are presented\n  to the user. For a change without a design gate, present the description here\n  because no design approval presented it before implementation.\n- Report every ignored finding`;
 			const duplicatedMigration = `${workflow}\n\n## Migration\n\n${publishingMigrationResults[2].text}\n\n## Layering richer workflows on top\n`;
 			const duplicatePublishingMigration = resolvePublishingMigration(duplicatedPublishing, duplicatedMigration);
 			const appendBenignControl = (source, id) => `${source}\n\n<!-- resolver benign control: ${id} -->`;
@@ -4993,41 +4994,32 @@ A subtree contains a track and all its descendants.
 Ready status supplies neither acceptance nor permission for an agent merge.
 Root final acceptance precedes the last level merge.
 It waits for the note queue, final accounting, and every other final gate.
-After each required acceptance, run the ordered acceptance-transfer sequence in
+After each required acceptance, reconcile the owning log and verify retained history through the ordered sequence in
 [delivery-packages.md](delivery-packages.md) § Durable accounting before handoff for merge.
 Apply that sequence even when the pull request is already ready.`),
 				},
 				{
 					id: "ready-history", source: publishing,
-					extract: regionUnit(/^(- Strip the whole Tracks section[\s\S]*?)(?=^- Update the PR title)/gm),
-					expected: normalizeText(`- Strip the whole Tracks section from the description, whatever its
-  form — the table for multi-track changes or the "N/A (single-track)"
-  placeholder — plus any notes under it. Preserve required acceptance and
-  history references in Delivery accounting.
-  A squash merge does not preserve marker commits in the default-branch history.
+					extract: regionUnit(/^(- A squash merge does not preserve[\s\S]*?)(?=^- Update the pull request title)/gm),
+					expected: normalizeText(`- A squash merge does not preserve marker commits in the default-branch history.
   For changes that load the nested sections, complete the retention protocol in
-  [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history before the final ready flip and each merge handoff, and for the comparisons after each merge.
-  Motivation and Planned changes remain in the description.`),
+  [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history before the final ready flip and each merge handoff, and for the comparisons after each merge.`),
 				},
 				{
 					id: "ready-description", source: publishing,
-					extract: regionUnit(/^(- Update the PR title[\s\S]*?)(?=^- Resolve every remaining Open Question)/gm),
-					expected: normalizeText(`- Update the PR title and description to the final state of the
-  level: the title names what was actually delivered — preserving any
-  prefixes or markers the project's conventions require — and the
-  description, including the Planned changes section, describes the
-  level as implemented, folding in everything added, dropped, or
-  reshaped since the draft PR was opened.`),
+					extract: regionUnit(/^(- Update the pull request title[\s\S]*?)(?=^- Resolve every remaining open question)/gm),
+					expected: normalizeText(`- Update the pull request title to name the delivered result and preserve project title conventions.
+  Reread the selected project template, or § Default template when no applicable project template exists.
+  Fill the final description with only this level's final results that the template requests.`),
 				},
 				{
 					id: "merge-acceptance", source: publishing,
 					extract: regionUnit(/^(The user's merge act approves[\s\S]*?)(?=^## After the merge)/gm),
-					expected: normalizeText(`The user's merge act approves the current pull request, including
-acceptance of any recorded description-size exception.
+					expected: normalizeText(`The user's merge act approves the current pull request.
 A merge does not supply whole-subtree or root final acceptance.
 Obtain each required explicit decision before the merge.
-After the decision, copy it and its evidence references into the closing level's description.
-Verify that updated accounting and present the description before handing it to the user for merge.
+After the decision, record the acceptance and its evidence references only in the owning research log.
+Verify that log accounting, then present the separate final description and merge handoff.
 Ready status does not bypass this order.`),
 				},
 				{
@@ -5086,6 +5078,32 @@ At level completion, update the final title and description under § Ready-for-r
 The final title names the delivered result and preserves project title conventions.
 Before renewed handoff for merge after fixes, refresh final-result text if the result or template changed.
 An unchanged result and template need no rewrite.`),
+				},
+				{
+					id: "ready-findings", source: publishing,
+					extract: regionUnit(/^(- Report every ignored finding[\s\S]*?)(?=^- A squash merge)/gm),
+					expected: normalizeText(`- Report every ignored finding to the user.
+  Keep its index in the owning research log.`),
+				},
+				{
+					id: "ready-completion", source: publishing,
+					extract: regionUnit(/^(- Resolve every remaining open question[\s\S]*?)(?=^## After the flip)/gm),
+					expected: normalizeText(`- Resolve every remaining open question, or record its explicit user-approved disposition in the owning research log and relevant package.
+  A mention without the user's disposition is not enough.
+- Last, reread the whole description from start to end against the selected template and final result.
+  Confirm that the text is consistent.
+  Present the final description to the user before the flip, including when a design gate presented the draft.`),
+				},
+				{
+					id: "post-flip", source: publishing,
+					extract: regionUnit(/^## After the flip\n\n([\s\S]*?)(?=^The user's merge act approves)/gm),
+					expected: normalizeText(`The user may wait for passing continuous integration checks or peer-review completion and ask the agent to fix failures or review observations.
+The agent lands fixes as normal commits and presents them to the user as they land.
+Keep progress in the owning research log, not in the description.
+At renewed handoff for merge after fixes, reread the selected template.
+Refresh final-result text only if the result or template changed.
+Reconcile reviewer-pushed changes at that handoff.
+Present the final description before handing the pull request to the user for merge.`),
 				},
 				{ id: "transfer", source: deliveryPackages, extract: transferUnit, expected: acceptanceTransferExpected },
 				{
@@ -5531,12 +5549,12 @@ An unchanged result and template need no rewrite.`),
 			// Whitespace-only reflow passes because normalizeText collapses whitespace.
 			// HTML comments count. The word layer is best-effort during refresh review.
 			// Known word-layer escapes include "retention branches" and "branches kept for retention".
-			const EXPECTED_PUBLISHING_SHA256 = "a9c7d7f49cbc44eb6da9ea7c9a02174bfc3860094d5daf6a1fb1d3f114750caa";
+			const EXPECTED_PUBLISHING_SHA256 = "5443051891a2b41d199b19ce2b3238bb7b2776b809c840c30c5efc49c28aff33";
 			const EXPECTED_TRACK_WORKFLOW_SHA256 = "6f0fabbfba5aa556bf611230f08518c65163eda94224765df4ccea375c9459ef";
 			const peerRetentionOwners = [
 				{ id: "nested", source: recursive, units: [historyUnit] },
 				{ id: "common", source: commonRecords, units: [privateSetUnit] },
-				{ id: "publishing", source: publishing, pin: EXPECTED_PUBLISHING_SHA256, units: [levelPolicyUnits.find(({ id }) => id === "ready-history"), publishingMigrationUnits[0]], count: 3, contexts: [
+				{ id: "publishing", source: publishing, pin: EXPECTED_PUBLISHING_SHA256, units: [levelPolicyUnits.find(({ id }) => id === "ready-history"), levelPolicyUnits.find(({ id }) => id === "ready"), publishingMigrationUnits[0]], count: 3, contexts: [
 					["## One draft pull request", "For nested work, use [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for subtree ordering, branch bases, and history slices."],
 					["## Creation", "For nested work, choose its base under [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history."],
 					["## Ready-for-review flip", "For changes that load the nested sections, complete the retention protocol in [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history before the final ready flip and each merge handoff, and for the comparisons after each merge."],
@@ -5672,7 +5690,7 @@ A later track builds on the accepted boundary before it.`),
 				accepted: acceptsPeerRetention(owner, owner.id === "common" ? `<!-- Outside control. -->\n${owner.source}` : `${owner.source}\n<!-- Outside control. -->`)
 					&& acceptsPeerRetention(owner, `${owner.source}\n\n## Unrelated section\n\nThis section contains an unrelated note.\n`),
 			}));
-			const pointerAttacks = peerRetentionOwners.flatMap((owner) => owner.units.filter(({ id }) => !["lifecycle-planning", "history", "private-set", "disabled-preservation", "shared-scheduling", "shared-disabled-preservation", publishingMigrationUnits[0].id].includes(id)).flatMap((unit) => [
+			const pointerAttacks = peerRetentionOwners.flatMap((owner) => owner.units.filter(({ id }) => !["lifecycle-planning", "history", "private-set", "disabled-preservation", "shared-scheduling", "shared-disabled-preservation", "ready", publishingMigrationUnits[0].id].includes(id)).flatMap((unit) => [
 				["scope", "For changes that load the nested sections", "For every change"],
 				["destination", "§ Level publishing and retained history", "§ Terms and scope"],
 				...(unit.id === "transfer" ? [["disabled", "with publishing enabled", "with publishing disabled"]] : []),
@@ -5695,9 +5713,20 @@ A later track builds on the accepted boundary before it.`),
 				{ id: "inspection", changed: movedInspection !== recursive, rejected: !acceptsLevelUnit(historyUnit, movedInspection) },
 				...wrappedOrderingControls.map(({ id, eventMoveRejected, changed }) => ({ id: `wrapped-${id}`, changed, rejected: eventMoveRejected })),
 			]);
+			const handoffDestinationAttacks = [
+				["description-copy", "After the decision, record the acceptance and its evidence references only in the owning research log.", "After the decision, copy the acceptance and its evidence references into the description."],
+				["size-exception", "The user's merge act approves the current pull request.", "The user's merge act approves the current pull request, including acceptance of any recorded description-size exception."],
+				["reachable-description", "Record the observed merge-result binding only in the owning research log.", "Record the observed merge-result binding in the reachable description and owning log."],
+			].map(([id, before, after]) => {
+				const source = publishing.replace(before, after);
+				return { id, changed: source !== publishing, rejected: !levelPolicyUnits.filter((unit) => unit.source === publishing).every((unit) => acceptsLevelUnit(unit, source)) };
+			});
+			mutationAudit.record("handoff-destinations", handoffDestinationAttacks);
+
 			const benignOrderingDocuments = Object.fromEntries(Object.entries(orderingDocuments).map(([id, source]) => [id, `${source}\n<!-- Outside ordering control. -->\n`]));
 			checkAll("contract-level-publishing", "level membership, dependency order, pauses, local retention, approval, delivery, cleanup, rebase mappings, unavailable evidence, and publishing defaults have owned rules and reviewed peer-document pins", [
 				["reviewed peer-document pins reject unreviewed additions while scoped pointers and the word layer discriminate known copies", peerRetentionOwners.every((owner) => !peerPinFailure(owner, owner.source) && acceptsPeerRetention(owner, owner.source)) && pinnedPeerOwners.length === 3 && peerPinRules.length === 6 && peerPinAttacks.length === 264 && peerPinAttacks.every(({ changed, rejected }) => changed && rejected) && reviewedBranchControls.length === 5 && reviewedBranchControls.every(({ changed, accepted }) => changed && accepted) && wordLayerControls.length === 3 && wordLayerControls.every(({ rejected }) => rejected) && peerOutsideControls.every(({ accepted }) => accepted) && peerPlacementNames.length === 7 && peerPlacementVerbs.length === 14 && peerEscapeAttacks.length === 687 && ownerSentenceCopies.length === 1371 && [...peerRetentionAttacks, ...peerEscapeAttacks, ...ownerSentenceCopies, ...pointerAttacks].every(({ changed, rejected }) => changed && rejected), { baseline: peerRetentionOwners.map((owner) => [owner.id, peerPinFailure(owner, owner.source), peerRetentionFailure(owner, owner.source)]), peerPinAttacks: peerPinAttacks.filter(({ changed, rejected }) => !changed || !rejected), reviewedBranchControls, wordLayerControls, peerOutsideControls, peerRetentionAttacks, peerEscapeAttacks, ownerSentenceCopies: ownerSentenceCopies.filter(({ changed, rejected }) => !changed || !rejected), pointerAttacks }],
+				["restored description accounting, size exceptions, and reachable-description merge bindings fail", handoffDestinationAttacks.every(({ changed, rejected }) => changed && rejected), handoffDestinationAttacks],
 				["closed-folder routes and post-close exceptions fail, including a request with all former folder checks", acceptsCleanupRoutes(recursive) && forbiddenCleanupMutations.length === 5 && wrappedForbiddenCleanupMutations.length === 16 && [...forbiddenCleanupMutations, ...wrappedForbiddenCleanupMutations].every(({ changed, rejected }) => changed && rejected), { forbiddenCleanupMutations, wrappedForbiddenCleanupMutations }],
 				["restored cleanup safety sentences have independent expectations and removal mutations", restoredCleanupSentences.length === 11 && restoredCleanupSentences.every(([id, rule]) => historyUnit.expected.includes(rule) && cleanupMutations.some((mutation) => mutation.id === `restored-${id}` && mutation.changed && mutation.rejected)), restoredCleanupSentences],
 				["recorded authorized deletions have independent exclusions, absence checks, and removal mutations", recordedDeletionSentences.length === 10 && recordedDeletionSentences.every(([id, rule]) => historyUnit.expected.includes(rule) && cleanupMutations.some((mutation) => mutation.id === `deleted-${id}` && mutation.changed && mutation.rejected)), recordedDeletionSentences],
@@ -5713,8 +5742,8 @@ A later track builds on the accepted boundary before it.`),
 				["wrapped inspection passes and keeps all named mutations discriminating", wrappedRetention !== recursive && acceptsLevelUnit(historyUnit, wrappedRetention) && wrappedRetentionMutations.every(({ changed, rejected, retained }) => changed && rejected && retained), wrappedRetentionMutations],
 				["the inspection pointer reaches the unique common privacy subsection", acceptsInspectionDestination(recursive, commonRecords), inspectionDestination(recursive, commonRecords).count],
 				["every unit matches its independent expectation", levelPolicyUnits.every((unit) => acceptsLevelUnit(unit, unit.source)), levelPolicyUnits.filter((unit) => !acceptsLevelUnit(unit, unit.source)).map(({ id }) => id)],
-				["every rule mutation changes input and fails", levelRuleMutations.length === 626 && levelRuleMutations.every(({ changed, rejected }) => changed && rejected), levelRuleMutations],
-				["every safety sentence removal changes its owned input and fails", safetySentenceRemovals.length === 703 && safetySentenceRemovals.filter(({ id }) => id === "history").length === 443 && !safetySentenceRemovals.some(({ id }) => id === "cleanup-writes") && safetySentenceRemovals.every(({ changed, rejected }) => changed && rejected), safetySentenceRemovals],
+				["every rule mutation changes input and fails", levelRuleMutations.length === 640 && levelRuleMutations.every(({ changed, rejected }) => changed && rejected), levelRuleMutations],
+				["every safety sentence removal changes its owned input and fails", safetySentenceRemovals.length === 717 && safetySentenceRemovals.filter(({ id }) => id === "history").length === 443 && !safetySentenceRemovals.some(({ id }) => id === "cleanup-writes") && safetySentenceRemovals.every(({ changed, rejected }) => changed && rejected), safetySentenceRemovals],
 				["ordering, pause reconciliation, and local retention agree across all four documents", agreesOnOrderAndLocalRetention(), "complete independent history, planning, resume, roadmap, and publishing expectations"],
 				["unsafe pauses, conflicting bases, missing scope or events, and ordinary duties in either publishing setting fail", orderAndRetentionMutations.every(({ changed, rejected }) => changed && rejected), orderAndRetentionMutations],
 				["moving an intact event sentence outside the marker fails", eventMoveRejected(orderingDocuments), "event remains present beyond the protected marker"],
@@ -6789,7 +6818,7 @@ A subtree contains a track and all its descendants.
 Ready status supplies neither acceptance nor permission for an agent merge.
 Root final acceptance precedes the last level merge.
 It waits for the note queue, final accounting, and every other final gate.
-After each required acceptance, run the ordered acceptance-transfer sequence in
+After each required acceptance, reconcile the owning log and verify retained history through the ordered sequence in
 [delivery-packages.md](delivery-packages.md) § Durable accounting before handoff for merge.
 Apply that sequence even when the pull request is already ready.`),
 				reviewedReference("docs/recursive-workflow.md", ["# Recursive workflow", "## Whole-subtree acceptance"], `Every design track requires one explicit blocking acceptance of its whole subtree.

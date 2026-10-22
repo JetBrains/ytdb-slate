@@ -109,6 +109,11 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
       assert.ok(publishing.includes(rule));
       await check(`changed description boundary: ${rule}`, { [publishingFile]: publishing.replace(rule, "Refresh the description after every commit.") }, false, "contract-heading-regions");
     }
+    const handoffRule = "After each required acceptance, reconcile the owning log and verify retained history through the ordered sequence in";
+    assert.ok(publishing.includes(handoffRule));
+    await check("redirected ready-handoff accounting", {
+      [publishingFile]: publishing.replace(handoffRule, "After each required acceptance, copy accounting into the description through the sequence in"),
+    });
     const forms = {
       "raw path": "At session start, read docs/delivery-packages.md.",
       "reference link": "At session start, read [package rules][early-package].\n\n[early-package]: delivery-packages.md",

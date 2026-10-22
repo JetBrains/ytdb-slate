@@ -161,7 +161,7 @@ A subtree contains a track and all its descendants.
 Ready status supplies neither acceptance nor permission for an agent merge.
 Root final acceptance precedes the last level merge.
 It waits for the note queue, final accounting, and every other final gate.
-After each required acceptance, run the ordered acceptance-transfer sequence in
+After each required acceptance, reconcile the owning log and verify retained history through the ordered sequence in
 [delivery-packages.md](delivery-packages.md) § Durable accounting before handoff for merge.
 Apply that sequence even when the pull request is already ready.
 
@@ -176,50 +176,43 @@ stay agent duties below. The flip is gated by this checklist, executed in order:
 - All commits landed since the last user-approved gate are presented
   to the user. For a change without a design gate, present the description here
   because no design approval presented it before implementation.
-- Every ignored finding is reported to the user, and the Ignored findings index
-  is present in the description.
-- Strip the whole Tracks section from the description, whatever its
-  form — the table for multi-track changes or the "N/A (single-track)"
-  placeholder — plus any notes under it. Preserve required acceptance and
-  history references in Delivery accounting.
-  A squash merge does not preserve marker commits in the default-branch history.
+- Report every ignored finding to the user.
+  Keep its index in the owning research log.
+- A squash merge does not preserve marker commits in the default-branch history.
   For changes that load the nested sections, complete the retention protocol in
   [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history before the final ready flip and each merge handoff, and for the comparisons after each merge.
-  Motivation and Planned changes remain in the description.
-- Update the PR title and description to the final state of the
-  level: the title names what was actually delivered — preserving any
-  prefixes or markers the project's conventions require — and the
-  description, including the Planned changes section, describes the
-  level as implemented, folding in everything added, dropped, or
-  reshaped since the draft PR was opened.
-- Resolve every remaining Open Question, or record its user-approved
-  deferral or accepted uncertainty in Risks & accepted trade-offs. A
-  mention without the user's disposition is not enough.
-- Last, re-read the whole PR description end-to-end to confirm the
-  as-flipped text tells one consistent story.
+- Update the pull request title to name the delivered result and preserve project title conventions.
+  Reread the selected project template, or § Default template when no applicable project template exists.
+  Fill the final description with only this level's final results that the template requests.
+- Resolve every remaining open question, or record its explicit user-approved disposition in the owning research log and relevant package.
+  A mention without the user's disposition is not enough.
+- Last, reread the whole description from start to end against the selected template and final result.
+  Confirm that the text is consistent.
+  Present the final description to the user before the flip, including when a design gate presented the draft.
 
 ## After the flip
 
-The user may wait for CI green and/or peer-review completion and ask
-the agent to fix test failures or review observations. The agent lands
-fixes as normal commits, keeps the description in sync, and presents
-agent-landed commits to the user as they land.
-Commits pushed directly by reviewers are visible in
-the PR UI; the agent reconciles the description with them on its next
-task.
-The user's merge act approves the current pull request, including
-acceptance of any recorded description-size exception.
+The user may wait for passing continuous integration checks or peer-review completion and ask the agent to fix failures or review observations.
+The agent lands fixes as normal commits and presents them to the user as they land.
+Keep progress in the owning research log, not in the description.
+At renewed handoff for merge after fixes, reread the selected template.
+Refresh final-result text only if the result or template changed.
+Reconcile reviewer-pushed changes at that handoff.
+Present the final description before handing the pull request to the user for merge.
+
+The user's merge act approves the current pull request.
 A merge does not supply whole-subtree or root final acceptance.
 Obtain each required explicit decision before the merge.
-After the decision, copy it and its evidence references into the closing level's description.
-Verify that updated accounting and present the description before handing it to the user for merge.
+After the decision, record the acceptance and its evidence references only in the owning research log.
+Verify that log accounting, then present the separate final description and merge handoff.
 Ready status does not bypass this order.
 
 ## After the merge
 
 After the user merges a level pull request, verify that level's delivery accounting.
 Verify the observed merge commit's identity and parents against its accepted history and pull request.
-Record the observed merge-result binding in the reachable description and owning log.
+Record the observed merge-result binding only in the owning research log.
+Report the delivery state in the next applicable package.
 The merge commit itself supplies that binding, including for the last level.
 The root final package lists every level delivery.
 It distinguishes merged levels from every level waiting for merge, including levels held behind an unmerged foundation.
