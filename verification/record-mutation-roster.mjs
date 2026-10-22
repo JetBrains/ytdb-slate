@@ -94,13 +94,13 @@ const numbered = (id, count) => Array.from({ length: count }, (_, index) => `${i
 const combinations = (ids, kinds) => ids.flatMap((id) => kinds.map((kind) => `${id}/${kind}`));
 const recordUnits = ["identifiers-ranges", "tool-records-and-recovery", "resume-forks", "handoff-pointer", "marker-identity", "resume-order", "general-handoff", "closed-range-feedback"];
 const relations = { loading: 5, nested: 7, records: 3, "status-trigger": 1, "canonical-grammar": 1, "repair-records": 1, "append-only": 2, "resume-entry": 1, "repair-rounds": 1, "repair-consultations": 1, "child-fix-title": 2, "child-attribution": 1 };
-const levelCounts = { "publishing-intro": 8, "level-publishing": 22, "publishing-after-merge": 11, "publishing-creation": 39,
+const levelCounts = { "publishing-intro": 8, "level-publishing": 22, "publishing-after-merge": 11, "publishing-creation": 35,
  activation: 5, "accepted-history": 14, "cleanup-retention": 2, history: 443, "cleanup-pointer": 1, "private-set": 14,
  "history-owner-pointers": 1, ready: 10, "ready-history": 5, "ready-description": 1, "merge-acceptance": 6,
- "description-scope": 3, "description-record": 3, table: 2, sync: 6, transfer: 12, "disabled-preservation": 3, configuration: 3 };
+ "description-scope": 17, "description-record": 2, "default-template": 4, sync: 7, transfer: 12, "disabled-preservation": 3, configuration: 3 };
 const headingCounts = { "identifiers-ranges": 33, "manual-records": 137, "resume-forks": 21, "handoff-pointer": 3,
  "resume-order": 19, "general-handoff": 3, "closed-range-feedback": 17, repairs: 60, aggregate: 21, sources: 67,
- "workflow-accounting": 62, "notes-accounting": 21, "publishing-sync": 6, "public-roadmap": 20, "repair-escalation": 45,
+ "workflow-accounting": 62, "notes-accounting": 21, "publishing-sync": 7, "public-roadmap": 20, "repair-escalation": 45,
  "repair-rounds-owner": 51, "repair-consultations-owner": 26, "child-fix-title-owner": 7, "P13-authoring": 28 };
 const sentenceIds = (counts) => Object.entries(counts).flatMap(([id, count]) => numbered(id, count));
 const ordering = ["history", "roadmap-pause", "resume-pause", "design-first-base", "design-first-history", "design-first-roadmap",
@@ -126,7 +126,7 @@ export const EXPECTED_MUTATIONS = {
  "note-route/redirect-record", "note-route/omit-record",
  "template-applicability/disabled-exemption", "template-applicability/disabled-template", "template-applicability/publishing-duty"],
  "delivery-rules": sentenceIds({ repairs: 60, aggregate: 21, issues: 14, sources: 67, "workflow-accounting": 62,
- "notes-accounting": 21, "publishing-sync": 6, "public-workflow": 24, "public-roadmap": 20 }),
+ "notes-accounting": 21, "publishing-sync": 7, "public-workflow": 24, "public-roadmap": 20 }),
  transfer: numbered("transfer", 5),
  "sequential-acceptance": ["subtree-merged-before-root-without-marker-distinction", "root-recreates-earlier-subtree-marker", "root-adds-marker-for-every-accepted-subtree"],
  "level-rules": sentenceIds(levelCounts),
@@ -137,7 +137,7 @@ export const EXPECTED_MUTATIONS = {
  "peer-retention": sentenceIds({ nested: 4, common: 4, publishing: 4, delivery: 4, lifecycle: 4 }),
  "peer-escape": combinations(peers, escapeKinds),
  "owner-copies": sentenceIds({ publishing: 457, delivery: 457, lifecycle: 457 }),
- "peer-pins": [["publishing", 11, 3], ["delivery", 7, 1], ["lifecycle", 13, 4]].flatMap(([id, headings, contexts]) =>
+ "peer-pins": [["publishing", 10, 3], ["delivery", 7, 1], ["lifecycle", 13, 4]].flatMap(([id, headings, contexts]) =>
  [0, 1, 2, 3, 4, 5].flatMap((rule) => [...numbered("heading", headings).map((name) => name.replace("/", "-")),
  "end", "new-heading", ...numbered("context", contexts).map((name) => name.replace("/", "-"))].map((position) => `${id}/${rule}/${position}`))),
  pointers: [["publishing", "ready-history"], ["delivery", "transfer"], ["lifecycle", "accepted-history"], ["lifecycle", "cleanup-pointer"]]

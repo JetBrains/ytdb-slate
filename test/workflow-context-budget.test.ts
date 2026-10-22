@@ -279,6 +279,9 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
   const fallbackText = fallback.slice(...fallbackSpan!);
   assert.ok(fallbackText.includes("## Why\n") && fallbackText.includes("## What changed\n"));
   assert.ok(!fallbackText.includes("## Tracks table"));
+  assert.ok(fallbackText.includes("At creation, describe why the change is needed and the planned change."));
+  assert.ok(fallbackText.includes("For the final description at level completion or a final delivery commit, describe delivered results."));
+  assert.ok(fallbackText.includes("This form adds no workflow accounting or progress table."));
   assert.throws(() => coverage(scan(sources), occurrences.map((r: any, i: number) => i === 0 ? { ...r, recipient: "worker", reason: undefined } : r)), /missing classification/);
   assert.deepEqual(union([[0, 5], [3, 9], [1, 2]]), [[0, 9]]);
   assert.equal(bytes("é"), 2); assert.equal(tokens(5), 2);

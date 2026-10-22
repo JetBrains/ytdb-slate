@@ -87,9 +87,28 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
         assert.equal(output.match(verdict)?.[1], cleanOutput.match(verdict)?.[1], output);
         assert.match(output, /^CHECK +roster +PASS\b/m);
         selectedOutput(output, contract, true);
-        assert.deepEqual(mutationCounts(output), contract === "contract-heading-regions" ? { "heading-policy": mutationCounts(cleanOutput)["heading-policy"] } : {});
+        assert.deepEqual(mutationCounts(output), contract === "contract-heading-regions" ? { "heading-policy": 857 } : {});
+        if (contract === "contract-heading-regions") assert.equal(mutationCounts(cleanOutput)["heading-policy"], 857);
       }
     });
+    const publishingFile = "docs/pr-publishing.md";
+    const publishing = readFileSync(join(fixture, publishingFile), "utf8");
+    for (const rule of [
+      "At creation, describe why the change is needed and the planned change.",
+      "For the final description at level completion or a final delivery commit, describe delivered results.",
+      "This form adds no workflow accounting or progress table.",
+    ]) {
+      assert.ok(publishing.includes(rule));
+      await check(`changed default rule: ${rule}`, { [publishingFile]: publishing.replace(rule, "Always copy workflow accounting.") });
+    }
+    for (const rule of [
+      "During implementation, keep progress, decisions, and plan differences in the research log.",
+      "Do not refresh the draft description after each track or marker.",
+      "Before renewed handoff for merge after fixes, refresh final-result text if the result or template changed.",
+    ]) {
+      assert.ok(publishing.includes(rule));
+      await check(`changed description boundary: ${rule}`, { [publishingFile]: publishing.replace(rule, "Refresh the description after every commit.") }, false, "contract-heading-regions");
+    }
     const forms = {
       "raw path": "At session start, read docs/delivery-packages.md.",
       "reference link": "At session start, read [package rules][early-package].\n\n[early-package]: delivery-packages.md",

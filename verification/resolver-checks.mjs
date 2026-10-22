@@ -4101,14 +4101,14 @@ Use [change-records.md](change-records.md) § Design authority and privacy.`) },
 			// expectations are authored here rather than derived from candidate text.
 			publishingMigrationUnits = [
 				{
-					id: "publishing-creation",
-					source: publishing,
+					id: "publishing-creation", source: publishing,
 					extract: regionUnit(/^## Creation\n\n([\s\S]*?)(?=^## Description rules)/gm),
 					expected: normalizeText(`Create the level's draft after all applicable pre-implementation gates.
 Create it before the level's first code track implementation.
 
 For a change with a high-level design and a level pull request, draft the
-level description before final design approval.
+template-shaped level description before final design approval.
+Use only established facts, as defined in § Description rules.
 Present the draft beside the validated design.
 Each design track with a level pull request presents its level description
 with its validated design for one final approval.
@@ -4119,9 +4119,10 @@ Create the pull request after final design approval.
 
 For a change without a high-level design, create the pull request after the
 confirmation gate and before implementation. If the change later requires a
-high-level design, keep the existing draft. Follow the size or late-area design route in track-workflow.md and synchronize
-the description. Do not recreate the pull
-request or apply its creation timing retrospectively.
+high-level design, keep the existing draft.
+Follow the size or late-area design route in track-workflow.md.
+Record changed intent in the research log, not as a draft progress update.
+Do not recreate the pull request or apply its creation timing retrospectively.
 
 Every creation path keeps these safeguards:
 
@@ -4132,27 +4133,22 @@ Every creation path keeps these safeguards:
   Use dependency order for bases, including code before a dependent design subtree.
   Base that subtree's first level branch on the completed code-containing branch.
   Base later dependent levels on the latest completed preceding level branch.
+
   The user merges the code-containing level pull request only after its level is complete.
   Every track of that level, including the dependent design subtree, must have its required acceptance.
   The user then merges the dependent pull requests in dependency order.
 - If the working branch has no diff against the base yet, land a
   bootstrap empty commit so the PR can be created.
 - At creation, if a high-level design exists, read the current authoritative design file for the change root or design track.
-  Use its approved plan in the pull request description.
+  Use its approved plan only for fields requested by the selected template.
   The files are \`root-design.md\` and \`track-<number>-design.md\` in the current change folder.
   Here \`<number>\` is the canonical path number defined in [change-records.md](change-records.md).
   Read the owning log for approval hashes, decisions, and review evidence.
   A copied design in a log is not the authoritative plan.
   Create the pull request only after final design approval, as stated above.
 
-  Key decisions, Risks, and Open questions feed the corresponding
-  Planned-changes subsections. The applicable design review verdict lines land
-  in Risks & accepted trade-offs. The adversarial review verdict line lands
-  there only when that review ran. A change without that review carries the
-  design verdict lines alone.
-- For a change without a high-level design, the initial request supplies
-  Motivation. The intended fix supplies Planned changes. If a log exists, its
-  relevant decisions and Open Questions also fold into the description.
+- For a change without a high-level design, use established request facts and
+  the intended fix only for fields requested by the selected template.
 - The research log is retained until delivery, and its Decision Log
   keeps appending during implementation. track-workflow.md § Session handoff
   and the research log owns the full lifecycle.`),
@@ -4183,8 +4179,8 @@ The publishing setting and its disabled default remain unchanged.`),
 			const publishingMutations = [
 				publishing.replace("Create the pull request after final design approval", "Create the pull request before final design approval"),
 				publishing.replace("after the\nconfirmation gate", "after the confirmed\nsize grade"),
-				publishing.replace("The intended fix supplies Planned changes.", "The confirmed grade and intended fix supply Planned changes."),
-				publishing.replace("If a log exists, its", "Its"),
+				publishing.replace("established request facts", "unverified request assumptions"),
+				publishing.replace("Use only established facts", "Use unsupported claims"),
 				publishing.replace("keep the existing draft", "recreate the draft"),
 				publishing.replace("size or late-area design route", "late-area design route"),
 				publishing.replace("For a change without a design gate", "For a SMALL change without a design gate"),
@@ -4214,7 +4210,7 @@ The publishing setting and its disabled default remain unchanged.`),
 			const duplicatePublishingMigration = resolvePublishingMigration(duplicatedPublishing, duplicatedMigration);
 			const appendBenignControl = (source, id) => `${source}\n\n<!-- resolver benign control: ${id} -->`;
 			const benignPublishingSources = [
-				appendBenignControl(publishing.replace("The description follows the repository's PR template", "The description follows the project's PR template"), "publishing exact prior replacement"),
+				appendBenignControl(publishing.replace("The selected project template exclusively governs description content.", "Project instructions govern description content."), "publishing exact prior replacement"),
 				appendBenignControl(publishing, "publishing alternative outside edit"),
 			];
 			const benignWorkflowSources = [
@@ -4227,7 +4223,7 @@ The publishing setting and its disabled default remain unchanged.`),
 			checkAll("contract-publishing-migration", "draft creation, no-design description inputs and final presentation, later-design handling, and both migration directions are exact independent units with fail-closed boundaries and discriminating controls", [
 				["the three owned units form the exact roster and resolve once", publishingMigrationResults.map(({ id }) => id).join() === "publishing-creation,publishing-ready-no-design,workflow-migration" && publishingMigrationResults.every(({ count }) => count === 1), publishingMigrationResults],
 				["every owned unit equals its independent expectation", publishingMigrationResults.every(({ text, expected }) => text === expected), publishingMigrationResults.filter(({ text, expected }) => text !== expected)],
-				["timing, grade-input, conditional-log, later-design, ready-presentation, and migration mutations each change input and fail", publishingMutationOutcomes.every(({ changed, accepted }) => changed && !accepted) && migrationMutationOutcomes.every(({ changed, accepted }) => changed && !accepted), { publishingMutationOutcomes, migrationMutationOutcomes }],
+				["timing, established inputs, later-design, ready-presentation, and migration mutations each change input and fail", publishingMutationOutcomes.every(({ changed, accepted }) => changed && !accepted) && migrationMutationOutcomes.every(({ changed, accepted }) => changed && !accepted), { publishingMutationOutcomes, migrationMutationOutcomes }],
 				["missing and duplicated boundaries fail closed", missingPublishingMigration.every(({ count, text }) => count === 0 && text === "") && duplicatePublishingMigration.every(({ count }) => count === 2), { missingPublishingMigration, duplicatePublishingMigration }],
 				["exact prior replacements and alternative benign edits outside all three units leave every expectation exact", benignPublishingSources.every((source) => source !== publishing) && benignWorkflowSources.every((source) => source !== workflow) && benignPublishingMigrationOutcomes.every((outcome) => outcome.every((resolved, index) => resolved.count === 1 && resolved.text === publishingMigrationResults[index].expected)), benignPublishingMigrationOutcomes],
 			]);
@@ -4305,7 +4301,7 @@ Use [track-workflow.md](track-workflow.md) for the common lifecycle.`);
 				{ id: "sources", source: deliveryPackages, start: "## Durable accounting", expected: "6e0f64a7e2a3a2667e3e04947a8ee49fa9db0c3d3d054d8324f05e625702b3bd" },
 				{ id: "workflow-accounting", source: workflow, start: "### Delivery history and accounting", expected: "a5bbb094dd397dc19f599c3cd8900d5b2b8900d1c97941b138f60f0b62d8c18f" },
 				{ id: "notes-accounting", source: userNotes, start: "### Final accounting preparation", expected: "c5faa1a21995af8de97116b48390d913b805fc86742a318597d7d5efd9aeaa47" },
-				{ id: "publishing-sync", source: publishing, start: "## Keeping the PR in sync", expected: "fb386e6f14c2f051a842cd050cc4e2834dea5e2674853cc22794792cd4c1a7cc" },
+				{ id: "publishing-sync", source: publishing, start: "## Keeping the PR in sync", expected: "c52f42b4468a859f850e1ef9ae2ec5c54a7206b3e1ff737f7f66d5b8a5cc6eef" },
 				{ id: "public-workflow", source: projectReadme, start: "A track is a bounded", end: "## ", endAtLineStart: true, expected: "23f90e859751918fac2f72ad4819c635cf21d88f15e18d100cc0a9944018fbf3" },
 				{ id: "public-roadmap", source: readFileSync(join(REPO, "docs", "roadmap.md"), "utf8"), start: "## Larger changes", expected: recordDigest(roadmapExpected) },
 			].map((unit) => ({ ...unit, extract: unit.end === null
@@ -5036,39 +5032,60 @@ Ready status does not bypass this order.`),
 				},
 				{
 					id: "description-scope", source: publishing,
-					extract: regionUnit(/^## Description rules\n\n([\s\S]*?)(?=^Write Planned changes)/gm),
-					expected: normalizeText(`The description follows the repository's PR template, if any, and
-carries three parts: Motivation (why), "Planned changes" (detailed but
-high-level), and "Tracks" (a display table for a level with several code tracks).
-Each description states its level's scope.
-Link related level deliveries without claiming their changes as new work.`),
+					extract: regionUnit(/^## Description rules\n\n([\s\S]*?)(?=^A squash merge)/gm),
+					expected: normalizeText(`The selected project template exclusively governs description content.
+Slate adds no required sections, accounting fields, or progress table.
+At creation, inspect the project's contributor instructions and available pull request templates.
+Follow the project's documented choice when several templates exist.
+Ask the user before creation if the choice remains ambiguous.
+An unavailable template is not evidence that no applicable project template exists.
+Resolve access or selection uncertainty rather than silently using the default.
+Use § Default template only when no applicable project template exists.
+
+Fill only fields supported by facts established by the request, approved design, or completed evidence at that time.
+Describe intended changes as intent, not as completed work.
+Do not mark tests or checklist items complete before their evidence exists.
+Leave unsupported fields unfilled in the form the project permits.
+Do not invent results to complete a template.
+
+Describe only this level's scope within the fields the template requests.
+Link related level deliveries only when the template requests that information.
+Do not claim related levels' changes as new work.
+These scope and attribution rules add no template field.`),
 				},
 				{
 					id: "description-record", source: publishing,
-					extract: regionUnit(/^(A squash merge combines[\s\S]*?)(?=^Aim to keep)/gm),
+					extract: regionUnit(/^(A squash merge combines[\s\S]*?)(?=^## Default template)/gm),
 					expected: normalizeText(`A squash merge combines a pull request's commits into one delivery commit.
-Its description becomes that commit's body on the default development branch.
-Write it as the durable record for this level.`),
+The host's merge behavior does not make the description a workflow accounting record.`),
 				},
 				{
-					id: "table", source: publishing,
-					extract: regionUnit(/^## Tracks table\n\n([\s\S]*?)(?=^## Keeping the PR in sync)/gm),
-					expected: normalizeText(`The description's Tracks section holds the track table; its
-constraints (display-only, no SHAs, never the source of truth for
-track boundaries) are owned by track-workflow.md § Delivery and termination.
-A level with one code track carries an "N/A (single-track)" placeholder instead
-of a table.`),
+					id: "default-template", source: publishing,
+					extract: headingUnit("## Default template"),
+					expected: normalizeText(`Use this short form when no applicable project template or commit rule exists.
+At creation, describe why the change is needed and the planned change.
+For the final description at level completion or a final delivery commit, describe delivered results.
+
+\`\`\`markdown
+## Why
+<Why the change is needed.>
+
+## What changed
+<What the change delivers.>
+\`\`\`
+
+This form adds no workflow accounting or progress table.`),
 				},
 				{
 					id: "sync", source: publishing,
 					extract: regionUnit(/^## Keeping the PR in sync\n\n([\s\S]*?)(?=^## Ready-for-review flip)/gm),
-					expected: normalizeText(`Keep the title and description synchronized with what is actually pushed.
-Update a track's table row when its marker commit lands. Append post-design
-decisions as they are made. Revise Planned changes whenever reality diverges
-from it. Before each package for this level, copy its required delivery
-accounting from the complete accounting source set in
-[delivery-packages.md](delivery-packages.md) § Durable accounting into the description.
-A stale description fails the "deep enough" test.`),
+					expected: normalizeText(`Create the draft description from established facts using the selected template.
+During implementation, keep progress, decisions, and plan differences in the research log.
+Do not refresh the draft description after each track or marker.
+At level completion, update the final title and description under § Ready-for-review flip.
+The final title names the delivered result and preserves project title conventions.
+Before renewed handoff for merge after fixes, refresh final-result text if the result or template changed.
+An unchanged result and template need no rewrite.`),
 				},
 				{ id: "transfer", source: deliveryPackages, extract: transferUnit, expected: acceptanceTransferExpected },
 				{
@@ -5514,7 +5531,7 @@ A stale description fails the "deep enough" test.`),
 			// Whitespace-only reflow passes because normalizeText collapses whitespace.
 			// HTML comments count. The word layer is best-effort during refresh review.
 			// Known word-layer escapes include "retention branches" and "branches kept for retention".
-			const EXPECTED_PUBLISHING_SHA256 = "b1b1905266bef0ca2df717a86a7f68c5510f8343b238d5c398b8fb6ff31b2758";
+			const EXPECTED_PUBLISHING_SHA256 = "a9c7d7f49cbc44eb6da9ea7c9a02174bfc3860094d5daf6a1fb1d3f114750caa";
 			const EXPECTED_TRACK_WORKFLOW_SHA256 = "6f0fabbfba5aa556bf611230f08518c65163eda94224765df4ccea375c9459ef";
 			const peerRetentionOwners = [
 				{ id: "nested", source: recursive, units: [historyUnit] },
@@ -5680,7 +5697,7 @@ A later track builds on the accepted boundary before it.`),
 			]);
 			const benignOrderingDocuments = Object.fromEntries(Object.entries(orderingDocuments).map(([id, source]) => [id, `${source}\n<!-- Outside ordering control. -->\n`]));
 			checkAll("contract-level-publishing", "level membership, dependency order, pauses, local retention, approval, delivery, cleanup, rebase mappings, unavailable evidence, and publishing defaults have owned rules and reviewed peer-document pins", [
-				["reviewed peer-document pins reject unreviewed additions while scoped pointers and the word layer discriminate known copies", peerRetentionOwners.every((owner) => !peerPinFailure(owner, owner.source) && acceptsPeerRetention(owner, owner.source)) && pinnedPeerOwners.length === 3 && peerPinRules.length === 6 && peerPinAttacks.length === 270 && peerPinAttacks.every(({ changed, rejected }) => changed && rejected) && reviewedBranchControls.length === 5 && reviewedBranchControls.every(({ changed, accepted }) => changed && accepted) && wordLayerControls.length === 3 && wordLayerControls.every(({ rejected }) => rejected) && peerOutsideControls.every(({ accepted }) => accepted) && peerPlacementNames.length === 7 && peerPlacementVerbs.length === 14 && peerEscapeAttacks.length === 687 && ownerSentenceCopies.length === 1371 && [...peerRetentionAttacks, ...peerEscapeAttacks, ...ownerSentenceCopies, ...pointerAttacks].every(({ changed, rejected }) => changed && rejected), { baseline: peerRetentionOwners.map((owner) => [owner.id, peerPinFailure(owner, owner.source), peerRetentionFailure(owner, owner.source)]), peerPinAttacks: peerPinAttacks.filter(({ changed, rejected }) => !changed || !rejected), reviewedBranchControls, wordLayerControls, peerOutsideControls, peerRetentionAttacks, peerEscapeAttacks, ownerSentenceCopies: ownerSentenceCopies.filter(({ changed, rejected }) => !changed || !rejected), pointerAttacks }],
+				["reviewed peer-document pins reject unreviewed additions while scoped pointers and the word layer discriminate known copies", peerRetentionOwners.every((owner) => !peerPinFailure(owner, owner.source) && acceptsPeerRetention(owner, owner.source)) && pinnedPeerOwners.length === 3 && peerPinRules.length === 6 && peerPinAttacks.length === 264 && peerPinAttacks.every(({ changed, rejected }) => changed && rejected) && reviewedBranchControls.length === 5 && reviewedBranchControls.every(({ changed, accepted }) => changed && accepted) && wordLayerControls.length === 3 && wordLayerControls.every(({ rejected }) => rejected) && peerOutsideControls.every(({ accepted }) => accepted) && peerPlacementNames.length === 7 && peerPlacementVerbs.length === 14 && peerEscapeAttacks.length === 687 && ownerSentenceCopies.length === 1371 && [...peerRetentionAttacks, ...peerEscapeAttacks, ...ownerSentenceCopies, ...pointerAttacks].every(({ changed, rejected }) => changed && rejected), { baseline: peerRetentionOwners.map((owner) => [owner.id, peerPinFailure(owner, owner.source), peerRetentionFailure(owner, owner.source)]), peerPinAttacks: peerPinAttacks.filter(({ changed, rejected }) => !changed || !rejected), reviewedBranchControls, wordLayerControls, peerOutsideControls, peerRetentionAttacks, peerEscapeAttacks, ownerSentenceCopies: ownerSentenceCopies.filter(({ changed, rejected }) => !changed || !rejected), pointerAttacks }],
 				["closed-folder routes and post-close exceptions fail, including a request with all former folder checks", acceptsCleanupRoutes(recursive) && forbiddenCleanupMutations.length === 5 && wrappedForbiddenCleanupMutations.length === 16 && [...forbiddenCleanupMutations, ...wrappedForbiddenCleanupMutations].every(({ changed, rejected }) => changed && rejected), { forbiddenCleanupMutations, wrappedForbiddenCleanupMutations }],
 				["restored cleanup safety sentences have independent expectations and removal mutations", restoredCleanupSentences.length === 11 && restoredCleanupSentences.every(([id, rule]) => historyUnit.expected.includes(rule) && cleanupMutations.some((mutation) => mutation.id === `restored-${id}` && mutation.changed && mutation.rejected)), restoredCleanupSentences],
 				["recorded authorized deletions have independent exclusions, absence checks, and removal mutations", recordedDeletionSentences.length === 10 && recordedDeletionSentences.every(([id, rule]) => historyUnit.expected.includes(rule) && cleanupMutations.some((mutation) => mutation.id === `deleted-${id}` && mutation.changed && mutation.rejected)), recordedDeletionSentences],
@@ -5696,8 +5713,8 @@ A later track builds on the accepted boundary before it.`),
 				["wrapped inspection passes and keeps all named mutations discriminating", wrappedRetention !== recursive && acceptsLevelUnit(historyUnit, wrappedRetention) && wrappedRetentionMutations.every(({ changed, rejected, retained }) => changed && rejected && retained), wrappedRetentionMutations],
 				["the inspection pointer reaches the unique common privacy subsection", acceptsInspectionDestination(recursive, commonRecords), inspectionDestination(recursive, commonRecords).count],
 				["every unit matches its independent expectation", levelPolicyUnits.every((unit) => acceptsLevelUnit(unit, unit.source)), levelPolicyUnits.filter((unit) => !acceptsLevelUnit(unit, unit.source)).map(({ id }) => id)],
-				["every rule mutation changes input and fails", levelRuleMutations.length === 614 && levelRuleMutations.every(({ changed, rejected }) => changed && rejected), levelRuleMutations],
-				["every safety sentence removal changes its owned input and fails", safetySentenceRemovals.length === 691 && safetySentenceRemovals.filter(({ id }) => id === "history").length === 443 && !safetySentenceRemovals.some(({ id }) => id === "cleanup-writes") && safetySentenceRemovals.every(({ changed, rejected }) => changed && rejected), safetySentenceRemovals],
+				["every rule mutation changes input and fails", levelRuleMutations.length === 626 && levelRuleMutations.every(({ changed, rejected }) => changed && rejected), levelRuleMutations],
+				["every safety sentence removal changes its owned input and fails", safetySentenceRemovals.length === 703 && safetySentenceRemovals.filter(({ id }) => id === "history").length === 443 && !safetySentenceRemovals.some(({ id }) => id === "cleanup-writes") && safetySentenceRemovals.every(({ changed, rejected }) => changed && rejected), safetySentenceRemovals],
 				["ordering, pause reconciliation, and local retention agree across all four documents", agreesOnOrderAndLocalRetention(), "complete independent history, planning, resume, roadmap, and publishing expectations"],
 				["unsafe pauses, conflicting bases, missing scope or events, and ordinary duties in either publishing setting fail", orderAndRetentionMutations.every(({ changed, rejected }) => changed && rejected), orderAndRetentionMutations],
 				["moving an intact event sentence outside the marker fails", eventMoveRejected(orderingDocuments), "event remains present beyond the protected marker"],
@@ -6606,7 +6623,7 @@ omitted and why.`);
 			const packageHeadings = [...packageContract.text.matchAll(/^## (.+)$/gm)].map((match) => match[1]);
 			const packageTemplates = [...packageContract.text.matchAll(/```markdown\n([\s\S]*?)```/g)].map((match) => [...match[1].matchAll(/^\*\*(.+)\*\*$/gm)].map((label) => label[1]));
 
-			const expectedDefaultTemplate = normalizeText("Use this short form when no applicable project template or commit rule exists. For a final delivery commit, describe delivered results.\n\n```markdown\n## Why\n<Why the change is needed.>\n\n## What changed\n<What the change delivers.>\n```\n\nThis form adds no workflow accounting or progress table.");
+			const expectedDefaultTemplate = normalizeText("Use this short form when no applicable project template or commit rule exists. At creation, describe why the change is needed and the planned change. For the final description at level completion or a final delivery commit, describe delivered results.\n\n```markdown\n## Why\n<Why the change is needed.>\n\n## What changed\n<What the change delivers.>\n```\n\nThis form adds no workflow accounting or progress table.");
 			const resolveDefaultTemplate = headingUnit("## Default template");
 			const acceptsDefaultTemplate = (source) => {
 				const unit = resolveDefaultTemplate(source);
@@ -6762,17 +6779,6 @@ invented recommendation. It produces the exact no-change statement required by
 [delivery-packages.md](delivery-packages.md) § Change package. The feature does
 not edit any file. It does not authorize a model selection, a new model, or a
 roster change.`),
-				reviewedReference("docs/pr-publishing.md", ["# Draft-PR publishing", "## Description rules"], `- **Delivery accounting** — the conclusions that
-  [delivery-packages.md](delivery-packages.md) § Durable accounting requires.
-  Update this subsection from all owning accounting sources defined there
-  before each package for this level. Keep private reasoning and private data out of it.`),
-				reviewedReference("docs/pr-publishing.md", ["# Draft-PR publishing", "## Keeping the PR in sync"], `Keep the title and description synchronized with what is actually pushed.
-Update a track's table row when its marker commit lands. Append post-design
-decisions as they are made. Revise Planned changes whenever reality diverges
-from it. Before each package for this level, copy its required delivery
-accounting from the complete accounting source set in
-[delivery-packages.md](delivery-packages.md) § Durable accounting into the description.
-A stale description fails the "deep enough" test.`),
 				reviewedReference("docs/pr-publishing.md", ["# Draft-PR publishing", "## Ready-for-review flip"], `Apply this section separately to each level pull request.
 All its code tracks and required machine reviews, track packages, requested fixes,
 and blocking user notes must be complete.
@@ -6861,7 +6867,7 @@ The accounting covers:`),
 				["the publishing-disabled accounting unit gives single-track and multi-track packages reachable sources, then verifies delivery and owning-log accounting before cleanup", acceptsDisabledAccounting(deliveryPackages), resolveDisabledAccounting(deliveryPackages)],
 				["future-record, missing-commit-authority, early-cleanup, and missing-single-track counterfactuals each change the accounting sequence and fail", disabledAccountingMutationOutcomes.every(({ changed, accepted }) => changed && !accepted), disabledAccountingMutationOutcomes],
 				["missing and duplicated publishing-disabled accounting boundaries fail closed", missingDisabledAccountingBoundary.count === 0 && missingDisabledAccountingBoundary.text === "" && duplicateDisabledAccountingBoundary.count === 2 && duplicateDisabledAccountingBoundary.text === "", { missingDisabledAccountingBoundary, duplicateDisabledAccountingBoundary }],
-				["publishing, workflow, and note rules match the reachable accounting lifecycle", publishingFlat.includes("Update this subsection from all owning accounting sources defined there before each package for this level.") && publishingFlat.includes("accounting from the complete accounting source set in [delivery-packages.md](delivery-packages.md) § Durable accounting into the description.") && workflowFlat.includes("After root final acceptance, create the final squashed delivery commit using project commit rules.") && workflowFlat.includes("[pr-publishing.md](pr-publishing.md) § Default template for the body.") && workflowFlat.includes("Verify the delivery result and owning-log accounting separately before root closure.") && userNotesFlat.includes("On both delivery paths, reconcile required conclusions into the owning research log before each package.") && userNotesFlat.includes("Root closure waits for verification of the owning logs against all accounting sources."), { workflow: workflow.match(/With draft publishing,[\s\S]*?(?=\n\nNo release occurs)/)?.[0], publishing: publishing.match(/\*\*Delivery accounting\*\*[\s\S]*?(?=\n- \*\*Verification approach)/)?.[0], userNotes: userNotes.match(/Before final acceptance[\s\S]*?(?=\n\n- every finding)/)?.[0] }],
+				["publishing, workflow, and note rules match the reachable accounting lifecycle", publishingFlat.includes("Slate adds no required sections, accounting fields, or progress table.") && publishingFlat.includes("During implementation, keep progress, decisions, and plan differences in the research log.") && workflowFlat.includes("After root final acceptance, create the final squashed delivery commit using project commit rules.") && workflowFlat.includes("[pr-publishing.md](pr-publishing.md) § Default template for the body.") && workflowFlat.includes("Verify the delivery result and owning-log accounting separately before root closure.") && userNotesFlat.includes("On both delivery paths, reconcile required conclusions into the owning research log before each package.") && userNotesFlat.includes("Root closure waits for verification of the owning logs against all accounting sources."), { workflow: workflow.match(/With draft publishing,[\s\S]*?(?=\n\nNo release occurs)/)?.[0], publishing: headingUnit("## Keeping the PR in sync")(publishing), userNotes: userNotes.match(/Before final acceptance[\s\S]*?(?=\n\n- every finding)/)?.[0] }],
 				["the workflow loading unit and every literal filename context across README and recursive docs equal independent expectations", acceptsPackageLoading(workflow), { loading: resolvePackageLoading(workflow), contexts: packageReferenceContexts(packageDocuments) }],
 				["owned-unit, appended, and count-preserving actor-table eager-load mutations each change the source and fail", packageLoadingMutationOutcomes.every(({ changed, accepted }) => changed && !accepted), packageLoadingMutationOutcomes],
 				["missing and duplicated loading boundaries fail closed", missingLoadingBoundary.count === 0 && missingLoadingBoundary.text === "" && duplicateLoadingBoundary.count === 2 && duplicateLoadingBoundary.text === "", { missingLoadingBoundary, duplicateLoadingBoundary }],
@@ -6880,7 +6886,7 @@ The accounting covers:`),
 				["blast-radius.md", blast, ["Focus states and track constraints", "Focus areas and their gates", "Optional path declarations", "Lifecycle rules owned by the spine", "Halt and focus re-derivation", "Review coverage and the coverage register", "Commit discipline for drift and boundaries"]],
 				["user-notes.md", userNotes, ["Package acceptance and note timing", "Receiving and routing a user note", "Note queue and drain", "Override log", "Register entry shape", "Mandatory escalation set", "User note accounting", "Durable final accounting"]],
 				["delivery-packages.md", deliveryPackages, ["Package preparation", "Track package", "Change package", "Single-track combined package", "Durable accounting"]],
-				["pr-publishing.md", publishing, ["One draft pull request", "Creation", "Description rules", "Tracks table", "Keeping the PR in sync", "Ready-for-review flip", "After the flip", "After the merge"]],
+				["pr-publishing.md", publishing, ["One draft pull request", "Creation", "Description rules", "Default template", "Keeping the PR in sync", "Ready-for-review flip", "After the flip", "After the merge"]],
 				["recursive-workflow.md", recursive, ["Terms and scope", "Loading and planning", "Nested designs and gates", "Code-track sizing and split requests", "Level consistency", "Proportional process", "Recorded-workflow compatibility", "Level publishing and retained history", "Identifiers, code ranges, and design markers", "Manual records and safe writes", "Resume and folder forks", "Handoff boundaries", "Review-fix subtrees and repair limits", "Whole-subtree acceptance", "Packages, attribution, and issues"]],
 			];
 			const headingDefects = targetDocs.flatMap(([file, source, names]) => names.flatMap((name) => headingCount(source, name) === 1 ? [] : [`${file} § ${name} → ${headingCount(source, name)}`]));
