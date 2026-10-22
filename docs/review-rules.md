@@ -147,7 +147,8 @@ implementer report instead of the design discussion.
 
 A tracked issue for deferred work is self-contained. It states what, where,
 why, and what a fix needs. A project with no issue tracker records the deferral
-in its delivery record.
+in the owning research log.
+Disclose relevant concerns in the user package.
 
 ## Reviewer evidence standards
 
@@ -358,7 +359,7 @@ The following proved-area acceptance rules apply to code tracks.
 
 <!-- track-acceptance:begin -->
 A track package can follow machine-review termination. Before the package, the
-durable delivery record accounts for every ignored finding. User acceptance of
+owning research log accounts for every ignored finding. User acceptance of
 a track is blocking when that track proves at least one DESIGN-TRIGGERING area.
 A code track with only REVIEWER-ONLY areas, or no proved area, has no mandatory
 track-acceptance gate. Without mandatory track acceptance, an applicable marker
@@ -375,4 +376,5 @@ policy. The unit follows the marker convention that
 Pre-existing defects, exhausted budgets, disputed stuck-fix results, blocker
 lowering, and regressions route through [user-notes.md](user-notes.md) §
 Mandatory escalation set. Deferred work becomes a tracked issue. A project with
-no issue tracker records the deferral in its delivery record.
+no issue tracker records the deferral in the owning research log.
+Disclose relevant concerns in the user package.

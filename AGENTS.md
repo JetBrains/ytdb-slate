@@ -256,7 +256,7 @@ means the wrapper refused to start.
 `contract-heading-regions`. It skips unrelated imports, sections and contract
 work. The driver owns the selectable list. Unknown, empty, duplicate or repeated
 selection, `roster`, and any combination with `--exclude` refuse with exit 2.
-Heading selection audits all 860 independent `heading-policy` identities.
+Heading selection audits all 856 independent `heading-policy` identities.
 Package selection audits an empty mutation scope. Missing, duplicate, incomplete,
 outside-family or crashed mutation execution fails the scoped audit. The separate
 selected roster rejects missing, duplicate, unexpected or `NOT RUN` reports even

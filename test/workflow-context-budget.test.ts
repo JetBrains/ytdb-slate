@@ -26,7 +26,18 @@ type Span = [number, number];
 function sections(text: string, selectors: string[]): Span[] {
   if (!selectors.length) return [[0, text.length]];
   return selectors.map((selector) => {
-    const headings = [...text.matchAll(/^(#{1,6}) (.+)\r?$/gm)];
+    let fence: { char: string, length: number } | undefined;
+    const visible = text.split(/(?<=\n)/).map((line) => {
+      const delimiter = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line.trimEnd());
+      const hidden = !!fence || !!delimiter;
+      if (fence) {
+        if (delimiter && delimiter[1]![0] === fence.char && delimiter[1]!.length >= fence.length && !delimiter[2]!.trim()) fence = undefined;
+      } else if (delimiter && (delimiter[1]![0] !== "`" || !delimiter[2]!.includes("`"))) {
+        fence = { char: delimiter[1]![0]!, length: delimiter[1]!.length };
+      }
+      return hidden ? line.replace(/[^\r\n]/g, " ") : line;
+    }).join("");
+    const headings = [...visible.matchAll(/^(#{1,6}) (.+)\r?$/gm)];
     const matches = headings.filter((m) => m[2] === selector);
     assert.equal(matches.length, 1, `section ${selector}`);
     const start = matches[0]!;
@@ -162,7 +173,9 @@ function table(rows: string[], costs: string[]): string {
     "include the recursive workflow. Ordinary plans add it to their maximum from",
     "phase 7 before a split proposal. Manual review includes common policy, writing",
     "guidance, and all twelve charters from phase 5. Built-in review loads its",
-    "implementation input for workers only. It adds no orchestrator read.", "",
+    "implementation input for workers only. It adds no orchestrator read.",
+    "The default commit format adds only the Default template section at delivery",
+    "when no applicable project commit rule exists. It does not enable publishing.", "",
     "| Conditional set | Bytes | Estimated tokens |", "| --- | ---: | ---: |", ...costs, "",
     "Private evidence, designs, reports, source chains, project additions, configured",
     "prompt documents, provider framing, tools, results, message wrappers, repeated",
@@ -211,8 +224,8 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
     assert.ok(required.every((r) => maximum.includes(r)), key);
     for (const optional of maximum) assert.ok(total([...required, optional]) <= total(maximum), key);
   }
-  const costs = conditionalSets.map(([label, ids]: [string, string[]]) => {
-    const size = total(ids.map((id) => [id, 1, "cost", "orchestrator", []]));
+  const costs = conditionalSets.map(([label, ids, selectors = []]: [string, string[], string[]?]) => {
+    const size = total(ids.map((id) => [id, 1, "cost", "orchestrator", selectors]));
     return `| ${label} | ${size} | ${tokens(size)} |`;
   });
   const excluded = doctrines.map((text) => bytes(text) - bytes(text.split(directory).join("")));
@@ -229,7 +242,7 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
   coverage(scan(sources));
   const published = source("CONTEXT_BUDGET_DOC");
   validatePublication(published, publication);
-  for (const mutated of [publication.replace(/\| \d+ \|/, "| 0 |"), publication.replace("| 18061 |", "| 18062 |"), publication.replace("Research", "Unknown"), publication.replace(rows[0]!, ""), publication.replace(rows[0]!, `${rows[0]}\n${rows[0]}`), publication.replace(costs[0]!, "| Rationale | 0 | 0 |"), "", `${publication}\n${publication}`]) assert.throws(() => validatePublication(mutated, publication), /publication/);
+  for (const mutated of [publication.replace(/\| \d+ \|/, "| 0 |"), publication.replace(rows[0]!, rows[0]!.replace("off", "on")), publication.replace("Research", "Unknown"), publication.replace(rows[0]!, ""), publication.replace(rows[0]!, `${rows[0]}\n${rows[0]}`), publication.replace(costs[0]!, "| Rationale | 0 | 0 |"), "", `${publication}\n${publication}`]) assert.throws(() => validatePublication(mutated, publication), /publication/);
   for (const origin of ["doctrine-0", "review-rules.md", "user-notes.md"]) for (const added of ["Read new-duty.md.", "Read [x](new-duty.md).", "Read [x][alias].\n[alias]: new-duty.md", `Read <${paths.MODEL_ROUTING_DOC}>.`]) assert.throws(() => coverage(scan({ ...sources, [origin]: `${sources[origin]}\n${added}` })), /unknown reference/);
   for (const use of ["[guide]", "[guide][guide]", "[guide][]", "[x][alias]"]) {
     const origin = "review-rules.md", definition = "\n[guide]: track-workflow.md\n[alias]: track-workflow.md";
@@ -257,6 +270,15 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
   assert.throws(() => sections(source("CHANGE_RECORDS_DOC"), ["missing"]), /section/);
   assert.throws(() => sections("## Duplicate\n\n## Duplicate\n", ["Duplicate"]), /section/);
   assert.deepEqual(sections("## Owner\n### Child\ntext\n## Next\n", ["Owner"]), [[0, 24]]);
+  for (const fence of ["```", "~~~~"]) {
+    const example = `## Owner\n${fence}markdown\n## Example\n${fence}\n## Next\n`;
+    assert.deepEqual(sections(example, ["Owner"]), [[0, example.indexOf("## Next")]]);
+  }
+  const fallback = source("PR_PUBLISHING_DOC");
+  const [fallbackSpan] = sections(fallback, ["Default template"]);
+  const fallbackText = fallback.slice(...fallbackSpan!);
+  assert.ok(fallbackText.includes("## Why\n") && fallbackText.includes("## What changed\n"));
+  assert.ok(!fallbackText.includes("## Tracks table"));
   assert.throws(() => coverage(scan(sources), occurrences.map((r: any, i: number) => i === 0 ? { ...r, recipient: "worker", reason: undefined } : r)), /missing classification/);
   assert.deepEqual(union([[0, 5], [3, 9], [1, 2]]), [[0, 9]]);
   assert.equal(bytes("é"), 2); assert.equal(tokens(5), 2);

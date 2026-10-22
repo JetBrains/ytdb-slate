@@ -132,7 +132,7 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
     }
     for (const [file, rule] of [
       ["docs/user-notes.md", "- every finding and its disposition."],
-      [workflowFile, "Aim for a delivery body at or below 16,384 UTF-8 bytes."],
+      [workflowFile, "This final delivery format does not replace the track review-commit design rules."],
       [workflowFile, "A bootstrap commit created to open a draft pull request uses\n`Bootstrap: <intent title>`."],
     ] as const) {
       const source = readFileSync(join(fixture, file), "utf8");
