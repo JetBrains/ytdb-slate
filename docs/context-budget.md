@@ -356,7 +356,7 @@ the compact JSON form after pi converts the reminder to a provider request user
 message with one text part. It excludes the volatile timestamp.
 
 The 499-byte figure measures one compact persisted `custom_message` JSONL line
-from pi 1.3.0. It includes two eight-character identifiers, the timestamp, JSON framing
+from pi 1.4.0. It includes two eight-character identifiers, the timestamp, JSON framing
 and the final line-feed byte. These figures contain no installed path, so the
 portable and rendered counts are identical.
 

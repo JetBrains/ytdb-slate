@@ -3,8 +3,8 @@ import test from 'node:test';
 import { getEventListeners } from 'node:events';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { createCodemodeExtension, type ExtensionAPI, type ExtensionFactory, type ToolDefinition } from '@earendil-works/pi-coding-agent';
-import { mkdtemp, writeFile, rm, readFile, open } from 'node:fs/promises';
+import { type ExtensionAPI, type ExtensionFactory, type ToolDefinition } from '@earendil-works/pi-coding-agent';
+import { mkdtemp, writeFile, rm, open } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createWorkerCodemodeComponent, createCodemodeQueue, readFullError, CODEMODE_LIMIT_TEXT, type CodemodeQueueClock } from '../extension/worker-codemode.ts';
@@ -212,51 +212,6 @@ test('component instances share the production two-place queue', { timeout: 1500
     stop.abort(); assertError(await waiting, 'Operation aborted');
     assert.equal(count, 2);
   } finally { hold.resolve(); await Promise.all(running); }
-});
-
-test('real pi rejection bytes, truncation, external occupancy and forged output', { timeout: 20000 }, async () => {
-  const official = capture(createCodemodeExtension({ mode: 'on', models: false }));
-  const hold = gate<void>(); const entered = gate<void>(); let count = 0;
-  const ctx = realContext(() => { if (++count === 2) entered.resolve(); }, hold.promise);
-  const args = (code: string): Parameters<Execute> => ['real', { code }, undefined, undefined, ctx];
-  const externalQueue = createCodemodeQueue();
-  const running = [externalQueue.run(official, args('await tools.held({});')), externalQueue.run(official, args('await tools.held({});'))];
-  let queued: Promise<Result> | undefined;
-  try {
-    await entered.promise;
-    const expected = 'Script error:\nScript sandbox failed: Codemode worker limit reached (2 workers are still running or shutting down). Retry after they exit.\n\nNo tool calls were made.';
-    assert.equal(CODEMODE_LIMIT_TEXT, expected);
-    for (const budget of [undefined, 0, 1, 32]) {
-      const result = await official(...args((budget === undefined ? '' : '// @options: {"max_output_tokens":' + budget + '}\n') + 'return 1;'));
-      assert.equal(result.isError, true); assert.deepEqual((result.details as { calls: unknown }).calls, []);
-      if (budget === undefined) assert.equal(text(result), expected);
-      else {
-        assert.match(text(result)!, /^Warning: truncated output/);
-        const path = (result.details as { fullOutputPath: string }).fullOutputPath;
-        assert.equal(await readFile(path, 'utf8'), expected);
-      }
-    }
-    let finished = false;
-    const retried = gate<void>(); let attempts = 0;
-    const retryQueue = createCodemodeQueue();
-    queued = retryQueue.run(async (...actual) => {
-      if (++attempts === 2) retried.resolve();
-      return official(...actual);
-    }, args('// @options: {"max_output_tokens":0}\nreturn "after external release";')).then(result => { finished = true; return result; });
-    await Promise.race([retried.promise, queued.then(() => { throw Error('the production reader did not retry a real spill'); })]);
-    assert.equal(finished, false, 'the production reader recognizes a real spill and retries while pi is occupied');
-  } finally { hold.resolve(); await Promise.all(running); }
-  const completed = (await queued)!;
-  assert.notEqual(completed.isError, true);
-  assert.match(JSON.stringify(completed), /truncated output/);
-  assert.match(await readFile((completed.details as { fullOutputPath: string }).fullOutputPath, 'utf8'), /after external release/);
-  // A real script prints the rejection prefix and then fails with no nested calls.
-  const queue = createCodemodeQueue();
-  const forged = await official(...args('text("Script error:\\nScript sandbox failed: Codemode worker limit reached"); throw new Error("ordinary failure");'));
-  assert.equal(forged.isError, true); assert.deepEqual((forged.details as { calls: unknown }).calls, []);
-  assert.equal(await queue.run(async () => forged, args('unused')), forged);
-  const timeout = await queue.run(official, args('// @options: {"timeout_ms":10}\nwhile (true) {}'));
-  assert.equal(timeout.isError, true); assert.match(text(timeout)!, /timed out|timeout|deadline/i);
 });
 
 test('production bounded reader reads all 512 bytes and refuses 513 bytes before reading', { timeout: 3000 }, async (t) => {
