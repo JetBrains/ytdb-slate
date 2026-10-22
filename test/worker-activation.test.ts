@@ -51,10 +51,11 @@ if (mode) {
 
 async function fixture(run: (ctx: ExtensionContext, path: string, declarations: string[][]) => Promise<void>, body = "", forceCodemodeCall = false) {
   const root = mkdtempSync(join(tmpdir(), 'slate-activation-'));
-  const previous = { agent: process.env.PI_CODING_AGENT_DIR, offline: process.env.PI_OFFLINE };
+  const previous = { agent: process.env.PI_CODING_AGENT_DIR, offline: process.env.PI_OFFLINE, pool: process.env.PI_CODEMODE_MAX_WORKERS };
   process.env.PI_CODING_AGENT_DIR = join(root, 'agent');
   process.env.PI_OFFLINE = '1';
   try {
+    process.env.PI_CODEMODE_MAX_WORKERS = '2';
     const path = join(root, 'extension.mjs');
     writeFileSync(path, `export default pi => {
       const register = name => pi.registerTool({ name, label: name, description: name,
@@ -88,6 +89,8 @@ async function fixture(run: (ctx: ExtensionContext, path: string, declarations: 
       modelRegistry: new ModelRegistry(host), model: host.getModel('activation', 'worker') } as unknown as ExtensionContext;
     await run(ctx, path, declarations);
   } finally {
+    if (previous.pool === undefined) delete process.env.PI_CODEMODE_MAX_WORKERS;
+    else process.env.PI_CODEMODE_MAX_WORKERS = previous.pool;
     if (previous.agent === undefined) delete process.env.PI_CODING_AGENT_DIR;
     else process.env.PI_CODING_AGENT_DIR = previous.agent;
     if (previous.offline === undefined) delete process.env.PI_OFFLINE;
@@ -95,6 +98,29 @@ async function fixture(run: (ctx: ExtensionContext, path: string, declarations: 
     rmSync(root, { recursive: true, force: true });
   }
 }
+
+test("activation fixture restores absent, empty and external pool inputs", { timeout: 10000 }, async () => {
+  const original = process.env.PI_CODEMODE_MAX_WORKERS;
+  try {
+    for (const previous of [undefined, "", "1", "9"]) {
+      for (const failure of [false, true]) {
+        if (previous === undefined) delete process.env.PI_CODEMODE_MAX_WORKERS;
+        else process.env.PI_CODEMODE_MAX_WORKERS = previous;
+        const run = fixture(async (ctx, path) => {
+          assert.equal(process.env.PI_CODEMODE_MAX_WORKERS, "2");
+          const session = await openWorkerSession({ ctx, extensionPaths: [path], report() {} });
+          await session.shutdownWorker();
+        }, failure ? "pi.on('session_start', () => { throw Error('fixture startup failure'); });" : "");
+        if (failure) await assert.rejects(run, /startup did not complete/);
+        else await run;
+        assert.equal(process.env.PI_CODEMODE_MAX_WORKERS, previous);
+      }
+    }
+  } finally {
+    if (original === undefined) delete process.env.PI_CODEMODE_MAX_WORKERS;
+    else process.env.PI_CODEMODE_MAX_WORKERS = original;
+  }
+});
 
 function manager(path: string, configured?: string[]) {
   const runtime = createLogicalRuntime({ trusted: true, projectConfig: { router: { models: { include: [], add: [{
@@ -225,7 +251,7 @@ if (mode) {
   for (const failureMode of ['import', 'undefined', 'non-function-creator', 'construction', 'factory', 'missing', 'bad-name', 'undefined-name', 'non-function']) {
     test(`missing codemode continues dispatch with one warning: ${failureMode}`, { timeout: 25000 }, () => {
       const result = spawnSync(process.execPath, ['--test', '--test-name-pattern=^missing codemode child$', fileURLToPath(import.meta.url)], {
-        env: { ...process.env, NODE_TEST_CONTEXT: undefined, SLATE_ACTIVATION_FAILURE: failureMode }, encoding: 'utf8', timeout: 20000,
+        env: { ...process.env, NODE_TEST_CONTEXT: undefined, PI_CODEMODE_MAX_WORKERS: '2', SLATE_ACTIVATION_FAILURE: failureMode }, encoding: 'utf8', timeout: 20000,
       });
       assert.equal(result.status, 0, result.stdout + result.stderr);
     });

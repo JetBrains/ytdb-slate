@@ -54,7 +54,8 @@ if [ "${#unsafe_git_names[@]}" -gt 0 ]; then
   fail "unsafe inherited Git settings detected before repository inspection: $joined. Unset these settings before running the suite, for example with 'env -u GIT_DIR npm test -- --base <ref>'."
 fi
 
-# Preserve the caller's ordinary process environment, but replace every Git
+# Preserve the caller's process environment except for the explicit script-pool
+# input at each test launch. Replace every Git
 # system, global, and command-line configuration source before Git or a
 # descendant can inspect the checkout.
 export GIT_CONFIG_NOSYSTEM=1
@@ -122,7 +123,7 @@ done
 printf 'run-tests: native node --test test/ (%s file(s); LCOV: %s)\n' "${#native_files[@]}" "$lcov"
 set +e
 (
-  cd "$repo" && PI_CODING_AGENT_DIR="$work/native-agent" TMPDIR="$native_tmp" JITI_FS_CACHE=true \
+  cd "$repo" && PI_CODEMODE_MAX_WORKERS=2 PI_CODING_AGENT_DIR="$work/native-agent" TMPDIR="$native_tmp" JITI_FS_CACHE=true \
     node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON \
     --test --experimental-test-coverage \
     --test-coverage-include='extension/**/*.ts' \
@@ -139,7 +140,7 @@ fi
 printf 'run-tests: real-Pi host node --test (%s file; separate LCOV: %s; no patch-coverage credit)\n' "${#host_files[@]}" "$host_lcov"
 set +e
 (
-  cd "$repo" && PI_CODING_AGENT_DIR="$work/host-agent" TMPDIR="$host_tmp" JITI_FS_CACHE=true \
+  cd "$repo" && PI_CODEMODE_MAX_WORKERS=2 PI_CODING_AGENT_DIR="$work/host-agent" TMPDIR="$host_tmp" JITI_FS_CACHE=true \
     node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON \
     --test --experimental-test-coverage \
     --test-coverage-include='extension/**/*.ts' \

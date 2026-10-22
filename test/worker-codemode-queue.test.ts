@@ -197,21 +197,28 @@ function realContext(entered: () => void, release: Promise<void>): Parameters<Ex
 }
 
 test('component instances share the production two-place queue', { timeout: 15000 }, async () => {
-  const first = capture(createWorkerCodemodeComponent(() => {}));
-  const second = capture(createWorkerCodemodeComponent(() => {}));
-  const hold = gate<void>(); const entered = gate<void>(); let count = 0;
-  const ctx = realContext(() => { if (++count === 2) entered.resolve(); }, hold.promise);
-  const args = (id: string, signal?: AbortSignal): Parameters<Execute> => [id, { code: 'await tools.held({});' }, signal, undefined, ctx];
-  const running = [first(...args('a')), second(...args('b'))];
+  const previous = process.env.PI_CODEMODE_MAX_WORKERS;
   try {
-    await entered.promise;
-    const stop = new AbortController(); const updates: unknown[] = [];
-    const waitingArgs = args('c', stop.signal); waitingArgs[3] = result => updates.push(result);
-    const waiting = second(...waitingArgs);
-    await flush(); assert.deepEqual(updates, [], 'third wrapper cannot enter pi');
-    stop.abort(); assertError(await waiting, 'Operation aborted');
-    assert.equal(count, 2);
-  } finally { hold.resolve(); await Promise.all(running); }
+    process.env.PI_CODEMODE_MAX_WORKERS = '2';
+    const first = capture(createWorkerCodemodeComponent(() => {}));
+    const second = capture(createWorkerCodemodeComponent(() => {}));
+    const hold = gate<void>(); const entered = gate<void>(); let count = 0;
+    const ctx = realContext(() => { if (++count === 2) entered.resolve(); }, hold.promise);
+    const args = (id: string, signal?: AbortSignal): Parameters<Execute> => [id, { code: 'await tools.held({});' }, signal, undefined, ctx];
+    const running = [first(...args('a')), second(...args('b'))];
+    try {
+      await entered.promise;
+      const stop = new AbortController(); const updates: unknown[] = [];
+      const waitingArgs = args('c', stop.signal); waitingArgs[3] = result => updates.push(result);
+      const waiting = second(...waitingArgs);
+      await flush(); assert.deepEqual(updates, [], 'third wrapper cannot enter pi');
+      stop.abort(); assertError(await waiting, 'Operation aborted');
+      assert.equal(count, 2);
+    } finally { hold.resolve(); await Promise.all(running); }
+  } finally {
+    if (previous === undefined) delete process.env.PI_CODEMODE_MAX_WORKERS;
+    else process.env.PI_CODEMODE_MAX_WORKERS = previous;
+  }
 });
 
 test('production bounded reader reads all 512 bytes and refuses 513 bytes before reading', { timeout: 3000 }, async (t) => {

@@ -27,11 +27,12 @@ async function worker(
   successfulCompression = false,
 ): Promise<void> {
   const root = mkdtempSync(join(tmpdir(), "wc-"));
-  const env = { agent: process.env.PI_CODING_AGENT_DIR, offline: process.env.PI_OFFLINE };
+  const env = { agent: process.env.PI_CODING_AGENT_DIR, offline: process.env.PI_OFFLINE, pool: process.env.PI_CODEMODE_MAX_WORKERS };
   process.env.PI_CODING_AGENT_DIR = join(root, "agent");
   process.env.PI_OFFLINE = "1";
   let session: TestWorkerSession | undefined;
   try {
+    process.env.PI_CODEMODE_MAX_WORKERS = "2";
     const sentinel = join(root, ".pi", "extensions", "sentinel.ts");
     mkdirSync(join(root, ".pi", "extensions"), { recursive: true });
     writeFileSync(sentinel, `import { writeFileSync } from 'node:fs'; export default () => writeFileSync(${JSON.stringify(join(root, "discovered"))}, 'bad');`);
@@ -100,17 +101,47 @@ async function worker(
     await run(session, root, requests, reports, ctx, fixture, content => { next = content; });
     assert.equal(existsSync(join(root, "discovered")), false, "automatic extension discovery stays disabled");
   } finally {
-    if (session) { drivers.delete(session); await session.shutdownWorker(); }
-    if (env.agent === undefined) delete process.env.PI_CODING_AGENT_DIR;
-    else process.env.PI_CODING_AGENT_DIR = env.agent;
-    if (env.offline === undefined) delete process.env.PI_OFFLINE;
-    else process.env.PI_OFFLINE = env.offline;
-    rmSync(root, { recursive: true, force: true });
+    try {
+      if (session) { drivers.delete(session); await session.shutdownWorker(); }
+    } finally {
+      if (env.pool === undefined) delete process.env.PI_CODEMODE_MAX_WORKERS;
+      else process.env.PI_CODEMODE_MAX_WORKERS = env.pool;
+      if (env.agent === undefined) delete process.env.PI_CODING_AGENT_DIR;
+      else process.env.PI_CODING_AGENT_DIR = env.agent;
+      if (env.offline === undefined) delete process.env.PI_OFFLINE;
+      else process.env.PI_OFFLINE = env.offline;
+      rmSync(root, { recursive: true, force: true });
+    }
   }
 }
 const drivers = new WeakMap<TestWorkerSession, (name: string, args: Arguments) => Promise<string>>();
 const call = (session: TestWorkerSession, name: string, args: Arguments) => drivers.get(session)!(name, args);
 const script = (session: TestWorkerSession, code: string) => call(session, "codemode", { code });
+
+test("worker helper restores absent, empty and external pool inputs after success and failure", { timeout: 60000 }, async () => {
+  const original = process.env.PI_CODEMODE_MAX_WORKERS;
+  try {
+    for (const previous of [undefined, "", "1", "9"]) {
+      for (const failure of ["none", "startup", "dispose"]) {
+        if (previous === undefined) delete process.env.PI_CODEMODE_MAX_WORKERS;
+        else process.env.PI_CODEMODE_MAX_WORKERS = previous;
+        const run = worker(failure === "startup" ? "pi.on('session_start', () => { throw Error('pool startup failure'); });" : "", async session => {
+          assert.equal(process.env.PI_CODEMODE_MAX_WORKERS, "2");
+          if (failure === "dispose") {
+            const shutdown = session.shutdownWorker.bind(session);
+            session.shutdownWorker = async () => { await shutdown(); throw Error("pool disposal failure"); };
+          }
+        });
+        if (failure === "none") await run;
+        else await assert.rejects(run, failure === "startup" ? /startup did not complete/ : /pool disposal failure/);
+        assert.equal(process.env.PI_CODEMODE_MAX_WORKERS, previous);
+      }
+    }
+  } finally {
+    if (original === undefined) delete process.env.PI_CODEMODE_MAX_WORKERS;
+    else process.env.PI_CODEMODE_MAX_WORKERS = original;
+  }
+});
 
 test("worker codemode keeps normal declarations and has no models or discovered Slate", { timeout: 20000 }, async () => {
   await worker("", async (session, root, requests, reports) => {
@@ -348,7 +379,7 @@ if (process.env.SLATE_NESTED_MISSING_END === '1') {
     const isolation = process.allowedNodeEnvironmentFlags.has('--test-isolation')
       ? '--test-isolation=none' : '--experimental-test-isolation=none';
     const child = spawn(process.execPath, ['--test', isolation, '--test-name-pattern=^nested missing end child$', fileURLToPath(import.meta.url)], {
-      env: { ...process.env, NODE_TEST_CONTEXT: undefined, SLATE_NESTED_MISSING_END: '1', TMPDIR: root }, stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, NODE_TEST_CONTEXT: undefined, PI_CODEMODE_MAX_WORKERS: '2', SLATE_NESTED_MISSING_END: '1', TMPDIR: root }, stdio: ['ignore', 'pipe', 'pipe'],
     });
     let output = '';
     const closed = new Promise<void>(resolve => child.once('close', () => resolve()));
