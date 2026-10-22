@@ -3758,7 +3758,7 @@ Use [change-records.md](change-records.md) § Design authority and privacy.`) },
 				["each comparison rejects its changed input and disabling it accepts that violation", pointerComparisonControls.every(({ changed, rejected, disabledAccepts }) => changed && rejected && disabledAccepts), pointerComparisonControls],
 				["outside-region edits preserve the pointer expectations", acceptsNestedPointers(`${recursive}\n## Outside pointer control\nUnrelated text.\n`), "outside control"],
 			]);
-			const completeNestedDigest = "4958462c44b5ddbae786b53a54a4c4a048e95c4c8d021531e11172f075b8c52b";
+			const completeNestedDigest = "cb64b4b782d523440792e2db61b2f93d2c4639269705c6cb516b35628f29280b";
 			const acceptsCompleteNested = (source) => createHash("sha256").update(source).digest("hex") === completeNestedDigest;
 			const completeNestedAttacks = [
 				["weaker-record-rule", `${recursive}\n## Additional record guidance\nWorkers may replace earlier log entries.\n`],
@@ -4297,9 +4297,9 @@ Use [recursive-workflow.md](recursive-workflow.md) for the nested rules.
 Use [track-workflow.md](track-workflow.md) for the common lifecycle.`);
 			const recursiveDeliveryUnits = [
 				{ id: "repairs", source: recursive, start: "## Review-fix subtrees and repair limits", expected: protectedRepairSummary },
-				{ id: "aggregate", source: recursive, start: "## Whole-subtree acceptance", expected: "1f24e067a0261b1d51efb8b48339cf249837f82cf130bbfabbcbf8ee4970c616" },
-				{ id: "issues", source: recursive, start: "## Packages, attribution, and issues", end: null, expected: "895b87ee7afdda0d4d85e071c978727e0cf962f9af42e68c534c022ac010a5a3" },
-				{ id: "sources", source: deliveryPackages, start: "## Durable accounting", expected: "6e0f64a7e2a3a2667e3e04947a8ee49fa9db0c3d3d054d8324f05e625702b3bd" },
+				{ id: "aggregate", source: recursive, start: "## Whole-subtree acceptance", expected: "60315208cec2f9c707c24ca80bec6105870ccef586c002ac1c2d90221b90fb30" },
+				{ id: "issues", source: recursive, start: "## Packages, attribution, and issues", end: null, expected: "376de82c9d71fb4fcd787c46832c19a4359814f7b919723aef35bd47cde081eb" },
+				{ id: "sources", source: deliveryPackages, start: "## Durable accounting", expected: "8796712c599ba433f4d78ca216d1f56cfc0ba14087369248b1d3d1d5cdc3b295" },
 				{ id: "workflow-accounting", source: workflow, start: "### Delivery history and accounting", expected: "a5bbb094dd397dc19f599c3cd8900d5b2b8900d1c97941b138f60f0b62d8c18f" },
 				{ id: "notes-accounting", source: userNotes, start: "### Final accounting preparation", expected: "c5faa1a21995af8de97116b48390d913b805fc86742a318597d7d5efd9aeaa47" },
 				{ id: "publishing-sync", source: publishing, start: "## Keeping the PR in sync", expected: "c52f42b4468a859f850e1ef9ae2ec5c54a7206b3e1ff737f7f66d5b8a5cc6eef" },
@@ -4316,7 +4316,7 @@ Use [track-workflow.md](track-workflow.md) for the common lifecycle.`);
 				}
 				: unit.id === "public-workflow" ? policyRegion(unit.start, unit.end, unit.endAtLineStart) : headingUnit(unit.start) }));
 			const repairEscalationDigest = "b9ebf47c2dceb335adfd3fb1cd694e2e23e6d210f5d962ef5c5c6d709cdc3de4";
-			const EXPECTED_DELIVERY_PACKAGES_SHA256 = "9bc5021d88d922e86b0fb065b4079b235c6f32e6e4901afd39955d6bc8677663";
+			const EXPECTED_DELIVERY_PACKAGES_SHA256 = "dcd6c3bd614cdc130dfce2c2a2d46fafd9ce767ab543eeb04c3cce8dd4bdfefa";
 			if (!ONLY) {
 			const acceptsRecursiveDelivery = (unit, source) => {
 				const resolved = unit.extract(source);
@@ -4642,7 +4642,8 @@ History preservation before a rewrite must not push a commit that holds private 
 A waiver states which exposure or evidence limit the user accepts.
 It grants no unstated publication permission and claims no recovered evidence.
 Keep private reference-to-commit evidence in the owning log locally.
-Public accounting includes only permitted conclusions and history references.
+Packages may disclose permitted conclusions and necessary history references.
+The pull request description is not an accounting transfer destination.
 After inspection, every retention push must name its references explicitly.
 No untargeted push may publish retention references, including all-branches, mirror, or matching pushes.
 The reachable-history inspection duty applies only to retention pushes, not pull request branch pushes.
@@ -4780,7 +4781,7 @@ Record the inventory after all closure conditions hold.
 For delivered publishing work, require final acceptance and each applicable level merge-result binding.
 Also require final post-merge comparisons and verified accounting.
 Record every authorizing record before the inventory.
-With publishing disabled, record the inventory after final local comparisons and verified final-squash accounting.
+With publishing disabled, record the inventory after final local comparisons, owning-log reconciliation, and delivery verification.
 For abandonment cleanup, record the inventory after the archival offer and the recorded explicit user choice to delete. Count inventory entries across the root log and its read-only source chain within the recorded boundaries. Read the chain in its recorded source order and select its latest inventory.
 Do not select an earlier inventory because its evidence appears valid.
 Require exactly one unambiguous latest inventory after every non-cleanup record and after all closure conditions hold. Earlier inventories remain evidence and grant no deletion authority.
@@ -4841,7 +4842,7 @@ Before each deletion, require current closure conditions and root-log closure ev
 Also recheck that no voiding record follows that inventory.
 Delivered publishing work requires final acceptance, each applicable level merge-result binding, post-merge comparisons, and verified accounting.
 An unmerged level prevents delivery closure and deletion.
-Disabled delivery requires final acceptance, final local comparisons, and verified final-squash accounting instead of level merges.
+Disabled delivery requires final acceptance, final local comparisons, owning-log reconciliation, and delivery verification instead of level merges.
 Abandonment requires the recorded explicit user deletion choice after the archival offer.
 If closure evidence is missing, delete nothing.
 Before stopping, the cleanup worker records the missing closure evidence under the ordinary safe-write rules of the still-open change folder.
@@ -4979,7 +4980,8 @@ Pi saves session files with default permissions, which can expose record text to
 				{
 					id: "history-owner-pointers", source: recursive,
 					extract: regionUnit(/^## Level publishing and retained history\n\n([\s\S]*?)(?=^<!-- level-history-policy:begin -->)/gm),
-					expected: normalizeText(`Use [pr-publishing.md](pr-publishing.md) for activation, approval, ready safeguards, and accounting.`),
+					expected: normalizeText(`Use [pr-publishing.md](pr-publishing.md) for activation, approval, and ready safeguards.
+Use [delivery-packages.md](delivery-packages.md) § Durable accounting for accounting sources and verification.`),
 				},
 				{
 					id: "ready", source: publishing,
@@ -5437,7 +5439,7 @@ Present the final description before handing the pull request to the user for me
 				["inventory-folder-field", "No inventory folder-path field or closed-folder write permission is required.", "Require an inventory folder path and closed-folder permission."],
 				["close-writer", "Finish the worker and every record write before close.", "Close while a record writer runs."],
 				["pointer-order", "Run cleanup in the closing session after every closure condition holds and immediately before `slate_change close`.", "Run cleanup before closure conditions hold."],
-				...["disabled-recording", "abandonment-recording"].map((id, index) => [id, ["With publishing disabled, record the inventory after final local comparisons and verified final-squash accounting.", "For abandonment cleanup, record the inventory after the archival offer and the recorded explicit user choice to delete."][index], ""]),
+				...["disabled-recording", "abandonment-recording"].map((id, index) => [id, ["With publishing disabled, record the inventory after final local comparisons, owning-log reconciliation, and delivery verification.", "For abandonment cleanup, record the inventory after the archival offer and the recorded explicit user choice to delete."][index], ""]),
 				...["Record the inventory after all closure conditions hold.", "Count inventory entries across the root log and its read-only source chain within the recorded boundaries.", "Read the chain in its recorded source order and select its latest inventory.", "Earlier inventories remain evidence and grant no deletion authority.", "Zero entries or an ambiguous latest inventory permit no deletion.", "Multiple historical inventories permit deletion only when one latest valid inventory is unambiguous.", "No record after an inventory may widen that inventory's deletion authority.", "This structural refusal offers no retry against the voided inventory.", "The user may keep the remaining references and close only when closure conditions still hold.", "Alternatively, wait until every closure condition holds again.", "The orchestrator then records a new inventory after every non-cleanup record.", "Cleanup then uses only that latest inventory and its preceding authorization.", "A new inventory does not amend an earlier inventory or authorize deletion under it.", "Apply this route to missing or ambiguous latest inventories and missing earlier closure evidence too.", "Also apply it when current closure conditions no longer hold."].map((rule, index) => [`latest-refusal-${index}`, rule, ""]),
 				...["The orchestrator reports the cleanup result to the user before `slate_change close`.", "For incomplete cleanup without a structural refusal, the user chooses retry or close with the remaining references kept.", "A structural refusal offers only keep or a new inventory after closure conditions hold again.", "Record the explicit choice after the latest cleanup report through an ordinary record-only action.", "A retry uses only the latest valid inventory and its earlier authorization, not the later choice as deletion authority.", "Before each retry, recheck closure conditions and the absence of voiding records after that inventory.", "A keep choice ends cleanup.", "Only close may follow in that cleanup sequence.", "More deletion requires a new user report and a retry choice recorded after that report.", "The choice that permits close must follow the latest cleanup report.", "A recorded keep choice permits close with incomplete cleanup only when closure conditions still hold.", "For an applicable cleanup sequence, close follows the required user report and any required choice after that latest report.", "An inventory-count refusal is incomplete cleanup, and a recorded keep choice permits close when closure conditions still hold.", "Recheck closure conditions before every close, including close after complete cleanup."].map((rule, index) => [`report-choice-${index}`, rule, ""]),
 				...["new user report", "a retry choice recorded after that report"].map((part) => [`keep-restart-${part}`, "More deletion requires a new user report and a retry choice recorded after that report.", `More deletion needs no ${part}.`]),
@@ -5722,10 +5724,22 @@ A later track builds on the accepted boundary before it.`),
 				return { id, changed: source !== publishing, rejected: !levelPolicyUnits.filter((unit) => unit.source === publishing).every((unit) => acceptsLevelUnit(unit, source)) };
 			});
 			mutationAudit.record("handoff-destinations", handoffDestinationAttacks);
+			const nestedDestinationAttacks = [
+				["public-transfer", "The pull request description is not an accounting transfer destination.", "Transfer public accounting into the pull request description."],
+				["scope-accounting", "Use [pr-publishing.md](pr-publishing.md) § Description rules for each level's template-shaped description.", "Use [pr-publishing.md](pr-publishing.md) § Description rules for each level's scope and accounting."],
+				["delivery-record-deferral", "Without an issue tracker, record an approved deferral in the owning research log.", "Without an issue tracker, keep an approved deferral in the delivery record."],
+			].map(([id, before, after]) => {
+				const source = recursive.replace(before, after);
+				return { id, changed: source !== recursive, rejected: id === "public-transfer"
+					? !acceptsLevelUnit(historyUnit, source)
+					: !acceptsRecursiveDelivery(recursiveDeliveryUnits.find((unit) => unit.id === "issues"), source) };
+			});
+			mutationAudit.record("nested-destinations", nestedDestinationAttacks);
 
 			const benignOrderingDocuments = Object.fromEntries(Object.entries(orderingDocuments).map(([id, source]) => [id, `${source}\n<!-- Outside ordering control. -->\n`]));
 			checkAll("contract-level-publishing", "level membership, dependency order, pauses, local retention, approval, delivery, cleanup, rebase mappings, unavailable evidence, and publishing defaults have owned rules and reviewed peer-document pins", [
-				["reviewed peer-document pins reject unreviewed additions while scoped pointers and the word layer discriminate known copies", peerRetentionOwners.every((owner) => !peerPinFailure(owner, owner.source) && acceptsPeerRetention(owner, owner.source)) && pinnedPeerOwners.length === 3 && peerPinRules.length === 6 && peerPinAttacks.length === 264 && peerPinAttacks.every(({ changed, rejected }) => changed && rejected) && reviewedBranchControls.length === 5 && reviewedBranchControls.every(({ changed, accepted }) => changed && accepted) && wordLayerControls.length === 3 && wordLayerControls.every(({ rejected }) => rejected) && peerOutsideControls.every(({ accepted }) => accepted) && peerPlacementNames.length === 7 && peerPlacementVerbs.length === 14 && peerEscapeAttacks.length === 687 && ownerSentenceCopies.length === 1371 && [...peerRetentionAttacks, ...peerEscapeAttacks, ...ownerSentenceCopies, ...pointerAttacks].every(({ changed, rejected }) => changed && rejected), { baseline: peerRetentionOwners.map((owner) => [owner.id, peerPinFailure(owner, owner.source), peerRetentionFailure(owner, owner.source)]), peerPinAttacks: peerPinAttacks.filter(({ changed, rejected }) => !changed || !rejected), reviewedBranchControls, wordLayerControls, peerOutsideControls, peerRetentionAttacks, peerEscapeAttacks, ownerSentenceCopies: ownerSentenceCopies.filter(({ changed, rejected }) => !changed || !rejected), pointerAttacks }],
+				["reviewed peer-document pins reject unreviewed additions while scoped pointers and the word layer discriminate known copies", peerRetentionOwners.every((owner) => !peerPinFailure(owner, owner.source) && acceptsPeerRetention(owner, owner.source)) && pinnedPeerOwners.length === 3 && peerPinRules.length === 6 && peerPinAttacks.length === 264 && peerPinAttacks.every(({ changed, rejected }) => changed && rejected) && reviewedBranchControls.length === 5 && reviewedBranchControls.every(({ changed, accepted }) => changed && accepted) && wordLayerControls.length === 3 && wordLayerControls.every(({ rejected }) => rejected) && peerOutsideControls.every(({ accepted }) => accepted) && peerPlacementNames.length === 7 && peerPlacementVerbs.length === 14 && peerEscapeAttacks.length === 687 && ownerSentenceCopies.length === 1374 && [...peerRetentionAttacks, ...peerEscapeAttacks, ...ownerSentenceCopies, ...pointerAttacks].every(({ changed, rejected }) => changed && rejected), { baseline: peerRetentionOwners.map((owner) => [owner.id, peerPinFailure(owner, owner.source), peerRetentionFailure(owner, owner.source)]), peerPinAttacks: peerPinAttacks.filter(({ changed, rejected }) => !changed || !rejected), reviewedBranchControls, wordLayerControls, peerOutsideControls, peerRetentionAttacks, peerEscapeAttacks, ownerSentenceCopies: ownerSentenceCopies.filter(({ changed, rejected }) => !changed || !rejected), pointerAttacks }],
+				["nested public transfer, description accounting, and delivery-record deferrals fail", nestedDestinationAttacks.length === 3 && nestedDestinationAttacks.every(({ changed, rejected }) => changed && rejected), nestedDestinationAttacks],
 				["restored description accounting, size exceptions, and reachable-description merge bindings fail", handoffDestinationAttacks.every(({ changed, rejected }) => changed && rejected), handoffDestinationAttacks],
 				["closed-folder routes and post-close exceptions fail, including a request with all former folder checks", acceptsCleanupRoutes(recursive) && forbiddenCleanupMutations.length === 5 && wrappedForbiddenCleanupMutations.length === 16 && [...forbiddenCleanupMutations, ...wrappedForbiddenCleanupMutations].every(({ changed, rejected }) => changed && rejected), { forbiddenCleanupMutations, wrappedForbiddenCleanupMutations }],
 				["restored cleanup safety sentences have independent expectations and removal mutations", restoredCleanupSentences.length === 11 && restoredCleanupSentences.every(([id, rule]) => historyUnit.expected.includes(rule) && cleanupMutations.some((mutation) => mutation.id === `restored-${id}` && mutation.changed && mutation.rejected)), restoredCleanupSentences],
@@ -5742,8 +5756,8 @@ A later track builds on the accepted boundary before it.`),
 				["wrapped inspection passes and keeps all named mutations discriminating", wrappedRetention !== recursive && acceptsLevelUnit(historyUnit, wrappedRetention) && wrappedRetentionMutations.every(({ changed, rejected, retained }) => changed && rejected && retained), wrappedRetentionMutations],
 				["the inspection pointer reaches the unique common privacy subsection", acceptsInspectionDestination(recursive, commonRecords), inspectionDestination(recursive, commonRecords).count],
 				["every unit matches its independent expectation", levelPolicyUnits.every((unit) => acceptsLevelUnit(unit, unit.source)), levelPolicyUnits.filter((unit) => !acceptsLevelUnit(unit, unit.source)).map(({ id }) => id)],
-				["every rule mutation changes input and fails", levelRuleMutations.length === 640 && levelRuleMutations.every(({ changed, rejected }) => changed && rejected), levelRuleMutations],
-				["every safety sentence removal changes its owned input and fails", safetySentenceRemovals.length === 717 && safetySentenceRemovals.filter(({ id }) => id === "history").length === 443 && !safetySentenceRemovals.some(({ id }) => id === "cleanup-writes") && safetySentenceRemovals.every(({ changed, rejected }) => changed && rejected), safetySentenceRemovals],
+				["every rule mutation changes input and fails", levelRuleMutations.length === 642 && levelRuleMutations.every(({ changed, rejected }) => changed && rejected), levelRuleMutations],
+				["every safety sentence removal changes its owned input and fails", safetySentenceRemovals.length === 719 && safetySentenceRemovals.filter(({ id }) => id === "history").length === 444 && !safetySentenceRemovals.some(({ id }) => id === "cleanup-writes") && safetySentenceRemovals.every(({ changed, rejected }) => changed && rejected), safetySentenceRemovals],
 				["ordering, pause reconciliation, and local retention agree across all four documents", agreesOnOrderAndLocalRetention(), "complete independent history, planning, resume, roadmap, and publishing expectations"],
 				["unsafe pauses, conflicting bases, missing scope or events, and ordinary duties in either publishing setting fail", orderAndRetentionMutations.every(({ changed, rejected }) => changed && rejected), orderAndRetentionMutations],
 				["moving an intact event sentence outside the marker fails", eventMoveRejected(orderingDocuments), "event remains present beyond the protected marker"],
@@ -6821,6 +6835,8 @@ It waits for the note queue, final accounting, and every other final gate.
 After each required acceptance, reconcile the owning log and verify retained history through the ordered sequence in
 [delivery-packages.md](delivery-packages.md) § Durable accounting before handoff for merge.
 Apply that sequence even when the pull request is already ready.`),
+				reviewedReference("docs/recursive-workflow.md", ["# Recursive workflow", "## Level publishing and retained history"], `Use [pr-publishing.md](pr-publishing.md) for activation, approval, and ready safeguards.
+Use [delivery-packages.md](delivery-packages.md) § Durable accounting for accounting sources and verification.`),
 				reviewedReference("docs/recursive-workflow.md", ["# Recursive workflow", "## Whole-subtree acceptance"], `Every design track requires one explicit blocking acceptance of its whole subtree.
 This requirement applies with any proved-area set and with publishing enabled or disabled.
 Present one design-track package for that aggregate decision.
@@ -6835,12 +6851,13 @@ An earlier answer cannot accept work that was incomplete when the user gave it.
 Without publishing, request the same explicit aggregate decision directly.
 A root package cannot replace a missing design-track acceptance.
 Root final acceptance remains a separate blocking decision.
-With publishing, follow [delivery-packages.md](delivery-packages.md) § Durable accounting after each decision and before merge.
+In either publishing setting, follow [delivery-packages.md](delivery-packages.md) § Durable accounting after each decision.
+Reconcile and verify the owning log under that sequence before merge or root closure.
 Use [change-records.md](change-records.md) § Identifiers, code ranges, and design markers for the marker after acceptance.`),
 				reviewedReference("docs/recursive-workflow.md", ["# Recursive workflow", "## Packages, attribution, and issues"], `Use [delivery-packages.md](delivery-packages.md) § Track package for code and design references.
 Use its § Change package for the root's complete level-delivery list.
-Use its § Durable accounting for all record sources and public transfer.
-Use [pr-publishing.md](pr-publishing.md) § Description rules for each level's scope and accounting.
+Use its § Durable accounting for record sources and owning-log reconciliation.
+Use [pr-publishing.md](pr-publishing.md) § Description rules for each level's template-shaped description.
 Do not count accepted child work as new implementation.`),
 				...expectedWorkflowReferenceTexts.map((text, index) => reviewedReference("docs/track-workflow.md", [
 					"# Track-based development workflow",

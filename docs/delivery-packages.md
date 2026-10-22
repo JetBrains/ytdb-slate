@@ -53,7 +53,7 @@ exists.>
 
 **References**
 <Pull request and state when one exists, exact commit range, diff location, and
-supporting accounting source or delivery record.>
+supporting accounting source or owning research log.>
 
 **Next step**
 <State whether acceptance is requested, a decision is required, or the track is
@@ -98,7 +98,7 @@ this field when none exists.>
 
 **References**
 <Every level delivery and its state when publishing is enabled, exact change range,
-diff location, and supporting accounting sources or delivery records.>
+diff location, and supporting accounting sources or owning research logs.>
 
 **Model-routing recommendations**
 <Evidence-bounded advice, or the exact sentence below, only when trusted
@@ -222,7 +222,7 @@ exists.
 Retain conclusions and evidence needed for the listed accounting. Do not
 publish private reasoning, secrets, credentials, private user data, or
 unnecessary personal data. A package references the current accounting source
-or delivery record. It does not copy the full accounting into the conversation.
+or owning research log. It does not copy the full accounting into the conversation.
 A blocking item or a relevant concern still appears in the package even when
-its detail also exists in that source or record.
+its detail also exists in that source or log.
 <!-- delivery-package-contract:end -->
