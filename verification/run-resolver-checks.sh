@@ -52,6 +52,9 @@
 # =============================================================================
 set -uo pipefail
 
+# Jiti byte offsets do not match native TypeScript coverage.
+unset NODE_V8_COVERAGE
+
 exec 8>&2
 # One vocabulary for every abort, shared with the other CI harnesses: exit 2
 # is documented as "refused to start", so the message says so too rather than

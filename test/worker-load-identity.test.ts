@@ -11,6 +11,8 @@ for (const cache of ["empty", "populated"]) {
     try {
       for (const dir of ["home", "agent", "project", "tmp/jiti"]) mkdirSync(join(root, dir), { recursive: true });
       const env = {
+        // Jiti byte offsets do not match native TypeScript coverage.
+        NODE_V8_COVERAGE: undefined,
         HOME: join(root, "home"), PATH: `${resolve("node_modules/.bin")}:${process.env.PATH}`,
         TMPDIR: join(root, "tmp"), PI_CODING_AGENT_DIR: join(root, "agent"), PI_OFFLINE: "1",
         PI_CODEMODE_MAX_WORKERS: "2", JITI_FS_CACHE: "true", JITI_REBUILD_FS_CACHE: "false",

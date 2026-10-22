@@ -22,8 +22,10 @@ input for patch coverage. The real-Pi host process runs that test alone with a
 separate temporary directory and Jiti cache. It writes a separate host LCOV file.
 Either process can fail the wrapper. The runner audits that their union equals
 discovery and contains no overlap or duplicate. Host coverage is not merged,
-concatenated, filtered, or credited. The existing
-source-authoritative denominator, 85 percent line and branch floors, and
+concatenated, filtered, or credited.
+Code loaded through jiti gets no native coverage collection or patch-coverage credit because its transformed byte offsets differ from TypeScript source offsets.
+Native child processes keep coverage unless a test excludes it.
+The existing source-authoritative denominator, 85 percent line and branch floors, and
 small-branch-denominator warning policy remain unchanged.
 
 ## Continuous integration

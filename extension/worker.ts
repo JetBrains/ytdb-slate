@@ -552,7 +552,7 @@ export async function openWorkerSession(opts: {
 			|| typeof codemode.createWorkerCodemodeComponent !== "function") {
 			throw new Error("Invalid worker codemode component exports");
 		}
-		const factory = codemode.createWorkerCodemodeComponent(warn, nestedLifecycle.closeSignal);
+		const factory = codemode.createWorkerCodemodeComponent(warn);
 		if (typeof factory !== "function") throw new Error("Invalid worker codemode component factory");
 		codemodeName = codemode.WORKER_CODEMODE_COMPONENT_NAME;
 		codemodePath = `<inline:${codemodeName}>`;

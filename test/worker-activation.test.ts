@@ -12,6 +12,16 @@ import { openWorkerSession, DEFAULT_WORKER_TOOLS, type WorkerSession } from "../
 import { createLogicalRuntime } from "../extension/logical-model-runtime.ts";
 import { SlateStore } from "../extension/state.ts";
 import { ThreadManager } from "../extension/threads.ts";
+import { WORKER_NESTED_CLOSED_REASON } from "../extension/worker-nested-lifecycle.ts";
+
+async function within<T>(promise: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([promise, new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(Error('managed event timeout')), 5000);
+    })]);
+  } finally { clearTimeout(timer); }
+}
 
 const prefix = "slate: codemode is unavailable for this worker — ";
 const failure = "worker extension startup failed worker extension failed to load\nunsafe";
@@ -49,7 +59,7 @@ if (mode) {
   });
 }
 
-async function fixture(run: (ctx: ExtensionContext, path: string, declarations: string[][]) => Promise<void>, body = "", forceCodemodeCall = false) {
+async function fixture(run: (ctx: ExtensionContext, path: string, declarations: string[][]) => Promise<void>, body = "", forceCodemodeCall = false, script?: string) {
   const root = mkdtempSync(join(tmpdir(), 'slate-activation-'));
   const previous = { agent: process.env.PI_CODING_AGENT_DIR, offline: process.env.PI_OFFLINE, pool: process.env.PI_CODEMODE_MAX_WORKERS };
   process.env.PI_CODING_AGENT_DIR = join(root, 'agent');
@@ -70,14 +80,15 @@ async function fixture(run: (ctx: ExtensionContext, path: string, declarations: 
         maxTokens: 100, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }],
       streamSimple(model, request) {
         declarations.push(request.messages.filter(m => m.role === 'system').flatMap(m => m.toolsAdded?.map(t => t.name) ?? []));
-        const call = forceCodemodeCall && declarations.length === 1
+        const call = script !== undefined && !request.messages.some(m => m.role === 'toolResult')
+          || forceCodemodeCall && declarations.length === 1
           || (mode === 'import' || mode === 'construction' || validationCause !== undefined && !forceCodemodeCall)
             && !request.messages.some(m => m.role === 'toolResult');
         const read = !forceCodemodeCall && (mode === 'import' || validationCause !== undefined
           || mode === 'construction' && !declarations.at(-1)!.includes('codemode'));
         const message: AssistantMessage = { role: 'assistant', api: model.api, provider: model.provider, model: model.id,
           content: call ? [{ type: 'toolCall', id: 'activation-call', name: read ? 'read' : 'codemode',
-            arguments: read ? { path } : { code: 'text("recovered")' } }] : [{ type: 'text', text: 'complete' }],
+            arguments: read ? { path } : { code: script ?? 'text("recovered")' } }] : [{ type: 'text', text: 'complete' }],
           stopReason: call ? 'toolUse' : 'stop', timestamp: 1,
           usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2,
             cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } };
@@ -310,44 +321,84 @@ if (mode) {
       }, startup ? "pi.on('session_start', () => register('codemode'));" : "register('codemode');");
     });
   }
-  test('production opening connects queued scripts to the close signal', { timeout: 90000 }, async () => {
+  test('managed settlement aborts a host waiter while external holders stay active', { timeout: 20000 }, async () => {
     await fixture(async (ctx, path) => {
-      const session = await openWorkerSession({ ctx, extensionPaths: [path] });
-      const tool = session.resourceLoader.getExtensions().extensions.find(e => e.path === '<inline:slate-worker-codemode>')!.tools.get('codemode')!.definition;
-      let release!: () => void;
-      let entered!: () => void;
-      const hold = new Promise<void>(resolve => { release = resolve; });
-      const ready = new Promise<void>(resolve => { entered = resolve; });
-      let count = 0;
-      const context = { tools: [{ name: 'held', description: 'held', parameters: { type: 'object', properties: {} } }],
-        sessionManager: { getBranch: () => [] }, async executeTool() {
-          if (++count === 2) entered();
-          await hold;
-          return { toolCall: { id: 'held' }, isError: false, result: { content: [], details: undefined } };
-        } } as unknown as ExtensionToolContext;
-      const run = (id: string) => tool.execute(id, { code: 'await tools.held({});' }, undefined, undefined, context);
-      const running = [run('first'), run('second')];
+      // Dynamic import keeps the failure-child loader hooks effective.
+      const { createWorkerCodemodeComponent } = await import("../extension/worker-codemode.ts");
+      let tool!: import("@earendil-works/pi-coding-agent").ToolDefinition;
+      createWorkerCodemodeComponent(message => assert.fail(message))({
+        registerTool(value: typeof tool) { tool = value; }, on() {}, getAllTools: () => [],
+      } as unknown as ExtensionAPI);
+      const releases: (() => void)[] = [];
+      const controllers: AbortController[] = [];
+      const results: Promise<unknown>[] = [];
+      const hold = (id: string) => {
+        let entered!: () => void;
+        const ready = new Promise<void>(resolve => { entered = resolve; });
+        const gate = new Promise<void>(resolve => { releases.push(resolve); });
+        const controller = new AbortController(); controllers.push(controller);
+        const context = { tools: [{ name: 'held', description: 'held', parameters: { type: 'object', properties: {} } }],
+          sessionManager: { getBranch: () => [] }, async executeTool() {
+            entered(); await gate;
+            return { toolCall: { id }, isError: false, result: { content: [], details: undefined } };
+          } } as unknown as ExtensionToolContext;
+        const result = tool.execute(id, { code: 'await tools.held({});' }, controller.signal, undefined, context);
+        results.push(result);
+        return { ready, result };
+      };
+      let session: WorkerSession | undefined;
       try {
-        await Promise.race([ready, Promise.all(running).then(() => { throw Error('scripts ended before entering held tools'); })]);
-        const waiting = run('waiting');
-        session.closeManagedOperations();
-        const stopped = await waiting;
-        assert.equal(stopped.isError, true);
-        assert.match(JSON.stringify(stopped.content), /Operation aborted/);
-        assert.equal(count, 2);
-      } finally { release(); await Promise.all(running); await session.shutdownWorker(); }
-    });
+        // Bounded full-capacity precondition, not merely completion of prior results.
+        const probes = [hold('probe-a'), hold('probe-b')];
+        await within(Promise.all(probes.map(p => p.ready)));
+        releases.forEach(release => release());
+        await within(Promise.all(probes.map(p => p.result)));
+        const holders = [hold('a'), hold('b')];
+        await within(Promise.all(holders.map(h => h.ready)));
+        session = await openWorkerSession({ ctx, tools: ['read'], extensionPaths: [path] });
+        let update!: () => void;
+        const updated = new Promise<void>(resolve => { update = resolve; });
+        let finished = false, nested = 0;
+        session.subscribe(event => {
+          // pi 1.4.0 dist/extensions/codemode/execute.js:445-485 publishes
+          // the first update before synchronous waiter registration. Resolve
+          // only here, then await before settlement. Never abort in the handler.
+          if (event.type === 'tool_execution_update' && event.toolCallId === 'activation-call') update();
+          if (event.type === 'tool_execution_start' && typeof event.parentToolCallId === 'string') nested++;
+          if (event.type === 'tool_execution_end' && event.toolCallId === 'activation-call') finished = true;
+        });
+        const prompt = session.prompt('run the script');
+        await within(updated);
+        await new Promise(resolve => setTimeout(resolve, 100));
+        assert.equal(finished, false); assert.equal(nested, 0);
+        await within(session.settleManagedOperations());
+        await within(prompt);
+        const result = session.messages.find(m => m.role === 'toolResult' && m.toolCallId === 'activation-call');
+        assert.ok(result && result.role === 'toolResult');
+        assert.equal(result.isError, true);
+        assert.deepEqual((result.details as { calls: unknown[] }).calls, []);
+        assert.match(JSON.stringify(result.content), /Script aborted[\s\S]*The script did not start/);
+        assert.equal(nested, 0);
+        await within(session.shutdownWorker());
+      } finally {
+        try {
+          controllers.forEach(c => c.abort()); releases.forEach(release => release());
+          await within(Promise.allSettled(results));
+        } finally { if (session) await within(session.shutdownWorker()); }
+      }
+    }, "", false, 'await tools.read({ path: "must-not-enter" });');
   });
-  test('startup failure after codemode load closes its queue signal', { timeout: 10000 }, async () => {
+  test('startup failure closes codemode admission and permits repeatable shutdown', { timeout: 10000 }, async () => {
     await fixture(async (ctx, path) => {
       let created: WorkerSession | undefined;
-      await assert.rejects(openWorkerSession({ ctx, extensionPaths: [path], report() {}, onCreated(session) { created = session; } }), /startup did not complete/);
+      await assert.rejects(openWorkerSession({ ctx, extensionPaths: [path], deferShutdownOnOpenFailure: true, report() {}, onCreated(session) { created = session; } }), /startup did not complete/);
       assert.ok(created);
-      const owned = created.resourceLoader.getExtensions().extensions.find(e => e.path === '<inline:slate-worker-codemode>');
-      const tool = owned!.tools.get('codemode')!;
-      const result = await tool.definition.execute('after-startup-failure', { code: 'return 1;' }, undefined, undefined, {} as ExtensionToolContext);
-      assert.equal(result.isError, true);
-      assert.match(JSON.stringify(result.content), /Operation aborted/);
+      try {
+        const result = await created.extensionRunner.emitToolCall({
+          type: 'tool_call', toolName: 'codemode', toolCallId: 'after-startup-failure', input: { code: 'return 1;' },
+        });
+        assert.deepEqual(result, { block: true, reason: WORKER_NESTED_CLOSED_REASON });
+      } finally { await within(created.shutdownWorker()); await within(created.shutdownWorker()); }
     }, "pi.on('session_start', () => { throw Error('startup fixture'); });");
   });
 }
