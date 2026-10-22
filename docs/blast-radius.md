@@ -408,8 +408,9 @@ A late proved area recomputes the complete required routine reviewer set for the
 completed range. If Reviewer I has not covered that range, dispatch Reviewer I
 and the new area specialist. If Reviewer I already ran because of size or
 another proved area, dispatch only the new specialist. Do not dispatch Reviewer I
-again. Every newly required perspective reviews the completed range. The durable
-delivery record reports the resulting coverage.
+again. Every newly required perspective reviews the completed range. The owning
+research log reports the resulting coverage.
+Disclose relevant concerns under the package rules.
 
 ## Review coverage and the coverage register
 
@@ -437,6 +438,10 @@ log.
 [track-workflow.md](track-workflow.md) owns marker commits, track-title
 prefixes and the source of truth for track boundaries. This section owns the
 remaining commit discipline.
+
+These review-range body rules do not govern the final publishing-disabled delivery squash.
+That squash follows project commit rules or the default under
+[track-workflow.md](track-workflow.md) § Delivery history and accounting.
 
 The cumulative implementation commit is defined in
 [track-workflow.md](track-workflow.md) § Lifecycle and phases. When the track

@@ -18,9 +18,9 @@ not satisfy these triggers.
 ## Package acceptance and note timing
 
 Every completed track reaches the user through the track package defined in
-[delivery-packages.md](delivery-packages.md) § Track package. The research log
-keeps the full working evidence. The delivery record keeps the required durable
-accounting. The package references that record and the diff.
+[delivery-packages.md](delivery-packages.md) § Track package. The owning research log
+keeps the full working evidence and required durable accounting.
+The package references those records and the diff.
 
 For design tracks, use [recursive-workflow.md](recursive-workflow.md) § Whole-subtree acceptance.
 The following proved-area acceptance rules apply to code tracks.
@@ -50,8 +50,8 @@ A note has exactly one initial route:
 
 - **Current track.** The note applies to work still owned by the current track.
 - **Tracked issue.** The note is deferred as standalone work in the project
-  issue tracker. A project with no issue tracker records it in the delivery
-  record.
+  issue tracker. A project with no issue tracker records it in the owning
+  research log.
 - **Note queue.** The note awaits the mandatory drain before final acceptance.
 
 A user note is blocking when the user marks it blocking. A note that requests a
@@ -189,10 +189,9 @@ Package preparation does not delay or replace the feedback triggers above.
 
 Before final acceptance, reconcile all owning records defined in
 [delivery-packages.md](delivery-packages.md) § Durable accounting.
-With publishing, use that section's package and post-acceptance transfer sequence before merge.
-Without publishing, packages reference the owning accounting sources.
-After root final acceptance, copy every required conclusion into the final delivery commit body.
-Root closure waits for verification against all accounting sources.
+On both delivery paths, reconcile required conclusions into the owning research log before each package.
+After acceptance, record the decision and evidence references there.
+Root closure waits for verification of the owning logs against all accounting sources.
 The accounting covers:
 
 - every finding and its disposition.
@@ -202,10 +201,10 @@ The accounting covers:
 - every override log entry.
 - every escalation and its disposition.
 
-The delivery record carries a one-line index of every ignored finding. Each
+The owning research log carries a one-line index of every ignored finding. Each
 entry carries the identifier, location and one-line summary.
 
-The durable record gives routine implementation review and user-requested-fix
+The owning research log gives routine implementation review and user-requested-fix
 verification as separate verdicts. The routine line concludes whether the full
 required reviewer set covered the range. It states `NOT REQUIRED` when the
 track has neither a proved area nor a size-triggered Reviewer I. It does not
@@ -214,5 +213,5 @@ exists, another line gives its dedicated gate verdict.
 
 The coverage register stays in the research log. Neither its entries nor its
 size enter a user-facing package. The detailed register never leaves the
-research log. Its one-line coverage conclusion enters the durable delivery
-record.
+research log. Its one-line coverage conclusion stays in the owning research
+log.

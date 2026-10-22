@@ -251,7 +251,8 @@ The user chooses exactly one outcome:
 2. approve a non-goal and require the work reverted.
 3. approve a non-goal and keep the work, with the reason recorded.
 4. defer the item to a later change and create a tracked issue. When the project
-   has no issue tracker, record the deferral in the delivery record.
+   has no issue tracker, record the deferral in the owning research log.
+   Disclose relevant concerns in the user package.
 5. approve the removal of a goal, with the reason recorded.
 
 The orchestrator also proposes the simplest solution. This duty applies when an approved high-level design exists, because the approved goals live in that design. When a planned or implemented solution reaches something the approved goals do not list, the orchestrator proposes one of two repairs. The first repair simplifies the solution until it fits the approved goals. The second repair adds the missing goals.
@@ -260,8 +261,8 @@ The orchestrator presents that proposal together with the scope exception. The f
 
 Repeated regressions on one item make the orchestrator propose that item as a
 non-goal candidate. The orchestrator marks nothing automatically. Every
-non-goal needs user approval. The fourth outcome appears as a tracked issue, or as a delivery-record entry
-when the project has no issue tracker. A scope exception from an
+non-goal needs user approval. The fourth outcome appears as a tracked issue.
+When the project has no issue tracker, record the deferral in the owning research log. A scope exception from an
 already-implemented change also follows
 [blast-radius.md](blast-radius.md) § Halt and focus re-derivation. The
 scope-exception outcome composes with that route and does not replace it. The
@@ -430,7 +431,7 @@ proved set. A missed area follows the late-area route below. For an area that no
 longer engages, record the failed trigger part and present a removal proposal to
 the user at once. The area remains proved, with all of its gates and reviewers,
 until the user approves removal. Rejection preserves the proved area. Keep every
-reviewer that already covered completed work. The durable delivery record
+reviewer that already covered completed work. The owning research log
 reports every addition, proposed or approved removal, SKIPPED state, user
 decision, and reviewer-coverage decision. A package puts any unresolved
 requested decision or relevant risk under **Needs attention**.
@@ -787,7 +788,7 @@ If recovery fails, ask the user to choose recovery work, abandonment, or an expl
 The waiver records its limit and does not claim recovered marker evidence.
 <!-- accepted-history-policy:end -->
 
-The track table lists names, one-line scopes, and status. It contains no commit
+The research-log track table lists names, one-line scopes, and status. It contains no commit
 identifier. Track numbers are append-only. Abandoned tracks are struck through.
 Numbers are never reused.
 
@@ -798,27 +799,29 @@ Without publishing, use all owning accounting sources defined in
 These include root and design-track logs, code reports, affected-track repair
 records, and their read-only source chains.
 Intermediate packages reference those sources, not a future commit.
-After root final acceptance, copy every required conclusion into the final squashed commit body.
+After root final acceptance, create the final squashed delivery commit using project commit rules.
+Read the project's contributor instructions and their cited commit guidance.
+Explicit instructions take precedence over examples from history.
+Ask the user about unresolved conflicts.
+When no applicable commit rule exists, read and use
+[pr-publishing.md](pr-publishing.md) § Default template for the body.
+Keep the project's subject convention when one exists.
+This final delivery format does not replace the track review-commit design rules.
 Preserve accepted source history before rewriting under this section's safeguards.
-Verify the body against all accounting sources before root closure.
+Verify the delivery result and owning-log accounting separately before root closure.
 This sequence applies to single-track and multi-track changes.
 Explicit abandonment is the other delivery outcome.
 Resolve or hand every open question to the user.
 Follow [user-notes.md](user-notes.md) for feedback and note accounting. Follow
 [delivery-packages.md](delivery-packages.md) for the final user-facing package
 and the complete accounting sequence. Close the change only after the whole
-change reaches delivery and the required accounting is verified in its final
-record. Abandonment at any stage ends with `slate_change close`, even when no
+change reaches delivery and the required accounting is verified in the owning
+research logs. Abandonment at any stage ends with `slate_change close`, even when no
 delivery artifact exists. Closing deletes nothing. The untracked-retention rule
 in § Session handoff and the research log keeps the local files out of the pull
 request.
 On abandonment, offer their content for archival first. Only the user deletes
 an old change folder.
-
-Aim for a delivery body at or below 16,384 UTF-8 bytes. Measure exact bytes from
-the commit object. If larger, remove repetition first. Then record a measured
-size exception and obtain user approval. Never remove needed decisions, risks,
-verdicts, or evidence merely to meet the target.
 
 No release occurs in this workflow. Packaging, publication, version changes,
 tags, and registry release require a separate explicit user request and the
