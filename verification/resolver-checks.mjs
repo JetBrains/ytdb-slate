@@ -5984,6 +5984,103 @@ handoff and the research log.`),
 					],
 				},
 			];
+			// These checks detect only the named historical wordings. Document and
+			// region fingerprints, plus review of each fingerprint update, guard
+			// against reworded restorations.
+			const trackDesignRule = "When the track has a high-level design, the cumulative implementation commit body carries the track high-level design followed by the track low-level design.";
+			const boundaryRegressionCases = [
+				{
+					id: "G1-mandatory-section", source: publishing, heading: "## Description rules",
+					required: "The selected project template exclusively governs description content.",
+					bad: "Slate requires a Workflow accounting section in every description even when the project template omits it.",
+					good: "The project template requires Motivation and Validation sections. Fill those sections with established facts.",
+				},
+				{
+					id: "G3-tracks-table", source: publishing, heading: "## Description rules",
+					required: "Slate adds no required sections, accounting fields, or progress table.",
+					headingForbidden: /(?:^| )#{2,3} Tracks table(?= |$)/i,
+					bad: "### Tracks table\nMaintain this Slate progress table in the pull request description.",
+					good: "### Project test matrix\nFill the ordinary table requested by the project template.",
+				},
+				{
+					id: "G4-root-only", source: publishing, heading: "## Ready-for-review flip",
+					required: "Apply this section separately to each level pull request.",
+					bad: "Apply this section only to the root level pull request for its final description update.",
+				},
+				{
+					id: "G4-after-flip", source: publishing, heading: "## Ready-for-review flip",
+					required: "Present the final description to the user before the flip, including when a design gate presented the draft.",
+					bad: "Present the final description to the user after the flip, including when a design gate presented the draft.",
+				},
+				...[
+					["G8-description-target", publishing, "## Description rules", "Keep the description within the 16,384-byte target."],
+					["G8-delivery-target", deliveryPackages, "## Durable accounting", "Keep the final delivery commit body within the 16,384-byte target."],
+					["G8-measured-exception", publishing, "## Description rules", "For a description-size exception, record measured bytes and obtain user approval."],
+				].map(([id, source, heading, bad]) => ({
+					id, source, heading, bad,
+					required: source === publishing ? "Slate adds no required sections, accounting fields, or progress table." : "The research log is the accounting authority on both delivery paths.",
+					good: "The upload service limits each image attachment to 16,384 bytes. Record measured image bytes when requesting an attachment-size exception.",
+				})),
+				{
+					id: "G9-untracked-closure", source: deliveryPackages, heading: "## Durable accounting",
+					required: "Required accounting may remain only in retained private research records after root closure.",
+					bad: "Move accounting out of untracked records before root closure.",
+					good: "Keep accounting in the retained private research log through and after root closure.",
+				},
+				...[
+					["review-design-blast", blast, "## Commit discipline for drift and boundaries"],
+					["review-design-workflow", workflow, "## Delivery and termination"],
+				].map(([id, source, heading]) => ({
+					id, source, heading, required: trackDesignRule,
+					bad: "When the track has a high-level design, the cumulative implementation commit body carries only a short summary.",
+				})),
+			];
+			const runBoundaryRegressions = (normalize = true) => boundaryRegressionCases.map((entry) => {
+				const extract = headingUnit(entry.heading);
+				const accepts = (source) => {
+					const region = extract(source);
+					const normalized = normalizeText(region.rawText);
+					const text = normalize ? normalized : region.rawText;
+					const historicalRule = text.includes(normalizeText(entry.bad));
+					return region.count === 1 && normalized.split(normalizeText(entry.required)).length === 2
+						&& !historicalRule && !entry.headingForbidden?.test(text);
+				};
+				const insert = (text) => entry.source.replace(entry.heading, `${entry.heading}\n\n${text}`);
+				const bad = insert(entry.bad);
+				// Timing and design controls retain the complete current rule with
+				// harmless line wrapping. Other controls add an allowed lookalike.
+				const good = entry.good ? insert(entry.good)
+					: entry.source.replace(literalPattern(entry.required), entry.required.replace(/ /g, "\n"));
+				const wrapped = insert(entry.bad.replace(/ /g, "\n"));
+				return { id: entry.id, baseline: accepts(entry.source),
+					changed: bad !== entry.source, rejected: !accepts(bad),
+					controlChanged: good !== entry.source, accepted: accepts(good),
+					wrappedChanged: wrapped !== entry.source, wrappedRejected: !accepts(wrapped) };
+			});
+			const boundaryRegressionResults = runBoundaryRegressions();
+			const unnormalizedBoundaryResults = runBoundaryRegressions(false);
+			const normalizationRejected = unnormalizedBoundaryResults.some((row, index) =>
+				row.baseline && row.wrappedChanged && !row.wrappedRejected && boundaryRegressionResults[index].wrappedRejected);
+			mutationAudit.record("boundary-regression", [
+				...boundaryRegressionResults.flatMap((row) => [
+					{ id: `${row.id}/restored-rule`, changed: row.changed, rejected: row.rejected },
+					{ id: `${row.id}/benign-control`, changed: row.controlChanged, rejected: row.accepted },
+					{ id: `${row.id}/wrapped-restored-rule`, changed: row.wrappedChanged, rejected: row.wrappedRejected },
+				]),
+				{ id: "normalization-weakening", changed: normalizationRejected, rejected: normalizationRejected },
+			]);
+			// This pin covers only the commit-discipline region. Content edits need
+			// a reviewed digest refresh. Whitespace-only reflow passes.
+			const EXPECTED_COMMIT_DISCIPLINE_SHA256 = "ad803fbc47b61f628a565b895299c6aaeeba727d0d9e4bc67117b1f37ebf3495";
+			const commitDisciplinePattern = /^(## Commit discipline for drift and boundaries\r?\n[\s\S]*?)(?=^## |$(?![\s\S]))/gm;
+			const commitDisciplineRegion = regionUnit(commitDisciplinePattern);
+			const acceptsCommitDiscipline = (source) => {
+				const region = commitDisciplineRegion(source);
+				return region.count === 1 && recordDigest(region.text) === EXPECTED_COMMIT_DISCIPLINE_SHA256;
+			};
+			const changedCommitDiscipline = blast.replace(commitDisciplinePattern, (raw) => `${raw}\nA short summary of the design is enough.\n`);
+			const reflowedCommitDiscipline = blast.replace(commitDisciplinePattern, (raw) =>
+				raw.replace(/^(##[^\n]*\n)([\s\S]*)$/, (_match, heading, body) => heading + body.replace(/\s+/g, "\n")));
 			const acceptsDeliveryBoundary = (unit, source) => {
 				const resolved = unit.extract(source);
 				return resolved.count === 1 && resolved.text === unit.expected;
@@ -5991,7 +6088,10 @@ handoff and the research log.`),
 			const deliveryBoundaryAttacks = deliveryBoundaryUnits.flatMap((unit) => unit.attacks.map(([kind, before, after]) => {
 				const source = unit.source.replace(literalPattern(unit.expected), (raw) => raw.replace(literalPattern(before), after));
 				return { id: `${unit.id}/${kind}`, changed: source !== unit.source, rejected: !acceptsDeliveryBoundary(unit, source) };
-			}));
+			})).concat({
+				id: "commit-discipline/design-summary", changed: changedCommitDiscipline !== blast,
+				rejected: !acceptsCommitDiscipline(changedCommitDiscipline),
+			});
 			mutationAudit.record("delivery-boundaries", deliveryBoundaryAttacks);
 			const escalationRule = normalizeText("Pre-existing defects, exhausted budgets, disputed stuck-fix results, blocker lowering, and regressions route through [user-notes.md](user-notes.md) § Mandatory escalation set.");
 			const deferredRule = normalizeText("Deferred work becomes a tracked issue. A project with no issue tracker records the deferral in the owning research log. Disclose relevant concerns in the user package.");
@@ -6002,6 +6102,9 @@ handoff and the research log.`),
 			const reviewsWithoutUnit = normalizeText(reviews.slice(0, acceptanceBeginAt) + reviews.slice(endMarkerAt + "<!-- track-acceptance:end -->".length));
 			const droppedTarget = normalizeText(reviews.replaceAll("Mandatory escalation set.", "the review log."));
 			checkAll("contract-escalation-routing", "mandatory escalation routing and deferred-work tracking hold as assertions of their own, after the terminal end marker and outside every acceptance unit, so neither protection depends on that unit", [
+				["named boundary regressions reject restored rules and accept allowed lookalikes in the same region", normalizationRejected && boundaryRegressionResults.every(({ baseline, changed, rejected, controlChanged, accepted, wrappedChanged, wrappedRejected }) => baseline && changed && rejected && controlChanged && accepted && wrappedChanged && wrappedRejected), { boundaryRegressionResults, normalizationRejected }],
+				["the commit-discipline region matches its reviewed fingerprint", acceptsCommitDiscipline(blast), commitDisciplineRegion(blast)],
+				["whitespace-only region reflow and outside edits preserve the fingerprint", reflowedCommitDiscipline !== blast && acceptsCommitDiscipline(reflowedCommitDiscipline) && acceptsCommitDiscipline(`${blast}\n## Outside fingerprint control\nUnrelated text.\n`), "region reflow and outside control"],
 				["delivery boundary copies equal independent content expectations", deliveryBoundaryUnits.every((unit) => acceptsDeliveryBoundary(unit, unit.source)), deliveryBoundaryUnits.map((unit) => ({ id: unit.id, ...unit.extract(unit.source) }))],
 				["each delivery boundary mutation changes its source and fails its own content check", deliveryBoundaryAttacks.every(({ changed, rejected }) => changed && rejected), deliveryBoundaryAttacks],
 				["escalation routing occurs exactly once", occurrencesOf(reviewsFlat, escalationRule) === 1, occurrencesOf(reviewsFlat, escalationRule)],

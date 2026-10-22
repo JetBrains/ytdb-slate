@@ -120,11 +120,15 @@ const escapeKinds = ["extra-scoped-pointer", "ordinary-pointer", "every-change-p
  `name-only-${name}`, ...["delete", "remove", "drop", "discard", "purge", "prune", "erase", "reset", "move", "rename", "force", "overwrite", "replace", "rewrite"]
  .flatMap((verb) => [`verb-first-${verb}-${name}`, `name-first-${verb}-${name}`])])];
 export const EXPECTED_MUTATIONS = {
+ "boundary-regression": [...combinations(["G1-mandatory-section", "G3-tracks-table", "G4-root-only", "G4-after-flip",
+ "G8-description-target", "G8-delivery-target", "G8-measured-exception", "G9-untracked-closure",
+ "review-design-blast", "review-design-workflow"], ["restored-rule", "benign-control", "wrapped-restored-rule"]),
+ "normalization-weakening"],
  "delivery-boundaries": ["review-squash/scope-reversal", "review-squash/commit-authority",
  "first-deferred/suppress-concerns", "first-deferred/redirect-record",
  "scope-outcome/redirect-record", "scope-outcome/omit-record",
  "note-route/redirect-record", "note-route/omit-record",
- "template-applicability/disabled-exemption", "template-applicability/disabled-template", "template-applicability/publishing-duty"],
+ "template-applicability/disabled-exemption", "template-applicability/disabled-template", "template-applicability/publishing-duty", "commit-discipline/design-summary"],
  "delivery-rules": sentenceIds({ repairs: 60, aggregate: 22, issues: 15, sources: 67, "workflow-accounting": 62,
  "notes-accounting": 21, "publishing-sync": 7, "public-workflow": 24, "public-roadmap": 20 }),
  transfer: numbered("transfer", 5),

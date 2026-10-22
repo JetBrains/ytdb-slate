@@ -62,6 +62,8 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
           assert.match(output, /^CHECK +roster +PASS\b/m);
           if (name === "clean source") {
             cleanOutput = output;
+            assert.equal(mutationCounts(output)["boundary-regression"], 31);
+            assert.equal(mutationCounts(output)["delivery-boundaries"], 12);
             assert.deepEqual([...output.matchAll(/^CHECK +(\S+) +EXCLUDED\b/gm)].map((match) => match[1]), excluded);
             assert.match(output, /^== summary: 207 pass, 0 fail, 0 not run, 2 excluded \(209 result lines = 208 expected checks \+ this roster audit\) ==$/m);
           } else selectedOutput(output, contract, accepted, auditAccepted);
