@@ -6942,9 +6942,71 @@ The accounting covers:`),
 			const workerReminderSource = readFileSync(join(REPO, "extension", "worker-reminder.ts"), "utf8")
 				.replace(/\/\*[\s\S]*?\*\//g, " ")
 				.replace(/(^|[^:])\/\/[^\n]*/g, "$1 ");
+
+			const ts = (await import(pathToFileURL(join(REPO, "node_modules/typescript/lib/typescript.js")).href)).default;
+			const workerAst = ts.createSourceFile("worker.ts", workerSource, ts.ScriptTarget.Latest, true);
+			const opener = workerAst.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === "openWorkerSession");
+			const shared = workerAst.statements.find(node => ts.isVariableStatement(node)
+				&& node.declarationList.declarations.some(d => d.name.getText(workerAst) === "workerCodemodeLoad"));
+			const edges = [];
+			function scanImports(directory) {
+				for (const entry of readdirSync(join(REPO, directory), { withFileTypes: true })) {
+					const file = join(directory, entry.name);
+					if (entry.isDirectory()) { scanImports(file); continue; }
+					if (!/\.[cm]?[jt]s$/.test(file)) continue;
+					const ast = ts.createSourceFile(file, readFileSync(join(REPO, file), "utf8"), ts.ScriptTarget.Latest, true);
+					function visit(node) {
+						let specifier;
+						if (ts.isImportDeclaration(node)) {
+							const clause = node.importClause;
+							const bindings = clause?.namedBindings;
+							const onlyTypes = clause?.isTypeOnly || (clause && !clause.name && bindings && ts.isNamedImports(bindings)
+								&& bindings.elements.length > 0 && bindings.elements.every(e => e.isTypeOnly));
+							if (!onlyTypes) specifier = node.moduleSpecifier;
+						} else if (ts.isExportDeclaration(node) && !node.isTypeOnly) {
+							const onlyTypes = node.exportClause && ts.isNamedExports(node.exportClause)
+								&& node.exportClause.elements.length > 0 && node.exportClause.elements.every(e => e.isTypeOnly);
+							if (!onlyTypes) specifier = node.moduleSpecifier;
+						} else if (ts.isImportEqualsDeclaration(node) && !node.isTypeOnly && ts.isExternalModuleReference(node.moduleReference)) {
+							specifier = node.moduleReference.expression;
+						} else if (ts.isCallExpression(node) && (node.expression.kind === ts.SyntaxKind.ImportKeyword
+							|| (ts.isIdentifier(node.expression) && node.expression.text === "require"))) specifier = node.arguments[0];
+						if (specifier && ts.isStringLiteralLike(specifier) && /(?:^|\/)worker-codemode(?:\.[cm]?[jt]s)?$/.test(specifier.text)) {
+							edges.push({ file, text: node.getText(ast), dynamic: ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword });
+						}
+						ts.forEachChild(node, visit);
+					}
+					visit(ast);
+				}
+			}
+			scanImports("extension");
+			let guardedAwait = false;
+			let synchronousAssignment = false;
+			function findGuard(node) {
+				if (ts.isTryStatement(node) && /codemodeFailure\s*=\s*error/.test(node.catchClause?.getText(workerAst) ?? "")) {
+					function inspect(statement) {
+						if (ts.isAwaitExpression(statement) && ts.isIdentifier(statement.expression)
+							&& statement.expression.text === "workerCodemodeLoad") guardedAwait = true;
+						if (ts.isIfStatement(statement) && statement.expression.getText(workerAst) === "!workerCodemodeLoad"
+							&& ts.isExpressionStatement(statement.thenStatement)) {
+							const assignment = statement.thenStatement.expression;
+							synchronousAssignment = ts.isBinaryExpression(assignment)
+								&& assignment.left.getText(workerAst) === "workerCodemodeLoad"
+								&& assignment.operatorToken.kind === ts.SyntaxKind.EqualsToken
+								&& ts.isCallExpression(assignment.right) && assignment.right.expression.kind === ts.SyntaxKind.ImportKeyword;
+						}
+						ts.forEachChild(statement, inspect);
+					}
+					inspect(node.tryBlock);
+				}
+				ts.forEachChild(node, findGuard);
+			}
+			if (opener) findGuard(opener);
 			checkAll("worker-reminder-wiring", "worker reminder loader, handler, tool exclusion, and dispatch warning wiring stays intact", [
 				["worker creates the internal session-local runtime directly", /import\s*\{\s*createWorkerReminderRuntime\s*\}\s*from\s*["']\.\/worker-reminder\.ts["']/.test(workerSource) && /const\s+workerReminder\s*=\s*createWorkerReminderRuntime\(\)/.test(workerSource), workerSource.match(/import[^\n]*worker-reminder[^\n]*/)?.[0] ?? "not found"],
-				["every loader receives the reminder, guarded codemode, and last lifecycle factory", (workerSource.match(/new\s+DefaultResourceLoader\s*\(/g) ?? []).length === 1 && /await import\("\.\/worker-codemode\.ts"\)/.test(workerSource) && /codemodeFactory = codemode\.createWorkerCodemodeComponent\(warn, nestedLifecycle\.closeSignal\)/.test(workerSource) && /extensionFactories[\s\S]*workerReminder\.extension[\s\S]*factory: codemodeFactory[\s\S]*factory: nestedLifecycle\.extension/.test(loaderBlock), loaderBlock],
+				["every loader receives the reminder, guarded codemode, and last lifecycle factory", (workerSource.match(/new\s+DefaultResourceLoader\s*\(/g) ?? []).length === 1 && shared && opener && shared.end <= opener.pos && guardedAwait && synchronousAssignment && !/await import\("\.\/worker-codemode\.ts"\)/.test(opener.getText(workerAst)) && /const factory = codemode\.createWorkerCodemodeComponent\(warn, nestedLifecycle\.closeSignal\)/.test(workerSource) && /extensionFactories[\s\S]*workerReminder\.extension[\s\S]*factory: codemodeFactory[\s\S]*factory: nestedLifecycle\.extension/.test(loaderBlock), loaderBlock],
+				["only the opener loads the component at runtime", edges.length === 1 && edges[0].file === join("extension", "worker.ts") && edges[0].dynamic && edges[0].text === 'import("./worker-codemode.ts")', edges],
+				["component metadata and returned factory are validated", /WORKER_CODEMODE_COMPONENT_NAME !== "slate-worker-codemode"/.test(workerSource) && /typeof codemode\.createWorkerCodemodeComponent !== "function"/.test(workerSource) && /typeof factory !== "function"/.test(workerSource), "name, creator, factory"],
 				["factory wiring is independent of the allowlist and prompt cache key", loaderStart >= 0 && reloadStart > loaderStart && allowlistStart > reloadStart && !/promptCacheKey/.test(loaderBlock) && (loaderBlock.match(/workerReminder\.extension/g) ?? []).length === 1, { loaderStart, reloadStart, allowlistStart, promptCacheKey: loaderBlock.match(/promptCacheKey/)?.[0] ?? "absent", factoryCount: (loaderBlock.match(/workerReminder\.extension/g) ?? []).length }],
 				["handlers register directly in the internal factory rather than session_start", /pi\.on\(\s*["']message_end["']/.test(workerReminderSource) && /pi\.on\(\s*["']tool_result["']/.test(workerReminderSource) && !/["']session_start["']/.test(workerReminderSource), workerReminderSource.match(/pi\.on\([^\n]*/g) ?? []],
 				["loaded extensions are read exactly once after reload and before the allowlist gate", (workerSource.match(/loader\.getExtensions\(\)/g) ?? []).length === 1 && /const\s+loaded\s*=\s*loader\.getExtensions\(\)/.test(loadedBlock), { count: (workerSource.match(/loader\.getExtensions\(\)/g) ?? []).length, loadedBlock }],

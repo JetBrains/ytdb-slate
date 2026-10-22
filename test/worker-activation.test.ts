@@ -16,21 +16,28 @@ import { ThreadManager } from "../extension/threads.ts";
 const prefix = "slate: codemode is unavailable for this worker — ";
 const failure = "worker extension startup failed worker extension failed to load\nunsafe";
 const mode = process.env.SLATE_ACTIVATION_FAILURE;
+let importCalls = 0;
 if (mode) {
   registerHooks({
     resolve(specifier, context, next) {
-      if (mode === 'import' && specifier === './worker-codemode.ts') throw Error(failure);
+      if (mode === 'import' && specifier === './worker-codemode.ts' && ++importCalls === 1) throw Error(failure);
       return next(specifier, context);
     },
     load(url, context, next) {
       const result = next(url, context);
       if (!url.endsWith('/extension/worker-codemode.ts')) return result;
-      const source = mode === 'construction' ? `export function createWorkerCodemodeComponent() { throw Error(${JSON.stringify(failure)}); }`
-        : mode === 'factory' ? `export function createWorkerCodemodeComponent() { return () => { throw Error(${JSON.stringify(failure)}); }; }`
+      if (mode === 'construction') return { ...result, source: String(result.source)
+        .replace('export function createWorkerCodemodeComponent(', 'function realCreator(')
+        + `\nlet calls = 0; export function createWorkerCodemodeComponent(...args) {
+          if (++calls === 1) throw Error(${JSON.stringify(failure)}); return realCreator(...args); }` };
+      const source = mode === 'factory' ? `export function createWorkerCodemodeComponent() { return () => { throw Error(${JSON.stringify(failure)}); }; }`
         : mode === 'missing' ? 'export function createWorkerCodemodeComponent() { return () => {}; }'
         : mode === 'undefined' ? 'export const createWorkerCodemodeComponent = undefined;'
+        : mode === 'bad-name' ? 'export function createWorkerCodemodeComponent() { return () => {}; }'
+        : mode === 'non-function' ? 'export function createWorkerCodemodeComponent() { return {}; }'
         : undefined;
-      return source === undefined ? result : { ...result, source };
+      return source === undefined ? result : { ...result, source: source +
+        `\nexport const WORKER_CODEMODE_COMPONENT_NAME = ${JSON.stringify(mode === 'bad-name' ? 'wrong' : 'slate-worker-codemode')};` };
     },
   });
 }
@@ -55,11 +62,13 @@ async function fixture(run: (ctx: ExtensionContext, path: string, declarations: 
         maxTokens: 100, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }],
       streamSimple(model, request) {
         declarations.push(request.messages.filter(m => m.role === 'system').flatMap(m => m.toolsAdded?.map(t => t.name) ?? []));
+        const call = forceCodemodeCall && declarations.length === 1
+          || (mode === 'import' || mode === 'construction') && !request.messages.some(m => m.role === 'toolResult');
+        const read = mode === 'import' || mode === 'construction' && !declarations.at(-1)!.includes('codemode');
         const message: AssistantMessage = { role: 'assistant', api: model.api, provider: model.provider, model: model.id,
-          content: forceCodemodeCall && declarations.length === 1
-            ? [{ type: 'toolCall', id: 'external-attempt', name: 'codemode', arguments: {} }]
-            : [{ type: 'text', text: 'complete' }],
-          stopReason: forceCodemodeCall && declarations.length === 1 ? 'toolUse' : 'stop', timestamp: 1,
+          content: call ? [{ type: 'toolCall', id: 'activation-call', name: read ? 'read' : 'codemode',
+            arguments: read ? { path } : { code: 'text("recovered")' } }] : [{ type: 'text', text: 'complete' }],
+          stopReason: call ? 'toolUse' : 'stop', timestamp: 1,
           usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2,
             cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } };
         const stream = createAssistantMessageEventStream();
@@ -89,6 +98,58 @@ function manager(path: string, configured?: string[]) {
 
 if (mode) {
   test('missing codemode child', { timeout: 15000 }, async () => {
+    if (mode === 'import' || mode === 'construction') await fixture(async (ctx, path, declarations) => {
+      if (mode === 'construction') {
+        const instance = manager(path);
+        try {
+          const result = await instance.dispatch({ model: 'fixture', reason: 'construction failure',
+            task: 'read direct tool', type: 'general' }, ctx, undefined);
+          assert.equal(result.episode.status, 'ok');
+          assert.deepEqual(result.warnings, [prefix + failure.replace(/\n/g, '')]);
+          assert.doesNotMatch(result.episodeText, /Lifecycle failures:/);
+          assert.ok(declarations.at(-1)!.includes('read'));
+          assert.equal(declarations.at(-1)!.includes('codemode'), false);
+        } finally { await instance.disposeAll(); }
+      }
+      const warnings: string[][] = [];
+      const sessions: WorkerSession[] = [];
+      const open = async () => {
+        const messages: string[] = []; warnings.push(messages);
+        try { return { session: await openWorkerSession({ ctx, tools: ['read'], report: m => messages.push(m),
+          onCreated: session => { sessions.push(session); } }) }; }
+        catch (error) { return { error }; }
+      };
+      try {
+        const first = await Promise.all(Array.from({ length: mode === 'import' ? 3 : 0 }, open));
+        const later = await open();
+        const results = [...first, later];
+        for (let i = 0; i < results.length; i++) {
+          const session = results[i]!.session;
+          assert.ok(session, String(results[i]!.error));
+          const unavailable: boolean = mode === 'import';
+          assert.equal(session.getActiveToolNames().includes('read'), true);
+          assert.equal(session.getActiveToolNames().includes('codemode'), !unavailable);
+          assert.equal(warnings[i]!.length, unavailable ? 1 : 0);
+          if (unavailable) {
+            assert.equal(warnings[i]![0], prefix + failure.replace(/\n/g, ''));
+            await session.prompt('complete');
+            if (mode === 'import') {
+              const read = session.messages.find(m => m.role === 'toolResult');
+              assert.ok(read && read.role === 'toolResult' && read.toolName === 'read' && !read.isError);
+            }
+          } else {
+            assert.equal(session.getAllTools().find(t => t.name === 'codemode')?.sourceInfo?.path, '<inline:slate-worker-codemode>');
+            await session.prompt('execute recovery');
+            const result = session.messages.find(m => m.role === 'toolResult');
+            assert.ok(result && result.role === 'toolResult');
+            assert.notEqual(result.isError, true);
+            assert.match(JSON.stringify(result.content), /recovered/);
+          }
+        }
+        if (mode === 'import') assert.equal(importCalls, 1);
+      } finally { await Promise.allSettled(sessions.map(session => session.shutdownWorker())); }
+    });
+    if (mode === 'construction') return;
     await fixture(async (ctx, path, declarations) => {
       for (const configured of [undefined, ['read', 'codemode'], ['*']]) {
         const instance = manager(path, configured);
@@ -137,7 +198,7 @@ if (mode) {
     }, "pi.on('session_start', () => { globalThis[Symbol.for('slate-activation-classification')](); throw Error('classification startup failure'); });");
   });
 } else {
-  for (const failureMode of ['import', 'undefined', 'construction', 'factory', 'missing']) {
+  for (const failureMode of ['import', 'undefined', 'construction', 'factory', 'missing', 'bad-name', 'non-function']) {
     test(`missing codemode continues dispatch with one warning: ${failureMode}`, { timeout: 25000 }, () => {
       const result = spawnSync(process.execPath, ['--test', '--test-name-pattern=^missing codemode child$', fileURLToPath(import.meta.url)], {
         env: { ...process.env, NODE_TEST_CONTEXT: undefined, SLATE_ACTIVATION_FAILURE: failureMode }, encoding: 'utf8', timeout: 20000,

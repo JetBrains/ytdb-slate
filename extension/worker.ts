@@ -445,6 +445,9 @@ export function inheritHostProviderRegistrations(
 	}
 }
 
+// One load result belongs to this opener module, including a rejected import.
+let workerCodemodeLoad: Promise<typeof import("./worker-codemode.ts")> | undefined;
+
 export async function openWorkerSession(opts: {
 	ctx: ExtensionContext;
 	sessionFile?: string; // resume when provided, else create new under this runtime folder
@@ -543,10 +546,17 @@ export async function openWorkerSession(opts: {
 	let codemodeFactory: ExtensionFactory | undefined;
 	let codemodeFailure: unknown;
 	try {
-		const codemode = await import("./worker-codemode.ts");
+		if (!workerCodemodeLoad) workerCodemodeLoad = import("./worker-codemode.ts");
+		const codemode = await workerCodemodeLoad;
+		if (codemode.WORKER_CODEMODE_COMPONENT_NAME !== "slate-worker-codemode"
+			|| typeof codemode.createWorkerCodemodeComponent !== "function") {
+			throw new Error("Invalid worker codemode component exports");
+		}
+		const factory = codemode.createWorkerCodemodeComponent(warn, nestedLifecycle.closeSignal);
+		if (typeof factory !== "function") throw new Error("Invalid worker codemode component factory");
 		codemodeName = codemode.WORKER_CODEMODE_COMPONENT_NAME;
 		codemodePath = `<inline:${codemodeName}>`;
-		codemodeFactory = codemode.createWorkerCodemodeComponent(warn, nestedLifecycle.closeSignal);
+		codemodeFactory = factory;
 	} catch (error) {
 		codemodeFailure = error;
 	}
