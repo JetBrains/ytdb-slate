@@ -23,7 +23,7 @@ separate temporary directory and Jiti cache. It writes a separate host LCOV file
 Either process can fail the wrapper. The runner audits that their union equals
 discovery and contains no overlap or duplicate. Host coverage is not merged,
 concatenated, filtered, or credited.
-Code loaded through jiti gets no native coverage collection or patch-coverage credit because its transformed byte offsets differ from TypeScript source offsets.
+Jiti-loaded code gets no patch-coverage credit because its byte offsets do not match the TypeScript source. In the native test process, each launch site that loads extension code through jiti must disable coverage collection. Set an own `NODE_V8_COVERAGE` child-environment key to `undefined`, or unset the variable in the shell. Otherwise, jiti records overwrite native line counts. The host process collects jiti coverage in its separate host LCOV, which gets no patch-coverage credit.
 Native child processes keep coverage unless a test excludes it.
 The existing source-authoritative denominator, 85 percent line and branch floors, and
 small-branch-denominator warning policy remain unchanged.
