@@ -16,6 +16,9 @@ import { ThreadManager } from "../extension/threads.ts";
 const prefix = "slate: codemode is unavailable for this worker — ";
 const failure = "worker extension startup failed worker extension failed to load\nunsafe";
 const mode = process.env.SLATE_ACTIVATION_FAILURE;
+const validationCause = mode === 'bad-name' || mode === 'undefined-name' || mode === 'undefined' || mode === 'non-function-creator'
+  ? 'Invalid worker codemode component exports'
+  : mode === 'non-function' ? 'Invalid worker codemode component factory' : undefined;
 let importCalls = 0;
 if (mode) {
   registerHooks({
@@ -30,14 +33,18 @@ if (mode) {
         .replace('export function createWorkerCodemodeComponent(', 'function realCreator(')
         + `\nlet calls = 0; export function createWorkerCodemodeComponent(...args) {
           if (++calls === 1) throw Error(${JSON.stringify(failure)}); return realCreator(...args); }` };
+      if (mode === 'bad-name' || mode === 'undefined-name') return { ...result,
+        source: String(result.source).replace('export const WORKER_CODEMODE_COMPONENT_NAME', 'const WORKER_CODEMODE_COMPONENT_NAME')
+          + `\nconst invalidName = ${mode === 'bad-name' ? '"wrong"' : 'undefined'};
+            export { invalidName as WORKER_CODEMODE_COMPONENT_NAME };` };
       const source = mode === 'factory' ? `export function createWorkerCodemodeComponent() { return () => { throw Error(${JSON.stringify(failure)}); }; }`
         : mode === 'missing' ? 'export function createWorkerCodemodeComponent() { return () => {}; }'
         : mode === 'undefined' ? 'export const createWorkerCodemodeComponent = undefined;'
-        : mode === 'bad-name' ? 'export function createWorkerCodemodeComponent() { return () => {}; }'
+        : mode === 'non-function-creator' ? 'export const createWorkerCodemodeComponent = {};'
         : mode === 'non-function' ? 'export function createWorkerCodemodeComponent() { return {}; }'
         : undefined;
       return source === undefined ? result : { ...result, source: source +
-        `\nexport const WORKER_CODEMODE_COMPONENT_NAME = ${JSON.stringify(mode === 'bad-name' ? 'wrong' : 'slate-worker-codemode')};` };
+        '\nexport const WORKER_CODEMODE_COMPONENT_NAME = "slate-worker-codemode";' };
     },
   });
 }
@@ -63,8 +70,10 @@ async function fixture(run: (ctx: ExtensionContext, path: string, declarations: 
       streamSimple(model, request) {
         declarations.push(request.messages.filter(m => m.role === 'system').flatMap(m => m.toolsAdded?.map(t => t.name) ?? []));
         const call = forceCodemodeCall && declarations.length === 1
-          || (mode === 'import' || mode === 'construction') && !request.messages.some(m => m.role === 'toolResult');
-        const read = mode === 'import' || mode === 'construction' && !declarations.at(-1)!.includes('codemode');
+          || (mode === 'import' || mode === 'construction' || validationCause !== undefined && !forceCodemodeCall)
+            && !request.messages.some(m => m.role === 'toolResult');
+        const read = !forceCodemodeCall && (mode === 'import' || validationCause !== undefined
+          || mode === 'construction' && !declarations.at(-1)!.includes('codemode'));
         const message: AssistantMessage = { role: 'assistant', api: model.api, provider: model.provider, model: model.id,
           content: call ? [{ type: 'toolCall', id: 'activation-call', name: read ? 'read' : 'codemode',
             arguments: read ? { path } : { code: 'text("recovered")' } }] : [{ type: 'text', text: 'complete' }],
@@ -159,6 +168,7 @@ if (mode) {
           assert.equal(result.episode.status, 'ok', JSON.stringify(result));
           const warnings = result.warnings.filter(w => w.startsWith(prefix));
           assert.equal(warnings.length, 1, JSON.stringify(result.warnings));
+          if (validationCause !== undefined) assert.equal(warnings[0], prefix + validationCause);
           assert.doesNotMatch(warnings[0]!, /\n|\r/);
           assert.equal(result.warnings.some(w => w.startsWith('slate: worker extension failed to load')), false);
           assert.doesNotMatch(result.episodeText, /Lifecycle failures:/);
@@ -168,6 +178,20 @@ if (mode) {
         } finally { await instance.disposeAll(); }
       }
     }, "pi.on('before_agent_start', () => register('codemode'));");
+    if (validationCause !== undefined) await fixture(async (ctx, _path, declarations) => {
+      const warnings: string[] = [];
+      const session = await openWorkerSession({ ctx, tools: ['read'], report: warning => warnings.push(warning) });
+      try {
+        assert.deepEqual(warnings, [prefix + validationCause]);
+        assert.deepEqual(session.getActiveToolNames(), ['read']);
+        assert.equal(session.getAllTools().some(tool => tool.name === 'codemode'), false);
+        await session.prompt('read the fixture');
+        assert.deepEqual(declarations[0], ['read']);
+        const result = session.messages.find(message => message.role === 'toolResult');
+        assert.ok(result && result.role === 'toolResult' && result.toolName === 'read' && !result.isError);
+        assert.match(JSON.stringify(result.content), /register\('extra'\)/);
+      } finally { await session.shutdownWorker(); }
+    });
     await fixture(async (ctx, path, declarations) => {
       const session = await openWorkerSession({ ctx, tools: ['*'], extensionPaths: [path] });
       try {
@@ -198,7 +222,7 @@ if (mode) {
     }, "pi.on('session_start', () => { globalThis[Symbol.for('slate-activation-classification')](); throw Error('classification startup failure'); });");
   });
 } else {
-  for (const failureMode of ['import', 'undefined', 'construction', 'factory', 'missing', 'bad-name', 'non-function']) {
+  for (const failureMode of ['import', 'undefined', 'non-function-creator', 'construction', 'factory', 'missing', 'bad-name', 'undefined-name', 'non-function']) {
     test(`missing codemode continues dispatch with one warning: ${failureMode}`, { timeout: 25000 }, () => {
       const result = spawnSync(process.execPath, ['--test', '--test-name-pattern=^missing codemode child$', fileURLToPath(import.meta.url)], {
         env: { ...process.env, NODE_TEST_CONTEXT: undefined, SLATE_ACTIVATION_FAILURE: failureMode }, encoding: 'utf8', timeout: 20000,
