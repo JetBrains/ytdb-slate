@@ -5,7 +5,7 @@
  *   - active tools restricted to read-only + slate tools (no bash/edit/write):
  *     delegation becomes the natural behavior;
  *   - the thread-weaving doctrine is appended to the system prompt each turn;
- *   - a status line shows orchestrator spend and pause state;
+ *   - a status line shows total spend and pause state;
  *   - the mode persists in slate state and is re-applied on session restore;
  *   - with config `orchestratorModeDefault` (slate.json), genuinely fresh
  *     interactive sessions are seeded with the mode ON (unsaved until the
@@ -445,9 +445,7 @@ export function registerSlateMode(
 		// abandoned branches still cost money), plus spend carried across handoffs.
 		const orchestratorCost = orchestratorCostUsd(uiCtx);
 		const total = orchestratorCost + store.workerCostUsd + store.carriedCostUsd;
-		// Keep the line short in the common no-handoff case.
-		const carried = store.carriedCostUsd > 0 ? ` + carried $${store.carriedCostUsd.toFixed(4)}` : "";
-		const costLine = `total $${total.toFixed(4)} (me $${orchestratorCost.toFixed(4)} + workers $${store.workerCostUsd.toFixed(4)}${carried})`;
+		const costLine = `total $${total.toFixed(4)}`;
 		const statusWindowTurns = getConfig().writing?.statusWindowTurns ?? DEFAULT_STATUS_WINDOW_TURNS;
 		const writingLine = writingIsVisible(uiCtx)
 			? writingStatus === "ready"
