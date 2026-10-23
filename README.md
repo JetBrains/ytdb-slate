@@ -4,6 +4,8 @@
 
 Slate is a multi-agent orchestration extension for the [pi coding agent](https://pi.dev). You work in one interactive pi session, the main session. A bounded action is a focused task with a clear limit. A worker thread is an isolated pi session that researches, implements, or reviews changes. Slate sends bounded actions to separate worker threads. Each worker thread returns a short structured summary called an episode. A review workflow adds reviewers for risks that you approve or for work above a size threshold.
 
+The developers of the [YouTrackDB](https://github.com/JetBrains/youtrackdb) database use Slate in production development.
+
 ## What Slate does
 
 - Gives each worker thread context for one action, not the full main-session history.
