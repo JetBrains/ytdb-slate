@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+unset PI_CODEMODE_MAX_WORKERS
 # =============================================================================
 # slate — verification ladder for the global model-default restore
 # =============================================================================

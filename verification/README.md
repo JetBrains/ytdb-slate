@@ -1650,6 +1650,10 @@ another live session, and a removal would corrupt the write of that session.
 `.gitignore` covers `.pi/*.lock` for the case where a signal kills the harness, or
 a dogfooding session, before any cleanup runs.
 
+The load check unsets `PI_CODEMODE_MAX_WORKERS` before its probe and sessions.
+The ladder also unsets it before all launches. The release roster explicitly
+unsets it for isolated load. Both reminder sessions use an empty environment.
+The test wrapper explicitly selects 2 for both test processes.
 The separate version-pin probe reads the real user agent directory before the
 throwaway session directories exist. It creates and removes `settings.json.lock`
 beside the real user settings file. That operation moves the real agent
@@ -1721,10 +1725,10 @@ past.
 One gap remains, and this document states it plainly. `T2` and `T4` together
 cover the syntax of the file, its top-level shape, and the sanitizer-covered
 config groups. **An unknown key, and a wrong-typed value under a key without a
-sanitizer, pass both checks in silence**. `{"totallyUnknownKey": 5, "maxConcurrent": "lots"}`
-gives a pass for `T4` and a pass for `T2`. No check in CI validates the
-content of the config, and the reader of `README.md` § Configuration still
-carries that duty.
+sanitizer, pass both checks in silence**. `{"totallyUnknownKey": 5}`
+passes both checks. A malformed `maxConcurrent` still passes the syntax and shape
+check `T4`, but the trusted `T2` run observes its sanitizer warning and fails.
+These checks do not provide complete static validation.
 
 The harness proves no tool behaviour. No check here executes a tool, starts a
 worker session, or exercises failover or handoff: the harness performs loads,

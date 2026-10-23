@@ -207,18 +207,34 @@ required reviews, ordered gates, user authority, or final acceptance.
 | P13 risk-based focus-area authorship | no runtime code home for author research or approval. Focus definitions, reviewer content, the code roster, and structure and agreement checks apply the rule. |
 | P14 mechanical workflow steps | `action-temporary.ts` manages temporary folders. Other existing rules remain future work for a tracked issue. |
 
-Repo-local note (not from the report): `maxConcurrent` defaults to 4.
-The cap must be at least 1. Slate does not enforce that condition.
-A value of 0 or less leaves dispatches waiting indefinitely.
+Repo-local note (not from the report): `maxConcurrent` defaults to 8.
+A positive safe integer is a whole number from 1 through `Number.MAX_SAFE_INTEGER`.
+Slate accepts only these values, without conversion or rounding.
+Invalid input produces one warning and selects 8.
+A safe integer does not provide a practical resource ceiling.
 
 With a positive cap, excess actions wait for a slot.
 The slot covers the worker conversation and episode compression.
 A low positive cap increases wait time. A high cap can exceed provider
 rate limits and cause failed episodes or increase provider spend.
 
-The default aims to support small parallel batches, such as research actions
-or several reviewers. It does not guarantee safety under provider rate limits.
+Eight supports concurrent actions but does not guarantee script capacity.
+More concurrent actions and script workers increase memory use and simultaneous
+provider requests. Existing request pacing and retry policies still apply.
 Projects can adjust the cap in `slate.json` for their workload and provider limits.
+
+Slate derives `PI_CODEMODE_MAX_WORKERS` from effective action concurrency while
+Slate owns the variable. This variable controls script workers per process.
+Child processes inherit it, including bash tool commands and nested pi sessions.
+Each nested pi has its own pool of the inherited size.
+Users can set the variable explicitly for children.
+Separate pools multiply possible script workers across processes.
+They do not share one capacity limit.
+Present overrides remain unchanged, including invalid strings that pi interprets.
+The latest committed startup updates a Slate-owned value.
+An external change revokes ownership. Deletion permits a fresh default.
+An external rewrite to the same string cannot be detected.
+Shutdown does not restore an earlier value.
 
 Repo-local note (not from the report): **logical-model routing and recovery**
 applies P10 discipline to provider spend. Each bounded action names a provider-free

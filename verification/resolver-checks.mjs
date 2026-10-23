@@ -6924,6 +6924,12 @@ The accounting covers:`),
 			const poolLaunches = ["native", "host"].map((kind) =>
 				`cd "$repo" && PI_CODEMODE_MAX_WORKERS=2 PI_CODING_AGENT_DIR="$work/${kind}-agent"`);
 			const hasPoolLaunches = (source) => poolLaunches.every((launch) => source.split(launch).length === 2);
+			const presenceControls = [
+				["load check shell before version probe and sessions", "run-load-check.sh", "\nunset PI_CODEMODE_MAX_WORKERS\n"],
+				["ladder shell before every child launch", "run-ladder.sh", "\nunset PI_CODEMODE_MAX_WORKERS\n"],
+				["release roster isolated-load command", "release-checks.sh", "run isolated-load bash -c 'env -u PI_CODEMODE_MAX_WORKERS HOME="],
+			].map(([boundary, file, control]) => ({ boundary, control, source: readFileSync(join(REPO, "verification", file), "utf8") }));
+			const hasPresenceControl = (source, control) => source.split(control).length === 2;
 			const parallelToolRule = "Issue all independent tool calls simultaneously in one worker turn. Use separate turns only when results depend on each other or conflict.";
 			const reasonSentences = [
 				"The harness runs calls issued in one turn at the same time.",
@@ -7062,6 +7068,10 @@ The accounting covers:`),
 				["published system figures match production and keep independent limits", guidanceStates.every(([change, review, , , limit], i) => { const bytes = Buffer.byteLength(worker.changeGuidance(change, review)); return folderBudget.includes(`| ${i < 2 ? "Open-change" : "No-change"} ${review ? "review" : "record-writing"} system | ${bytes} | 2 | ${bytes + 2} | ${limit} |`); }), guidanceStates],
 				["published system totals use production preambles and change blocks", [false, true].every((review) => { const totals = [false, true].map((trusted) => Buffer.byteLength(worker.workerSystemPromptBlocks(trusted, review, undefined, [], worker.changeGuidance(canonicalChange, review)).join("\n\n")).toLocaleString("en-US")); return folderBudget.includes(`Open-change ${review ? "review" : "record-writing"} system totals are ${totals[0]} or ${totals[1]} bytes without or with writing guidance.`); }), folderBudget],
 				["untrusted preamble is the 1313-byte common text", worker.WORKER_PREAMBLE === commonPreamble && Buffer.byteLength(worker.workerPreamble(false, false)) === 1313, worker.workerPreamble(false, false)],
+				...presenceControls.flatMap(({ boundary, source, control }) => [
+					[`${boundary} explicitly selects absence`, hasPresenceControl(source, control), control],
+					[`${boundary} rejects removal of its unset`, !hasPresenceControl(source.replace(control, ""), control), control],
+				]),
 				["both test processes select pool limit 2", hasPoolLaunches(testRunner), poolLaunches],
 				["removing either test-process limit fails the launch contract", poolLaunches.every((launch) => { const mutated = testRunner.replace(launch, launch.replace("PI_CODEMODE_MAX_WORKERS=2 ", "")); return mutated !== testRunner && !hasPoolLaunches(mutated); }), poolLaunches],
 				["recovery guidance appears exactly once in every prompt form", [false, true].every(trusted => [false, true].every(review => hasRecovery(worker.workerPreamble(trusted, review)))), recoveryRule],

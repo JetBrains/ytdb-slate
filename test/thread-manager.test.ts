@@ -84,12 +84,7 @@ test("ThreadManager's semaphore honours configured and default limits and return
     { paused: false } as unknown as SlateStore,
     {},
   )).semaphore;
-  const defaultHolders = [
-    defaulted.acquire(),
-    defaulted.acquire(),
-    defaulted.acquire(),
-    defaulted.acquire(),
-  ];
+  const defaultHolders = Array.from({ length: 8 }, () => defaulted.acquire());
   await Promise.all(defaultHolders);
   let defaultWaiterAdmitted = false;
   const defaultWaiter = defaulted.acquire().then(() => {
@@ -102,10 +97,34 @@ test("ThreadManager's semaphore honours configured and default limits and return
   await defaultWaiter;
   assert.equal(defaultWaiterAdmitted, true);
 
-  defaulted.release();
-  defaulted.release();
-  defaulted.release();
-  defaulted.release();
+  for (let index = 0; index < 8; index++) defaulted.release();
+  await Promise.all(Array.from({ length: 8 }, () => defaulted.acquire()));
+  for (let index = 0; index < 8; index++) defaulted.release();
+});
+
+test("invalid direct concurrency uses eight slots without mutating configuration", { timeout: 1000 }, async (t) => {
+  const warnings: string[] = [];
+  t.mock.method(console, "warn", (message: string) => warnings.push(message));
+  for (const value of [0, -1, 1.5, Infinity, "lots", null]) {
+    const config = { maxConcurrent: value } as SlateConfig;
+    const manager = new ThreadManager({} as SlateStore, config);
+    const semaphore = constructorFields(manager).semaphore;
+    assert.strictEqual(manager.getConfig(), config);
+    assert.equal(config.maxConcurrent, value);
+    await Promise.all(Array.from({ length: 8 }, () => semaphore.acquire()));
+    let entered = false;
+    const ninth = semaphore.acquire().then(() => { entered = true; });
+    await Promise.resolve();
+    assert.equal(entered, false);
+    semaphore.release();
+    await ninth;
+    assert.equal(entered, true);
+    for (let index = 0; index < 8; index++) semaphore.release();
+    await Promise.all(Array.from({ length: 8 }, () => semaphore.acquire()));
+    for (let index = 0; index < 8; index++) semaphore.release();
+    await manager.disposeAll();
+  }
+  assert.deepEqual(warnings, Array(6).fill("slate: maxConcurrent must be a positive safe integer. Using 8."));
 });
 
 test("public dispatch enforces maxConcurrent across different threads", { timeout: 1000 }, async () => {
