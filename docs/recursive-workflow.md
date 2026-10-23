@@ -713,7 +713,7 @@ The affected track completes only after every child repair and required gate is 
 Every design track requires one explicit blocking acceptance of its whole subtree.
 This requirement applies with any proved-area set and with publishing enabled or disabled.
 Present one design-track package for that aggregate decision.
-It identifies the approved design, accepted child evidence, and every subtree level delivery.
+Show design, child-evidence, and delivery references only when the decision needs them.
 State remaining decisions, evidence limits, deviations, and effects on later sibling tracks.
 Use [delivery-packages.md](delivery-packages.md) § Track package for the package fields.
 
@@ -737,8 +737,8 @@ Its aggregate evidence must show each child's required review coverage and separ
 
 ## Packages, attribution, and issues
 
-Use [delivery-packages.md](delivery-packages.md) § Track package for code and design references.
-Use its § Change package for the root's complete level-delivery list.
+Use [delivery-packages.md](delivery-packages.md) for package fields.
+Keep the complete level-delivery list in the owning research log.
 Use its § Durable accounting for record sources and owning-log reconciliation.
 Use [pr-publishing.md](pr-publishing.md) § Description rules for each level's template-shaped description.
 Do not count accepted child work as new implementation.

@@ -25,12 +25,14 @@ Keep every required conclusion and separate verdict in the accounting sources
 defined in § Durable accounting. A package
 summarizes the result. It does not replace those records.
 
-Use short, self-contained statements. Put the result and the user's next action
-first. Reference the diff instead of copying it. Do not add a file table, a
+Use short, self-contained statements. Lead with the track or change intention.
+Put the result and the user's next action
+first. Link the diff only when a decision needs it. Do not add a file table, a
 proved-area roster, review counts, a verification section, a user-requested-fix
 verification section, or a list of material available on request.
 
-Never hide a blocking failure, an unfixed finding, a relevant risk, a design
+Keep failed checks, unmet targets, missing measurements, and known limits that
+affect acceptance visible. Never hide a blocking failure, a relevant risk, a design
 difference, or a decision that the user must make. Put such information in the
 conditional attention section. A package may mention a check only when its
 failure or limit affects the user's decision. The durable record keeps the full
@@ -43,33 +45,33 @@ Use this order:
 ```markdown
 ## Track <number>: <name>
 
+**Intention**
+<The approved behavior and scope.>
+
 **Result**
 <What the track completed and the user-visible or workflow result.>
 
 **Needs attention**
-<Only risks, unfixed findings, design differences, or requested decisions. For
+<Only acceptance-relevant risks, failures, limits, design differences, or decisions. For
 each decision, give every option and its consequence. Omit this field when none
 exists.>
 
-**References**
-<Pull request and state when one exists, exact commit range, diff location, and
-supporting accounting source or owning research log.>
-
 **Next step**
-<State whether acceptance is requested, a decision is required, or the track is
-reporting progress. Name the action the user should take.>
+<Ask for blocking track acceptance for every code track in a multi-track change.
+For a design track, ask for whole-subtree acceptance.>
 ```
 
-The **Result** states the completed outcome, not an activity log. The
-**References** field identifies a code track's cumulative implementation commit or exact range.
+The **Result** states the completed outcome, not an activity log.
+Show names, finding details, and accounting references only when a decision needs them.
+Keep the cumulative implementation commit or exact range in the owning research log.
 For code ranges and design markers, use [change-records.md](change-records.md)
 § Identifiers, code ranges, and design markers.
-A design-track package names its approved design, accepted child ranges, and every subtree level delivery.
-It has no implementation range or extra cumulative commit.
+The owning research log names a design track's approved design, accepted child ranges,
+and every subtree level delivery. A design track has no implementation range or extra cumulative commit.
 Do not count accepted child work as new implementation.
-With publishing, a code package links its level pull request and states its delivery state.
-A design package distinguishes merged levels from every level waiting for merge, including levels held behind an unmerged foundation.
-Without publishing, state that no pull request exists.
+With publishing, state the delivery result when it affects acceptance.
+Disclose merge state and unmerged dependencies when acceptance needs them.
+Keep the publishing state in the owning log.
 
 The **Next step** states the applicable acceptance action. Follow
 [track-workflow.md](track-workflow.md) § Delivery and termination for the
@@ -77,7 +79,8 @@ code-track acceptance and boundary rules.
 For a design track, use [recursive-workflow.md](recursive-workflow.md) § Whole-subtree acceptance.
 The package states deviations and their effects on later sibling tracks.
 Inside an incomplete level, list each remaining document, prompt, or extension difference and its later owner.
-The package still reports progress and every requested decision.
+The package asks for blocking track acceptance for every code track in a multi-track
+change, regardless of proved areas. Final change acceptance remains separate.
 
 ## Change package
 
@@ -85,6 +88,9 @@ Use this order:
 
 ```markdown
 ## Change: <name>
+
+**Intention**
+<The approved behavior and scope.>
 
 **Outcome**
 <What the whole change now achieves.>
@@ -96,13 +102,9 @@ Use this order:
 <Only relevant risks, deferred work, open issues, or unresolved feedback. Omit
 this field when none exists.>
 
-**References**
-<Every level delivery and its state when publishing is enabled, exact change range,
-diff location, and supporting accounting sources or owning research logs.>
-
 **Model-routing recommendations**
-<Evidence-bounded advice, or the exact sentence below, only when trusted
-configuration enables workflow.routingRecommendations.>
+<Advice supported by current-change records, only when trusted configuration
+also enables workflow.routingRecommendations. Omit this field when no advice exists.>
 
 **Decision**
 <Request final acceptance. State every other required decision with all options
@@ -112,18 +114,16 @@ and consequences.>
 The **Decision** field asks explicitly for the final acceptance required by
 [track-workflow.md](track-workflow.md) § Delivery and termination. Do not treat
 silence as acceptance.
-The root package lists every level delivery once.
-Distinguish merged levels from every level waiting for merge, including levels held behind an unmerged foundation.
+The owning research log lists every level delivery once.
+Disclose an unmerged dependency when it affects acceptance.
 A change without nested tracks has one level and at most one pull request.
 
-When trusted configuration enables `workflow.routingRecommendations`, always
-include **Model-routing recommendations** immediately before **Decision**. Use
+When trusted configuration enables `workflow.routingRecommendations` and records
+support advice, include **Model-routing recommendations** immediately before **Decision**. Use
 only current-change action records that name a logical model. Follow the
 evidence and authority limits in
 [track-workflow.md](track-workflow.md) § Routing recommendations at change
-completion. When the records support no advice, write exactly:
-
-`No model-routing changes recommended.`
+completion. Keep a no-advice result only in the research log and omit the field.
 
 When the setting is disabled, omit the field. The field is advisory. It never
 authorizes or performs a configuration, routing, model, effort, rating,
@@ -131,14 +131,13 @@ provider, or roster change.
 
 ## Single-track combined package
 
-A single-track change uses one combined package. Do not send a track package
-and then repeat the same facts in a second change package. Put the track heading
-and fields first. Put the change heading and change-only fields after them.
-Keep every required bold label. When a fact applies to both sections, state it
-once and use a short reference from the other field. When the two conditional
-attention fields have the same items, put the items under **Needs attention**.
-Put a short reference under **Remaining concerns**. Keep **Model-routing
-recommendations** immediately before **Decision** when that field is enabled.
+A single-track change sends one completion message using the change package.
+Use no track name and ask only for final change acceptance.
+Do not send a separate track package.
+Apply the presentation comparison rule in [track-workflow.md](track-workflow.md).
+Show full content once, then only changes from the last shown version, else the
+last approved or accepted version. Give one no-change sentence when unchanged.
+Neither presentation nor that sentence grants approval.
 
 ## Durable accounting
 
@@ -172,10 +171,11 @@ Attribute design-track and review-fix conclusions to their level in the owning l
 Keep root-wide and whole-subtree conclusions in the log that closes them.
 Reference other levels without counting their implementation again.
 Keep accounting out of the pull request description and final delivery commit body.
-Packages reference the owning records and disclose relevant concerns and decisions.
+Packages disclose relevant concerns and decisions.
+Show accounting references only when a decision needs them.
 After merge, verify the observed commit identity and parents against the accepted history and pull request.
 Record that merge-result binding in the owning log before root closure.
-Report the delivery state in the next applicable package.
+Report delivery state only when a decision needs it.
 
 For each required whole-subtree or root final acceptance, use this order even after the ready flip:
 
@@ -194,9 +194,9 @@ When draft publishing is disabled, the final Git record does not exist before
 final acceptance. Use this sequence:
 
 1. Before each intermediate code or design package, reconcile all accounting
-   sources for that track and its subtree. Reference those owning records and
-   accepted ranges. Do not claim that a future delivery commit exists.
-2. Before the combined single-track or root final package, reconcile every
+   sources for that track and its subtree. Show record and range references only
+   when a decision needs them. Do not claim that a future delivery commit exists.
+2. Before the change package, reconcile every
    accounting source across the whole change. Complete each design-track
    acceptance before its marker. Retain all records and accepted histories
    through root final acceptance.
@@ -221,8 +221,7 @@ exists.
 
 Retain conclusions and evidence needed for the listed accounting. Do not
 publish private reasoning, secrets, credentials, private user data, or
-unnecessary personal data. A package references the current accounting source
-or owning research log. It does not copy the full accounting into the conversation.
+unnecessary personal data. A package names the accounting source only when a decision needs it. It does not copy the full accounting into the conversation.
 A blocking item or a relevant concern still appears in the package even when
 its detail also exists in that source or log.
 <!-- delivery-package-contract:end -->

@@ -56,9 +56,9 @@ arithmetic result computed inside one check fail it. Low-level material is not
 discarded. It belongs in the implementer report.
 
 When an approved high-level design exists, present it before the track and
-after it. Omit the before phase when the track design has not changed since its
-last presentation to the user. Treat that omitted phase as auto-approved, so
-implementation starts without waiting. Omit the after phase when implementation
+after it. Omit the before phase only when approval state covers the track design.
+Approval state is the last approved version plus recorded changes that need no approval.
+Presentation alone grants no approval. Omit the after phase when implementation
 did not change the design. This omission skips only the design-difference
 presentation. It does not skip the track review. By default, a high-level
 design update presents what changed. It omits unchanged text that
@@ -99,8 +99,8 @@ The retained research log is the durable workflow record.
 <!-- track-size-policy:begin -->
 About 400 added plus removed lines per track is a planning guideline, not a hard
 limit or a completion gate. Lockfiles, migration files, and generated output do
-not count. Before proposing the split, the orchestrator estimates each track
-separately.
+not count. The orchestrator estimates each track separately and chooses the
+split without approval.
 An estimate above 100 counted lines requires a high-level design before
 implementation, including for a documentation-only track. Counted lines are
 added plus removed lines, excluding lockfiles, migration files, and generated
@@ -131,8 +131,9 @@ When an implementer approaches the guideline, the implementer stops adding
 scope and finishes at the nearest coherent point. The response reports completed
 work, remaining work, and a proposed track split. It also reports the reason for
 a small overrun. If the remaining approved work cannot fit in the coherent unit,
-the orchestrator proposes the additional track or tracks. The orchestrator
-obtains every approval that a new track requires before implementation continues.
+the orchestrator chooses the additional tracks without split approval.
+Announce each added track and its reason, then complete its applicable gates.
+The announcement authorizes neither a scope exception nor a changed design.
 <!-- track-size-policy:end -->
 
 ## Recursive planning and loading
@@ -235,10 +236,8 @@ copy of this table.
 
 ## Confirmation gate
 
-Apply recommended fixes for blocker and major findings in both review phases.
-Validate severity before choosing whether to fix or ignore each remaining minor finding.
-Keep minor dispositions and reasons only in the research log without routine disclosure.
-Moot and rejected findings retain those dispositions.
+Follow [review-rules.md](review-rules.md) § Findings and output for severity, required fixes,
+minor dispositions, and moot or rejected findings in both review phases.
 
 Five cases require a user decision: a waiver, a scope exception, a pre-existing
 defect, lowering a blocker, and an implementation-level finding without a recommended fix.
@@ -247,8 +246,10 @@ A fix that changes an approved guarantee, assumption, or reasoning requires desi
 Record every design-level change in the design update or track package.
 Automatic repair never bypasses halt rules, user notes, checks, gates, or acceptance.
 
-The orchestrator presents one proposal before implementation. It states the
-track split, required pre-implementation gates, and research-log location.
+The orchestrator obtains solution approval before implementation.
+Without a required high-level design, present a short plan for approval of behavior,
+scope, and necessary user choices. Keep the split, routine gates, and log location
+internal unless a decision needs them.
 It records an independent eleven-line risk record for the change. Each line is NAMED with a four-part proof or states
 which trigger part answers no. The orchestrator judges each proof internally.
 The user judges the proposed solution. No file-modifying dispatch starts before
@@ -257,7 +258,8 @@ solution approval and every required pre-implementation gate.
 When an approved high-level design exists, a **scope exception** is a design
 proposal, reviewer finding, or implemented change that covers something the
 approved goals do not list. A proposal to remove an approved goal is also a
-scope exception. The orchestrator presents every scope exception to the user.
+scope exception. Lead each request with one recommended outcome and its reason.
+List the other allowed outcomes and their consequences.
 The user chooses exactly one outcome:
 
 1. add a goal.
@@ -282,6 +284,18 @@ scope-exception outcome composes with that route and does not replace it. The
 route still re-derives the focus set. When no approved high-level design exists,
 the scope-exception rule does not apply. The same halt and focus re-derivation
 route governs instead.
+
+Present each design, plan, and implementation explanation fully once.
+Apply this rule to a baseline map when one is supplied.
+For later presentations, compare with the last shown version, else the last
+approved or accepted version. Keep those versions distinct from internal revisions.
+Retain the comparison versions in the state summary across handoffs.
+Show only changes. If unchanged, give one short no-change sentence.
+Neither presentation nor a no-change statement grants approval.
+Give a full recap on request. Each question names the earlier content and gives
+the context needed for that decision. Explain a needed workflow artifact at its
+first use in each session. Keep no explanation-history register across handoffs.
+Put all open decisions in one section with separate choices for each decision.
 
 Every message to the user must be complete on its own. State the substance
 before any identifier. State each item in words, including what was found,
@@ -642,8 +656,8 @@ coverage conclusion required below.
 ### Routing recommendations at change completion
 
 When trusted configuration sets `workflow.routingRecommendations` to `true`, the
-orchestrator adds model-routing recommendations to the change package before it
-asks for final acceptance. The advice covers only logical models named in
+orchestrator adds model-routing recommendations before final acceptance only
+when current-change records support advice. The advice covers only logical models named in
 action records for the current change. Use the current-change workflow context
 to set that boundary. Do not scan unrelated actions from the full session
 history.
@@ -656,9 +670,8 @@ it. Keep the advice short and ready to copy.
 Recommend changes to existing guidance or cautions first. Recommend another
 entry change only when empirical evidence is sufficient for that specific
 change. Do not derive broad capability claims from weak evidence. Do not invent
-a recommendation when the records support none. In that case, use the exact
-no-change statement required by
-[delivery-packages.md](delivery-packages.md) § Change package.
+a recommendation when the records support none. Keep a no-advice result only
+in the research log. Omit the routing field from the change package.
 
 The advice is advisory. It never authorizes a model selection or roster change.
 It never edits configuration, routing, or model files. A user decision and the
@@ -679,8 +692,9 @@ it defines.
 For design tracks, use [recursive-workflow.md](recursive-workflow.md) § Whole-subtree acceptance.
 The following proved-area acceptance rules apply to code tracks.
 
-Every completed track reaches the user through the track package defined in
-[delivery-packages.md](delivery-packages.md) § Track package. User acceptance of
+Use [delivery-packages.md](delivery-packages.md) for completion messages.
+A single-track change sends one change package without a track name and asks only final acceptance.
+User acceptance of
 a track is blocking when that track proves at least one DESIGN-TRIGGERING area.
 Where a marker applies, it waits for required track acceptance and every
 requested fix. A code track with only REVIEWER-ONLY areas, or no proved area,
@@ -722,7 +736,8 @@ boundaries.
 Commit each fix requested during user review separately after the cumulative
 commit. Do not squash a user-review fix into the cumulative commit, because
 folding it back would destroy the exact state the user reviewed. Present each
-fix and obtain user acceptance. When at least one such commit exists, add their
+fix's status in one batch acceptance question. Let the user accept or reject each
+fix separately. Keep one commit per fix. When at least one such commit exists, add their
 contiguous range to the coverage register. Dispatch one fresh gate thread to
 verify that range before adding an applicable marker or before completing
 final acceptance for a single-track change.
@@ -809,7 +824,7 @@ Without publishing, use all owning accounting sources defined in
 [delivery-packages.md](delivery-packages.md) § Durable accounting.
 These include root and design-track logs, code reports, affected-track repair
 records, and their read-only source chains.
-Intermediate packages reference those sources, not a future commit.
+Show source references only when a decision needs them. Never claim a future commit exists.
 After root final acceptance, create the final squashed delivery commit using project commit rules.
 Read the project's contributor instructions and their cited commit guidance.
 Explicit instructions take precedence over examples from history.

@@ -166,6 +166,15 @@ required reviews, ordered gates, user authority, or final acceptance.
   reference. Accept the repeated subject and its word cost. Avoid disconnected
   fragments. The configured limit controls the sentence-length finding.
 
+### User information
+
+- **P15 — Hide workflow details unless needed.** Show a workflow detail only when
+  a decision or required user action needs it. Keep the evidence in the owning records.
+- **P16 — Present only what the current need requires.** Present content fully once.
+  Later presentations show changes from the last shown version, else the last
+  approved or accepted version. Give one no-change sentence when unchanged.
+  Presentation grants no approval. Supply the context needed for each decision.
+
 ### Built-in focus-area authoring
 
 - **P13 — Research and define built-in focus areas by risk.** *(Repo-local note, not from the report.)* When proposing a new built-in focus area and its reviewer, apply these rules:
@@ -205,6 +214,8 @@ required reviews, ordered gates, user authority, or final acceptance.
 | P11 proportional process | The shipped workflow documents apply it to gates, artifacts, and review actions. It has no code home. |
 | P12 reader understanding | `writing-check.mjs` reports sentence-length findings. The writing guidance and review rules apply it to project prose. |
 | P13 risk-based focus-area authorship | no runtime code home for author research or approval. Focus definitions, reviewer content, the code roster, and structure and agreement checks apply the rule. |
+| P15 needed workflow details | The lifecycle and delivery-package rules govern user messages. |
+| P16 current information need | The lifecycle comparison rule governs later presentations. |
 | P14 mechanical workflow steps | `action-temporary.ts` manages temporary folders. Other existing rules remain future work for a tracked issue. |
 
 Repo-local note (not from the report): `maxConcurrent` defaults to 8.

@@ -134,12 +134,12 @@ test("logical doctrine production renders match published portable measurements"
   ], paths: [], toolNames: [] };
   const metric = (text: string) => ({ portable: text.split(docsDirectory).join("").length, lines: text.split("\n").length, paths: text.split(docsDirectory).length - 1 });
   assert.deepEqual(metric(runtime.promptText()!), { portable: 3596, lines: 11, paths: 0 });
-  assert.deepEqual(metric(await renderDoctrine(runtime)), { portable: 8461, lines: 74, paths: 5 });
-  assert.deepEqual(metric(await renderDoctrine(runtime, {}, false)), { portable: 2768, lines: 33, paths: 4 });
-  assert.deepEqual(metric(await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped)), { portable: 10043, lines: 87, paths: 6 });
+  assert.deepEqual(metric(await renderDoctrine(runtime)), { portable: 8445, lines: 75, paths: 5 });
+  assert.deepEqual(metric(await renderDoctrine(runtime, {}, false)), { portable: 2752, lines: 34, paths: 4 });
+  assert.deepEqual(metric(await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped)), { portable: 9983, lines: 88, paths: 6 });
   const change = { current: `change-20260101T000000Z-${"a".repeat(32)}`, source: `change-20260101T000001Z-${"b".repeat(32)}`, legacy: true };
   const linked = await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped, change);
-  assert.deepEqual(metric(linked), { portable: 10471, lines: 90, paths: 6 });
+  assert.deepEqual(metric(linked), { portable: 10411, lines: 91, paths: 6 });
   assert.ok(metric(linked).portable * 1.05 < 26300);
   assert.match(linked, /Follow each log's first entry to read the full source chain and accounting/);
   assert.match(linked, /Read-only legacy root log: research-log.md/);
@@ -247,7 +247,7 @@ test("every declared doctrine composition fits the original production hook", { 
   assert.equal(comparison(fixedBefore, await renderDoctrine(grown))[0], false, "fixed project input exposes logical prompt growth");
   for (const paused of domains.paused) {
     const pausedBefore = await renderDoctrine(oldRuntimes[0], {}, true, paused, undefined, EMPTY_WORKER_EXTENSION_SET, undefined, reference.register);
-    const changed = `${await renderDoctrine(newRuntimes[0], {}, true, paused)}${paused ? "x" : ""}`;
+    const changed = `${await renderDoctrine(newRuntimes[0], {}, true, paused)}${paused ? "x".repeat(128) : ""}`;
     assert.equal(comparison(pausedBefore, changed)[0], !paused, "paused-only growth is visible");
   }
   for (const ref of ["HEAD", `${original}^`]) assert.throws(() => verifyIdentity(ref), /original commit identity/);
@@ -505,7 +505,7 @@ for (const explicitModel of [false, true]) test(explicitModel
 
 test("single-action doctrine requires new threads and episode references", { timeout: 5000 }, async () => {
   const doctrine = await renderDoctrine();
-  assert.match(doctrine, /Each `thread` call starts a new thread for one action\./);
+  assert.match(doctrine, /Each `thread` starts one action\./);
   assert.match(doctrine, /Follow-ups need new threads\./);
   const boundaryDuty = /No worker conversation crosses (?:threads|that boundary)\./;
   assert.match(doctrine, boundaryDuty);
@@ -527,13 +527,13 @@ test("fixed doctrine preserves loading clauses and resolves filenames beside Lif
     assert.equal(readFileSync(join(process.cwd(), "extension", "paths.ts"), "utf8").split(`export const ${name} =`).length, 2);
   }
   // Loading requirements are owned by Lifecycle, not the candidate renderer.
-  const clauses = [/read change-records\.md for every change/, /load recursive-workflow\.md if a current or proposed plan/,
-    /plan has a design track or/, /or review-fix child track/, /At planning and/,
-    /and resume reconciliation, load/, /Load it before proposing a review-fix split/,
-    /Read applicable sections before relying on their rules/, /Beside Lifecycle:/];
+  const clauses = [/Read change-records\.md for every change/, /load recursive-workflow\.md for any planned/,
+    /planned design or/, /or review-fix track/, /At planning\/resume/,
+    /At planning\/resume, load/, /and before proposing a review-fix split/,
+    /Read applicable sections before use/, /Read change-records/];
   for (const trusted of [true, false]) {
     const doctrine = await renderDoctrine(undefined, {}, trusted);
-    const pointers = doctrine.match(/   Beside Lifecycle: [^\n]+/g) ?? [];
+    const pointers = doctrine.match(/   Read change-records[^\n]+/g) ?? [];
     assert.equal(pointers.length, 1);
     const pointer = pointers[0]!;
     assert.ok(clauses.every((clause) => clause.test(pointer)));
@@ -565,7 +565,7 @@ test("fixed doctrine preserves loading clauses and resolves filenames beside Lif
 
 test("doctrine uses approved focus states, the four-part proof, and effective gates", { timeout: 5000 }, async () => {
   const doctrine = (await renderDoctrine()).replace(/\s+/g, " ");
-  assert.ok(doctrine.includes("Keep separate change/track records. NAMED: defect, place, consequence, review contribution. User approval proves it. Rejection is SKIPPED."));
+  assert.ok(doctrine.includes("Keep separate change/track records. NAMED: defect, place, consequence, review contribution. Judge proof sufficiency internally."));
   assert.ok(doctrine.includes("Proved areas add specialists and one Reviewer I."));
   assert.ok(doctrine.includes("Estimate tracks first. Multi-track work or estimates >100 counted lines need design before work, even documentation-only."));
   assert.ok(doctrine.includes("Implementer reports approximate size in response and report. Above 100 adds Reviewer I except documentation-only."));
@@ -579,8 +579,8 @@ test("doctrine uses approved focus states, the four-part proof, and effective ga
   assert.doesNotMatch(doctrine, /Reviewer I remains required on every track|Review every track with Reviewer I/);
   assert.ok(doctrine.includes(`Definitions: ${BLAST_RADIUS_DOC}. Lifecycle: ${TRACK_WORKFLOW_DOC}.`));
   assert.doesNotMatch(doctrine, /Concurrency defect|Data loss|Security weakness|Licensing exposure/);
-  assert.ok(doctrine.includes("Approve proofs before edits."));
-  assert.ok(doctrine.includes("User judges proofs and simplicity."));
+  assert.ok(doctrine.includes("Judge proof sufficiency internally."));
+  assert.ok(doctrine.includes("User judges the solution."));
 });
 
 test("doctrine reuses known facts and only applicable user authorization", { timeout: 5000 }, async () => {
@@ -635,7 +635,7 @@ test("rule 8 renders exact feature-off and enabled publishing tails", { timeout:
 });
 
 test("routing-recommendation doctrine is trusted, opt-in, and feature-off inert", { timeout: 5000 }, async () => {
-  const pointer = "At change completion, follow Lifecycle's routing-recommendation rule before final acceptance.";
+  const pointer = "Show routing advice only when records support it.";
   const absent = await renderDoctrine();
   const disabled = await renderDoctrine(undefined, { workflow: { routingRecommendations: false } });
   const enabled = await renderDoctrine(undefined, { workflow: { routingRecommendations: true } });

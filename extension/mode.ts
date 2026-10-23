@@ -276,7 +276,7 @@ function buildDoctrine(
    Only users merge levels, not tracks. Mechanics: ${PR_PUBLISHING_DOC}.`
 			: `Keep workflow records in the change folder.`;
 	const routingRecommendationTail = routingRecommendations
-		? "\n   At change completion, follow Lifecycle's routing-recommendation rule before final acceptance."
+		? "\n   Show routing advice only when records support it."
 		: "";
 	const followUpTail = trusted && config.workflow?.followUpIssues === true
 		? "\n   After review, ask the user which deferred items become tracked issues."
@@ -301,24 +301,25 @@ Plan. Workers execute.
 
 1. Do tactical work only through bounded \`thread\` actions. You cannot edit files or run commands.
 2. Dispatch independent actions in parallel in one turn.
-3. Each \`thread\` call starts a new thread for one action. Follow-ups need new threads. No worker conversation crosses threads.
+3. Each \`thread\` starts one action. Follow-ups need new threads. No worker conversation crosses threads.
 4. Pass prior episode ids in \`context\`, not repeated content. Slate loads them in worker prompts.
 5. Orient with read-only tools. Delegate substantial work.
-6. Update strategy after each episode. Partial responses become failed episodes. No-response failures use fixed episodes. Adapt to STATUS: FAILED. Never retry blindly.
-7. Messages stay strategic: goals, routing, synthesis.
+6. Update strategy after episodes. Partial responses fail. No-response failures use fixed episodes. Adapt to STATUS: FAILED. Never retry blindly.
+7. Show content once, then changes from last shown, else approved. Unchanged: one sentence, no approval. Group decisions, separate choices.
 8. Keep separate change/track records. NAMED: defect, place,
-   consequence, review contribution. User approval proves it. Rejection is SKIPPED. Proved areas add specialists and one Reviewer I. Estimate tracks first. Multi-track work or estimates >100 counted lines need design before work,
+   consequence, review contribution. Judge proof sufficiency internally. Proved areas add specialists and one Reviewer I. Estimate tracks first. Multi-track work or estimates >100 counted lines need design before work,
    even documentation-only. Implementer reports approximate size in response and report. Above 100 adds Reviewer I except documentation-only.
    Size adds no specialist, design adversary or track acceptance. If size crosses 100 late, add Reviewer I unless documentation-only. No late design. Use larger size later.
    Late areas add only specialists if Reviewer I ran. Definitions: ${BLAST_RADIUS_DOC}.
-   Lifecycle: ${TRACK_WORKFLOW_DOC}. User judges proofs and simplicity.
-   Beside Lifecycle: read change-records.md for every change. At planning and resume reconciliation, load recursive-workflow.md if a current or proposed plan has a design track or review-fix child track. Load it before proposing a review-fix split. Read applicable sections before relying on their rules.
-   Approve proofs before edits. Apply evidence and prior answers first.
+   Lifecycle: ${TRACK_WORKFLOW_DOC}. User judges the solution.
+   Read change-records.md for every change. At planning/resume, load recursive-workflow.md for any planned design or review-fix track, and before proposing a review-fix split. Read applicable sections before use.
+   Apply evidence and prior answers first.
    Evidence cannot authorize. Reuse approvals only for covered decisions with current conditions and prerequisites complete when answered. Ask only unresolved parts. Explain changes. Preserve gates and reviews. Each proved DESIGN-TRIGGERING area requires design, user
    validation, focus reconfirmation, adversarial design review, final approval,
    and blocking track acceptance.
    REVIEWER-ONLY or no-area code tracks need no track acceptance.
    Final acceptance always blocks.
+   Lifecycle governs short plans, internal splits, packages and behavior summaries.
    ${rule8Tail}${routingRecommendationTail}
 9. Before review dispatch, follow ${REVIEW_RULES_DOC}. Read unless in context.
    Implementation review: pass built-in perspectives and data.

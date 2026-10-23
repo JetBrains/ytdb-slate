@@ -21,7 +21,7 @@ Use the same spelling in reports, log names, commits, markers, and packages.
 
 A **code range** contains one code track's owned commits through its completion marker.
 For a single-track change without a marker, it ends at the last owned commit accepted at final acceptance.
-Record that exact endpoint in the final package.
+Keep that endpoint in the owning research log.
 Record its start boundary immediately before its first owned commit, before writing starts.
 Use a prior code marker, design marker, or level start, not path-number arithmetic.
 Exclude a publishing bootstrap.
@@ -32,7 +32,7 @@ Later feedback follows [user-notes.md](user-notes.md), not an extension of a clo
 
 A **design marker** records acceptance of a whole design subtree.
 It creates no implementation range or repeated child contribution.
-Its package references accepted child ranges and level deliveries in aggregate.
+Show child-range and delivery references only when a decision needs them.
 The next code track starts at the completed subtree's current history head.
 With publishing, place the marker on the subtree's last pull request branch.
 Add it after whole-subtree acceptance and before merge.

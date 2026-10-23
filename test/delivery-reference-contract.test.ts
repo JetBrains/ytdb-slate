@@ -89,8 +89,8 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
         assert.equal(output.match(verdict)?.[1], cleanOutput.match(verdict)?.[1], output);
         assert.match(output, /^CHECK +roster +PASS\b/m);
         selectedOutput(output, contract, true);
-        assert.deepEqual(mutationCounts(output), contract === "contract-heading-regions" ? { "heading-policy": 863 } : {});
-        if (contract === "contract-heading-regions") assert.equal(mutationCounts(cleanOutput)["heading-policy"], 863);
+        assert.deepEqual(mutationCounts(output), contract === "contract-heading-regions" ? { "heading-policy": 869 } : {});
+        if (contract === "contract-heading-regions") assert.equal(mutationCounts(cleanOutput)["heading-policy"], 869);
       }
     });
     const publishingFile = "docs/pr-publishing.md";
@@ -145,7 +145,7 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
     await check("duplicated owning heading", { "README.md": `${readme}\n## Shipped docs\n\nUnrelated text.\n` });
     await check("changed parent heading", { "README.md": readme.replace("# ytdb-slate: multi-agent orchestration for the pi coding agent\n", "# Other title\n") });
     const notes = readFileSync(join(fixture, "docs/user-notes.md"), "utf8");
-    const combinedPackage = notes.match(/A single-track change uses the combined package[\s\S]*?(?=\n\n)/)?.[0];
+    const combinedPackage = notes.match(/Use \[delivery-packages\.md\]\(delivery-packages\.md\) § Change package[\s\S]*?(?=\n\n)/)?.[0];
     assert.ok(combinedPackage);
     await check("count-preserving reference order change within one heading", {
       "docs/user-notes.md": notes.replace(combinedPackage, "") + `\n\n${combinedPackage}\n`,
