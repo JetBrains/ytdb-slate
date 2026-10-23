@@ -22,7 +22,7 @@ Complete the required checks, reviews, finding dispositions, note accounting,
 overrides, escalations, coverage accounting, and acceptance prerequisites
 before preparing a package. Keep full working evidence in its owning records.
 Keep every required conclusion and separate verdict in the accounting sources
-and final delivery records defined in § Durable accounting. A package
+defined in § Durable accounting. A package
 summarizes the result. It does not replace those records.
 
 Use short, self-contained statements. Put the result and the user's next action
@@ -53,7 +53,7 @@ exists.>
 
 **References**
 <Pull request and state when one exists, exact commit range, diff location, and
-supporting accounting source or delivery record.>
+supporting accounting source or owning research log.>
 
 **Next step**
 <State whether acceptance is requested, a decision is required, or the track is
@@ -98,7 +98,7 @@ this field when none exists.>
 
 **References**
 <Every level delivery and its state when publishing is enabled, exact change range,
-diff location, and supporting accounting sources or delivery records.>
+diff location, and supporting accounting sources or owning research logs.>
 
 **Model-routing recommendations**
 <Evidence-bounded advice, or the exact sentence below, only when trusted
@@ -158,40 +158,36 @@ Here `<name>` is the design filename without `.md`, and `N` is its version numbe
 The current design file remains authoritative.
 Keep all manual records and their source chains through and after root closure.
 Only the user deletes the change folder.
-The final delivery records hold the conclusions that must remain after local cleanup.
-They retain all check results and limits, the separate routine-review
+Reconcile required conclusions from every accounting source into the owning research log before each package and before root closure.
+The owning research log retains all check results and limits, the separate routine-review
 and user-requested-fix verdicts, every finding and disposition, user-note
 accounting, the ignored-finding index, tracked issues, overrides, escalations,
 coverage conclusions, and approved risk changes.
-They also retain design-track acceptance, child completion references, accepted
+It also retains design-track acceptance, child completion references, accepted
 history bindings, review-fix accounting, and each issue's purpose and disposition.
-No required accounting may remain only in an untracked record at root closure.
+Required accounting may remain only in retained private research records after root closure.
 
-The delivery record uses existing publication and Git artifacts. It is not a
-new artifact. With draft publishing, each level description is its reachable
-record before merge. Its resulting default-branch commit body is its final record.
-The observed merge commit itself supplies the merge-result binding, including for the last level.
-After merge, verify its identity and parents against the accepted history and pull request.
-Record that binding in the reachable level description and owning log before root closure.
-The commit body needs no hash of itself.
-Before each package, copy that level's required conclusions from all accounting
-sources into its description.
-Include design-track and review-fix conclusions attributed to that level.
-Keep root-wide and whole-subtree conclusions in the last level that closes them.
-Link other level records without counting their implementation again.
+The research log is the accounting authority on both delivery paths.
+Attribute design-track and review-fix conclusions to their level in the owning log.
+Keep root-wide and whole-subtree conclusions in the log that closes them.
+Reference other levels without counting their implementation again.
+Keep accounting out of the pull request description and final delivery commit body.
+Packages reference the owning records and disclose relevant concerns and decisions.
+After merge, verify the observed commit identity and parents against the accepted history and pull request.
+Record that merge-result binding in the owning log before root closure.
+Report the delivery state in the next applicable package.
 
 For each required whole-subtree or root final acceptance, use this order even after the ready flip:
 
 1. Obtain and record the explicit acceptance decision after its package and prerequisites.
-2. Copy that decision and its aggregate evidence references into the closing level's description.
-3. Add a marker only for each design track newly accepted by this decision. Reuse retained marker references for tracks accepted earlier. Record each track's history references in that description.
+2. Record that decision and its aggregate evidence references in the owning research log.
+3. Add a marker only for each design track newly accepted by this decision. Reuse retained marker references for tracks accepted earlier. Record each track's history references in the owning research log.
 4. For changes that load the nested sections with publishing enabled, complete the retention protocol in [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history.
-5. Verify the description against all accounting sources, including the step 4 results, after these updates and before handoff for merge.
-6. Hand the updated description to the user for merge. Only the user merges.
+5. Verify the owning log against all accounting sources, including the step 4 results, after these updates and before handoff for merge.
+6. Hand the pull request to the user for merge. Only the user merges.
 
-Repeat the description measurement and size-exception checks after each update.
 A missing acceptance or required conclusion blocks handoff for merge.
-Verify every level record and all root-wide accounting before root closure.
+Verify every level's accounting and all root-wide accounting in the owning logs before root closure.
 
 <!-- publishing-disabled-accounting:begin -->
 When draft publishing is disabled, the final Git record does not exist before
@@ -205,10 +201,12 @@ final acceptance. Use this sequence:
    acceptance before its marker. Retain all records and accepted histories
    through root final acceptance.
 3. After root final acceptance, create the final squashed delivery commit.
-   Copy every required conclusion from all accounting sources into its body.
+   Follow project commit rules or the default in
+   [pr-publishing.md](pr-publishing.md) § Default template.
    Before rewriting, preserve accepted source history under
    [track-workflow.md](track-workflow.md) § Delivery and termination.
-4. Verify the body against every accounting source and required conclusion.
+4. Verify the delivery result and owning-log accounting separately against the
+   accepted history and every required conclusion.
    Only then close the root change with `slate_change close`.
    Keep all manual records and source chains. Only the user deletes the change folder.
 
@@ -221,10 +219,10 @@ steps 2 through 4. No package requires a future commit body before that commit
 exists.
 <!-- publishing-disabled-accounting:end -->
 
-Transfer conclusions and evidence needed for the listed accounting. Do not
-transfer private reasoning, secrets, credentials, private user data, or
+Retain conclusions and evidence needed for the listed accounting. Do not
+publish private reasoning, secrets, credentials, private user data, or
 unnecessary personal data. A package references the current accounting source
-or delivery record. It does not copy the full accounting into the conversation.
+or owning research log. It does not copy the full accounting into the conversation.
 A blocking item or a relevant concern still appears in the package even when
-its detail also exists in that source or record.
+its detail also exists in that source or log.
 <!-- delivery-package-contract:end -->

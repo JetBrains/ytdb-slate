@@ -75,7 +75,8 @@ Use its § Session handoff and the research log for ownership.
 
 ## Level publishing and retained history
 
-Use [pr-publishing.md](pr-publishing.md) for activation, approval, ready safeguards, and accounting.
+Use [pr-publishing.md](pr-publishing.md) for activation, approval, and ready safeguards.
+Use [delivery-packages.md](delivery-packages.md) § Durable accounting for accounting sources and verification.
 
 <!-- level-history-policy:begin -->
 Within one level, tracks finish in dependency order.
@@ -206,7 +207,8 @@ History preservation before a rewrite must not push a commit that holds private 
 A waiver states which exposure or evidence limit the user accepts.
 It grants no unstated publication permission and claims no recovered evidence.
 Keep private reference-to-commit evidence in the owning log locally.
-Public accounting includes only permitted conclusions and history references.
+Packages may disclose permitted conclusions and necessary history references.
+The pull request description is not an accounting transfer destination.
 After inspection, every retention push must name its references explicitly.
 No untargeted push may publish retention references, including all-branches, mirror, or matching pushes.
 The reachable-history inspection duty applies only to retention pushes, not pull request branch pushes.
@@ -345,7 +347,7 @@ Record the inventory after all closure conditions hold.
 For delivered publishing work, require final acceptance and each applicable level merge-result binding.
 Also require final post-merge comparisons and verified accounting.
 Record every authorizing record before the inventory.
-With publishing disabled, record the inventory after final local comparisons and verified final-squash accounting.
+With publishing disabled, record the inventory after final local comparisons, owning-log reconciliation, and delivery verification.
 For abandonment cleanup, record the inventory after the archival offer and the recorded explicit user choice to delete.
 
 Count inventory entries across the root log and its read-only source chain within the recorded boundaries.
@@ -434,7 +436,7 @@ Before each deletion, require current closure conditions and root-log closure ev
 Also recheck that no voiding record follows that inventory.
 Delivered publishing work requires final acceptance, each applicable level merge-result binding, post-merge comparisons, and verified accounting.
 An unmerged level prevents delivery closure and deletion.
-Disabled delivery requires final acceptance, final local comparisons, and verified final-squash accounting instead of level merges.
+Disabled delivery requires final acceptance, final local comparisons, owning-log reconciliation, and delivery verification instead of level merges.
 Abandonment requires the recorded explicit user deletion choice after the archival offer.
 If closure evidence is missing, delete nothing.
 Before stopping, the cleanup worker records the missing closure evidence under the ordinary safe-write rules of the still-open change folder.
@@ -723,7 +725,8 @@ An earlier answer cannot accept work that was incomplete when the user gave it.
 Without publishing, request the same explicit aggregate decision directly.
 A root package cannot replace a missing design-track acceptance.
 Root final acceptance remains a separate blocking decision.
-With publishing, follow [delivery-packages.md](delivery-packages.md) § Durable accounting after each decision and before merge.
+In either publishing setting, follow [delivery-packages.md](delivery-packages.md) § Durable accounting after each decision.
+Reconcile and verify the owning log under that sequence before merge or root closure.
 Use [change-records.md](change-records.md) § Identifiers, code ranges, and design markers for the marker after acceptance.
 
 Code-track acceptance follows [track-workflow.md](track-workflow.md) § Delivery and termination.
@@ -736,8 +739,8 @@ Its aggregate evidence must show each child's required review coverage and separ
 
 Use [delivery-packages.md](delivery-packages.md) § Track package for code and design references.
 Use its § Change package for the root's complete level-delivery list.
-Use its § Durable accounting for all record sources and public transfer.
-Use [pr-publishing.md](pr-publishing.md) § Description rules for each level's scope and accounting.
+Use its § Durable accounting for record sources and owning-log reconciliation.
+Use [pr-publishing.md](pr-publishing.md) § Description rules for each level's template-shaped description.
 Do not count accepted child work as new implementation.
 
 A **subtree issue** groups approved work within this change when the user requests it.
@@ -747,5 +750,6 @@ Use [user-notes.md](user-notes.md) § Mandatory escalation set for the user's di
 Use [review-rules.md](review-rules.md) § Findings and output for a self-contained deferred issue.
 Issue creation supplies no gate, review, or acceptance.
 Distinguish both purposes in packages and durable accounting.
-Without an issue tracker, keep an approved deferral in the delivery record.
+Without an issue tracker, record an approved deferral in the owning research log.
+Disclose the deferral in the relevant package.
 <!-- recursive-delivery:end -->
