@@ -162,7 +162,7 @@ Reconcile required conclusions from every accounting source into the owning rese
 The owning research log retains all check results and limits, the separate routine-review
 and user-requested-fix verdicts, every finding and disposition, user-note
 accounting, the ignored-finding index, tracked issues, overrides, escalations,
-coverage conclusions, and approved risk changes.
+coverage conclusions, and recorded risk changes.
 It also retains design-track acceptance, child completion references, accepted
 history bindings, review-fix accounting, and each issue's purpose and disposition.
 Required accounting may remain only in retained private research records after root closure.

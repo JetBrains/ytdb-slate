@@ -175,7 +175,7 @@ required reviews, ordered gates, user authority, or final acceptance.
   2. State a boundary with every existing area. Explain which outcome belongs where and when both areas engage.
   3. Explain all four proof parts for the area: defect class, place, material consequence of omitting its reviewer, and review contribution. The contribution identifies useful review evidence and why planned implementation checks cannot settle the risk.
   4. Choose DESIGN-TRIGGERING, which requires a high-level design, or REVIEWER-ONLY, which adds a reviewer only. Give the reason.
-  5. Run the new reviewer only through a proved area, applying P11. A proved area has user approval of its four-part proof.
+  5. Run the new reviewer only through a proved area, applying P11. A proved area has a four-part proof judged sufficient by the orchestrator.
   6. Create one perspective file with a one-sentence definition, charter, design-quality questions, and examples of useful evidence, in that order. Cover every design concern inside the area without a fixed question count. Evidence examples are not required checks or artifacts.
   7. Keep every rule and question applicable to any project using Slate.
   8. Update the code list of review perspectives, finding prefix, both focus-area tables, class list, structure and agreement checks, and published size figure. Keep all of them consistent.

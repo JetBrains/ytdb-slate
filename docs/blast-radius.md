@@ -10,18 +10,19 @@ composition and finding handling.
 The orchestrator judges all eleven focus areas for the change and independently
 for every track. An area is **NAMED** when the orchestrator submits its
 four-part proof. The proof states the defect class, the place where the defect
-can occur, the material consequence, and the review contribution. User approval
-makes a NAMED area **proved**.
-User rejection makes it **SKIPPED**. Only a proved area adds focus-dependent
+can occur, the material consequence, and the review contribution.
+The orchestrator judges and records each proof. A sufficient NAMED proof makes
+the area **proved**. An insufficient NAMED line becomes **SKIPPED**.
+Only a proved area adds focus-dependent
 gates or area reviewers. A track with one or more proved areas gets exactly
 one Reviewer I and every required area specialist. The implementer's approximate
 size above 100 counted lines also requires Reviewer I on a track that is not
 documentation-only. Without either trigger, routine implementation review is
 `NOT REQUIRED`. Size alone adds no area reviewer or blocking track acceptance.
 [track-workflow.md](track-workflow.md) § Track size and split defines counted
-lines and the separate pre-implementation design estimate. The user alone
-judges proofs and whether the proposal is the simplest solution. No script or
-other rule decides whether a proof holds.
+lines and the separate pre-implementation design estimate. The user judges
+whether the proposal is the simplest solution. No script or other rule decides
+whether a proof holds.
 
 Each track must be one coherent unit that a human can review in one sitting.
 The orchestrator owns the split and records its rationale.
@@ -39,7 +40,7 @@ limits, the implementer-requested exception, and the recursive-document loading 
 
 ## Focus areas and their gates
 
-A focus area is one named risk. An area adds its reviewer only when the user approves its NAMED proof.
+A focus area is one named risk. An area adds its reviewer only when the orchestrator judges its NAMED proof sufficient.
 
 <!-- focus-area-table:begin -->
 | # | focus area | the gate it adds | where the gate runs |
@@ -313,13 +314,11 @@ Areas may engage together when each area meets its own trigger. The unreported f
 
 The orchestrator records one line for every area. A named line gives a concrete
 four-part proof. A line that is not NAMED states which part of the trigger
-answers no. A NAMED line becomes proved only through user approval. A rejected
-NAMED line becomes SKIPPED and adds no gate or reviewer.
+answers no. A NAMED line becomes proved when the orchestrator judges its proof sufficient.
+An insufficient NAMED line becomes SKIPPED and adds no gate or reviewer.
 
-Each change and track keeps its own assessment and risk record. When two records
-pose the same decision, each record may cite one applicable user approval under
-[track-workflow.md](track-workflow.md) § Confirmation gate. A shared approval
-does not merge the records or replace either record's evidence.
+Each change and track keeps its own assessment and risk record.
+Shared evidence does not merge the records or replace either assessment.
 
 Every NAMED proof has these four parts:
 
@@ -350,8 +349,8 @@ material when loss of that control would be material. A cosmetic consequence
 is not material. A proof is not convincing when its words would also fit a
 change that does not engage the area.
 
-No rule mechanically decides whether a proof holds. The user alone judges every
-proof at the confirmation gate and at focus reconfirmation. A SKIPPED area gets
+No rule mechanically decides whether a proof holds. The orchestrator judges every
+proof at planning and focus reconfirmation. A SKIPPED area gets
 no gate or reviewer. The skip is recorded and is not an escalation. A track with
 no proved area gets no area reviewer.
 
@@ -374,7 +373,7 @@ A path is evidence, not a definition or a decision.
 ## Lifecycle rules owned by the spine
 
 [track-workflow.md](track-workflow.md) § Risk planning and reconciliation owns
-planning, approval, focus reconfirmation, the late-area route, and the
+planning, proof judgment, focus reconfirmation, the late-area route, and the
 committed-difference comparison. This document does not duplicate those rules.
 
 [review-rules.md](review-rules.md) § Reviewer sets, merge rule and charters owns
@@ -391,12 +390,9 @@ On a halt, the orchestrator:
 
 1. pauses implementation.
 2. re-derives all eleven focus lines for the remaining work.
-3. presents each addition or proposed removal with its proof or failed trigger
-   part.
-4. applies an applicable prior user answer or obtains the user's approval or
-   rejection of every new NAMED proof and every proposed removal of a proved
-   area. A rejected removal preserves the proved area and all of its gates and
-   reviewers.
+3. records each addition or removal with its proof or failed trigger part.
+4. judges each new NAMED proof and removal, records the resulting gate changes,
+   and honors any user direction without silently waiving a separate gate.
 5. runs the required design gate for remaining work when a newly proved
    DESIGN-TRIGGERING area requires it, unless the user records a decision to
    skip that gate.

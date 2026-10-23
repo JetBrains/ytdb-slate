@@ -666,7 +666,7 @@ After user review, use `Track <n> user review fix <r>: <intent title>` for reque
 Use `Track <n> fix round <r>: <intent title>` for gate corrections after user review.
 Here `<n>` is the affected track's identifier, never the child's path number.
 
-Reassess each child's planning, focus approvals, and applicable review gates.
+Reassess each child's planning, risk assessment, and applicable review gates.
 Parent approval does not cover changed child behavior automatically.
 Keep completion evidence in the affected track's report and retained repair records.
 Status may show a repair action finished while the affected track remains incomplete.
@@ -695,10 +695,10 @@ Two failed ordinary rounds on the same approved requirement trigger the requirem
 Count those failed rounds across the affected code track and all its review-fix children.
 Use [track-workflow.md](track-workflow.md) § Confirmation gate for that investigation.
 Complete any triggered investigation before a child starts.
-Investigation approval and holistic-solution approval remain separate.
-Obtain those approvals and the user's split decision before starting the child.
+Start the bounded read-only investigation without scope approval.
+Obtain holistic-solution approval and the user's split decision before starting the child.
 After a completed investigation, two further failed ordinary rounds on that requirement trigger it again.
-Neither investigation approval nor holistic-solution approval permits repair beyond the two-round limit.
+Neither read-only investigation nor holistic-solution approval permits repair beyond the two-round limit.
 A split bypasses no consultation, verification, or escalation rule.
 
 Before user review, child fixes join the affected cumulative implementation commit.

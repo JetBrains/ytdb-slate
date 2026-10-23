@@ -100,8 +100,8 @@ const levelCounts = { "publishing-intro": 8, "level-publishing": 22, "publishing
  "description-scope": 17, "description-record": 2, "default-template": 4, sync: 7, "ready-findings": 2, "ready-completion": 5, "post-flip": 7, transfer: 12, "disabled-preservation": 3, configuration: 3 };
 const headingCounts = { "identifiers-ranges": 33, "manual-records": 137, "resume-forks": 21, "handoff-pointer": 3,
  "resume-order": 19, "general-handoff": 3, "closed-range-feedback": 17, repairs: 60, aggregate: 22, sources: 67,
- "workflow-accounting": 62, "notes-accounting": 21, "publishing-sync": 7, "public-roadmap": 20, "repair-escalation": 45,
- "repair-rounds-owner": 51, "repair-consultations-owner": 26, "child-fix-title-owner": 7, "P13-authoring": 28 };
+ "workflow-accounting": 62, "notes-accounting": 21, "publishing-sync": 7, "public-roadmap": 20, "repair-escalation": 49,
+ "repair-rounds-owner": 52, "repair-consultations-owner": 26, "child-fix-title-owner": 7, "P13-authoring": 28 };
 const sentenceIds = (counts) => Object.entries(counts).flatMap(([id, count]) => numbered(id, count));
 const ordering = ["history", "roadmap-pause", "resume-pause", "design-first-base", "design-first-history", "design-first-roadmap",
  "foundation-base", "foundation-merge", "merge-actor", "level-completion-recursive", "dependent-acceptance-recursive",

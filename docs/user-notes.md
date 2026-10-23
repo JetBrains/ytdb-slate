@@ -142,9 +142,10 @@ and the user's disposition.
 | event | timing | available options |
 | --- | --- | --- |
 | A fix round lands no fix. | At the end of that round. | Redesign, waive, split. |
-| Two failed ordinary rounds leave the same approved requirement incomplete, counted across the affected code track and its review-fix children. | At the end of the second such round, before any further repair. | Correct or approve the investigation scope, then approve or reject the holistic solution separately. Redesign, waive, or split remain available. |
+| Two failed ordinary rounds leave the same approved requirement incomplete, counted across the affected code track and its review-fix children. | At the end of the second such round, before any further repair. | Approve or reject the holistic solution after bounded read-only investigation. Approve wider access or higher cost before either is used. Redesign, waive, or split remain available. |
 | The two-round fix cap is exhausted for another case. | At the end of round two. | Redesign, waive, split. |
 | A second regression is filed on one finding. | When the gate thread reports it. | Redesign, waive, accept the regression. |
+| An implementation-level finding has no recommended fix. | Before repair dispatch. | Choose a repair direction or an explicit waiver. |
 | A blocker is proposed for lowering. | Before the lowering takes effect. | Confirm the lowering, keep the blocker. |
 | A pre-existing defect is found. | At once, then again in every later packet until disposition. | Fix, waive, create a tracked issue. |
 | The orchestrator disputes a design-flawed stuck-fix verdict. | When the verdict arrives. | Accept the amendment, override with a reason. |

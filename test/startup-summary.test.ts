@@ -644,7 +644,7 @@ test("the short phase list follows all nine lifecycle phases in the shipped docu
 	const phases = [...section.matchAll(/^\d+\. (.*(?:\n(?!\d+\.|\n)[ \t]+.*)*)/gm)].map((match) => match[1]!.replace(/\s+/g, " ").trim());
 	assert.deepEqual(phases, [
 		"research.",
-		"propose the eleven-line risk record and obtain user approval.",
+		"assess and record all eleven risk lines.",
 		"design and validate for a multi-track change, a proved DESIGN-TRIGGERING area, or a per-track estimate above 100 counted lines.",
 		"when a design exists, reconfirm the focus list against the validated design.",
 		"when a design exists, run one adversarial design review for each proved DESIGN-TRIGGERING area that has not reviewed the applicable design.",
@@ -670,7 +670,7 @@ test("the short phase list follows all nine lifecycle phases in the shipped docu
 		[labels[5], phases.slice(8, 9)],
 	], [
 		["Research", ["research."]],
-		["Risk approval", ["propose the eleven-line risk record and obtain user approval."]],
+		["Risk approval", ["assess and record all eleven risk lines."]],
 		["Design", phases.slice(2, 6)],
 		["Tracks", ["run the track loop."]],
 		["Final acceptance", ["obtain blocking final acceptance."]],

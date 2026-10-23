@@ -4,7 +4,7 @@ This document separates current larger-change guidance from planned work.
 
 ## Design that readers can verify
 
-The goal is to let you guide a change through its design without reading the code. Planned design documents will state exact guarantees and explain why the design keeps them. Design documents will cover several levels, from system goals to component details. They will stay updated while work continues. The [focus-area definitions](blast-radius.md#focus-areas-and-their-gates) name risks that can trigger a design. Those five areas are data loss, concurrency defect, security weakness, performance degradation, and non-local logic defect. A focus area is a named risk that adds a review gate after you approve its proof.
+The goal is to let you guide a change through its design without reading the code. Planned design documents will state exact guarantees and explain why the design keeps them. Design documents will cover several levels, from system goals to component details. They will stay updated while work continues. The [focus-area definitions](blast-radius.md#focus-areas-and-their-gates) name risks that can trigger a design. Those five areas are data loss, concurrency defect, security weakness, performance degradation, and non-local logic defect. A focus area is a named risk that adds a review gate when the orchestrator judges its proof sufficient.
 
 A verifiable design guarantee will have six parts:
 

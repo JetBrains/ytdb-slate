@@ -295,7 +295,7 @@ test("P14 preserves exact conditional text, P13, and published byte figures", { 
   assert.ok(validBudget(budget));
   for (const line of published) assert.equal(validBudget(budget.replace(line, "")), false);
   const p13 = source.slice(source.indexOf("- **P13"), source.indexOf("### Workflow steps in code") - 2);
-  assert.equal(createHash("sha256").update(p13).digest("hex"), "b04cb0d7429c9e202451af7d3c2f695ea326561e263e6423159d8ee23175f5e7");
+  assert.equal(createHash("sha256").update(p13).digest("hex"), "05322ebeef792c4face701dc9c45d1712a01aa3519e3bcc3133f8447118e0766");
   assert.doesNotMatch(await renderDoctrine(), /Put workflow steps in code/);
   for (const changed of [source.replace(block, ""), source.replace("*(Repo-local note, not from the report.)*\n  Move", "*(From the report.)*\n  Move"), source.replace("when the user decided to keep it as text", "even when the user requires code"), source.replace("when the move would not reduce context usage", "when the move would reduce context usage"), source.replace("when the move would not reduce context usage", "when code would cost more than the protection it adds"), source.replace(row, ""), source.replace(row, row.replace("future work", "completed work")), source.replace(block, `${block}${body}`), source.replace(block, "").replace("### Built-in focus-area authoring", `${block}\n### Built-in focus-area authoring`)]) {
     assert.notEqual(changed, source);

@@ -1673,7 +1673,7 @@ try {
 			["exact principle and placement", valid(source)],
 			["independent byte figures", Buffer.byteLength(body) === 429 && Buffer.byteLength(block) === 457 && Buffer.byteLength(row) === 145],
 			["published figures and read boundary", validBudget(budget)],
-			["P13 raw body is unchanged", createHash("sha256").update(source.slice(source.indexOf("- **P13"), source.indexOf("### Workflow steps in code") - 2)).digest("hex") === "b04cb0d7429c9e202451af7d3c2f695ea326561e263e6423159d8ee23175f5e7"],
+			["P13 delegates judgment of each four-part proof", createHash("sha256").update(source.slice(source.indexOf("- **P13"), source.indexOf("### Workflow steps in code") - 2)).digest("hex") === "05322ebeef792c4face701dc9c45d1712a01aa3519e3bcc3133f8447118e0766"],
 			["principle stays out of always-loaded text", !(await doctrineFor()).includes("Put workflow steps in code")],
 		]);
 		const attacks = [source.replace(block, ""), source.replace("*(Repo-local note, not from the report.)*\n  Move", "*(From the report.)*\n  Move"), source.replace("when the user decided to keep it as text", "even when the user requires code"), source.replace("when the move would not reduce context usage", "when the move would reduce context usage"), source.replace("when the move would not reduce context usage", "when code would cost more than the protection it adds"), source.replace(row, ""), source.replace(row, row.replace("future work", "completed work")), source.replace(block, `${block}${body}`), source.replace(block, "").replace("### Built-in focus-area authoring", `${block}\n### Built-in focus-area authoring`)];
@@ -2531,7 +2531,7 @@ Batch independent questions when one request reduces user effort. Do not move a
 question before an investigation or review that it depends on. Record the
 source answer and its applicable scope in the existing workflow record.
 Independent change and track risk records remain separate assessments, but they
-may cite the same applicable approval. Reuse never removes a required review,
+may cite shared evidence. Reuse never removes a required review,
 changes decision authority, or turns planning approval into track or final
 acceptance. Final change acceptance remains a separate blocking decision.`);
 			const resolveDecisionReuse = (source) => {
@@ -2591,19 +2591,18 @@ acceptance. Final change acceptance remains a separate blocking decision.`);
 			const expectedRiskLifecycle = normalizeText(`The orchestrator judges each focus area for the whole planned track, not for
 each file. It writes all eleven risk-record lines. A NAMED line carries the
 four-part proof defined in [blast-radius.md](blast-radius.md) § Judged proof
-and risk record. Each other line states which trigger part answers no. The user
-alone judges each proof. User approval makes the area proved. User rejection
-makes it SKIPPED. A SKIPPED area adds no gate or reviewer.
+and risk record. Each other line states which trigger part answers no.
+The orchestrator judges each proof. A sufficient proof makes the area proved.
+An insufficient proof makes it SKIPPED. A SKIPPED area adds no gate or reviewer.
 
 The proof basis is the approved track design. When the track has no design, the
-basis is the track intention block and planned file list. The user approves or
-rejects every NAMED proof at the confirmation gate. When a design exists, the
-user validates it before the orchestrator reconfirms all eleven lines against
-that design. The orchestrator presents every addition and removal with its proof
-or failed trigger part. User approval of the reconfirmed list precedes one
-adversarial design review for each proved DESIGN-TRIGGERING area. Final design
+basis is the track intention block and planned file list. When a design exists,
+the user validates it before the orchestrator reconfirms all eleven lines against
+that design. The orchestrator records every addition and removal with its proof
+or failed trigger part. Reconfirmation precedes one adversarial design review
+for each proved DESIGN-TRIGGERING area. Final design
 approval follows those reviews. The design stage is the only stage where an
-adversarial reviewer receives the approved risk record and area proofs as
+adversarial reviewer receives the risk record and area proofs as
 separate inputs. Implementation reviewers and both repair gates receive neither.
 The stuck-fix consultation follows the whole-episode exception in
 [review-rules.md](review-rules.md) and receives no separately supplied risk
@@ -2611,21 +2610,19 @@ record or area proof.
 
 Before code review, the orchestrator compares the committed difference with the
 proved set. A missed area follows the late-area route below. For an area that no
-longer engages, record the failed trigger part and present a removal proposal to
-the user at once. The area remains proved, with all of its gates and reviewers,
-until the user approves removal. Rejection preserves the proved area. Keep every
-reviewer that already covered completed work. The owning research log
-reports every addition, proposed or approved removal, SKIPPED state, user
-decision, and reviewer-coverage decision. A package puts any unresolved
+longer engages, the orchestrator records the failed trigger part and removes it.
+Removal never silently waives a separate required gate. Keep every reviewer
+that already covered completed work. The owning research log reports every
+addition, removal, SKIPPED state, user direction, and reviewer-coverage decision. A package puts any unresolved
 requested decision or relevant risk under **Needs attention**.
 
 When the orchestrator or implementer discovers a late area, the orchestrator
-presents its four-part proof to the user at once. Approval recomputes the
+judges and records its four-part proof at once. A sufficient proof recomputes the
 complete required routine reviewer set. If Reviewer I has not covered the range,
 dispatch Reviewer I and the new area specialist. If Reviewer I already ran
 because of size or another proved area, dispatch only the new area specialist.
-Do not dispatch Reviewer I again. Approval
-of a DESIGN-TRIGGERING area also enters or re-enters the design sequence for
+Do not dispatch Reviewer I again. A newly proved
+DESIGN-TRIGGERING area also enters or re-enters the design sequence for
 remaining affected work unless the user records a decision to skip that gate.
 Present any necessary new, revised, or materially clarified design before
 continuing that work. Reuse unchanged approved design and completed applicable
@@ -2636,17 +2633,17 @@ covered it. When no work remains, record the design-gate skip, complete that
 review, and present the record at final acceptance.
 
 The implementer reports any risk that the plan did not name. The orchestrator
-writes its proof and starts the same immediate user-decision route. An
-implementation reviewer receives no proof.`);
+writes and judges its proof through the same late-area route. An implementation
+reviewer receives no proof. The user may request the risk record or direct an
+area addition or removal. Honor that direction and record its gate effects.
+Do not routinely present the assessment or advertise this option.`);
 			const expectedProofSection = normalizeText(`The orchestrator records one line for every area. A named line gives a concrete
 four-part proof. A line that is not NAMED states which part of the trigger
-answers no. A NAMED line becomes proved only through user approval. A rejected
-NAMED line becomes SKIPPED and adds no gate or reviewer.
+answers no. A NAMED line becomes proved when the orchestrator judges its proof sufficient.
+An insufficient NAMED line becomes SKIPPED and adds no gate or reviewer.
 
-Each change and track keeps its own assessment and risk record. When two records
-pose the same decision, each record may cite one applicable user approval under
-[track-workflow.md](track-workflow.md) § Confirmation gate. A shared approval
-does not merge the records or replace either record's evidence.
+Each change and track keeps its own assessment and risk record.
+Shared evidence does not merge the records or replace either assessment.
 
 Every NAMED proof has these four parts:
 
@@ -2677,15 +2674,28 @@ material when loss of that control would be material. A cosmetic consequence
 is not material. A proof is not convincing when its words would also fit a
 change that does not engage the area.
 
-No rule mechanically decides whether a proof holds. The user alone judges every
-proof at the confirmation gate and at focus reconfirmation. A SKIPPED area gets
+No rule mechanically decides whether a proof holds. The orchestrator judges every
+proof at planning and focus reconfirmation. A SKIPPED area gets
 no gate or reviewer. The skip is recorded and is not an escalation. A track with
 no proved area gets no area reviewer.
 
 Reviewer composition and merging belong to
 [review-rules.md](review-rules.md) § Reviewer sets, merge rule and charters.`);
+			const automaticRepair = normalizeText(`Apply recommended fixes for blocker and major findings in both review phases.
+Validate severity before choosing whether to fix or ignore each remaining minor finding.
+Keep minor dispositions and reasons only in the research log without routine disclosure.
+Moot and rejected findings retain those dispositions.
+
+Five cases require a user decision: a waiver, a scope exception, a pre-existing
+defect, lowering a blocker, and an implementation-level finding without a recommended fix.
+A design-level finding that adds goals or non-goals requires approval.
+A fix that changes an approved guarantee, assumption, or reasoning requires design-update approval.
+Record every design-level change in the design update or track package.
+Automatic repair never bypasses halt rules, user notes, checks, gates, or acceptance.`);
+			const repairRule = (source) => normalizeText(source).includes(automaticRepair);
+			const repairMutations = ["both review phases", "waiver", "scope exception", "pre-existing", "lowering a blocker", "without a recommended fix", "adds goals or non-goals", "design-update approval", "only in the research log", "halt rules", "acceptance"].map((term) => normalizeText(workflow).replace(automaticRepair, automaticRepair.replace(term, "REMOVED RULE")));
 			const ownerMutation = riskLifecycle.replace("The orchestrator judges", "The implementer judges");
-			const proofMutation = proofSection.replace("becomes proved only through user approval", "becomes proved when NAMED");
+			const proofMutation = proofSection.replace("becomes proved when the orchestrator judges its proof sufficient", "becomes proved only through user approval");
 			const skippedMutation = proofSection.replace("SKIPPED and adds no gate or reviewer", "SKIPPED and adds its reviewer");
 			const lateFirstAreaMutation = riskLifecycle.replace(
 				"dispatch Reviewer I and the new area specialist.",
@@ -2695,7 +2705,8 @@ Reviewer composition and merging belong to
 				"Do not dispatch Reviewer I again.",
 				"Dispatch Reviewer I again.",
 			);
-			checkAll("contract-risk-lifecycle", "orchestrator ownership, user-judged proof states, design reconfirmation, removal approval, both late-area reviewer transitions, completed-range coverage, and implementer reporting stay complete", [
+			checkAll("contract-risk-lifecycle", "orchestrator ownership, internally judged proof states, design reconfirmation, recorded removal, both late-area reviewer transitions, completed-range coverage, and implementer reporting stay complete", [
+				["automatic repair preserves all reserved user decisions and log-only minor reasons", repairRule(workflow) && repairMutations.every((source) => source !== normalizeText(workflow) && !repairRule(source)), repairMutations.map(repairRule)],
 				["risk lifecycle is exact through its stable next heading", riskLifecycle === expectedRiskLifecycle, riskLifecycle],
 				["judged proof section is exact", proofSection === expectedProofSection, proofSection],
 				["ownership mutation fails exact comparison", ownerMutation !== expectedRiskLifecycle, ownerMutation],
@@ -2705,7 +2716,7 @@ Reviewer composition and merging belong to
 				["first-late-area specialist-only mutation fails exact comparison", lateFirstAreaMutation !== riskLifecycle && lateFirstAreaMutation !== expectedRiskLifecycle, lateFirstAreaMutation],
 				["late area after size-triggered Reviewer I adds only its specialist", /If Reviewer I already ran\s+because of size or another proved area, dispatch only the new area specialist\.\s+Do not dispatch Reviewer I again/.test(riskLifecycle), riskLifecycle],
 				["later-area duplicate-Reviewer-I mutation fails exact comparison", lateAdditionalAreaMutation !== riskLifecycle && lateAdditionalAreaMutation !== expectedRiskLifecycle, lateAdditionalAreaMutation],
-				["new-track applicable approval is explicit", /new track created after the original confirmation gate needs an applicable\nuser approval of its independent risk record before implementation starts/.test(workflow), workflow.match(/.{0,100}new track created.{0,200}/s)?.[0]],
+				["new-track independent assessment is explicit", /new track created after the original confirmation gate needs an independent\norchestrator assessment and risk record before implementation starts/.test(workflow), workflow.match(/.{0,100}new track created.{0,200}/s)?.[0]],
 				["implementer reports size followed by one unplanned-risk line", /ends its response with an approximate track size in counted lines, followed by\s+`unplanned risk: none` or one line/.test(workflow), workflow.match(/.{0,100}unplanned risk.{0,140}/s)?.[0]],
 			]);
 
@@ -2819,6 +2830,8 @@ The orchestrator pauses dispatch pending an actual handoff and resume or an expl
 			const expectedDesignReviewPolicy = normalizeText(`The user validates the design and judges whether it is the simplest solution.
 The orchestrator then reconfirms every focus line against that design. Each
 proved DESIGN-TRIGGERING area receives one fresh adversarial design reviewer.
+The orchestrator selects required reviews and reuses applicable unchanged design reviews
+without asking approval of the review count.
 A fresh adversary tests the design and cited evidence. Every review with no
 findings, including an adversarial design review, ends with the exact standalone
 line \`No findings.\`
@@ -2923,10 +2936,10 @@ required reviews, ordered gates, user authority, or final acceptance.`;
 				["whitespace-wrapped dependency pause stays exact and both mutations remain discriminating", wrappedDependencyPause !== workflow && wrappedPauseHandoff.count === 1 && wrappedPauseHandoff.endCount === 1 && wrappedPauseHandoff.text === expectedPhaseHandoff && wrappedPauseMutations.every(({ changed, rejected }) => changed && rejected), { wrappedPauseHandoff, wrappedPauseMutations }],
 				["missing, duplicate, and malformed handoff boundaries fail closed", phaseHandoffBoundaryMutations.every(({ count, endCount, text }) => count !== 1 || endCount !== 1 || text === ""), phaseHandoffBoundaryMutations],
 				["benign text outside the handoff unit preserves its exact expectation", benignPhaseHandoff.every(({ count, endCount, text }) => count === 1 && endCount === 1 && text === expectedPhaseHandoff), benignPhaseHandoff],
-				["proved-area removal needs user approval and rejection preserves all gates", /area remains proved, with all of its gates and reviewers,\s*until the user approves removal/.test(riskLifecycle) && /Rejection preserves the proved area/.test(riskLifecycle), riskLifecycle],
+				["orchestrator removes a failed trigger without waiving separate gates", /the orchestrator records the failed trigger part and removes it/.test(riskLifecycle) && /Removal never silently waives a separate required gate/.test(riskLifecycle), riskLifecycle],
 				["user-requested track fixes are unconditional", /applies and commits required user-review\s+fixes whenever the user requests them/.test(workflow), workflow.match(/.{0,100}required user-review.{0,160}/s)?.[0]],
 				["marker exists without track acceptance after machine gates, packet, and blocking notes", /after required machine gates and the track packet are complete/.test(markerRule) && /[Aa]ll blocking user notes are resolved/.test(markerRule) && /When track acceptance is mandatory/.test(markerRule), markerRule],
-				["late areas require immediate user decision, complete-set transitions, completed-range coverage, and no retrospective design gate", /presents its four-part proof to the user at once/.test(riskLifecycle) && /Approval recomputes the\s+complete required routine reviewer set/.test(riskLifecycle) && /Every newly required routine reviewer\s+perspective reviews the completed range/.test(riskLifecycle) && /Completed work\s+receives no retrospective design gate/.test(riskLifecycle), riskLifecycle],
+				["late areas require immediate proof judgment, complete-set transitions, completed-range coverage, and no retrospective design gate", /judges and records its four-part proof at once/.test(riskLifecycle) && /A sufficient proof recomputes the\s+complete required routine reviewer set/.test(riskLifecycle) && /Every newly required routine reviewer\s+perspective reviews the completed range/.test(riskLifecycle) && /Completed work\s+receives no retrospective design gate/.test(riskLifecycle), riskLifecycle],
 				["NAMED and SKIPPED do not select reviewers, while size excludes documentation-only tracks", /`NAMED` and `SKIPPED` areas do not select reviewers/.test(reviews) && /size above 100 counted lines selects Reviewer I for a code or mixed track, but\s+not for a documentation-only track/.test(reviews), reviews.slice(0, 4000)],
 				["no-area orchestrator choice uses ordinary logical guidance without a tier threshold or mandatory user gate", /the orchestrator selects a\s+logical model under the ordinary action guidance/.test(workflow) && /action fit, capability, cost, guidance, and cautions/.test(workflow) && /uses no\s+sourced-tier threshold, highest-tier fallback, or mandatory user-choice gate/.test(workflow) && /ordinary logical-model membership, fixed effort, and dispatch restrictions/.test(workflow), workflow.match(/For implementation of a track with no proved area[\s\S]*?(?=\n\n\[blast-radius)/)?.[0]],
 				["empty-set routine review and user-fix verification have separate durable verdicts", /empty set reports\s+routine implementation review as `NOT REQUIRED`/.test(workflow) && /including when the track has no proved area[\s\S]*?separate from routine implementation review/.test(workflow) && /owning research log gives routine implementation review and user-requested-fix\s+verification as separate verdicts/.test(userNotes) && /neither a proved area nor a\s+size-triggered Reviewer I/.test(userNotes), { workflow: workflow.match(/For a user-review fix range[\s\S]*?(?=\n\nThe correction)/)?.[0], record: userNotes.match(/The owning research log gives routine implementation review[\s\S]*?(?=\n\nThe coverage register)/)?.[0] }],
@@ -3035,18 +3048,19 @@ required reviews, ordered gates, user authority, or final acceptance.`;
 					expected: normalizeText(`The orchestrator judges all eleven focus areas for the change and independently
 for every track. An area is **NAMED** when the orchestrator submits its
 four-part proof. The proof states the defect class, the place where the defect
-can occur, the material consequence, and the review contribution. User approval
-makes a NAMED area **proved**.
-User rejection makes it **SKIPPED**. Only a proved area adds focus-dependent
+can occur, the material consequence, and the review contribution.
+The orchestrator judges and records each proof. A sufficient NAMED proof makes
+the area **proved**. An insufficient NAMED line becomes **SKIPPED**.
+Only a proved area adds focus-dependent
 gates or area reviewers. A track with one or more proved areas gets exactly
 one Reviewer I and every required area specialist. The implementer's approximate
 size above 100 counted lines also requires Reviewer I on a track that is not
 documentation-only. Without either trigger, routine implementation review is
 \`NOT REQUIRED\`. Size alone adds no area reviewer or blocking track acceptance.
 [track-workflow.md](track-workflow.md) § Track size and split defines counted
-lines and the separate pre-implementation design estimate. The user alone
-judges proofs and whether the proposal is the simplest solution. No script or
-other rule decides whether a proof holds.`),
+lines and the separate pre-implementation design estimate. The user judges
+whether the proposal is the simplest solution. No script or other rule decides
+whether a proof holds.`),
 				},
 				{
 					id: "blast-late-area",
@@ -3252,7 +3266,7 @@ Only the user merges the pull request.
 Each multi-track boundary uses a marker commit after its required gates,
 as defined in track-workflow.md § Delivery and termination.
 
-Draft publishing does not remove or move planning, design, focus approval,
+Draft publishing does not remove or move planning, design, focus assessment,
 review, track-packet, user-note, blocking track-acceptance, final-acceptance,
 or finding-disposition requirements. Retain the current change folder's
 research log and every implementer report through and after delivery. Only
@@ -3555,11 +3569,11 @@ Use [track-workflow.md](track-workflow.md) § Migration for compatibility.
 Use its § Session handoff and the research log for ownership.`);
 			}
 			const protectedRepairOwners = Object.freeze({
-				"repair-rounds": "25a681e30d96285c7d65fa9285b46c073a958fe1c9500b206273b64ba28a873b",
+				"repair-rounds": "850fecdacea6768febb420af28c5e950a8d1349dac494a05699bdba823409953",
 				"repair-consultations": "86f0f04219e871881c7f99263689d848fc78772d2b034e3d359cdc6662f4d780",
 				"child-fix-title": "748f0126285376546b073320e72e044f91970294058931c7a51cafc8d6098edb",
 			});
-			const protectedRepairSummary = "f1bfd2437621d5ba83c8a04619f92b71c5e4e0862e8454957fb7757471e69874";
+			const protectedRepairSummary = "c8adb35efc4eeb1e80bde9f79e82315f7cceb0834ea38f602d4f7a382fd34bfb";
 			if (!ONLY) {
 			const agreementDigest = (text) => createHash("sha256").update(normalizeText(text)).digest("hex");
 			sharedRecursiveRules = [
@@ -3758,7 +3772,7 @@ Use [change-records.md](change-records.md) § Design authority and privacy.`) },
 				["each comparison rejects its changed input and disabling it accepts that violation", pointerComparisonControls.every(({ changed, rejected, disabledAccepts }) => changed && rejected && disabledAccepts), pointerComparisonControls],
 				["outside-region edits preserve the pointer expectations", acceptsNestedPointers(`${recursive}\n## Outside pointer control\nUnrelated text.\n`), "outside control"],
 			]);
-			const completeNestedDigest = "cb64b4b782d523440792e2db61b2f93d2c4639269705c6cb516b35628f29280b";
+			const completeNestedDigest = "2854ea470a4a4a6018ab7770c19a117967c9e39a06fb7b370dde8f5de0ed36ce";
 			const acceptsCompleteNested = (source) => createHash("sha256").update(source).digest("hex") === completeNestedDigest;
 			const completeNestedAttacks = [
 				["weaker-record-rule", `${recursive}\n## Additional record guidance\nWorkers may replace earlier log entries.\n`],
@@ -4299,11 +4313,11 @@ Use [track-workflow.md](track-workflow.md) for the common lifecycle.`);
 				{ id: "repairs", source: recursive, start: "## Review-fix subtrees and repair limits", expected: protectedRepairSummary },
 				{ id: "aggregate", source: recursive, start: "## Whole-subtree acceptance", expected: "60315208cec2f9c707c24ca80bec6105870ccef586c002ac1c2d90221b90fb30" },
 				{ id: "issues", source: recursive, start: "## Packages, attribution, and issues", end: null, expected: "376de82c9d71fb4fcd787c46832c19a4359814f7b919723aef35bd47cde081eb" },
-				{ id: "sources", source: deliveryPackages, start: "## Durable accounting", expected: "8796712c599ba433f4d78ca216d1f56cfc0ba14087369248b1d3d1d5cdc3b295" },
+				{ id: "sources", source: deliveryPackages, start: "## Durable accounting", expected: "492e7219e565137293af608215bc5b4cced2fdee6f2dcabbf06ba1eca9bed6df" },
 				{ id: "workflow-accounting", source: workflow, start: "### Delivery history and accounting", expected: "a5bbb094dd397dc19f599c3cd8900d5b2b8900d1c97941b138f60f0b62d8c18f" },
 				{ id: "notes-accounting", source: userNotes, start: "### Final accounting preparation", expected: "c5faa1a21995af8de97116b48390d913b805fc86742a318597d7d5efd9aeaa47" },
 				{ id: "publishing-sync", source: publishing, start: "## Keeping the PR in sync", expected: "c52f42b4468a859f850e1ef9ae2ec5c54a7206b3e1ff737f7f66d5b8a5cc6eef" },
-				{ id: "public-workflow", source: projectReadme, start: "A track is a bounded", end: "## ", endAtLineStart: true, expected: "23f90e859751918fac2f72ad4819c635cf21d88f15e18d100cc0a9944018fbf3" },
+				{ id: "public-workflow", source: projectReadme, start: "A track is a bounded", end: "## ", endAtLineStart: true, expected: "93901bc1102945923a9b2d3fdd76591ed9f88ba88572ec270588f6f50e723b6d" },
 				{ id: "public-roadmap", source: readFileSync(join(REPO, "docs", "roadmap.md"), "utf8"), start: "## Larger changes", expected: recordDigest(roadmapExpected) },
 			].map((unit) => ({ ...unit, extract: unit.end === null
 				? (source) => {
@@ -4315,8 +4329,8 @@ Use [track-workflow.md](track-workflow.md) for the common lifecycle.`);
 					return regionUnit(/^## Packages, attribution, and issues([\s\S]*)(?![\s\S])/gm)(parts[0] + marker + visibleTail);
 				}
 				: unit.id === "public-workflow" ? policyRegion(unit.start, unit.end, unit.endAtLineStart) : headingUnit(unit.start) }));
-			const repairEscalationDigest = "b9ebf47c2dceb335adfd3fb1cd694e2e23e6d210f5d962ef5c5c6d709cdc3de4";
-			const EXPECTED_DELIVERY_PACKAGES_SHA256 = "dcd6c3bd614cdc130dfce2c2a2d46fafd9ce767ab543eeb04c3cce8dd4bdfefa";
+			const repairEscalationDigest = "9f61738c4c77d9e59406480fdaa58485ce66fb2a921e634ed26c45c4cc1ee99b";
+			const EXPECTED_DELIVERY_PACKAGES_SHA256 = "851367635140e2b86627d2918e11272f08cbdda84a24780499f585d04a0d82af";
 			if (!ONLY) {
 			const acceptsRecursiveDelivery = (unit, source) => {
 				const resolved = unit.extract(source);
@@ -5551,8 +5565,8 @@ Present the final description before handing the pull request to the user for me
 			// Whitespace-only reflow passes because normalizeText collapses whitespace.
 			// HTML comments count. The word layer is best-effort during refresh review.
 			// Known word-layer escapes include "retention branches" and "branches kept for retention".
-			const EXPECTED_PUBLISHING_SHA256 = "5443051891a2b41d199b19ce2b3238bb7b2776b809c840c30c5efc49c28aff33";
-			const EXPECTED_TRACK_WORKFLOW_SHA256 = "6f0fabbfba5aa556bf611230f08518c65163eda94224765df4ccea375c9459ef";
+			const EXPECTED_PUBLISHING_SHA256 = "bf8de8a7d7444f71869790546ba37884eab214b7837adbaa45dfedbb00fd9952";
+			const EXPECTED_TRACK_WORKFLOW_SHA256 = "e630c24d095f26c73644df4066f27d52679e610305ff41d345133916b370057c";
 			const peerRetentionOwners = [
 				{ id: "nested", source: recursive, units: [historyUnit] },
 				{ id: "common", source: commonRecords, units: [privateSetUnit] },
@@ -6119,18 +6133,18 @@ orchestrator stops further repair before another round.
 Count failed rounds across the affected code track and all its review-fix children.
 A split never resets that requirement count.
 After a completed investigation, two further failed ordinary rounds trigger it again.
-Complete a triggered investigation and its approvals before starting a child.
+Complete a triggered investigation and obtain solution approval before starting a child.
 A new finding identifier
 does not reset the count when the approved requirement is the same. The
 orchestrator identifies the exact user-approved requirement named in the track
 intention or design approval record. If those records name different
 requirements, the orchestrator asks the user to identify the requirement before
 counting rounds. It does not choose between them or treat a broad track
-intention as one requirement. The orchestrator proposes a requirement-level
-investigation and waits for the user's corrections and approval of that scope.
+intention as one requirement. The orchestrator starts a bounded read-only
+investigation within the approved requirement. It asks before wider access or higher cost.
 The investigation covers the relevant lifecycle stages, dependencies, unchanged
 code, actual consumers, and durable or observable boundaries. It records the
-trigger, proposed scope, corrections, approved scope, evidence, limits, holistic
+trigger, investigation scope, access or cost decisions, evidence, limits, holistic
 solution, verification plan, and user decision in the research log. A symptom
 repair is not requirement closure. The orchestrator presents a holistic solution
 for the full approved requirement and waits for separate user approval before
@@ -6144,19 +6158,18 @@ stop repair dispatch before another repair.
 Count failed rounds across the affected code track and all its review-fix children.
 A split never resets that requirement count.
 After a completed investigation, two further failed ordinary rounds trigger it again.
-Complete a triggered investigation and its approvals before starting a child.
+Complete a triggered investigation and obtain solution approval before starting a child.
 The requirement is the exact
 user-approved requirement named in the track intention or design approval
 record. If those records name different requirements, ask the user to identify
 the requirement before counting rounds. Do not choose between them or treat a
 broad track intention as one requirement. A new finding identifier does not
-create a new requirement or reset the two-round count. Propose an investigation
-scope to the user. The scope must cover relevant lifecycle stages, dependencies,
-unchanged code, actual consumers, and the durable or observable boundary where
-the requirement is judged. The user may correct the scope and must approve it
-before investigation starts.
+create a new requirement or reset the two-round count. Start a bounded read-only
+investigation within the approved requirement. Cover relevant lifecycle stages,
+dependencies, unchanged code, actual consumers, and the durable or observable
+boundary where the requirement is judged. Ask before wider access or higher cost.
 
-Record the trigger, proposed scope, user corrections, approved scope, findings,
+Record the trigger, investigation scope, access or cost decisions, findings,
 evidence, limits, holistic solution, verification plan, and decision as typed
 entries in the affected code track's owning research log.
 Use [change-records.md](change-records.md) § Manual records and safe writes for record ownership.
@@ -6171,14 +6184,14 @@ existing change research-log record, narrows no requirement, and does not requir
 verbatim retention of every tool result.`);
 			const investigationWorkflow = markedUnit("requirement-investigation-workflow")(workflow);
 			const investigationEvent = "Two failed ordinary rounds leave the same approved requirement incomplete, counted across the affected code track and its review-fix children.";
-			const investigationUserRowExpected = normalizeText(`| ${investigationEvent} | At the end of the second such round, before any further repair. | Correct or approve the investigation scope, then approve or reject the holistic solution separately. Redesign, waive, or split remain available. |`);
+			const investigationUserRowExpected = normalizeText(`| ${investigationEvent} | At the end of the second such round, before any further repair. | Approve or reject the holistic solution after bounded read-only investigation. Approve wider access or higher cost before either is used. Redesign, waive, or split remain available. |`);
 			const investigationRows = (source) => source.split("\n").filter((line) => line.startsWith("|") && line.split("|")[1]?.trim() === investigationEvent);
 			const investigationUserRows = investigationRows(userNotes);
 			const investigationUserRow = investigationUserRows.length === 1 && normalizeText(investigationUserRows[0]) === investigationUserRowExpected;
 			const investigationMutationCases = [
 				{ source: reviews.replace("When two failed ordinary fix rounds leave", "When one failed ordinary fix round leaves"), original: reviews, unitName: "requirement-investigation-review", expected: investigationReviewExpected },
 				{ source: workflow.replace("A new finding identifier does not\ncreate a new requirement", "A new finding identifier creates a new requirement"), original: workflow, unitName: "requirement-investigation-workflow", expected: investigationWorkflowExpected },
-				{ source: workflow.replace("The user may correct the scope and must approve it\nbefore investigation starts", "The user may correct the scope and may approve it after implementation resumes"), original: workflow, unitName: "requirement-investigation-workflow", expected: investigationWorkflowExpected },
+				{ source: workflow.replace("Start a bounded read-only\ninvestigation within the approved requirement", "Wait for user scope approval before investigation"), original: workflow, unitName: "requirement-investigation-workflow", expected: investigationWorkflowExpected },
 				{ source: reviews.replace("waits for separate user approval", "uses the scope approval"), original: reviews, unitName: "requirement-investigation-review", expected: investigationReviewExpected },
 			];
 			const investigationMutationResults = investigationMutationCases.map(({ source, original, unitName, expected }) => ({
@@ -6192,7 +6205,7 @@ verbatim retention of every tool result.`);
 				{ unit: markedUnit("requirement-investigation-workflow")(`## Preface\n\nUnrelated note.\n\n${workflow}`), expected: investigationWorkflowExpected },
 				{ unit: markedUnit("requirement-investigation-workflow")(`${workflow}\n\n## Appendix\n\nUnrelated note.`), expected: investigationWorkflowExpected },
 			];
-			checkAll("contract-requirement-investigation", "the conditional requirement-level investigation route stops after two same-requirement repair rounds, preserves existing budgets and reviewer boundaries, requires broad scope and two user approvals, and records its evidence without narrowing the requirement", [
+			checkAll("contract-requirement-investigation", "the conditional requirement-level investigation route stops after two same-requirement repair rounds, preserves existing budgets and reviewer boundaries, requires bounded read-only scope and solution approval, and records its evidence without narrowing the requirement", [
 				["review route resolves once and equals its canonical expectation", investigationReview.count === 1 && investigationReview.text === investigationReviewExpected, investigationReview],
 				["workflow route resolves once and equals its canonical expectation", investigationWorkflow.count === 1 && investigationWorkflow.text === investigationWorkflowExpected, investigationWorkflow],
 				["user escalation has one independent canonical row", investigationUserRow, { rows: investigationUserRows, expected: investigationUserRowExpected }],
@@ -6313,7 +6326,7 @@ verbatim retention of every tool result.`);
 				{ id: "repair-rounds-owner", source: reviews, start: "## Fix loop and gate verdicts", expected: protectedRepairOwners["repair-rounds"] },
 				{ id: "repair-consultations-owner", source: reviews, start: "## Stuck-fix consultation", expected: protectedRepairOwners["repair-consultations"] },
 				{ id: "child-fix-title-owner", source: workflow, start: "### Commit titles and bodies", expected: protectedRepairOwners["child-fix-title"] },
-				{ id: "P13-authoring", source: authorGuidelines, start: "### Built-in focus-area authoring", expected: "e2b7529353072b4a911bf86b038348f7223a94538f0aff0adb1d7f7ff863b9cc" },
+				{ id: "P13-authoring", source: authorGuidelines, start: "### Built-in focus-area authoring", expected: "ab8e9a5f89054175231092f5e1ea1826e155d84ade4dacb699e76f8114fa7c2b" },
 			].map((unit) => ({ ...unit, extract: headingUnit(unit.start) }));
 			const expectedHeadingRegionIds = [
 				"identifiers-ranges", "manual-records", "resume-forks", "handoff-pointer", "resume-order", "general-handoff", "closed-range-feedback",
@@ -6437,7 +6450,7 @@ verbatim retention of every tool result.`);
 				["general reviewer is outside focus table", roles[0]?.name === "Reviewer I" && roles[0]?.prefix === "RI" && roles[0]?.focusArea === null && !perspectiveBlastRows.some(([area]) => area === "Reviewer I"), roles[0]],
 				["index includes each runtime selector, prefix and focus once", JSON.stringify(indexRows) === JSON.stringify(roles.map((role) => [role.name, role.prefix, role.focusArea ?? "none", role.prefix.toLowerCase()])), indexRows],
 				["regression-gate prefix stays outside roster", !roles.some((role) => role.prefix === "RG") && reviews.includes("RG is a regression-gate prefix and not a perspective"), roles.map((role) => role.prefix)],
-				["on-demand P13 follows P12 and has its approved content and table row", authorGuidelines.indexOf("**P12 —") < authorGuidelines.indexOf("**P13 —") && authorGuidelines.split("**P13 —").length === 2 && authorRegion.count === 1 && hash(authorPrinciple) === "e2b7529353072b4a911bf86b038348f7223a94538f0aff0adb1d7f7ff863b9cc" && Buffer.byteLength(authorPrinciple, "utf8") === 2292 && Buffer.byteLength(`### Built-in focus-area authoring\n\n${authorPrinciple}`, "utf8") === 2327 && authorGuidelines.split(authorRow).length === 2, { bytes: Buffer.byteLength(authorPrinciple, "utf8"), digest: hash(authorPrinciple) }],
+				["on-demand P13 follows P12 and has its approved content and table row", authorGuidelines.indexOf("**P12 —") < authorGuidelines.indexOf("**P13 —") && authorGuidelines.split("**P13 —").length === 2 && authorRegion.count === 1 && hash(authorPrinciple) === "ab8e9a5f89054175231092f5e1ea1826e155d84ade4dacb699e76f8114fa7c2b" && Buffer.byteLength(authorPrinciple, "utf8") === 2311 && Buffer.byteLength(`### Built-in focus-area authoring\n\n${authorPrinciple}`, "utf8") === 2346 && authorGuidelines.split(authorRow).length === 2, { bytes: Buffer.byteLength(authorPrinciple, "utf8"), digest: hash(authorPrinciple) }],
 			]);
 			checkAll("contract-review-charters", "Reviewer I keeps bounded duties, conditional composition and independent dispatch; specialist limits and prefixes stay exact", [
 				["Reviewer I names its five local duties and evidence boundaries", ["maintainability", "concretely harmful antipatterns", "responsibility distribution", "completeness against the approved current-track requirements", "ordinary local correctness", "adverse effect", "unjustified coupling", "responsibility placed in a component"].every((term) => normalizeText(reviewerICharter).includes(term)), reviewerICharter],
@@ -6540,7 +6553,7 @@ For changes that load the nested sections, follow [recursive-workflow.md](recurs
 
 This restriction applies to a design-stage adversary, Reviewer I, every implementation specialist, an agentic fix gate, a user-review fix-range gate, and a stuck-fix consultation. Ordinary repository and library evidence needed for the assigned work remains available. This permission is not a closed changed-file allowlist.
 
-A design-stage adversarial reviewer receives the standalone approved design, approved change context, track intention, applicable approved risk record and area proofs, tracked source evidence, charter, and output contract. This is the only reviewer role that receives the approved risk record and area proofs as separate artifacts.
+A design-stage adversarial reviewer receives the standalone approved design, approved change context, track intention, applicable risk record and area proofs, tracked source evidence, charter, and output contract. This is the only reviewer role that receives the risk record and area proofs as separate artifacts.
 
 Reviewer I and implementation specialists receive the approved review range, track intention, applicable charter, output contract, and ordinary evidence. They receive no risk record, area proof, implementer episode, implementer report, private triage, or implementer reasoning.
 
@@ -6583,7 +6596,7 @@ Record each grant in the override log.`),
 			const amendment = "The supplied action temporary folder permits only the reviewer's own writing-checker diff and adds no reviewer input. A reviewer never lists tmp/ or reads another action's folder.";
 			const originalParagraphDigests = [
 				"861dc9144bb1e16eacf358b3fb1815b2e2ae080a206d28c7a3229c5021275d34", "f9f0228001b9e056eb489d5c6c3fee415fcf95ac23df822bd029f27eb0b1f3b3",
-				"97bdc4a6e0c6c02859805227869b9c748580adbd694349c75b79b1793212e0da", "527f29a60ddd3564dfcbde73d357f3c43d867bb0b808b9d3852ddb3b385d48b1",
+				"f483f360f4d97036a9f09af119be8e40469e76380a93eccb25387473e074e878", "527f29a60ddd3564dfcbde73d357f3c43d867bb0b808b9d3852ddb3b385d48b1",
 				"3d991b3f9e25a2710869ef6bd13c69c1239e1dea6fa4378bb527b01a32384315", "bb64471333eef93ce91baac46799ce3ad4ff1c244b9ce34bc184c44d3c4e405f",
 				"2ddf2a77aff76b073c243ddff077dabcaa939fc205295e5ba3d746a18df6c9ab", "432813aee3332b7e91b0648bc96aa5fe7a5138c5c37c261e51a292cb0805ffa0",
 			];

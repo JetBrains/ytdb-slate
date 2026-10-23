@@ -38,7 +38,7 @@ Only the user merges the pull request.
 Each multi-track boundary uses a marker commit after its required gates,
 as defined in track-workflow.md § Delivery and termination.
 
-Draft publishing does not remove or move planning, design, focus approval,
+Draft publishing does not remove or move planning, design, focus assessment,
 review, track-packet, user-note, blocking track-acceptance, final-acceptance,
 or finding-disposition requirements. Retain the current change folder's
 research log and every implementer report through and after delivery. Only

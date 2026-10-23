@@ -1,6 +1,6 @@
 // Reviewed source-read assignments. The user approved these limits on 2026-10-16.
-export const phases = ["Research", "Risk approval", "Design validation", "Focus reconfirmation", "Adversarial design review", "Final design approval", "Track loop", "Final acceptance", "Delivery"];
-export const lifecycle = ["research.", "propose the eleven-line risk record and obtain user approval.", "design and validate for a multi-track change, a proved DESIGN-TRIGGERING area, or a per-track estimate above 100 counted lines.", "when a design exists, reconfirm the focus list against the validated design.", "when a design exists, run one adversarial design review for each proved DESIGN-TRIGGERING area that has not reviewed the applicable design.", "when a design exists, obtain final design approval.", "run the track loop.", "obtain blocking final acceptance.", "deliver."];
+export const phases = ["Research", "Risk assessment", "Design validation", "Focus reconfirmation", "Adversarial design review", "Final design approval", "Track loop", "Final acceptance", "Delivery"];
+export const lifecycle = ["research.", "assess and record all eleven risk lines.", "design and validate for a multi-track change, a proved DESIGN-TRIGGERING area, or a per-track estimate above 100 counted lines.", "when a design exists, reconfirm the focus list against the validated design.", "when a design exists, run one adversarial design review for each proved DESIGN-TRIGGERING area that has not reviewed the applicable design.", "when a design exists, obtain final design approval.", "run the track loop.", "obtain blocking final acceptance.", "deliver."];
 export const scenarios = ["off ordinary", "off nested", "on ordinary", "on nested"];
 // Each entry gives exported identity, first phase, condition, recipient, selectors.
 export const reads = [
@@ -210,7 +210,6 @@ export const occurrences = [
   {"source":"blast-radius.md","target":"track-workflow.md","context":"5acad7f2879f8e9e4479e6638d8cfe8d8aaa3d58cdd8010fa5fe191e68574b78","count":1,"recipient":"orchestrator","phase":1,"condition":"always"},
   {"source":"blast-radius.md","target":"track-workflow.md","context":"421e08fd6248c02413c5adee4cb0e37685bc8917e0b91a5c5cf85d7c45ec2301","count":1,"recipient":"orchestrator","phase":1,"condition":"always"},
   {"source":"blast-radius.md","target":"track-workflow.md","context":"73750ec9a3ef1cc5b1eec91272fc956a66a1a625b7e2b26b2732dcf9ffd81005","count":1,"recipient":"orchestrator","phase":1,"condition":"always"},
-  {"source":"blast-radius.md","target":"track-workflow.md","context":"3aaa31223ac069ee81ff914583ce70f29e2bf1f8d1d8c87a27338931c7a5c2b2","count":1,"recipient":"orchestrator","phase":1,"condition":"always"},
   {"source":"blast-radius.md","target":"review-rules.md","context":"77bb6206a3a9287c787bb5aca0df786084cfdc4879c8681605842e23a96cc971","count":1,"recipient":"orchestrator","phase":5,"condition":"always"},
   {"source":"blast-radius.md","target":"track-workflow.md","context":"e10a3b91e033b355d3737b2696ba5f69b47d4d9ead8673e443851bfb99c31ff0","count":1,"recipient":"orchestrator","phase":1,"condition":"always"},
   {"source":"blast-radius.md","target":"review-rules.md","context":"25bc5d494bdac1d4c7c21e7594039bf491b9914da403b08abe60360a6dbfd9ea","count":1,"recipient":"orchestrator","phase":5,"condition":"always"},
