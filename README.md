@@ -2,7 +2,7 @@
 
 [![CI status](https://github.com/JetBrains/ytdb-slate/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/JetBrains/ytdb-slate/actions/workflows/ci.yml)
 
-Slate is a multi-agent orchestration extension for the [pi coding agent](https://pi.dev). You work in one interactive pi session, the main session. A bounded action is a focused task with a clear limit. A worker thread is an isolated pi session that researches, implements, or reviews changes. Slate sends bounded actions to separate worker threads. Each worker thread returns a short structured summary called an episode. A review workflow adds reviewers for risks that you approve or for work above a size threshold.
+Slate is a multi-agent orchestration extension for the [pi coding agent](https://pi.dev). You work in one interactive pi session, the main session. A bounded action is a focused task with a clear limit. A worker thread is an isolated pi session that researches, implements, or reviews changes. Slate sends bounded actions to separate worker threads. Each worker thread returns a short structured summary called an episode. A review workflow adds reviewers for risks the orchestrator proves or for work above a size threshold.
 
 The developers of the [YouTrackDB](https://github.com/JetBrains/youtrackdb) database use Slate in production development.
 
@@ -40,7 +40,7 @@ Try a request with a clear outcome:
 Add input validation to the account settings endpoint. First research the relevant code and tests. Show me the proposed plan and risks before implementation.
 ```
 
-Slate asks for required decisions before editing code. It delegates work after workflow gates allow it. Slate shows a short workflow summary when orchestrator mode is on at interactive startup or when you turn it on. A saved `startupSummary: false` choice stops automatic display. The summary disappears when you send your first prompt to the model.
+Slate asks for required decisions before editing code. It delegates work after workflow gates allow it. The workflow summary is off by default. Run `/slate summary on` to save an opt-in. The panel appears at the next interactive startup or mode activation, not when you save the choice. The summary disappears when you send your first prompt to the model. A handoff successor keeps the current panel visibility instead of using the saved choice.
 
 Run `/slate off` to stop Slate's delegation and remove the summary. `/slate summary off` also removes it. Toggling orchestrator mode off with `/slate` removes it too. Other slash commands leave it visible unless they reload or replace the session. `/reload`, `/new`, `/resume`, and `/fork` clear the panel when they reload or replace the session. Slate then shows it only when orchestrator mode is on and the saved choice allows automatic display. Run `/slate summary` to show it at any time. See [Commands](#commands).
 
@@ -61,13 +61,13 @@ test-quality defects, unreadable user-facing prose, licensing exposure,
 non-local logic defects, consumer contract breaks, governing-rule defects, and
 unreported failures.
 
-The orchestrator records risks for the change and each track. You approve or reject each named proof. Approved proofs select design gates and reviewers. A track with a proved risk gets one general reviewer and its required specialists. An implementer's approximate track size above 100 added plus removed lines also adds the general reviewer unless the track changes only documents that neither ship as code nor run. Lockfiles, migration files, and generated output do not count. A track that the orchestrator estimates above 100 such lines needs a high-level design before implementation, including when it changes only documents. A track with neither review trigger gets no routine implementation reviewer. See [workflow](docs/track-workflow.md) and [focus areas](docs/blast-radius.md) for the rules. Optional draft pull requests cover each level with code tracks. A change without nested tracks has at most one pull request. Each design track needs your explicit acceptance of its whole subtree, which contains that track and its descendants. Final acceptance of the whole change remains a separate decision. Only you merge pull requests. See [recursive workflow](docs/recursive-workflow.md) for nested planning, repair children, and acceptance.
+The orchestrator records risks for the change and each track. The orchestrator judges each named proof and selects design gates and reviewers. You can inspect the assessment and direct changes. A track with a proved risk gets one general reviewer and its required specialists. An implementer's approximate track size above 100 added plus removed lines also adds the general reviewer unless the track changes only documents that neither ship as code nor run. Lockfiles, migration files, and generated output do not count. A track that the orchestrator estimates above 100 such lines needs a high-level design before implementation, including when it changes only documents. A track with neither review trigger gets no routine implementation reviewer. See [workflow](docs/track-workflow.md) and [focus areas](docs/blast-radius.md) for the rules. Optional draft pull requests cover each level with code tracks. A change without nested tracks has at most one pull request. Each design track needs your explicit acceptance of its whole subtree, which contains that track and its descendants. Final acceptance of the whole change remains a separate decision. Only you merge pull requests. See [recursive workflow](docs/recursive-workflow.md) for nested planning, repair children, and acceptance.
 
 ## Product principles
 
-- **Control without reading every line.** Many coding agents produce code that the developer accepts without reading it. Slate keeps you in control in a different way. It gives you higher-level views of the work: approved risks, designs, and review results. You direct and check each change through these views, so you do not need to read all of the generated code.
-- **Quality before cost, within limits.** We expect the cost of model use to fall over time. Slate therefore spends more model work on code quality, up to a reasonable limit. For example, Slate adds reviewers for approved risks and for large tracks that change code.
-- **Cost in proportion to the change.** The cost of a change should grow in proportion to its complexity. A small track with no approved risk gets no design gate and no routine implementation reviewer. A larger or riskier track can add design steps, review steps, or both.
+- **Control without reading every line.** Many coding agents produce code that the developer accepts without reading it. Slate keeps you in control in a different way. It gives you higher-level views of the work: proved risks, designs, and review results. You direct and check each change through these views, so you do not need to read all of the generated code.
+- **Quality before cost, within limits.** We expect the cost of model use to fall over time. Slate therefore spends more model work on code quality, up to a reasonable limit. For example, Slate adds reviewers for proved risks and for large tracks that change code.
+- **Cost in proportion to the change.** The cost of a change should grow in proportion to its complexity. A small track with no proved risk gets no design gate and no routine implementation reviewer. A larger or riskier track can add design steps, review steps, or both.
 
 ## Commands
 
@@ -78,7 +78,7 @@ The orchestrator records risks for the change and each track. You approve or rej
 | `/slate` | Toggle orchestrator mode. |
 | `/slate summary` | Show the workflow summary in any mode, even when automatic display is off. |
 | `/slate summary off` | Stop automatic display and remove a visible summary. |
-| `/slate summary on` | Allow automatic display when orchestrator mode is on. |
+| `/slate summary on` | Save automatic display for the next startup or mode activation. |
 | `/slate effective` | Show the effective logical-model policy and remembered route selections. |
 | `/slate handoff [focus]` | Prepare a new-session handoff, with an optional focus. |
 | `/slate resume` | Clear a context-budget pause and accept user prompts again. |

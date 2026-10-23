@@ -635,7 +635,7 @@ Do not invent a tree or gates from missing files.
 ## Handoff boundaries
 
 Use [track-workflow.md](track-workflow.md) § Confirmation gate for handoff timing,
-record order, and waivers.
+record order, and mandatory boundaries.
 Use its § Resume order and reconciliation to check the summary's subtree entry.
 Existing context-budget, user-requested, and unfinished-session handoff rules still apply.
 
@@ -666,7 +666,7 @@ After user review, use `Track <n> user review fix <r>: <intent title>` for reque
 Use `Track <n> fix round <r>: <intent title>` for gate corrections after user review.
 Here `<n>` is the affected track's identifier, never the child's path number.
 
-Reassess each child's planning, focus approvals, and applicable review gates.
+Reassess each child's planning, risk assessment, and applicable review gates.
 Parent approval does not cover changed child behavior automatically.
 Keep completion evidence in the affected track's report and retained repair records.
 Status may show a repair action finished while the affected track remains incomplete.
@@ -695,10 +695,10 @@ Two failed ordinary rounds on the same approved requirement trigger the requirem
 Count those failed rounds across the affected code track and all its review-fix children.
 Use [track-workflow.md](track-workflow.md) § Confirmation gate for that investigation.
 Complete any triggered investigation before a child starts.
-Investigation approval and holistic-solution approval remain separate.
-Obtain those approvals and the user's split decision before starting the child.
+Start the bounded read-only investigation without scope approval.
+Obtain holistic-solution approval and the user's split decision before starting the child.
 After a completed investigation, two further failed ordinary rounds on that requirement trigger it again.
-Neither investigation approval nor holistic-solution approval permits repair beyond the two-round limit.
+Neither read-only investigation nor holistic-solution approval permits repair beyond the two-round limit.
 A split bypasses no consultation, verification, or escalation rule.
 
 Before user review, child fixes join the affected cumulative implementation commit.
@@ -713,7 +713,7 @@ The affected track completes only after every child repair and required gate is 
 Every design track requires one explicit blocking acceptance of its whole subtree.
 This requirement applies with any proved-area set and with publishing enabled or disabled.
 Present one design-track package for that aggregate decision.
-It identifies the approved design, accepted child evidence, and every subtree level delivery.
+Show design, child-evidence, and delivery references only when the decision needs them.
 State remaining decisions, evidence limits, deviations, and effects on later sibling tracks.
 Use [delivery-packages.md](delivery-packages.md) § Track package for the package fields.
 
@@ -730,15 +730,14 @@ Reconcile and verify the owning log under that sequence before merge or root clo
 Use [change-records.md](change-records.md) § Identifiers, code ranges, and design markers for the marker after acceptance.
 
 Code-track acceptance follows [track-workflow.md](track-workflow.md) § Delivery and termination.
-A code track without mandatory acceptance still receives its package and every other required gate.
 Merging a level supplies no missing gate or decision.
 A design node alone adds no routine implementation reviewer.
 Its aggregate evidence must show each child's required review coverage and separate fix-range verdicts.
 
 ## Packages, attribution, and issues
 
-Use [delivery-packages.md](delivery-packages.md) § Track package for code and design references.
-Use its § Change package for the root's complete level-delivery list.
+Use [delivery-packages.md](delivery-packages.md) for package fields.
+Keep the complete level-delivery list in the owning research log.
 Use its § Durable accounting for record sources and owning-log reconciliation.
 Use [pr-publishing.md](pr-publishing.md) § Description rules for each level's template-shaped description.
 Do not count accepted child work as new implementation.

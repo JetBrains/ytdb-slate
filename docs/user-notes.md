@@ -17,24 +17,13 @@ not satisfy these triggers.
 
 ## Package acceptance and note timing
 
-Every completed track reaches the user through the track package defined in
-[delivery-packages.md](delivery-packages.md) § Track package. The owning research log
-keeps the full working evidence and required durable accounting.
-The package references those records and the diff.
+Use [delivery-packages.md](delivery-packages.md) for completion messages.
+A single-track change sends one change package without a track name and asks only final acceptance.
+The owning research log keeps full evidence and accounting.
+Show record and diff references only when a decision needs them.
 
-For design tracks, use [recursive-workflow.md](recursive-workflow.md) § Whole-subtree acceptance.
-The following proved-area acceptance rules apply to code tracks.
-
-The track package states which acceptance rule applies. User acceptance of a
-track is blocking when that track proves at least one DESIGN-TRIGGERING area.
-Where a marker applies, it waits for required track acceptance and every
-requested fix. A code track with only REVIEWER-ONLY areas, or no proved area, has
-no mandatory track-acceptance gate. Its package reports progress and every
-requested decision. Without mandatory track acceptance, an
-applicable marker waits for completed machine gates, the package, and resolved
-blocking user notes. In a single-track change, any blocking track acceptance
-and final change acceptance are one event. Final change acceptance is always
-blocking.
+Code-track acceptance follows [track-workflow.md](track-workflow.md) § Delivery and termination.
+Design tracks follow [recursive-workflow.md](recursive-workflow.md) § Whole-subtree acceptance.
 
 
 ## Receiving and routing a user note
@@ -42,9 +31,11 @@ blocking.
 The orchestrator records and acknowledges every user note on receipt. The note
 gets a stable identifier. The acknowledgement states all three of these facts:
 
-- the note identifier.
-- whether the note is blocking.
-- its route.
+- the action to take.
+- when the action will happen.
+- its effect on other work.
+
+Show identifiers and internal routes only when a decision needs them.
 
 A note has exactly one initial route:
 
@@ -96,7 +87,8 @@ condition, it escalates. The user may choose one note, defer one note to a track
 
 ### Repeated drain cycles
 
-The orchestrator reports every repeated post-drain cycle. On the second repeat,
+Keep repeated post-drain cycles internal until escalation needs a choice.
+On the second repeat,
 the orchestrator stops the ordinary cycle and escalates. The user chooses one
 of these options:
 
@@ -142,9 +134,10 @@ and the user's disposition.
 | event | timing | available options |
 | --- | --- | --- |
 | A fix round lands no fix. | At the end of that round. | Redesign, waive, split. |
-| Two failed ordinary rounds leave the same approved requirement incomplete, counted across the affected code track and its review-fix children. | At the end of the second such round, before any further repair. | Correct or approve the investigation scope, then approve or reject the holistic solution separately. Redesign, waive, or split remain available. |
+| Two failed ordinary rounds leave the same approved requirement incomplete, counted across the affected code track and its review-fix children. | At the end of the second such round, before any further repair. | Approve or reject the holistic solution after bounded read-only investigation. Approve wider access or higher cost before either is used. Redesign, waive, or split remain available. |
 | The two-round fix cap is exhausted for another case. | At the end of round two. | Redesign, waive, split. |
 | A second regression is filed on one finding. | When the gate thread reports it. | Redesign, waive, accept the regression. |
+| An implementation-level finding has no recommended fix. | Before repair dispatch. | Choose a repair direction or an explicit waiver. |
 | A blocker is proposed for lowering. | Before the lowering takes effect. | Confirm the lowering, keep the blocker. |
 | A pre-existing defect is found. | At once, then again in every later packet until disposition. | Fix, waive, create a tracked issue. |
 | The orchestrator disputes a design-flawed stuck-fix verdict. | When the verdict arrives. | Accept the amendment, override with a reason. |
@@ -180,9 +173,8 @@ as accepted or resolved.
 
 ## Durable final accounting
 
-A single-track change uses the combined package defined in
-[delivery-packages.md](delivery-packages.md) § Single-track combined package. A
-multi-track change uses the separate change package defined in that document.
+Use [delivery-packages.md](delivery-packages.md) § Change package for final completion.
+A single-track change sends no separate track package.
 Package preparation does not delay or replace the feedback triggers above.
 
 ### Final accounting preparation
@@ -201,7 +193,10 @@ The accounting covers:
 - every override log entry.
 - every escalation and its disposition.
 
-The owning research log carries a one-line index of every ignored finding. Each
+Only the owning research log carries the ignored-finding index.
+Do not copy routine minor findings, dispositions, or reasons to pull requests or delivery records.
+A mandatory exception still discloses the information its decision needs.
+Each
 entry carries the identifier, location and one-line summary.
 
 The owning research log gives routine implementation review and user-requested-fix

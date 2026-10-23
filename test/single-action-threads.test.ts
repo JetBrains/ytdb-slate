@@ -138,6 +138,49 @@ async function assertNoDurableEpisodeConsumers(
   assert.equal(restored.threads.size, before, `${episodeId}: later context rejection allocates no thread`);
 }
 
+test("display progress retains failures outside the evidence tail", { timeout: 5_000 }, async () => {
+  const root = mkdtempSync(join(tmpdir(), "slate-display-progress-"));
+  try {
+    const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
+    const manager = new ThreadManager(store, {}, undefined, fixtureRuntime());
+    const listeners = new Set<(event: Record<string, unknown>) => void>();
+    const session = {
+      messages: [] as unknown[], model: { provider: "test", id: "worker" }, thinkingLevel: "off",
+      subscribe(listener: (event: Record<string, unknown>) => void) { listeners.add(listener); return () => listeners.delete(listener); },
+      setThinkingLevel() {}, async abort() {}, dispose() {},
+      async prompt() {
+        for (const listener of listeners) listener({ type: "tool_execution_end", toolName: "read", result: "failure", isError: true });
+        for (let n = 0; n < 20; n++) {
+          const message = { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "full worker response " + n }] };
+          session.messages.push(message);
+          for (const listener of listeners) listener({ type: "message_end", message });
+        }
+      },
+    };
+    const internal = manager as any;
+    internal.openWorkerFor = async (args: any) => {
+      bindFakeWorkerRequest(session, args.requestContract);
+      internal.live.set(args.thread.id, session);
+      return { session };
+    };
+    let last: import("../extension/threads.ts").DispatchProgress | undefined;
+    let callbackFailed = false;
+    const result = await manager.dispatch({ ...TEST_ROUTE, type: "general", task: "display progress" }, { cwd: root } as ExtensionContext, undefined, (progress) => {
+      last = { ...progress };
+      if (!callbackFailed) { callbackFailed = true; throw new Error("callback test failure"); }
+    });
+    assert.ok(last?.done);
+    assert.equal(last.status, "ok");
+    assert.equal(last.displayFailure, "Tool failed: read");
+    assert.equal(last.displayWarning, true);
+    assert.ok(last.lines.length > 6);
+    assert.doesNotMatch(last.lines.slice(-6).join("\n"), /failure/);
+    assert.equal(last.displayActivity, "Worker response received");
+    assert.equal(result.display?.displayFailure, "Tool failed: read");
+    assert.match(result.display?.displayWarningSummary ?? "", /completed tool calls failed/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test("action folders join shutdown and completion across terminal outcomes", { timeout: 10_000 }, async (t) => {
   for (const mode of ["ok", "failed", "throw", "tool-error", "nonempty", "settlement", "shutdown", "storage", "cancel", "startup", "completion", "message-error"]) {
     const root = mkdtempSync(join(tmpdir(), "slate-action-lifetime-"));
@@ -161,7 +204,7 @@ test("action folders join shutdown and completion across terminal outcomes", { t
       },
       async prompt() {
         if (mode === "throw") throw new Error("prompt failed");
-        const message = { role: "assistant", stopReason: mode === "failed" ? "error" : "stop", errorMessage: "billing exhausted", content: [{ type: "text", text: "done" }] };
+        const message = { role: "assistant", stopReason: mode === "failed" ? "error" : "stop", errorMessage: "billing exhausted", content: [{ type: "text", text: mode === "failed" ? "## Open Issues\nRenew credentials before retrying.\n## Handoff Notes\nRetry later." : "done" }] };
         session.messages.push(message);
         for (const listener of listeners) {
           listener({ type: "message_end", message });
@@ -191,7 +234,7 @@ test("action folders join shutdown and completion across terminal outcomes", { t
     try {
       if (mode === "cancel") controller.abort();
       let settled = false;
-      const action = manager.dispatch({ ...TEST_ROUTE, type: THREAD_TYPES[opens + ["ok", "failed", "throw", "tool-error", "nonempty"].indexOf(mode)] ?? "general", task: "lifetime" }, { cwd: root, hasUI: false } as ExtensionContext, controller.signal)
+      const action = manager.dispatch({ ...TEST_ROUTE, type: mode === "ok" ? "reviewer" : THREAD_TYPES[opens + ["ok", "failed", "throw", "tool-error", "nonempty"].indexOf(mode)] ?? "general", task: "lifetime" }, { cwd: root, hasUI: false } as ExtensionContext, controller.signal)
         .then((result) => { settled = true; return result; }, (error: Error) => { settled = true; return error; });
       if (mode !== "cancel") {
         await entered.promise;
@@ -226,11 +269,20 @@ test("action folders join shutdown and completion across terminal outcomes", { t
           assert.ok(!(result instanceof Error));
           assert.equal(result.episode.task, "lifetime");
           assert.equal(result.episodeText.includes(temporary), false);
+          assert.equal(result.display?.displayWarning, true);
+          assert.ok(result.display?.displayWarningSummary?.includes("temporary"));
           assert.doesNotMatch(readFileSync(result.episode.file, "utf8"), /Action temporary folder:|\/tmp\/action\./);
         }
       } else assert.deepEqual(readdirSync(tmp), []);
       if (["settlement", "shutdown", "storage", "cancel"].includes(mode)) assert.ok(result instanceof Error, mode);
-      else { assert.ok(!(result instanceof Error), mode); assert.equal(result.episode.status, ["failed", "throw", "startup", "message-error"].includes(mode) ? "failed" : "ok"); }
+      else { assert.ok(!(result instanceof Error), mode); assert.equal(result.episode.status, ["failed", "throw", "startup", "message-error"].includes(mode) ? "failed" : "ok");
+        if (result.episode.status === "failed") assert.ok(result.display?.displayFailureReason, mode);
+        if (mode === "failed") {
+          assert.ok(result.episodeText.includes("Renew credentials before retrying."));
+          assert.equal(result.display?.displayFailureReason, "billing exhausted");
+        }
+        if (mode === "ok") { assert.ok(result.warnings.some((w) => w.includes("findings row"))); assert.equal(result.display?.displayWarningSummary, ""); }
+      }
       if (mode === "tool-error") { assert.ok(!(result instanceof Error)); assert.match(result.warnings.join(" "), /cmp \(1\)/); }
       assert.equal(internal.actionFinalizers.size, 0);
     } finally { release.resolve(); finishRemoval.resolve(); t.mock.restoreAll(); rmSync(root, { recursive: true, force: true }); }
@@ -1289,6 +1341,10 @@ test("episode compression excludes worker reminders and only the injected user p
   assert.deepEqual(messagesForCompression([reminder, assistant, reminder]), [assistant]);
   assert.deepEqual(messagesForCompression([assistant], "loaded episode text"), [assistant]);
   assert.deepEqual(messagesForCompression([injected, assistant]), [injected, assistant]);
+  for (const customType of ["slate-kickoff", "slate-kickoff-claimed", "slate-failover"]) {
+    const entry = { role: "custom", customType, content: "model evidence", display: false };
+    assert.deepEqual(messagesForCompression([entry, assistant], "model evidence"), [entry, assistant]);
+  }
   const hidden = { role: "custom", ...actionTemporaryMessage("slate-changes/change/tmp/action.aaaaaa") };
   assert.deepEqual(messagesForCompression([hidden, assistant, hidden]), [assistant]);
   const generated = "loaded episode text\n\n## Action\n\ntask";
@@ -1300,13 +1356,23 @@ test("episode compression excludes worker reminders and only the injected user p
 async function dispatchWithUnpairedToolResult(
   handledToolResult: boolean,
   compactionEvent?: "successful" | "aborted" | "missing-result",
+  retainFolder = false,
 ) {
   const root = mkdtempSync(join(tmpdir(), "slate-reminder-miss-"));
   try {
     const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
     const manager = new ThreadManager(store, {}, undefined, fixtureRuntime());
+    if (retainFolder) {
+      store.currentChange = "change-20261008T000000Z-" + "0".repeat(32);
+      mkdirSync(join(root, "slate-changes", store.currentChange), { recursive: true });
+    }
     const listeners = new Set<(event: Record<string, unknown>) => void>();
     const session = {
+      async sendCustomMessage(message: { content: string }) {
+        const folder = /Action temporary folder: ([^\n]+)/.exec(message.content)?.[1];
+        assert.ok(folder);
+        writeFileSync(join(root, folder, "retained.txt"), "evidence");
+      },
       messages: (compactionEvent === "successful" ? [{ role: "user", content: "earlier turn" }] : []) as unknown[],
       model: { provider: "test", id: "worker", contextWindow: 10_000 },
       thinkingLevel: "off",
@@ -1343,6 +1409,7 @@ async function dispatchWithUnpairedToolResult(
       openWorkerFor(args: { thread: ThreadRecord }): Promise<{ session: typeof session; baseline: typeof NO_SESSION_BASELINE }>;
     };
     internals.openWorkerFor = async (args: any) => {
+      args.observeSession(session);
       bindFakeWorkerRequest(session, args.requestContract);
       internals.live.set(args.thread.id, session);
       return { session, baseline: NO_SESSION_BASELINE };
@@ -1371,6 +1438,16 @@ test("a missing worker reminder warns without changing a successful action", { t
   assert.equal(result.thread.status, "successful");
   assert.equal(result.episode.status, "ok");
   assert.deepEqual(result.warnings, [warning]);
+  assert.equal(result.display?.displayWarningSummary, "Review the worker transcript before you rely on the result.");
+});
+
+test("folder retention keeps the higher-priority missing-reminder precaution", { timeout: 2000 }, async () => {
+  const result = await dispatchWithUnpairedToolResult(true, undefined, true);
+  assert.equal(result.thread.status, "successful", result.episodeText);
+  assert.equal(result.episode.status, "ok");
+  assert.equal(result.warnings.length, 2);
+  assert.match(result.warnings[1] ?? "", /Slate kept action temporary folder .*ENOTEMPTY/);
+  assert.equal(result.display?.displayWarningSummary, "Review the worker transcript before you rely on the result.");
 });
 
 test("a short-path tool result does not produce a false reminder warning", { timeout: 1000 }, async () => {

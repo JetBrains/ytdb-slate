@@ -1,7 +1,7 @@
 # Track-based development workflow
 
 This document is the lifecycle spine for every repository change. Proved focus
-areas select design, review, and track-acceptance gates.
+areas select design and review gates.
 
 | actor | action | document | exact section |
 | --- | --- | --- | --- |
@@ -18,7 +18,7 @@ areas select design, review, and track-acceptance gates.
 The mandatory phases run in this order:
 
 1. research.
-2. propose the eleven-line risk record and obtain user approval.
+2. assess and record all eleven risk lines.
 3. design and validate for a multi-track change, a proved DESIGN-TRIGGERING area, or a per-track estimate above 100 counted lines.
 4. when a design exists, reconfirm the focus list against the validated design.
 5. when a design exists, run one adversarial design review for each proved
@@ -30,7 +30,7 @@ The mandatory phases run in this order:
 
 The cumulative implementation commit is the original implementation and all
 agentic-review fixes squashed into one commit before user review. The track loop
-presents the approved high-level design when required, plans and approves the
+presents the approved high-level design when required, plans and judges the
 track's independent risk record, implements, validates, compares the committed
 difference with the proved areas, reviews, and fixes. It then presents any
 changed high-level design when required, creates the cumulative implementation
@@ -56,9 +56,9 @@ arithmetic result computed inside one check fail it. Low-level material is not
 discarded. It belongs in the implementer report.
 
 When an approved high-level design exists, present it before the track and
-after it. Omit the before phase when the track design has not changed since its
-last presentation to the user. Treat that omitted phase as auto-approved, so
-implementation starts without waiting. Omit the after phase when implementation
+after it. Omit the before phase only when approval state covers the track design.
+Approval state is the last approved version plus recorded changes that need no approval.
+Presentation alone grants no approval. Omit the after phase when implementation
 did not change the design. This omission skips only the design-difference
 presentation. It does not skip the track review. By default, a high-level
 design update presents what changed. It omits unchanged text that
@@ -72,6 +72,8 @@ and focus re-derivation.
 The user validates the design and judges whether it is the simplest solution.
 The orchestrator then reconfirms every focus line against that design. Each
 proved DESIGN-TRIGGERING area receives one fresh adversarial design reviewer.
+The orchestrator selects required reviews and reuses applicable unchanged design reviews
+without asking approval of the review count.
 A fresh adversary tests the design and cited evidence. Every review with no
 findings, including an adversarial design review, ends with the exact standalone
 line `No findings.`
@@ -97,8 +99,8 @@ The retained research log is the durable workflow record.
 <!-- track-size-policy:begin -->
 About 400 added plus removed lines per track is a planning guideline, not a hard
 limit or a completion gate. Lockfiles, migration files, and generated output do
-not count. Before proposing the split, the orchestrator estimates each track
-separately.
+not count. The orchestrator estimates each track separately and chooses the
+split without approval.
 An estimate above 100 counted lines requires a high-level design before
 implementation, including for a documentation-only track. Counted lines are
 added plus removed lines, excluding lockfiles, migration files, and generated
@@ -129,8 +131,9 @@ When an implementer approaches the guideline, the implementer stops adding
 scope and finishes at the nearest coherent point. The response reports completed
 work, remaining work, and a proposed track split. It also reports the reason for
 a small overrun. If the remaining approved work cannot fit in the coherent unit,
-the orchestrator proposes the additional track or tracks. The orchestrator
-obtains every approval that a new track requires before implementation continues.
+the orchestrator chooses the additional tracks without split approval.
+Announce each added track and its reason, then complete its applicable gates.
+The announcement authorizes neither a scope exception nor a changed design.
 <!-- track-size-policy:end -->
 
 ## Recursive planning and loading
@@ -198,12 +201,7 @@ DESIGN-TRIGGERING area also requires a high-level design, user validation,
 focus reconfirmation, its own adversarial design reviewer, and final design
 approval. A track with no proved area also has no area reviewer.
 
-For design tracks, use [recursive-workflow.md](recursive-workflow.md) § Whole-subtree acceptance.
-The following proved-area acceptance rules apply to code tracks.
-
-User acceptance of a track is blocking when that track proves at
-least one DESIGN-TRIGGERING area. A code track with only REVIEWER-ONLY areas, or no
-proved area, has no mandatory track-acceptance gate. Final change acceptance is always blocking.
+Acceptance follows § Delivery and termination.
 
 <!-- focus-area-table:begin -->
 | # | focus area | the gate it adds | where the gate runs |
@@ -233,18 +231,35 @@ copy of this table.
 
 ## Confirmation gate
 
-The orchestrator presents one proposal before implementation. It states the
-track split, required pre-implementation gates, research-log location, and the
-independent eleven-line risk record for the change. Each line is NAMED with a
-four-part proof or states which trigger part answers no. The user alone approves
-or rejects each proof and judges the proposed solution. An approved proof makes
-the area proved. A rejected proof makes the area SKIPPED. No file-modifying
-dispatch starts before user approval and every required pre-implementation gate.
+For each track presentation in a multi-track change (pre-track check, plan, track package, or acceptance request), state "Track n of m".
+Here n is the track position and m is the current planned track count at that level.
+After a split, use the new count in the next presentation.
+Position does not replace the track identifier (canonical path number). Present a review-fix child with the affected track's identifier and position.
+
+Follow [review-rules.md](review-rules.md) § Findings and output for severity, required fixes,
+minor dispositions, and moot or rejected findings in both review phases.
+
+Five cases require a user decision: a waiver, a scope exception, a pre-existing
+defect, lowering a blocker, and an implementation-level finding without a recommended fix.
+A design-level finding that adds goals or non-goals requires approval.
+A fix that changes an approved guarantee, assumption, or reasoning requires design-update approval.
+Record every design-level change in the design update or track package.
+Automatic repair never bypasses halt rules, user notes, checks, gates, or acceptance.
+
+The orchestrator obtains solution approval before implementation.
+Without a required high-level design, present a short plan for approval of behavior,
+scope, and necessary user choices. Keep the split, routine gates, and log location
+internal unless a decision needs them.
+It records an independent eleven-line risk record for the change. Each line is NAMED with a four-part proof or states
+which trigger part answers no. The orchestrator judges each proof internally.
+The user judges the proposed solution. No file-modifying dispatch starts before
+solution approval and every required pre-implementation gate.
 
 When an approved high-level design exists, a **scope exception** is a design
 proposal, reviewer finding, or implemented change that covers something the
 approved goals do not list. A proposal to remove an approved goal is also a
-scope exception. The orchestrator presents every scope exception to the user.
+scope exception. Lead each request with one recommended outcome and its reason.
+List the other allowed outcomes and their consequences.
 The user chooses exactly one outcome:
 
 1. add a goal.
@@ -269,6 +284,18 @@ scope-exception outcome composes with that route and does not replace it. The
 route still re-derives the focus set. When no approved high-level design exists,
 the scope-exception rule does not apply. The same halt and focus re-derivation
 route governs instead.
+
+Present each design, plan, and implementation explanation fully once.
+Apply this rule to a baseline map when one is supplied.
+For later presentations, compare with the last shown version, else the last
+approved or accepted version. Keep those versions distinct from internal revisions.
+Retain the comparison versions in the state summary across handoffs.
+Show only changes. If unchanged, give one short no-change sentence.
+Neither presentation nor a no-change statement grants approval.
+Give a full recap on request. Each question names the earlier content and gives
+the context needed for that decision. Explain a needed workflow artifact at its
+first use in each session. Keep no explanation-history register across handoffs.
+Put all open decisions in one section with separate choices for each decision.
 
 Every message to the user must be complete on its own. State the substance
 before any identifier. State each item in words, including what was found,
@@ -324,7 +351,7 @@ Batch independent questions when one request reduces user effort. Do not move a
 question before an investigation or review that it depends on. Record the
 source answer and its applicable scope in the existing workflow record.
 Independent change and track risk records remain separate assessments, but they
-may cite the same applicable approval. Reuse never removes a required review,
+may cite shared evidence. Reuse never removes a required review,
 changes decision authority, or turns planning approval into track or final
 acceptance. Final change acceptance remains a separate blocking decision.
 <!-- user-decision-reuse:end -->
@@ -335,19 +362,18 @@ stop repair dispatch before another repair.
 Count failed rounds across the affected code track and all its review-fix children.
 A split never resets that requirement count.
 After a completed investigation, two further failed ordinary rounds trigger it again.
-Complete a triggered investigation and its approvals before starting a child.
+Complete a triggered investigation and obtain solution approval before starting a child.
 The requirement is the exact
 user-approved requirement named in the track intention or design approval
 record. If those records name different requirements, ask the user to identify
 the requirement before counting rounds. Do not choose between them or treat a
 broad track intention as one requirement. A new finding identifier does not
-create a new requirement or reset the two-round count. Propose an investigation
-scope to the user. The scope must cover relevant lifecycle stages, dependencies,
-unchanged code, actual consumers, and the durable or observable boundary where
-the requirement is judged. The user may correct the scope and must approve it
-before investigation starts.
+create a new requirement or reset the two-round count. Start a bounded read-only
+investigation within the approved requirement. Cover relevant lifecycle stages,
+dependencies, unchanged code, actual consumers, and the durable or observable
+boundary where the requirement is judged. Ask before wider access or higher cost.
 
-Record the trigger, proposed scope, user corrections, approved scope, findings,
+Record the trigger, investigation scope, access or cost decisions, findings,
 evidence, limits, holistic solution, verification plan, and decision as typed
 entries in the affected code track's owning research log.
 Use [change-records.md](change-records.md) § Manual records and safe writes for record ownership.
@@ -364,8 +390,8 @@ verbatim retention of every tool result.
 
 Before each track implementation, assess whether the approved design and
 completed design gates cover the track's proved areas and planned behavior. A
-new track created after the original confirmation gate needs an applicable
-user approval of its independent risk record before implementation starts. If
+new track created after the original confirmation gate needs an independent
+orchestrator assessment and risk record before implementation starts. If
 that planning
 newly proves a DESIGN-TRIGGERING area, enter or re-enter the design sequence
 before the affected implementation. Present the necessary new, revised, or
@@ -378,29 +404,45 @@ they change approved behavior or constraints. If an implementer discovers a
 design gap later, pause affected work and complete this route before continuing.
 
 <!-- multi-track-handoff:begin -->
-For a multi-track change, ask for handoff at the start of each design track.
-Ask again immediately before each code track's implementation.
+For a multi-track change, handoff is mandatory at the start of each design track.
+Handoff is mandatory before each code track's implementation.
 A design track plans a nested change before implementation.
+The design-track boundary precedes research, expansion, and design work.
+The code-track boundary follows all required planning and pre-implementation gates.
+These include confirmation, scope-exception decisions, applicable design gates, and enabled draft creation.
 Save subtree detail in the active subtree log first.
 Save the state summary in the root `research-log.md` last as a typed `handoff` entry.
 The summary names the subtree entry it relies on.
 For a review-fix subtree, use the affected code track's existing records.
 When no subtree log exists, save the summary in the root log alone.
-The orchestrator then asks whether to run `/slate handoff [focus]`.
-This command restores all threads and episodes in a fresh session.
-Do not propose a plain new pi session instead.
-
-The design-track boundary precedes research, expansion, and design work.
-The code-track boundary follows all required planning and pre-implementation gates.
-These include confirmation, scope-exception decisions, and applicable design gates.
-A review-fix child remains inside the affected code track and adds no new handoff boundary.
 
 Complete the prior ordinary track package and required acceptance before the next ordinary track boundary, except for a recorded permitted dependency pause.
 A subtree under that pause does not block the named unfinished sibling dependency's boundary until the recorded resume condition holds.
 Use [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for the pause conditions.
 The paused subtree's package and acceptance stay pending and still block its own completion.
+Complete requested fixes and blocking acceptance before the marker, state save, and handoff.
+Save the prior package's assessment of effects on upcoming tracks.
+Single-track changes are exempt. If one later splits, accept its initial package and fixes before the marker, save, and first handoff, before the next track.
 
-The orchestrator pauses dispatch pending an actual handoff and resume or an explicit user decision to continue in the same session. The explicit same-session decision is recorded as a user waiver in the existing override log. A resumed session follows Resume order and reconciliation and does not repeat a boundary request already recorded as completed. Same-track fix rounds do not retrigger the request. Single-track changes are exempt. This workflow rule has no automated runtime enforcement.
+The successor performs Resume reconciliation, then a short pre-track check of the design or intention.
+Use reconciled records and the prior package's assessment, or completed planning records for the first track.
+Settle facts and applicable answers before asking unresolved questions.
+Record the track, design or intention version, source state, decisions, and gates.
+Reuse the check while those inputs apply, even after another handoff.
+New evidence reopens only the affected part.
+A meaningful design or intention change requires its decisions and gates, revised records, then a second handoff before implementation.
+Finishing a required gate, confirming an answer, or rewording unchanged meaning adds no handoff.
+Further substantive changes follow the same rule.
+
+At a mandatory boundary request `/slate handoff --track-boundary`. After a post-check change use `--post-check`.
+Details: [safety-and-trust.md](safety-and-trust.md) § Fresh-session entry.
+Pause dispatch until actual transfer. Record each purpose and completion separately.
+Reuse completed boundary transfers on resume.
+Cancellation, failure, and `/slate resume` do not satisfy the boundary.
+There is no same-session substitute. The command grants no acceptance.
+Same-track fix rounds and review-fix children add no boundary or acceptance.
+Budget and user-requested handoffs keep their purposes.
+This workflow rule has no automated runtime enforcement.
 <!-- multi-track-handoff:end -->
 
 ## Risk planning and reconciliation
@@ -408,19 +450,18 @@ The orchestrator pauses dispatch pending an actual handoff and resume or an expl
 The orchestrator judges each focus area for the whole planned track, not for
 each file. It writes all eleven risk-record lines. A NAMED line carries the
 four-part proof defined in [blast-radius.md](blast-radius.md) § Judged proof
-and risk record. Each other line states which trigger part answers no. The user
-alone judges each proof. User approval makes the area proved. User rejection
-makes it SKIPPED. A SKIPPED area adds no gate or reviewer.
+and risk record. Each other line states which trigger part answers no.
+The orchestrator judges each proof. A sufficient proof makes the area proved.
+An insufficient proof makes it SKIPPED. A SKIPPED area adds no gate or reviewer.
 
 The proof basis is the approved track design. When the track has no design, the
-basis is the track intention block and planned file list. The user approves or
-rejects every NAMED proof at the confirmation gate. When a design exists, the
-user validates it before the orchestrator reconfirms all eleven lines against
-that design. The orchestrator presents every addition and removal with its proof
-or failed trigger part. User approval of the reconfirmed list precedes one
-adversarial design review for each proved DESIGN-TRIGGERING area. Final design
+basis is the track intention block and planned file list. When a design exists,
+the user validates it before the orchestrator reconfirms all eleven lines against
+that design. The orchestrator records every addition and removal with its proof
+or failed trigger part. Reconfirmation precedes one adversarial design review
+for each proved DESIGN-TRIGGERING area. Final design
 approval follows those reviews. The design stage is the only stage where an
-adversarial reviewer receives the approved risk record and area proofs as
+adversarial reviewer receives the risk record and area proofs as
 separate inputs. Implementation reviewers and both repair gates receive neither.
 The stuck-fix consultation follows the whole-episode exception in
 [review-rules.md](review-rules.md) and receives no separately supplied risk
@@ -428,21 +469,19 @@ record or area proof.
 
 Before code review, the orchestrator compares the committed difference with the
 proved set. A missed area follows the late-area route below. For an area that no
-longer engages, record the failed trigger part and present a removal proposal to
-the user at once. The area remains proved, with all of its gates and reviewers,
-until the user approves removal. Rejection preserves the proved area. Keep every
-reviewer that already covered completed work. The owning research log
-reports every addition, proposed or approved removal, SKIPPED state, user
-decision, and reviewer-coverage decision. A package puts any unresolved
+longer engages, the orchestrator records the failed trigger part and removes it.
+Removal never silently waives a separate required gate. Keep every reviewer
+that already covered completed work. The owning research log reports every
+addition, removal, SKIPPED state, user direction, and reviewer-coverage decision. A package puts any unresolved
 requested decision or relevant risk under **Needs attention**.
 
 When the orchestrator or implementer discovers a late area, the orchestrator
-presents its four-part proof to the user at once. Approval recomputes the
+judges and records its four-part proof at once. A sufficient proof recomputes the
 complete required routine reviewer set. If Reviewer I has not covered the range,
 dispatch Reviewer I and the new area specialist. If Reviewer I already ran
 because of size or another proved area, dispatch only the new area specialist.
-Do not dispatch Reviewer I again. Approval
-of a DESIGN-TRIGGERING area also enters or re-enters the design sequence for
+Do not dispatch Reviewer I again. A newly proved
+DESIGN-TRIGGERING area also enters or re-enters the design sequence for
 remaining affected work unless the user records a decision to skip that gate.
 Present any necessary new, revised, or materially clarified design before
 continuing that work. Reuse unchanged approved design and completed applicable
@@ -453,8 +492,10 @@ covered it. When no work remains, record the design-gate skip, complete that
 review, and present the record at final acceptance.
 
 The implementer reports any risk that the plan did not name. The orchestrator
-writes its proof and starts the same immediate user-decision route. An
-implementation reviewer receives no proof.
+writes and judges its proof through the same late-area route. An implementation
+reviewer receives no proof. The user may request the risk record or direct an
+area addition or removal. Honor that direction and record its gate effects.
+Do not routinely present the assessment or advertise this option.
 
 ## Track intention block and implementer response
 
@@ -545,8 +586,8 @@ Open these sections: Initial request, Decision Log, Surprises and Discoveries,
 and Open Questions. Add Planned changes, Track table, risk record, coverage
 register, override log, and escalation records when needed. Do not use an
 observations section. Worker observation files are review evidence, not user
-feedback. Naming an area opens the log even when the user later rejects its
-proof. Every retained entry is typed as `decision`, `evidence`,
+feedback. Naming an area opens the log even when the orchestrator later judges
+its proof insufficient. Every retained entry is typed as `decision`, `evidence`,
 `ruling`, `risk`, `question`, `focus`, `verification`, or `handoff`. Append an
 entry immediately after its event. Keep each entry self-contained.
 
@@ -582,7 +623,7 @@ Before a session handoff, use § Confirmation gate's handoff block for record or
 The root state summary names the proved focus
 areas and risk-record location, current track, current implementer
 report location, last boundary marker, live registers, open findings, checks
-run, and next action. A
+run, next action, and the last shown or fallback approved comparison versions. A
 context-budget handoff, user-requested handoff, or session end with unfinished
 work triggers this summary.
 
@@ -631,8 +672,8 @@ coverage conclusion required below.
 ### Routing recommendations at change completion
 
 When trusted configuration sets `workflow.routingRecommendations` to `true`, the
-orchestrator adds model-routing recommendations to the change package before it
-asks for final acceptance. The advice covers only logical models named in
+orchestrator adds model-routing recommendations before final acceptance only
+when current-change records support advice. The advice covers only logical models named in
 action records for the current change. Use the current-change workflow context
 to set that boundary. Do not scan unrelated actions from the full session
 history.
@@ -645,9 +686,8 @@ it. Keep the advice short and ready to copy.
 Recommend changes to existing guidance or cautions first. Recommend another
 entry change only when empirical evidence is sufficient for that specific
 change. Do not derive broad capability claims from weak evidence. Do not invent
-a recommendation when the records support none. In that case, use the exact
-no-change statement required by
-[delivery-packages.md](delivery-packages.md) § Change package.
+a recommendation when the records support none. Keep a no-advice result only
+in the research log. Omit the routing field from the change package.
 
 The advice is advisory. It never authorizes a model selection or roster change.
 It never edits configuration, routing, or model files. A user decision and the
@@ -666,16 +706,15 @@ it defines.
 <!-- delivery-package-loading:end -->
 
 For design tracks, use [recursive-workflow.md](recursive-workflow.md) § Whole-subtree acceptance.
-The following proved-area acceptance rules apply to code tracks.
+The following acceptance rules apply to code tracks.
 
-Every completed track reaches the user through the track package defined in
-[delivery-packages.md](delivery-packages.md) § Track package. User acceptance of
-a track is blocking when that track proves at least one DESIGN-TRIGGERING area.
-Where a marker applies, it waits for required track acceptance and every
-requested fix. A code track with only REVIEWER-ONLY areas, or no proved area,
-has no mandatory track-acceptance gate.
-In a single-track change, any blocking track acceptance and final change
-acceptance are one event. Final change acceptance is always blocking.
+Use [delivery-packages.md](delivery-packages.md) for completion messages.
+A single-track change sends one change package without a track name and asks only final acceptance.
+Every code track in a multi-track change needs blocking track acceptance, regardless of proved areas.
+Where a marker applies, it waits for required track acceptance and every requested fix.
+Complete machine gates, the package, and resolved blocking user notes before the marker.
+A single-track change asks only final change acceptance.
+Final change acceptance is always blocking.
 
 Done means all required reviews and gates passed. For routine implementation
 review, the required set is the set in § Review coverage. An empty set reports
@@ -711,7 +750,8 @@ boundaries.
 Commit each fix requested during user review separately after the cumulative
 commit. Do not squash a user-review fix into the cumulative commit, because
 folding it back would destroy the exact state the user reviewed. Present each
-fix and obtain user acceptance. When at least one such commit exists, add their
+fix's status in one batch acceptance question. Let the user accept or reject each
+fix separately. Keep one commit per fix. When at least one such commit exists, add their
 contiguous range to the coverage register. Dispatch one fresh gate thread to
 verify that range before adding an applicable marker or before completing
 final acceptance for a single-track change.
@@ -798,7 +838,7 @@ Without publishing, use all owning accounting sources defined in
 [delivery-packages.md](delivery-packages.md) § Durable accounting.
 These include root and design-track logs, code reports, affected-track repair
 records, and their read-only source chains.
-Intermediate packages reference those sources, not a future commit.
+Show source references only when a decision needs them. Never claim a future commit exists.
 After root final acceptance, create the final squashed delivery commit using project commit rules.
 Read the project's contributor instructions and their cited commit guidance.
 Explicit instructions take precedence over examples from history.

@@ -19,6 +19,7 @@ import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { Type } from "typebox";
 import { createChangeFolder } from "./artifact-names.ts";
+import { renderCompactCall, renderCompactResult } from "./render.ts";
 import { createChangeDirectory } from "./slate-files.ts";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { SlateHandoffHooks } from "./handoff.ts";
@@ -276,7 +277,7 @@ function buildDoctrine(
    Only users merge levels, not tracks. Mechanics: ${PR_PUBLISHING_DOC}.`
 			: `Keep workflow records in the change folder.`;
 	const routingRecommendationTail = routingRecommendations
-		? "\n   At change completion, follow Lifecycle's routing-recommendation rule before final acceptance."
+		? "\n   Show routing advice only when records support it."
 		: "";
 	const followUpTail = trusted && config.workflow?.followUpIssues === true
 		? "\n   After review, ask the user which deferred items become tracked issues."
@@ -301,24 +302,24 @@ Plan. Workers execute.
 
 1. Do tactical work only through bounded \`thread\` actions. You cannot edit files or run commands.
 2. Dispatch independent actions in parallel in one turn.
-3. Each \`thread\` call starts a new thread for one action. Follow-ups need new threads. No worker conversation crosses threads.
+3. Each \`thread\` starts one action. Follow-ups need new threads. No worker conversation crosses threads.
 4. Pass prior episode ids in \`context\`, not repeated content. Slate loads them in worker prompts.
 5. Orient with read-only tools. Delegate substantial work.
-6. Update strategy after each episode. Partial responses become failed episodes. No-response failures use fixed episodes. Adapt to STATUS: FAILED. Never retry blindly.
-7. Messages stay strategic: goals, routing, synthesis.
+6. Update strategy after episodes. Partial responses fail. No-response failures use fixed episodes. Adapt to STATUS: FAILED. Never retry blindly.
+7. Show content once, then changes from last shown, else approved. Unchanged: one sentence, no approval. Group decisions, separate choices.
 8. Keep separate change/track records. NAMED: defect, place,
-   consequence, review contribution. User approval proves it. Rejection is SKIPPED. Proved areas add specialists and one Reviewer I. Estimate tracks first. Multi-track work or estimates >100 counted lines need design before work,
+   consequence, review contribution. Judge proof sufficiency internally. Proved areas add specialists and one Reviewer I. Estimate tracks first. Multi-track work or estimates >100 counted lines need design before work,
    even documentation-only. Implementer reports approximate size in response and report. Above 100 adds Reviewer I except documentation-only.
    Size adds no specialist, design adversary or track acceptance. If size crosses 100 late, add Reviewer I unless documentation-only. No late design. Use larger size later.
    Late areas add only specialists if Reviewer I ran. Definitions: ${BLAST_RADIUS_DOC}.
-   Lifecycle: ${TRACK_WORKFLOW_DOC}. User judges proofs and simplicity.
-   Beside Lifecycle: read change-records.md for every change. At planning and resume reconciliation, load recursive-workflow.md if a current or proposed plan has a design track or review-fix child track. Load it before proposing a review-fix split. Read applicable sections before relying on their rules.
-   Approve proofs before edits. Apply evidence and prior answers first.
-   Evidence cannot authorize. Reuse approvals only for covered decisions with current conditions and prerequisites complete when answered. Ask only unresolved parts. Explain changes. Preserve gates and reviews. Each proved DESIGN-TRIGGERING area requires design, user
-   validation, focus reconfirmation, adversarial design review, final approval,
-   and blocking track acceptance.
-   REVIEWER-ONLY or no-area code tracks need no track acceptance.
+   Lifecycle: ${TRACK_WORKFLOW_DOC}. User judges the solution.
+   Read change-records.md for every change. At planning/resume, load recursive-workflow.md for any planned design or review-fix track, and before proposing a review-fix split. Read applicable sections before use.
+   Apply evidence and prior answers first.
+   Evidence cannot authorize. Reuse approvals only for covered decisions with current prerequisites met when answered. Ask unresolved parts. Explain changes. Preserve gates and reviews. Each proved DESIGN-TRIGGERING area requires design, user
+   validation, focus reconfirmation, adversarial design review, and final approval.
+   Lifecycle governs blocking code-track acceptance regardless of proved areas.
    Final acceptance always blocks.
+   Lifecycle governs short plans, internal splits, packages and behavior summaries.
    ${rule8Tail}${routingRecommendationTail}
 9. Before review dispatch, follow ${REVIEW_RULES_DOC}. Read unless in context.
    Implementation review: pass built-in perspectives and data.
@@ -356,7 +357,7 @@ function loadDoctrineExtra(cwd: string, config: SlateConfig, trusted: boolean): 
 
 const PAUSED_ADDENDUM = `
 
-# PAUSED — context budget exceeded
+# PAUSED
 
 Slate is paused for handoff. Orchestrator worker dispatches remain available.
 Save the project state in the research log through exactly one worker at a time.
@@ -366,9 +367,6 @@ do not claim that the state was saved. Do not start other user work. Reply with
 a concise handoff brief (overall goal, per-thread state with episode ids,
 immediate next actions) and direct the user to run /slate handoff [optional
 focus].`;
-
-const PAUSED_INPUT_REFUSAL =
-	"slate: paused for handoff — input rejected. Run /slate resume or /slate handoff [focus].";
 
 /**
  * Report one refused prompt on exactly ONE channel, and never throw.
@@ -386,17 +384,19 @@ const PAUSED_INPUT_REFUSAL =
  *
  * It sends no message and starts no turn.
  */
-function reportPausedInput(ctx: ExtensionContext): void {
+function reportPausedInput(ctx: ExtensionContext, reason: SlateStore["pauseReason"]): void {
+	const flag = reason === "context-budget" ? " --context-budget" : "";
+	const message = `slate: paused for handoff — input rejected. Run /slate resume or /slate handoff${flag} [focus].`;
 	try {
 		if (ctx.hasUI) {
-			ctx.ui.notify(PAUSED_INPUT_REFUSAL, "warning");
+			ctx.ui.notify(message, "warning");
 			return;
 		}
 	} catch {
 		/* fall through to the console report */
 	}
 	try {
-		console.warn(PAUSED_INPUT_REFUSAL);
+		console.warn(message);
 	} catch {
 		/* every channel failed; the refusal below still holds */
 	}
@@ -483,6 +483,8 @@ export function registerSlateMode(
 	pi.registerTool({
 		name: "slate_change",
 		label: "Slate change",
+		renderCall: (args, theme, context) => renderCompactCall("slate_change", args, theme, context),
+		renderResult: (result, options, theme, context) => renderCompactResult("slate_change", result, options, theme, context),
 		description: "Start or close the current workflow change. Slate generates the folder name. Close deletes nothing. Orchestrator mode only.",
 		parameters: Type.Object({ action: Type.Union([Type.Literal("start"), Type.Literal("close")]) }),
 		async execute(_id, params, _signal, _update, ctx) {
@@ -545,7 +547,7 @@ export function registerSlateMode(
 			pi.setActiveTools([...new Set([...baseline, ...extras])].filter((name) => name !== "slate_change"));
 			savedTools = undefined;
 		}
-		if (!on) store.paused = false; // a pause is meaningless outside orchestrator mode
+		if (!on) { store.paused = false; store.pauseReason = undefined; } // a pause is meaningless outside orchestrator mode
 		store.orchestratorMode = on;
 		if (persist) store.save();
 		updateStatus();
@@ -595,7 +597,7 @@ export function registerSlateMode(
 	// ordinary user input and receives the same pause rule.
 	pi.on("input", async (event, ctx) => {
 		if (store.orchestratorMode && store.paused) {
-			reportPausedInput(ctx);
+			reportPausedInput(ctx, store.pauseReason);
 			return { action: "handled" };
 		}
 		// Registered slash commands return before pi emits input. Extension and
@@ -650,7 +652,8 @@ export function registerSlateMode(
 					if (ctx.hasUI) ctx.ui.notify("slate: orchestrator mode is not active — nothing to hand off.", "warning");
 					return;
 				}
-				await hooks.startHandoff(ctx, rest.join(" ") || undefined, summaryVisible);
+				const purpose = rest[0] === "--track-boundary" ? "track-boundary" : rest[0] === "--post-check" ? "post-check" : rest[0] === "--context-budget" ? "context-budget" : rest[0] === "--user-request" ? "user-request" : undefined;
+				await hooks.startHandoff(ctx, (purpose === undefined ? rest : rest.slice(1)).join(" ") || undefined, summaryVisible, purpose);
 				return;
 			}
 			if (arg === "effective") {
@@ -661,9 +664,9 @@ export function registerSlateMode(
 				return;
 			}
 			if (arg === "resume") {
-				store.paused = false;
-				store.save();
-				if (ctx.hasUI) ctx.ui.notify("slate: pause cleared — user prompts are accepted again.", "info");
+				if (hooks.resume) { if (!await hooks.resume(ctx)) return; }
+				else { store.paused = false; store.pauseReason = undefined; store.save(); }
+				if (ctx.hasUI) ctx.ui.notify("slate: pause cleared — user prompts are accepted again. If work does not continue, ask to continue.", "info");
 				return;
 			}
 			const target = arg === "on" ? true : arg === "off" ? false : !store.orchestratorMode;
@@ -702,7 +705,7 @@ export function registerSlateMode(
 			...loadDoctrineExtra(ctx.cwd, config, trusted).map((d) => `\n\n${d}`),
 			...docs.map((d) => `\n\n${d}`),
 		];
-		if (store.paused) parts.push(PAUSED_ADDENDUM);
+		if (store.paused && store.pauseReason !== "adoption") parts.push(store.pauseReason === "context-budget" ? PAUSED_ADDENDUM.replace("/slate handoff", "/slate handoff --context-budget") : PAUSED_ADDENDUM);
 		return { systemPrompt: event.systemPrompt + parts.join("") };
 	});
 

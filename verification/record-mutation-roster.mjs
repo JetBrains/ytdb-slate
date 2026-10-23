@@ -94,14 +94,14 @@ const numbered = (id, count) => Array.from({ length: count }, (_, index) => `${i
 const combinations = (ids, kinds) => ids.flatMap((id) => kinds.map((kind) => `${id}/${kind}`));
 const recordUnits = ["identifiers-ranges", "tool-records-and-recovery", "resume-forks", "handoff-pointer", "marker-identity", "resume-order", "general-handoff", "closed-range-feedback"];
 const relations = { loading: 5, nested: 7, records: 3, "status-trigger": 1, "canonical-grammar": 1, "repair-records": 1, "append-only": 2, "resume-entry": 1, "repair-rounds": 1, "repair-consultations": 1, "child-fix-title": 2, "child-attribution": 1 };
-const levelCounts = { "publishing-intro": 8, "level-publishing": 22, "publishing-after-merge": 12, "publishing-creation": 35,
+const levelCounts = { "publishing-intro": 8, "level-publishing": 22, "publishing-after-merge": 12, "publishing-creation": 30,
  activation: 5, "accepted-history": 14, "cleanup-retention": 2, history: 444, "cleanup-pointer": 1, "private-set": 14,
- "history-owner-pointers": 2, ready: 10, "ready-history": 2, "ready-description": 3, "merge-acceptance": 6,
- "description-scope": 17, "description-record": 2, "default-template": 4, sync: 7, "ready-findings": 2, "ready-completion": 5, "post-flip": 7, transfer: 12, "disabled-preservation": 3, configuration: 3 };
+ "history-owner-pointers": 2, ready: 10, "ready-history": 2, "ready-description": 3, "merge-acceptance": 7,
+ "description-scope": 17, "description-record": 2, "default-template": 4, sync: 7, "ready-findings": 1, "ready-completion": 6, "post-flip": 12, transfer: 12, "disabled-preservation": 3, configuration: 3 };
 const headingCounts = { "identifiers-ranges": 33, "manual-records": 137, "resume-forks": 21, "handoff-pointer": 3,
- "resume-order": 19, "general-handoff": 3, "closed-range-feedback": 17, repairs: 60, aggregate: 22, sources: 67,
- "workflow-accounting": 62, "notes-accounting": 21, "publishing-sync": 7, "public-roadmap": 20, "repair-escalation": 45,
- "repair-rounds-owner": 51, "repair-consultations-owner": 26, "child-fix-title-owner": 7, "P13-authoring": 28 };
+ "resume-order": 19, "general-handoff": 3, "closed-range-feedback": 19, repairs: 60, aggregate: 21, sources: 68,
+ "workflow-accounting": 63, "notes-accounting": 23, "publishing-sync": 7, "public-roadmap": 20, "repair-escalation": 49,
+ "repair-rounds-owner": 52, "repair-consultations-owner": 26, "child-fix-title-owner": 7, "P13-authoring": 28 };
 const sentenceIds = (counts) => Object.entries(counts).flatMap(([id, count]) => numbered(id, count));
 const ordering = ["history", "roadmap-pause", "resume-pause", "design-first-base", "design-first-history", "design-first-roadmap",
  "foundation-base", "foundation-merge", "merge-actor", "level-completion-recursive", "dependent-acceptance-recursive",
@@ -129,8 +129,8 @@ export const EXPECTED_MUTATIONS = {
  "scope-outcome/redirect-record", "scope-outcome/omit-record",
  "note-route/redirect-record", "note-route/omit-record",
  "template-applicability/disabled-exemption", "template-applicability/disabled-template", "template-applicability/publishing-duty", "commit-discipline/design-summary"],
- "delivery-rules": sentenceIds({ repairs: 60, aggregate: 22, issues: 15, sources: 67, "workflow-accounting": 62,
- "notes-accounting": 21, "publishing-sync": 7, "public-workflow": 24, "public-roadmap": 20 }),
+ "delivery-rules": sentenceIds({ repairs: 60, aggregate: 21, issues: 15, sources: 68, "workflow-accounting": 63,
+ "notes-accounting": 23, "publishing-sync": 7, "public-workflow": 24, "public-roadmap": 20 }),
  transfer: numbered("transfer", 5),
  "sequential-acceptance": ["subtree-merged-before-root-without-marker-distinction", "root-recreates-earlier-subtree-marker", "root-adds-marker-for-every-accepted-subtree"],
  "handoff-destinations": ["description-copy", "size-exception", "reachable-description"],

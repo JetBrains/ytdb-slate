@@ -1461,14 +1461,14 @@ try {
 			dogfood: metrics(await doctrine(dogExtensions, () => dogRuntime, true, dogConfig)),
 		};
 		const exact = {
-			prompt: { portable: 3596, lines: 11, paths: 0 }, trusted: { portable: 8461, lines: 74, paths: 5 },
-			untrusted: { portable: 2768, lines: 33, paths: 4 }, draft: { portable: 8529, lines: 75, paths: 6 },
-			extensions: { portable: 9808, lines: 84, paths: 5 }, allTails: { portable: 9876, lines: 85, paths: 6 },
-			followUp: { portable: 9882, lines: 85, paths: 5 }, routing: { portable: 9905, lines: 85, paths: 5 },
-			draftFollowUp: { portable: 9950, lines: 86, paths: 6 }, draftRouting: { portable: 9969, lines: 86, paths: 6 },
-			followUpRouting: { portable: 9979, lines: 86, paths: 5 }, maximal: { portable: 10043, lines: 87, paths: 6 },
-			maximalOpen: { portable: 10241, lines: 88, paths: 6 }, maximalLinked: { portable: 10471, lines: 90, paths: 6 },
-			dogfood: { portable: 9168, lines: 86, paths: 6 },
+			prompt: { portable: 3596, lines: 11, paths: 0 }, trusted: { portable: 8404, lines: 74, paths: 5 },
+			untrusted: { portable: 2711, lines: 33, paths: 4 }, draft: { portable: 8472, lines: 75, paths: 6 },
+			extensions: { portable: 9751, lines: 84, paths: 5 }, allTails: { portable: 9819, lines: 85, paths: 6 },
+			followUp: { portable: 9825, lines: 85, paths: 5 }, routing: { portable: 9804, lines: 85, paths: 5 },
+			draftFollowUp: { portable: 9893, lines: 86, paths: 6 }, draftRouting: { portable: 9868, lines: 86, paths: 6 },
+			followUpRouting: { portable: 9878, lines: 86, paths: 5 }, maximal: { portable: 9942, lines: 87, paths: 6 },
+			maximalOpen: { portable: 10140, lines: 88, paths: 6 }, maximalLinked: { portable: 10370, lines: 90, paths: 6 },
+			dogfood: { portable: 9067, lines: 86, paths: 6 },
 		};
 		const doctrineBaselines = Object.values(rendered);
 		checkAll("doctrine-budget", "exact production renders match published portable baselines and every current baseline keeps five-percent reserve", [
@@ -1512,11 +1512,11 @@ try {
 			["19,401 rejected", aboveChars.promptText() === undefined && aboveChars.criticalErrors.some((x) => /19401 portable characters/.test(x)), aboveChars.criticalErrors],
 			["105 lines accepted", atLines.promptText()?.split("\n").length === 105, atLines.criticalErrors],
 			["106 lines rejected", aboveLines.promptText() === undefined && aboveLines.criticalErrors.some((x) => /106 lines/.test(x)), aboveLines.criticalErrors],
-			["whole-doctrine padding stays inside the supported label cap", labelAt === 19 && labelAt + 1 <= 128, { at: labelAt, above: labelAt + 1 }],
+			["whole-doctrine padding stays inside the supported label cap", labelAt === 120 && labelAt + 1 <= 128, { at: labelAt, above: labelAt + 1 }],
 			["whole-doctrine equality is accepted and first-over-limit is rejected", portable(wholeAt) === 26300 && portable(wholeAbove) === 26301 && portable(wholeAt) <= DOCTRINE_LIMITS.maximalChars && !(portable(wholeAbove) <= DOCTRINE_LIMITS.maximalChars), { at: portable(wholeAt), above: portable(wholeAbove), ceiling: DOCTRINE_LIMITS.maximalChars }],
-			["boundary compositions stay exact and below whole-doctrine cap", portable(featureOffDraft) === 26108 && portable(featureOffTight) === 26182 && portable(routingWithoutDrafts) === 26137 && portable(routingWithFollowUp) === 26211 && portable(routing) === 26201 && portable(deferred) === 26275 && [featureOffDraft, featureOffTight, routingWithoutDrafts, routingWithFollowUp, routing, deferred].every((text) => portable(text) <= DOCTRINE_LIMITS.maximalChars), { featureOffDraft: portable(featureOffDraft), featureOffTight: portable(featureOffTight), routingWithoutDrafts: portable(routingWithoutDrafts), routingWithFollowUp: portable(routingWithFollowUp), routing: portable(routing), deferred: portable(deferred) }],
+			["boundary compositions stay exact and below whole-doctrine cap", portable(featureOffDraft) === 26051 && portable(featureOffTight) === 26125 && portable(routingWithoutDrafts) === 26036 && portable(routingWithFollowUp) === 26110 && portable(routing) === 26100 && portable(deferred) === 26174 && [featureOffDraft, featureOffTight, routingWithoutDrafts, routingWithFollowUp, routing, deferred].every((text) => portable(text) <= DOCTRINE_LIMITS.maximalChars), { featureOffDraft: portable(featureOffDraft), featureOffTight: portable(featureOffTight), routingWithoutDrafts: portable(routingWithoutDrafts), routingWithFollowUp: portable(routingWithFollowUp), routing: portable(routing), deferred: portable(deferred) }],
 			["boundary composition line counts match the published tables", featureOffDraft.split("\n").length === 88 && featureOffTight.split("\n").length === 89 && routingWithoutDrafts.split("\n").length === 88 && routingWithFollowUp.split("\n").length === 89 && routing.split("\n").length === 89 && deferred.split("\n").length === 90, { featureOffDraft: featureOffDraft.split("\n").length, featureOffTight: featureOffTight.split("\n").length, routingWithoutDrafts: routingWithoutDrafts.split("\n").length, routingWithFollowUp: routingWithFollowUp.split("\n").length, routing: routing.split("\n").length, deferred: deferred.split("\n").length }],
-			["fresh valid-router over-cap control reaches whole-doctrine guard", portable(over) === 28145 && portable(over) > DOCTRINE_LIMITS.maximalChars, portable(over)],
+			["fresh valid-router over-cap control reaches whole-doctrine guard", portable(over) === 28044 && portable(over) > DOCTRINE_LIMITS.maximalChars, portable(over)],
 		]);
 	});
 
@@ -1610,12 +1610,12 @@ try {
 			ref === "HEAD" ? /^Original doctrine reference rejected: commit identity$|^Cannot read original doctrine base d8bca25ef8947e370a92a68a4d98d0e2ec9f1a53: fatal: ambiguous argument 'HEAD': unknown revision or path not in the working tree\.\n/
 				: /^Original doctrine reference rejected: commit identity$/)));
 		const provenanceControls = await Promise.all([{ ...reference, register: mode.registerSlateMode }, { ...reference, create: logicalRuntime.createLogicalRuntime }, { ...reference, directory: prefix }].map((selected) => rejects(() => verifyReference(selected), /provenance/)));
-		const fixed = newRuntimes[4], grown = { ...fixed, promptText: () => `${fixed.promptText()}${"x".repeat(48)}` };
+		const fixed = newRuntimes[4], grown = { ...fixed, promptText: () => `${fixed.promptText()}${"x".repeat(128)}` };
 		const fixedBefore = await doctrine(EMPTY_EXT, () => oldRuntimes[4], true, {}, {}, reference.register);
 		const fixedAfter = await doctrine(EMPTY_EXT, () => grown, true);
 		const pausedControls = await Promise.all(domains.paused.map(async (paused) => {
 			const pausedBefore = await doctrine(EMPTY_EXT, () => oldRuntimes[0], true, {}, { paused }, reference.register);
-			const changed = `${await doctrine(EMPTY_EXT, () => newRuntimes[0], true, {}, { paused })}${paused ? "x" : ""}`;
+			const changed = `${await doctrine(EMPTY_EXT, () => newRuntimes[0], true, {}, { paused })}${paused ? "x".repeat(128) : ""}`;
 			return compare(pausedBefore, changed)[0] === !paused;
 		}));
 		const exportedMode = join(root, "extension", "mode.ts"), savedMode = readFileSync(exportedMode);
@@ -1673,7 +1673,7 @@ try {
 			["exact principle and placement", valid(source)],
 			["independent byte figures", Buffer.byteLength(body) === 429 && Buffer.byteLength(block) === 457 && Buffer.byteLength(row) === 145],
 			["published figures and read boundary", validBudget(budget)],
-			["P13 raw body is unchanged", createHash("sha256").update(source.slice(source.indexOf("- **P13"), source.indexOf("### Workflow steps in code") - 2)).digest("hex") === "b04cb0d7429c9e202451af7d3c2f695ea326561e263e6423159d8ee23175f5e7"],
+			["P13 delegates judgment of each four-part proof", createHash("sha256").update(source.slice(source.indexOf("- **P13"), source.indexOf("### Workflow steps in code") - 2)).digest("hex") === "05322ebeef792c4face701dc9c45d1712a01aa3519e3bcc3133f8447118e0766"],
 			["principle stays out of always-loaded text", !(await doctrineFor()).includes("Put workflow steps in code")],
 		]);
 		const attacks = [source.replace(block, ""), source.replace("*(Repo-local note, not from the report.)*\n  Move", "*(From the report.)*\n  Move"), source.replace("when the user decided to keep it as text", "even when the user requires code"), source.replace("when the move would not reduce context usage", "when the move would reduce context usage"), source.replace("when the move would not reduce context usage", "when code would cost more than the protection it adds"), source.replace(row, ""), source.replace(row, row.replace("future work", "completed work")), source.replace(block, `${block}${body}`), source.replace(block, "").replace("### Built-in focus-area authoring", `${block}\n### Built-in focus-area authoring`)];
@@ -1688,34 +1688,34 @@ try {
 		// Lifecycle loading duties and preserved tactical and rationale duties.
 		// These expectations describe the reviewed requirements independently.
 		const pointerDuties = [
-			["common read for every change", /read change-records\.md for every change/, /for every change/],
-			["current or proposed plan", /load recursive-workflow\.md if a current or proposed plan/, /current or proposed/],
-			["design-track trigger", /plan has a design track or/, /design track/],
-			["review-fix-child trigger", /or review-fix child track/, /review-fix child track/],
-			["planning check", /At planning and/, /planning/],
-			["resume reconciliation check", /and resume reconciliation, load/, /resume reconciliation/],
-			["read before proposed split", /Load it before proposing a review-fix split/, /before proposing a review-fix split/],
-			["applicable read before reliance", /Read applicable sections before relying on their rules/, /before relying on their rules/],
-			["Lifecycle directory", /Beside Lifecycle:/, /Beside Lifecycle:/],
+			["common read for every change", /Read change-records\.md for every change/, /for every change/],
+			["current or proposed plan", /load recursive-workflow\.md for any planned/, /for any planned/],
+			["design-track trigger", /planned design or/, /planned design/],
+			["review-fix-child trigger", /or review-fix track/, /review-fix track/],
+			["planning check", /At planning\/resume/, /planning/],
+			["resume reconciliation check", /At planning\/resume, load/, /resume/],
+			["read before proposed split", /and before proposing a review-fix split/, /before proposing a review-fix split/],
+			["applicable read before reliance", /Read applicable sections before use/, /before use/],
+			["Lifecycle directory", /Read change-records/, /Read change-records/],
 		];
 		const tacticalDuties = [
 			["worker-only bounded actions", /only through bounded `thread` actions/, /only through bounded/],
 			["no direct edits", /You cannot edit files/, /edit files/],
 			["no direct commands", /You cannot [^.]*run commands/, /run commands/],
 			["parallel independent dispatch", /Dispatch independent actions in parallel in one turn/, /in parallel/],
-			["one action per new thread", /Each `thread` call starts a new thread for one action/, /for one action/],
+			["one action per new thread", /Each `thread` starts one action/, /one action/],
 			["new follow-up threads", /Follow-ups need new threads/, /new threads/],
 			["no cross-thread conversation", /No worker conversation crosses (?:threads|that boundary)/, /(?<=crosses )threads/],
 			["episode references", /Pass prior episode ids in `context`, not repeated content/, /not repeated content/],
 			["Slate loads worker context", /Slate loads them in worker prompts/, /Slate loads them/],
 			["read-only orientation", /Orient with read-only tools/, /read-only/],
 			["delegate substantial work", /Delegate substantial work/, /Delegate substantial work/],
-			["strategy after every episode", /Update strategy after each episode/, /after each episode/],
-			["failed partial episodes", /Partial responses become failed episodes/, /failed episodes/],
+			["strategy after every episode", /Update strategy after episodes/, /after episodes/],
+			["failed partial episodes", /Partial responses fail/, /Partial responses/],
 			["fixed no-response episodes", /No-response failures use fixed episodes/, /fixed episodes/],
 			["adapt to failure", /Adapt to STATUS: FAILED/, /Adapt to/],
 			["no blind retry", /Never retry blindly/, /Never retry blindly/],
-			["strategic messages", /Messages stay strategic: goals, routing, synthesis/, /strategic: goals, routing, synthesis/],
+			["presentation comparisons", /Show content once, then changes from last shown, else approved/, /then changes from last shown/],
 		];
 		const rationaleDuties = [
 			["explain Slate", /Read only to explain or change slate/, /explain/],
@@ -1725,11 +1725,11 @@ try {
 			["no routine read", /Never for routine dispatch/, /Never for routine dispatch/],
 			["skip existing context", /Skip if in context/, /Skip if in context/],
 		];
-		const pointer = (text) => text.match(/   Beside Lifecycle: [^\n]+/g) ?? [];
+		const pointer = (text) => text.match(/   Read change-records[^\n]+/g) ?? [];
 		const tactical = trusted.slice(trusted.indexOf("\n1. "), trusted.indexOf("\n8. "));
 		const rationale = trusted.match(/10\. Design rationale: [^\n]+/)?.[0] ?? "";
 		const protect = (text, duties) => duties.every(([, requirement]) => requirement.test(text));
-		const discriminate = (text, duties) => duties.every(([, , removal]) => {
+		const discriminate = (text, duties) => typeof text === "string" && duties.every(([, , removal]) => {
 			const matches = [...text.matchAll(new RegExp(removal.source, "g"))];
 			const changed = text.replace(removal, "");
 			return matches.length === 1 && changed !== text && !protect(changed, duties);
@@ -1743,7 +1743,7 @@ try {
 			["fixed pointers add no installed prefix", [trusted, untrusted, published].every((text, i) => fixedPrefixes(text, [5, 4, 6][i])), directory],
 			["an added absolute filename prefix is rejected", filenames.every(([, filename]) => !fixedPrefixes(trusted.replace(filename, join(directory, filename)), 5)), filenames],
 			["each loading clause removal is rejected", discriminate(pointer(trusted)[0], pointerDuties) && discriminate(pointer(untrusted)[0], pointerDuties), pointerDuties.map(([name]) => name)],
-			["each filename change is rejected", filenames.every(([, filename]) => !protect(pointer(trusted)[0].replace(filename, "wrong.md"), pointerDuties)), filenames],
+			["each filename change is rejected", filenames.every(([, filename]) => !protect((pointer(trusted)[0] ?? "").replace(filename, "wrong.md"), pointerDuties)), filenames],
 			["missing untrusted pointer is rejected", pointer(untrusted.replace(pointer(untrusted)[0], "")).length === 0, untrusted],
 			["tactical positive and removal controls", protect(tactical, tacticalDuties) && discriminate(tactical, tacticalDuties), tactical],
 			["unqualified conversation restriction is rejected", !protect(tactical.replace(/crosses threads/, "continues"), tacticalDuties), tactical],
@@ -2531,7 +2531,7 @@ Batch independent questions when one request reduces user effort. Do not move a
 question before an investigation or review that it depends on. Record the
 source answer and its applicable scope in the existing workflow record.
 Independent change and track risk records remain separate assessments, but they
-may cite the same applicable approval. Reuse never removes a required review,
+may cite shared evidence. Reuse never removes a required review,
 changes decision authority, or turns planning approval into track or final
 acceptance. Final change acceptance remains a separate blocking decision.`);
 			const resolveDecisionReuse = (source) => {
@@ -2591,19 +2591,18 @@ acceptance. Final change acceptance remains a separate blocking decision.`);
 			const expectedRiskLifecycle = normalizeText(`The orchestrator judges each focus area for the whole planned track, not for
 each file. It writes all eleven risk-record lines. A NAMED line carries the
 four-part proof defined in [blast-radius.md](blast-radius.md) § Judged proof
-and risk record. Each other line states which trigger part answers no. The user
-alone judges each proof. User approval makes the area proved. User rejection
-makes it SKIPPED. A SKIPPED area adds no gate or reviewer.
+and risk record. Each other line states which trigger part answers no.
+The orchestrator judges each proof. A sufficient proof makes the area proved.
+An insufficient proof makes it SKIPPED. A SKIPPED area adds no gate or reviewer.
 
 The proof basis is the approved track design. When the track has no design, the
-basis is the track intention block and planned file list. The user approves or
-rejects every NAMED proof at the confirmation gate. When a design exists, the
-user validates it before the orchestrator reconfirms all eleven lines against
-that design. The orchestrator presents every addition and removal with its proof
-or failed trigger part. User approval of the reconfirmed list precedes one
-adversarial design review for each proved DESIGN-TRIGGERING area. Final design
+basis is the track intention block and planned file list. When a design exists,
+the user validates it before the orchestrator reconfirms all eleven lines against
+that design. The orchestrator records every addition and removal with its proof
+or failed trigger part. Reconfirmation precedes one adversarial design review
+for each proved DESIGN-TRIGGERING area. Final design
 approval follows those reviews. The design stage is the only stage where an
-adversarial reviewer receives the approved risk record and area proofs as
+adversarial reviewer receives the risk record and area proofs as
 separate inputs. Implementation reviewers and both repair gates receive neither.
 The stuck-fix consultation follows the whole-episode exception in
 [review-rules.md](review-rules.md) and receives no separately supplied risk
@@ -2611,21 +2610,19 @@ record or area proof.
 
 Before code review, the orchestrator compares the committed difference with the
 proved set. A missed area follows the late-area route below. For an area that no
-longer engages, record the failed trigger part and present a removal proposal to
-the user at once. The area remains proved, with all of its gates and reviewers,
-until the user approves removal. Rejection preserves the proved area. Keep every
-reviewer that already covered completed work. The owning research log
-reports every addition, proposed or approved removal, SKIPPED state, user
-decision, and reviewer-coverage decision. A package puts any unresolved
+longer engages, the orchestrator records the failed trigger part and removes it.
+Removal never silently waives a separate required gate. Keep every reviewer
+that already covered completed work. The owning research log reports every
+addition, removal, SKIPPED state, user direction, and reviewer-coverage decision. A package puts any unresolved
 requested decision or relevant risk under **Needs attention**.
 
 When the orchestrator or implementer discovers a late area, the orchestrator
-presents its four-part proof to the user at once. Approval recomputes the
+judges and records its four-part proof at once. A sufficient proof recomputes the
 complete required routine reviewer set. If Reviewer I has not covered the range,
 dispatch Reviewer I and the new area specialist. If Reviewer I already ran
 because of size or another proved area, dispatch only the new area specialist.
-Do not dispatch Reviewer I again. Approval
-of a DESIGN-TRIGGERING area also enters or re-enters the design sequence for
+Do not dispatch Reviewer I again. A newly proved
+DESIGN-TRIGGERING area also enters or re-enters the design sequence for
 remaining affected work unless the user records a decision to skip that gate.
 Present any necessary new, revised, or materially clarified design before
 continuing that work. Reuse unchanged approved design and completed applicable
@@ -2636,17 +2633,17 @@ covered it. When no work remains, record the design-gate skip, complete that
 review, and present the record at final acceptance.
 
 The implementer reports any risk that the plan did not name. The orchestrator
-writes its proof and starts the same immediate user-decision route. An
-implementation reviewer receives no proof.`);
+writes and judges its proof through the same late-area route. An implementation
+reviewer receives no proof. The user may request the risk record or direct an
+area addition or removal. Honor that direction and record its gate effects.
+Do not routinely present the assessment or advertise this option.`);
 			const expectedProofSection = normalizeText(`The orchestrator records one line for every area. A named line gives a concrete
 four-part proof. A line that is not NAMED states which part of the trigger
-answers no. A NAMED line becomes proved only through user approval. A rejected
-NAMED line becomes SKIPPED and adds no gate or reviewer.
+answers no. A NAMED line becomes proved when the orchestrator judges its proof sufficient.
+An insufficient NAMED line becomes SKIPPED and adds no gate or reviewer.
 
-Each change and track keeps its own assessment and risk record. When two records
-pose the same decision, each record may cite one applicable user approval under
-[track-workflow.md](track-workflow.md) § Confirmation gate. A shared approval
-does not merge the records or replace either record's evidence.
+Each change and track keeps its own assessment and risk record.
+Shared evidence does not merge the records or replace either assessment.
 
 Every NAMED proof has these four parts:
 
@@ -2677,15 +2674,26 @@ material when loss of that control would be material. A cosmetic consequence
 is not material. A proof is not convincing when its words would also fit a
 change that does not engage the area.
 
-No rule mechanically decides whether a proof holds. The user alone judges every
-proof at the confirmation gate and at focus reconfirmation. A SKIPPED area gets
+No rule mechanically decides whether a proof holds. The orchestrator judges every
+proof at planning and focus reconfirmation. A SKIPPED area gets
 no gate or reviewer. The skip is recorded and is not an escalation. A track with
 no proved area gets no area reviewer.
 
 Reviewer composition and merging belong to
 [review-rules.md](review-rules.md) § Reviewer sets, merge rule and charters.`);
+			const automaticRepair = normalizeText(`Follow [review-rules.md](review-rules.md) § Findings and output for severity, required fixes,
+minor dispositions, and moot or rejected findings in both review phases.
+
+Five cases require a user decision: a waiver, a scope exception, a pre-existing
+defect, lowering a blocker, and an implementation-level finding without a recommended fix.
+A design-level finding that adds goals or non-goals requires approval.
+A fix that changes an approved guarantee, assumption, or reasoning requires design-update approval.
+Record every design-level change in the design update or track package.
+Automatic repair never bypasses halt rules, user notes, checks, gates, or acceptance.`);
+			const repairRule = (source) => normalizeText(source).includes(automaticRepair);
+			const repairMutations = ["both review phases", "waiver", "scope exception", "pre-existing", "lowering a blocker", "without a recommended fix", "adds goals or non-goals", "design-update approval", "minor dispositions", "halt rules", "acceptance"].map((term) => normalizeText(workflow).replace(automaticRepair, automaticRepair.replace(term, "REMOVED RULE")));
 			const ownerMutation = riskLifecycle.replace("The orchestrator judges", "The implementer judges");
-			const proofMutation = proofSection.replace("becomes proved only through user approval", "becomes proved when NAMED");
+			const proofMutation = proofSection.replace("becomes proved when the orchestrator judges its proof sufficient", "becomes proved only through user approval");
 			const skippedMutation = proofSection.replace("SKIPPED and adds no gate or reviewer", "SKIPPED and adds its reviewer");
 			const lateFirstAreaMutation = riskLifecycle.replace(
 				"dispatch Reviewer I and the new area specialist.",
@@ -2695,7 +2703,8 @@ Reviewer composition and merging belong to
 				"Do not dispatch Reviewer I again.",
 				"Dispatch Reviewer I again.",
 			);
-			checkAll("contract-risk-lifecycle", "orchestrator ownership, user-judged proof states, design reconfirmation, removal approval, both late-area reviewer transitions, completed-range coverage, and implementer reporting stay complete", [
+			checkAll("contract-risk-lifecycle", "orchestrator ownership, internally judged proof states, design reconfirmation, recorded removal, both late-area reviewer transitions, completed-range coverage, and implementer reporting stay complete", [
+				["automatic repair preserves all reserved user decisions and log-only minor reasons", repairRule(workflow) && repairMutations.every((source) => source !== normalizeText(workflow) && !repairRule(source)), repairMutations.map(repairRule)],
 				["risk lifecycle is exact through its stable next heading", riskLifecycle === expectedRiskLifecycle, riskLifecycle],
 				["judged proof section is exact", proofSection === expectedProofSection, proofSection],
 				["ownership mutation fails exact comparison", ownerMutation !== expectedRiskLifecycle, ownerMutation],
@@ -2705,7 +2714,7 @@ Reviewer composition and merging belong to
 				["first-late-area specialist-only mutation fails exact comparison", lateFirstAreaMutation !== riskLifecycle && lateFirstAreaMutation !== expectedRiskLifecycle, lateFirstAreaMutation],
 				["late area after size-triggered Reviewer I adds only its specialist", /If Reviewer I already ran\s+because of size or another proved area, dispatch only the new area specialist\.\s+Do not dispatch Reviewer I again/.test(riskLifecycle), riskLifecycle],
 				["later-area duplicate-Reviewer-I mutation fails exact comparison", lateAdditionalAreaMutation !== riskLifecycle && lateAdditionalAreaMutation !== expectedRiskLifecycle, lateAdditionalAreaMutation],
-				["new-track applicable approval is explicit", /new track created after the original confirmation gate needs an applicable\nuser approval of its independent risk record before implementation starts/.test(workflow), workflow.match(/.{0,100}new track created.{0,200}/s)?.[0]],
+				["new-track independent assessment is explicit", /new track created after the original confirmation gate needs an independent\norchestrator assessment and risk record before implementation starts/.test(workflow), workflow.match(/.{0,100}new track created.{0,200}/s)?.[0]],
 				["implementer reports size followed by one unplanned-risk line", /ends its response with an approximate track size in counted lines, followed by\s+`unplanned risk: none` or one line/.test(workflow), workflow.match(/.{0,100}unplanned risk.{0,140}/s)?.[0]],
 			]);
 
@@ -2734,44 +2743,46 @@ Reviewer composition and merging belong to
 				};
 			};
 			const phaseHandoff = resolvePhaseHandoff(workflow);
-			const expectedPhaseHandoff = normalizeText(`For a multi-track change, ask for handoff at the start of each design track.
-Ask again immediately before each code track's implementation.
+			const expectedPhaseHandoff = normalizeText(`For a multi-track change, handoff is mandatory at the start of each design track.
+Handoff is mandatory before each code track's implementation.
 A design track plans a nested change before implementation.
+The design-track boundary precedes research, expansion, and design work.
+The code-track boundary follows all required planning and pre-implementation gates.
+These include confirmation, scope-exception decisions, applicable design gates, and enabled draft creation.
 Save subtree detail in the active subtree log first.
 Save the state summary in the root \`research-log.md\` last as a typed \`handoff\` entry.
 The summary names the subtree entry it relies on.
 For a review-fix subtree, use the affected code track's existing records.
 When no subtree log exists, save the summary in the root log alone.
-The orchestrator then asks whether to run \`/slate handoff [focus]\`.
-This command restores all threads and episodes in a fresh session.
-Do not propose a plain new pi session instead.
 
-The design-track boundary precedes research, expansion, and design work.
-The code-track boundary follows all required planning and pre-implementation gates.
-These include confirmation, scope-exception decisions, and applicable design gates.
-A review-fix child remains inside the affected code track and adds no new handoff boundary.
 Complete the prior ordinary track package and required acceptance before the next ordinary track boundary, except for a recorded permitted dependency pause.
 A subtree under that pause does not block the named unfinished sibling dependency's boundary until the recorded resume condition holds.
 Use [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for the pause conditions.
 The paused subtree's package and acceptance stay pending and still block its own completion.
+Complete requested fixes and blocking acceptance before the marker, state save, and handoff.
+Save the prior package's assessment of effects on upcoming tracks.
+Single-track changes are exempt. If one later splits, accept its initial package and fixes before the marker, save, and first handoff, before the next track.
 
-The orchestrator pauses dispatch pending an actual handoff and resume or an explicit user decision to continue in the same session. The explicit same-session decision is recorded as a user waiver in the existing override log. A resumed session follows Resume order and reconciliation and does not repeat a boundary request already recorded as completed. Same-track fix rounds do not retrigger the request. Single-track changes are exempt. This workflow rule has no automated runtime enforcement.`);
-			const phaseHandoffMutationSources = [
-				workflow.replace("For a multi-track change", "For every change"),
-				workflow.replace("immediately before each code track's implementation", "after each code track's implementation"),
-				workflow.replace("at the start of each design track", "after each design track"),
-				workflow.replace("active subtree log first", "active subtree log last"),
-				workflow.replace("The summary names the subtree entry it relies on.", "The summary needs no subtree entry."),
-				workflow.replace("The explicit same-session decision is recorded as a user waiver in the existing override log.", "The explicit same-session decision needs no log entry."),
-				workflow.replace("does not repeat a boundary request already recorded as completed", "repeats every boundary request"),
-				workflow.replace("Same-track fix rounds do not retrigger the request.", "Every same-track fix round retriggers the request."),
-				workflow.replace("A review-fix child remains inside the affected code track and adds no new handoff boundary.", "Each review-fix child has a separate code-track handoff boundary."),
-				workflow.replace(literalPattern("except for a recorded permitted dependency pause"), "except for any unfinished subtree"),
-				workflow.replace(literalPattern(", except for a recorded permitted dependency pause"), ""),
-				workflow.replace(literalPattern("The paused subtree's package and acceptance stay pending and still block its own completion."), "The paused subtree needs no package or acceptance for completion."),
-				workflow.replace("Single-track changes are exempt.", "Single-track changes follow the same rule."),
-				workflow.replace("<!-- multi-track-handoff:end -->", "A same-session continuation needs no additional decision.\n<!-- multi-track-handoff:end -->"),
-			];
+The successor performs Resume reconciliation, then a short pre-track check of the design or intention.
+Use reconciled records and the prior package's assessment, or completed planning records for the first track.
+Settle facts and applicable answers before asking unresolved questions.
+Record the track, design or intention version, source state, decisions, and gates.
+Reuse the check while those inputs apply, even after another handoff.
+New evidence reopens only the affected part.
+A meaningful design or intention change requires its decisions and gates, revised records, then a second handoff before implementation.
+Finishing a required gate, confirming an answer, or rewording unchanged meaning adds no handoff.
+Further substantive changes follow the same rule.
+
+At a mandatory boundary request \`/slate handoff --track-boundary\`. After a post-check change use \`--post-check\`.
+Details: [safety-and-trust.md](safety-and-trust.md) § Fresh-session entry.
+Pause dispatch until actual transfer. Record each purpose and completion separately.
+Reuse completed boundary transfers on resume.
+Cancellation, failure, and \`/slate resume\` do not satisfy the boundary.
+There is no same-session substitute. The command grants no acceptance.
+Same-track fix rounds and review-fix children add no boundary or acceptance.
+Budget and user-requested handoffs keep their purposes.
+This workflow rule has no automated runtime enforcement.`);
+			const phaseHandoffMutationSources = expectedPhaseHandoff.split(/(?<=[.!]) /).map((sentence) => workflow.replace(literalPattern(sentence), "REMOVED HANDOFF DUTY."));
 			const phaseHandoffMutationOutcomes = phaseHandoffMutationSources.map((source) => {
 				const resolved = resolvePhaseHandoff(source);
 				return { changed: source !== workflow, accepted: resolved.count === 1 && resolved.endCount === 1 && resolved.text === expectedPhaseHandoff, resolved };
@@ -2819,6 +2830,8 @@ The orchestrator pauses dispatch pending an actual handoff and resume or an expl
 			const expectedDesignReviewPolicy = normalizeText(`The user validates the design and judges whether it is the simplest solution.
 The orchestrator then reconfirms every focus line against that design. Each
 proved DESIGN-TRIGGERING area receives one fresh adversarial design reviewer.
+The orchestrator selects required reviews and reuses applicable unchanged design reviews
+without asking approval of the review count.
 A fresh adversary tests the design and cited evidence. Every review with no
 findings, including an adversarial design review, ends with the exact standalone
 line \`No findings.\`
@@ -2880,6 +2893,8 @@ It does not remove or condition current required artifacts, including the
 per-track implementer report. Closing a change keeps its folder and records.
 Only the user deletes that folder.
 
+Mandatory multi-track handoffs under [track-workflow.md](track-workflow.md) § Confirmation gate are the sole unconditional-handoff exception.
+
 P11 also governs user interaction. Questions follow unresolved decisions, not
 the number of workflow steps, records, or tracks. Applicable evidence and prior
 explicit answers reduce repeated questions. They do not remove reassessment,
@@ -2894,6 +2909,7 @@ required reviews, ordered gates, user authority, or final acceptance.`;
 				p11.replace("It does not remove or condition current required artifacts", "It may condition current required artifacts"),
 				p11.replace("Questions follow unresolved decisions", "Questions follow workflow steps"),
 				p11.replace("They do not remove reassessment", "They may remove reassessment"),
+                p11.replace("sole unconditional-handoff exception", "unconditional exception for every process step"),
 			];
 			const contradictoryP11Source = `- **P11 — Proportional process.** *(Repo-local note, not from the report.)*
   Required gates and artifacts follow the confirmed size grade. Any future rule
@@ -2917,16 +2933,16 @@ required reviews, ordered gates, user authority, or final acceptance.`;
 				["design validation and reconfirmation precede one area adversary and final approval", /user validation, focus reconfirmation, its own adversarial\s*design reviewer, and final design approval/.test(focusGates), focusGates],
 				["each track assesses design coverage and re-enters before affected implementation", acceptsDesignEntry(workflow), resolveDesignEntry(workflow)],
 				["design-entry rule and boundary mutations fail while an outside edit passes", designEntryMutations.every(({ changed, rejected }) => changed && rejected) && acceptsDesignEntry(`${workflow}\nUnrelated outside-unit text.\n`), designEntryMutations],
-				["multi-track implementation boundaries require state save, handoff request, pause, override, resume de-duplication, and single-track exemption", phaseHandoff.count === 1 && phaseHandoff.endCount === 1 && phaseHandoff.text === expectedPhaseHandoff, { phaseHandoff, expectedPhaseHandoff }],
+				["mandatory boundaries require ordered acceptance, state save, transfer, reusable pre-track checks, and single-track exemption", phaseHandoff.count === 1 && phaseHandoff.endCount === 1 && phaseHandoff.text === expectedPhaseHandoff, { phaseHandoff, expectedPhaseHandoff }],
 				["weakened scope, ordering, logging, resume, fix-round, single-track, and contradictory additions fail through the same validator", phaseHandoffMutationOutcomes.every(({ changed, accepted }) => changed && !accepted), phaseHandoffMutationOutcomes],
 				["named-dependency and until-resume mutations change their intended input and fail", dependencyPauseMutationOutcomes.every(({ changed, rejected }) => changed && rejected), dependencyPauseMutationOutcomes],
 				["whitespace-wrapped dependency pause stays exact and both mutations remain discriminating", wrappedDependencyPause !== workflow && wrappedPauseHandoff.count === 1 && wrappedPauseHandoff.endCount === 1 && wrappedPauseHandoff.text === expectedPhaseHandoff && wrappedPauseMutations.every(({ changed, rejected }) => changed && rejected), { wrappedPauseHandoff, wrappedPauseMutations }],
 				["missing, duplicate, and malformed handoff boundaries fail closed", phaseHandoffBoundaryMutations.every(({ count, endCount, text }) => count !== 1 || endCount !== 1 || text === ""), phaseHandoffBoundaryMutations],
 				["benign text outside the handoff unit preserves its exact expectation", benignPhaseHandoff.every(({ count, endCount, text }) => count === 1 && endCount === 1 && text === expectedPhaseHandoff), benignPhaseHandoff],
-				["proved-area removal needs user approval and rejection preserves all gates", /area remains proved, with all of its gates and reviewers,\s*until the user approves removal/.test(riskLifecycle) && /Rejection preserves the proved area/.test(riskLifecycle), riskLifecycle],
+				["orchestrator removes a failed trigger without waiving separate gates", /the orchestrator records the failed trigger part and removes it/.test(riskLifecycle) && /Removal never silently waives a separate required gate/.test(riskLifecycle), riskLifecycle],
 				["user-requested track fixes are unconditional", /applies and commits required user-review\s+fixes whenever the user requests them/.test(workflow), workflow.match(/.{0,100}required user-review.{0,160}/s)?.[0]],
 				["marker exists without track acceptance after machine gates, packet, and blocking notes", /after required machine gates and the track packet are complete/.test(markerRule) && /[Aa]ll blocking user notes are resolved/.test(markerRule) && /When track acceptance is mandatory/.test(markerRule), markerRule],
-				["late areas require immediate user decision, complete-set transitions, completed-range coverage, and no retrospective design gate", /presents its four-part proof to the user at once/.test(riskLifecycle) && /Approval recomputes the\s+complete required routine reviewer set/.test(riskLifecycle) && /Every newly required routine reviewer\s+perspective reviews the completed range/.test(riskLifecycle) && /Completed work\s+receives no retrospective design gate/.test(riskLifecycle), riskLifecycle],
+				["late areas require immediate proof judgment, complete-set transitions, completed-range coverage, and no retrospective design gate", /judges and records its four-part proof at once/.test(riskLifecycle) && /A sufficient proof recomputes the\s+complete required routine reviewer set/.test(riskLifecycle) && /Every newly required routine reviewer\s+perspective reviews the completed range/.test(riskLifecycle) && /Completed work\s+receives no retrospective design gate/.test(riskLifecycle), riskLifecycle],
 				["NAMED and SKIPPED do not select reviewers, while size excludes documentation-only tracks", /`NAMED` and `SKIPPED` areas do not select reviewers/.test(reviews) && /size above 100 counted lines selects Reviewer I for a code or mixed track, but\s+not for a documentation-only track/.test(reviews), reviews.slice(0, 4000)],
 				["no-area orchestrator choice uses ordinary logical guidance without a tier threshold or mandatory user gate", /the orchestrator selects a\s+logical model under the ordinary action guidance/.test(workflow) && /action fit, capability, cost, guidance, and cautions/.test(workflow) && /uses no\s+sourced-tier threshold, highest-tier fallback, or mandatory user-choice gate/.test(workflow) && /ordinary logical-model membership, fixed effort, and dispatch restrictions/.test(workflow), workflow.match(/For implementation of a track with no proved area[\s\S]*?(?=\n\n\[blast-radius)/)?.[0]],
 				["empty-set routine review and user-fix verification have separate durable verdicts", /empty set reports\s+routine implementation review as `NOT REQUIRED`/.test(workflow) && /including when the track has no proved area[\s\S]*?separate from routine implementation review/.test(workflow) && /owning research log gives routine implementation review and user-requested-fix\s+verification as separate verdicts/.test(userNotes) && /neither a proved area nor a\s+size-triggered Reviewer I/.test(userNotes), { workflow: workflow.match(/For a user-review fix range[\s\S]*?(?=\n\nThe correction)/)?.[0], record: userNotes.match(/The owning research log gives routine implementation review[\s\S]*?(?=\n\nThe coverage register)/)?.[0] }],
@@ -2943,46 +2959,25 @@ required reviews, ordered gates, user authority, or final acceptance.`;
 			/**
 			 * ONE canonical record of every acceptance fact the protected units state,
 			 * and the ONLY expected source of acceptance policy in this harness. The
-			 * three outcomes are its outcome subset; `merger`, `boundaryWithAcceptance`
-			 * and `boundaryWithoutAcceptance` are acceptance facts that the earlier
-			 * exact copies already pinned, so dropping one is a visible policy loss and
-			 * not an invisible narrowing (DNL19).
+			 * governing unit owns multi-track acceptance, single-track completion, marker
+			 * prerequisites, and final acceptance. Other units carry protected pointers
+			 * rather than restating that policy.
 			 *
 			 * Each fact carries the wording of its renderings: `document` for a shipped
 			 * document, `doctrine` for the rendered session instructions, which are
 			 * compressed on purpose and paid for on every turn. A rendering is a
-			 * rendering of the SAME fact, never a second expected source. The inverted
-			 * wordings exist for the mutation check below and are never expected text.
+			 * rendering of the SAME fact, never a second expected source. Mutation checks
+			 * remove each segment and replace it with contradictory or waived duties.
 			 */
 			}
 			const ACCEPTANCE_FACTS = Object.freeze({
-				blocking: Object.freeze({
-					document: "User acceptance of a track is blocking when that track proves at least one DESIGN-TRIGGERING area.",
-					doctrine: "blocking track acceptance.",
-					invertedDocument: "User acceptance of a track is optional when that track proves at least one DESIGN-TRIGGERING area.",
-					invertedDoctrine: "optional track acceptance.",
-				}),
-				// Both document and session exemptions apply only to code tracks.
-				noMandatory: Object.freeze({
-					document: "A code track with only REVIEWER-ONLY areas, or no proved area, has no mandatory track-acceptance gate.",
-					doctrine: "REVIEWER-ONLY or no-area code tracks need no track acceptance.",
-					invertedDocument: "A code track with only REVIEWER-ONLY areas, or no proved area, has a mandatory track-acceptance gate.",
-					invertedDoctrine: "REVIEWER-ONLY or no-area code tracks need blocking track acceptance.",
-				}),
-				finalBlocking: Object.freeze({
-					document: "Final change acceptance is always blocking.",
-					doctrine: "Final acceptance always blocks.",
-				}),
-				merger: Object.freeze({
-					document: "In a single-track change, any blocking track acceptance and final change acceptance are one event.",
-				}),
-				boundaryWithAcceptance: Object.freeze({
-					document: "Where a marker applies, it waits for required track acceptance and every requested fix.",
-				}),
-				boundaryWithoutAcceptance: Object.freeze({
-					document: "Without mandatory track acceptance, an applicable marker waits for completed machine gates, the package, and resolved blocking user notes.",
-				}),
-			});
+ blocking: { document: "Every code track in a multi-track change needs blocking track acceptance, regardless of proved areas." },
+ noMandatory: { document: "A single-track change asks only final change acceptance." },
+ finalBlocking: { document: "Final change acceptance is always blocking.", doctrine: "Final acceptance always blocks." },
+ boundaryWithAcceptance: { document: "Where a marker applies, it waits for required track acceptance and every requested fix." },
+ boundaryWithoutAcceptance: { document: "Complete machine gates, the package, and resolved blocking user notes before the marker." },
+ pointer: { document: "Code-track acceptance follows [track-workflow.md](track-workflow.md) § Delivery and termination.", doctrine: "Lifecycle governs blocking code-track acceptance regardless of proved areas." },
+});
 			/** A segment that renders one canonical fact. A plain string is local framing. */
 			if (!ONLY) {
 			fact = (key) => ({ fact: key });
@@ -3035,18 +3030,19 @@ required reviews, ordered gates, user authority, or final acceptance.`;
 					expected: normalizeText(`The orchestrator judges all eleven focus areas for the change and independently
 for every track. An area is **NAMED** when the orchestrator submits its
 four-part proof. The proof states the defect class, the place where the defect
-can occur, the material consequence, and the review contribution. User approval
-makes a NAMED area **proved**.
-User rejection makes it **SKIPPED**. Only a proved area adds focus-dependent
+can occur, the material consequence, and the review contribution.
+The orchestrator judges and records each proof. A sufficient NAMED proof makes
+the area **proved**. An insufficient NAMED line becomes **SKIPPED**.
+Only a proved area adds focus-dependent
 gates or area reviewers. A track with one or more proved areas gets exactly
 one Reviewer I and every required area specialist. The implementer's approximate
 size above 100 counted lines also requires Reviewer I on a track that is not
 documentation-only. Without either trigger, routine implementation review is
 \`NOT REQUIRED\`. Size alone adds no area reviewer or blocking track acceptance.
 [track-workflow.md](track-workflow.md) § Track size and split defines counted
-lines and the separate pre-implementation design estimate. The user alone
-judges proofs and whether the proposal is the simplest solution. No script or
-other rule decides whether a proof holds.`),
+lines and the separate pre-implementation design estimate. The user judges
+whether the proposal is the simplest solution. No script or other rule decides
+whether a proof holds.`),
 				},
 				{
 					id: "blast-late-area",
@@ -3136,8 +3132,7 @@ duplicate action for the same required perspective.`),
 					source: await doctrine(we.EMPTY_WORKER_EXTENSION_SET, undefined, true, {}),
 					extract: regionUnit(/(Keep separate change\/track records\.[\s\S]*?)(?=Definitions: )/g),
 					expected: normalizeText(`Keep separate change/track records. NAMED: defect, place,
-consequence, review contribution. User approval proves it. Rejection is
-SKIPPED. Proved areas add specialists and one Reviewer I. Estimate tracks
+consequence, review contribution. Judge proof sufficiency internally. Proved areas add specialists and one Reviewer I. Estimate tracks
 first. Multi-track work or estimates >100 counted lines need design before work, even
 documentation-only. Implementer reports approximate size in response and
 report. Above 100 adds Reviewer I except documentation-only.
@@ -3191,8 +3186,8 @@ The retained research log is the durable workflow record.`),
 					extract: markedUnit("track-size-policy"),
 					expected: normalizeText(`About 400 added plus removed lines per track is a planning guideline, not a hard
 limit or a completion gate. Lockfiles, migration files, and generated output do
-not count. Before proposing the split, the orchestrator estimates each track
-separately. An estimate above 100 counted lines requires a high-level design before
+not count. The orchestrator estimates each track separately and chooses the
+split without approval. An estimate above 100 counted lines requires a high-level design before
 implementation, including for a documentation-only track. Counted lines are
 added plus removed lines, excluding lockfiles, migration files, and generated
 output. The implementer reports an approximate track size in its response and
@@ -3222,8 +3217,9 @@ When an implementer approaches the guideline, the implementer stops adding
 scope and finishes at the nearest coherent point. The response reports completed
 work, remaining work, and a proposed track split. It also reports the reason for
 a small overrun. If the remaining approved work cannot fit in the coherent unit,
-the orchestrator proposes the additional track or tracks. The orchestrator
-obtains every approval that a new track requires before implementation continues.`),
+the orchestrator chooses the additional tracks without split approval.
+Announce each added track and its reason, then complete its applicable gates.
+The announcement authorizes neither a scope exception nor a changed design.`),
 				},
 				{
 					id: "level-publishing",
@@ -3252,7 +3248,7 @@ Only the user merges the pull request.
 Each multi-track boundary uses a marker commit after its required gates,
 as defined in track-workflow.md § Delivery and termination.
 
-Draft publishing does not remove or move planning, design, focus approval,
+Draft publishing does not remove or move planning, design, focus assessment,
 review, track-packet, user-note, blocking track-acceptance, final-acceptance,
 or finding-disposition requirements. Retain the current change folder's
 research log and every implementer report through and after delivery. Only
@@ -3265,10 +3261,10 @@ Every path under \`slate-changes/\` stays outside pull requests, including \`tmp
 					expected: normalizeText(`After the user merges a level pull request, verify that level's delivery accounting.
 Verify the observed merge commit's identity and parents against its accepted history and pull request.
 Record the observed merge-result binding only in the owning research log.
-Report the delivery state in the next applicable package.
+Report delivery state only when a decision needs it.
 The merge commit itself supplies that binding, including for the last level.
-The root final package lists every level delivery.
-It distinguishes merged levels from every level waiting for merge, including levels held behind an unmerged foundation.
+The owning research log lists every level delivery and its merge state.
+Disclose unmerged dependencies when they affect acceptance.
 Close the root change only after all delivery accounting is verified.
 Use track-workflow.md § Session handoff and the research log for closure. Abandonment at any stage also ends with
 \`slate_change close\`, even if no delivery artifact exists. Closing deletes
@@ -3293,7 +3289,7 @@ nothing. Keep its folder and reports.`),
 			const trackSizePublishingMutations = [
 				[workflow.replace("not a hard\nlimit", "a hard\nlimit"), publishing],
 				[workflow.replace("Lockfiles, migration files, and generated output do\nnot count.", "All changed files count."), publishing],
-				[workflow.replace("Before proposing the split, the orchestrator estimates each track\nseparately.", "Only the implementer estimates the size."), publishing],
+				[workflow.replace("The orchestrator estimates each track separately and chooses the\nsplit without approval.", "Only the implementer estimates the size. Ask approval of the split."), publishing],
 				[workflow.replace("An estimate above 100 counted lines requires a high-level design", "An estimate above 101 counted lines requires a high-level design"), publishing],
 				[workflow.replace("including for a documentation-only track", "except for a documentation-only track"), publishing],
 				[workflow.replace("The implementer reports an approximate track size in its response and\nimplementer report.", "The implementer does not report its size."), publishing],
@@ -3555,11 +3551,11 @@ Use [track-workflow.md](track-workflow.md) § Migration for compatibility.
 Use its § Session handoff and the research log for ownership.`);
 			}
 			const protectedRepairOwners = Object.freeze({
-				"repair-rounds": "25a681e30d96285c7d65fa9285b46c073a958fe1c9500b206273b64ba28a873b",
+				"repair-rounds": "850fecdacea6768febb420af28c5e950a8d1349dac494a05699bdba823409953",
 				"repair-consultations": "86f0f04219e871881c7f99263689d848fc78772d2b034e3d359cdc6662f4d780",
 				"child-fix-title": "748f0126285376546b073320e72e044f91970294058931c7a51cafc8d6098edb",
 			});
-			const protectedRepairSummary = "f1bfd2437621d5ba83c8a04619f92b71c5e4e0862e8454957fb7757471e69874";
+			const protectedRepairSummary = "c8adb35efc4eeb1e80bde9f79e82315f7cceb0834ea38f602d4f7a382fd34bfb";
 			if (!ONLY) {
 			const agreementDigest = (text) => createHash("sha256").update(normalizeText(text)).digest("hex");
 			sharedRecursiveRules = [
@@ -3663,14 +3659,14 @@ Use its § Session handoff and the research log for ownership.`);
 A mismatch pauses work. Reconcile it in the log. Use marker commits and Git
 history as boundary authority. The track table is display-only.`);
 			const recursiveRecordUnits = [
-				{ id: "identifiers-ranges", source: commonRecords, start: "## Identifiers, code ranges, and design markers", extract: headingUnit("## Identifiers, code ranges, and design markers"), expected: "06a2a0822448a5112173b65c04826364d3a3094f7930ba98ecd7f17300e19ed8" },
+				{ id: "identifiers-ranges", source: commonRecords, start: "## Identifiers, code ranges, and design markers", extract: headingUnit("## Identifiers, code ranges, and design markers"), expected: "589179375ceade49d4f6aee8d597b88916a2839a84e5c35feb877d65bdeee338" },
 				{ id: "tool-records-and-recovery", source: commonRecords, start: "## Manual records and safe writes", extract: headingUnit("## Manual records and safe writes"), expected: "8ec25b74e709c2f8a72556947aecee40f0cff2f38947976e9609c0e2436b47e0" },
 				{ id: "resume-forks", source: recursive, start: "## Resume and folder forks", extract: headingUnit("## Resume and folder forks"), expected: "0bf3c8bcc7b36ee0dd8a5a6fd514b73f5e19b5514f5a3a1711034ac2b051729e" },
-				{ id: "handoff-pointer", source: recursive, start: "## Handoff boundaries", extract: headingUnit("## Handoff boundaries"), expected: "fc5ca34c11f5f1defb5989c10af42cbac9af901c102dc18c6c8d1b55a98cd52f" },
+				{ id: "handoff-pointer", source: recursive, start: "## Handoff boundaries", extract: headingUnit("## Handoff boundaries"), expected: "225c24f843fa607d5ebfd489e574e16641953dab064546450ea0082463bf48d0" },
 				{ id: "marker-identity", source: workflow, extract: markedUnit("marker-identity-policy"), expected: "ae24e23298695b323c803f31515c87ee8de5777cd0b0a13dba90d747c9df4308" },
 				{ id: "resume-order", source: workflow, start: "## Resume order and reconciliation", extract: headingUnit("## Resume order and reconciliation"), expected: recordDigest(resumeOrderExpected) },
-				{ id: "general-handoff", source: workflow, start: "### Handoff summary", extract: headingUnit("### Handoff summary"), expected: "deebae98b03815c0a68bd933d6d910624a5e6206f1c410a7fd9052c1d23fe64f" },
-				{ id: "closed-range-feedback", source: workflow, start: "### Closed-range corrections", extract: headingUnit("### Closed-range corrections"), expected: "07c9e0dd0eb0de15e13b6977f88145a2dec09554e693a2d6bfbe1173f09eb37a" },
+				{ id: "general-handoff", source: workflow, start: "### Handoff summary", extract: headingUnit("### Handoff summary"), expected: "b3aaa6e40d75e2a2e311e8da00982a70b8fbe46e3921a578e01274f98fe171ee" },
+				{ id: "closed-range-feedback", source: workflow, start: "### Closed-range corrections", extract: headingUnit("### Closed-range corrections"), expected: "460af97e1d77774e44cad918e52d89a1c36ecad5ab107d25c1a8a21b191f22f3" },
 			];
 			const acceptsRecordUnit = (unit, source) => {
 				const resolved = unit.extract(source);
@@ -3693,7 +3689,7 @@ history as boundary authority. The track table is display-only.`);
 			// review-rules.md input amendments and RG9 common-text mutations.
 			// Independent reviewed pins protect the common owner.
 			commonUnits = [
-				{ id: "identifiers", start: "## Identifiers, code ranges, and design markers", expected: "06a2a0822448a5112173b65c04826364d3a3094f7930ba98ecd7f17300e19ed8" },
+				{ id: "identifiers", start: "## Identifiers, code ranges, and design markers", expected: "589179375ceade49d4f6aee8d597b88916a2839a84e5c35feb877d65bdeee338" },
 				{ id: "records", start: "## Manual records and safe writes", expected: "8ec25b74e709c2f8a72556947aecee40f0cff2f38947976e9609c0e2436b47e0" },
 			];
 			const acceptsCommon = (source) => commonUnits.every(({ start, expected }) => {
@@ -3702,7 +3698,7 @@ history as boundary authority. The track table is display-only.`);
 			});
 			privacyHeading = "### Design authority and privacy";
 			const commonHeadings = [...commonUnits.map(({ start }) => start), privacyHeading];
-			const completeCommonDigest = "e5254e60acf82c0d96dc896b796839c0ed6ca8d75cbf361ca59a37ca8b9a9e50";
+			const completeCommonDigest = "d5d6e80099b5ff9b325ad985dd6995775c079ca30022447ce906f0c119a035a0";
 			const acceptsCompleteCommon = (source) => createHash("sha256").update(source).digest("hex") === completeCommonDigest;
 			const completeCommonAttacks = [
 				["title", commonRecords.replace("# Common change records", "# Nested change records")],
@@ -3758,7 +3754,7 @@ Use [change-records.md](change-records.md) § Design authority and privacy.`) },
 				["each comparison rejects its changed input and disabling it accepts that violation", pointerComparisonControls.every(({ changed, rejected, disabledAccepts }) => changed && rejected && disabledAccepts), pointerComparisonControls],
 				["outside-region edits preserve the pointer expectations", acceptsNestedPointers(`${recursive}\n## Outside pointer control\nUnrelated text.\n`), "outside control"],
 			]);
-			const completeNestedDigest = "cb64b4b782d523440792e2db61b2f93d2c4639269705c6cb516b35628f29280b";
+			const completeNestedDigest = "a4f69001b13968b8a0dd54da7ab3c18f4177e7dd52ca971da4b7d1b3d6d2b85c";
 			const acceptsCompleteNested = (source) => createHash("sha256").update(source).digest("hex") === completeNestedDigest;
 			const completeNestedAttacks = [
 				["weaker-record-rule", `${recursive}\n## Additional record guidance\nWorkers may replace earlier log entries.\n`],
@@ -4107,15 +4103,9 @@ Use [change-records.md](change-records.md) § Design authority and privacy.`) },
 					expected: normalizeText(`Create the level's draft after all applicable pre-implementation gates.
 Create it before the level's first code track implementation.
 
-For a change with a high-level design and a level pull request, draft the
-template-shaped level description before final design approval.
-Use only established facts, as defined in § Description rules.
-Present the draft beside the validated design.
-Each design track with a level pull request presents its level description
-with its validated design for one final approval.
-When an adversarial design review is required, present both after that review.
-One final approval covers the design and description.
-The description has no separate approval gate.
+For a change with a high-level design and a level pull request, author the
+template-shaped description from established facts, as defined in § Description rules.
+Author and maintain it without presenting it for approval.
 Create the pull request after final design approval.
 
 For a change without a high-level design, create the pull request after the
@@ -4157,10 +4147,11 @@ Every creation path keeps these safeguards:
 				{
 					id: "publishing-ready-no-design",
 					source: publishing,
-					extract: regionUnit(/^(- All commits landed since the last user-approved gate are presented[\s\S]*?)(?=^- Report every ignored finding)/gm),
-					expected: normalizeText(`- All commits landed since the last user-approved gate are presented
-  to the user. For a change without a design gate, present the description here
-  because no design approval presented it before implementation.`),
+					extract: regionUnit(/^(- Summarize behavior changes[\s\S]*?)(?=^- A squash merge)/gm),
+					expected: normalizeText(`- Summarize behavior changes since the last user-approved gate, including
+  for a change without a design gate. Apply the presentation comparison rule.
+  Ask for ready-for-review permission. Keep commits and accounting in the log.
+  Keep the ignored-finding index only in the owning research log.`),
 				},
 				{
 					id: "workflow-migration",
@@ -4181,10 +4172,10 @@ The publishing setting and its disabled default remain unchanged.`),
 				publishing.replace("Create the pull request after final design approval", "Create the pull request before final design approval"),
 				publishing.replace("after the\nconfirmation gate", "after the confirmed\nsize grade"),
 				publishing.replace("established request facts", "unverified request assumptions"),
-				publishing.replace("Use only established facts", "Use unsupported claims"),
+				publishing.replace("from established facts, as defined", "from unsupported claims, as defined"),
 				publishing.replace("keep the existing draft", "recreate the draft"),
 				publishing.replace("size or late-area design route", "late-area design route"),
-				publishing.replace("For a change without a design gate", "For a SMALL change without a design gate"),
+				publishing.replace("for a change without a design gate", "for a SMALL change without a design gate"),
 				publishing.replace("a high-level design and a level pull request", "a high-level design"),
 				publishing.replace("read the current authoritative design file", "read a copied design in the log"),
 				publishing.replace("if a high-level design exists, ", ""),
@@ -4203,10 +4194,10 @@ The publishing setting and its disabled default remain unchanged.`),
 			const migrationMutationOutcomes = migrationMutations.map((source) => ({ changed: source !== workflow, accepted: resolvePublishingMigration(publishing, source).every((resolved, index) => resolved.count === 1 && resolved.text === publishingMigrationResults[index].expected) }));
 			const missingPublishingMigration = [
 				resolvePublishingMigration(publishing.replace("## Creation", "## Draft creation"), workflow)[0],
-				resolvePublishingMigration(publishing.replace("All commits landed since", "Commits landed since"), workflow)[1],
+				resolvePublishingMigration(publishing.replace("Summarize behavior changes since", "Commits landed since"), workflow)[1],
 				resolvePublishingMigration(publishing, workflow.replace("## Migration", "## Workflow migration"))[2],
 			];
-			const duplicatedPublishing = `${publishing}\n\n## Creation\n\n${publishingMigrationResults[0].text}\n\n## Description rules\n\n- All commits landed since the last user-approved gate are presented\n  to the user. For a change without a design gate, present the description here\n  because no design approval presented it before implementation.\n- Report every ignored finding`;
+			const duplicatedPublishing = `${publishing}\n\n## Creation\n\n${publishingMigrationResults[0].text}\n\n## Description rules\n\n- Summarize behavior changes since the last user-approved gate, including\n  for a change without a design gate. Apply the presentation comparison rule.\n  Ask for ready-for-review permission. Keep commits and accounting in the log.\n  Keep the ignored-finding index only in the owning research log.\n- A squash merge`;
 			const duplicatedMigration = `${workflow}\n\n## Migration\n\n${publishingMigrationResults[2].text}\n\n## Layering richer workflows on top\n`;
 			const duplicatePublishingMigration = resolvePublishingMigration(duplicatedPublishing, duplicatedMigration);
 			const appendBenignControl = (source, id) => `${source}\n\n<!-- resolver benign control: ${id} -->`;
@@ -4297,13 +4288,13 @@ Use [recursive-workflow.md](recursive-workflow.md) for the nested rules.
 Use [track-workflow.md](track-workflow.md) for the common lifecycle.`);
 			const recursiveDeliveryUnits = [
 				{ id: "repairs", source: recursive, start: "## Review-fix subtrees and repair limits", expected: protectedRepairSummary },
-				{ id: "aggregate", source: recursive, start: "## Whole-subtree acceptance", expected: "60315208cec2f9c707c24ca80bec6105870ccef586c002ac1c2d90221b90fb30" },
-				{ id: "issues", source: recursive, start: "## Packages, attribution, and issues", end: null, expected: "376de82c9d71fb4fcd787c46832c19a4359814f7b919723aef35bd47cde081eb" },
-				{ id: "sources", source: deliveryPackages, start: "## Durable accounting", expected: "8796712c599ba433f4d78ca216d1f56cfc0ba14087369248b1d3d1d5cdc3b295" },
-				{ id: "workflow-accounting", source: workflow, start: "### Delivery history and accounting", expected: "a5bbb094dd397dc19f599c3cd8900d5b2b8900d1c97941b138f60f0b62d8c18f" },
-				{ id: "notes-accounting", source: userNotes, start: "### Final accounting preparation", expected: "c5faa1a21995af8de97116b48390d913b805fc86742a318597d7d5efd9aeaa47" },
+				{ id: "aggregate", source: recursive, start: "## Whole-subtree acceptance", expected: "0aa1169d045aa718d1790bf1e851fae1325373759a2216766b9a0d3cc3bdcb6e" },
+				{ id: "issues", source: recursive, start: "## Packages, attribution, and issues", end: null, expected: "d2bcb68eb3d8a5de2bb055c7f56a1141d1d3f8e4bc67ad7802d6152f5ce307b0" },
+				{ id: "sources", source: deliveryPackages, start: "## Durable accounting", expected: "810e56768025e50034a34cf79921744cbd7c754dd7791dfe6b621defe4ae56d9" },
+				{ id: "workflow-accounting", source: workflow, start: "### Delivery history and accounting", expected: "fd736e66ec29aa17f54db8b8b0c1716e8f1259a486d59cd1fe5815d33c9d7a40" },
+				{ id: "notes-accounting", source: userNotes, start: "### Final accounting preparation", expected: "34a1af81ea8c9cb69a4e6dcb948ad1492bc057c0caa05213fd15364d053b253f" },
 				{ id: "publishing-sync", source: publishing, start: "## Keeping the PR in sync", expected: "c52f42b4468a859f850e1ef9ae2ec5c54a7206b3e1ff737f7f66d5b8a5cc6eef" },
-				{ id: "public-workflow", source: projectReadme, start: "A track is a bounded", end: "## ", endAtLineStart: true, expected: "23f90e859751918fac2f72ad4819c635cf21d88f15e18d100cc0a9944018fbf3" },
+				{ id: "public-workflow", source: projectReadme, start: "A track is a bounded", end: "## ", endAtLineStart: true, expected: "93901bc1102945923a9b2d3fdd76591ed9f88ba88572ec270588f6f50e723b6d" },
 				{ id: "public-roadmap", source: readFileSync(join(REPO, "docs", "roadmap.md"), "utf8"), start: "## Larger changes", expected: recordDigest(roadmapExpected) },
 			].map((unit) => ({ ...unit, extract: unit.end === null
 				? (source) => {
@@ -4315,8 +4306,8 @@ Use [track-workflow.md](track-workflow.md) for the common lifecycle.`);
 					return regionUnit(/^## Packages, attribution, and issues([\s\S]*)(?![\s\S])/gm)(parts[0] + marker + visibleTail);
 				}
 				: unit.id === "public-workflow" ? policyRegion(unit.start, unit.end, unit.endAtLineStart) : headingUnit(unit.start) }));
-			const repairEscalationDigest = "b9ebf47c2dceb335adfd3fb1cd694e2e23e6d210f5d962ef5c5c6d709cdc3de4";
-			const EXPECTED_DELIVERY_PACKAGES_SHA256 = "dcd6c3bd614cdc130dfce2c2a2d46fafd9ce767ab543eeb04c3cce8dd4bdfefa";
+			const repairEscalationDigest = "9f61738c4c77d9e59406480fdaa58485ce66fb2a921e634ed26c45c4cc1ee99b";
+			const EXPECTED_DELIVERY_PACKAGES_SHA256 = "d754bcde9c3d082f88653a8ce2b05ab5c199d090a91a4097feaa43a59518e38a";
 			if (!ONLY) {
 			const acceptsRecursiveDelivery = (unit, source) => {
 				const resolved = unit.extract(source);
@@ -4345,14 +4336,9 @@ Use [track-workflow.md](track-workflow.md) for the common lifecycle.`);
 				const source = projectReadme.replace("The orchestrator records risks", `${heading}\n\nThe orchestrator records risks`);
 				return { id, changed: source !== projectReadme, rejected: !acceptsRecursiveDelivery(publicWorkflowUnit, source) };
 			});
-			const codeAcceptanceScope = "For design tracks, use [recursive-workflow.md](recursive-workflow.md) § Whole-subtree acceptance.\nThe following proved-area acceptance rules apply to code tracks.\n\n";
-			const scopedAcceptanceUnits = [
-				[workflow, "User acceptance of a track is blocking when that track proves at"],
-				[workflow, "Every completed track reaches the user through the track package defined in"],
-				[userNotes, "The track package states which acceptance rule applies."],
-				[reviews, "<!-- track-acceptance:begin -->"],
-			];
-			const acceptsCodeScope = (source, next) => source.split(codeAcceptanceScope).length === (next.startsWith("User acceptance") || next.startsWith("Every completed") ? 3 : 2) && source.split(codeAcceptanceScope + next).length === 2;
+const codeAcceptanceScope = "Code-track acceptance follows [track-workflow.md](track-workflow.md) § Delivery and termination.";
+ const scopedAcceptanceUnits = [[userNotes, codeAcceptanceScope], [reviews, codeAcceptanceScope]];
+ const acceptsCodeScope = (source, next) => source.split(next).length === 2;
 			const finalSectionAttacks = [
 				["issues-after-owned-end", "Creating a subtree issue approves implementation."],
 				["whole-subtree-after-owned-end", "A design track with no proved area needs no whole-subtree acceptance."],
@@ -4367,8 +4353,8 @@ Use [track-workflow.md](track-workflow.md) for the common lifecycle.`);
 				["an unrelated section after public workflow text preserves its pin", publicWorkflowRaw !== "" && publicWorkflowOutsideSection !== projectReadme && acceptsRecursiveDelivery(publicWorkflowUnit, publicWorkflowOutsideSection), "next level-two heading control"],
 				["headings inside public workflow text fail without hiding remaining rules", publicWorkflowHeadingAttacks.every(({ changed, rejected }) => changed && rejected), publicWorkflowHeadingAttacks],
 				["visible contradictions after the final marker fail the complete final section", finalSectionAttacks.every(({ changed, rejected }) => changed && rejected), finalSectionAttacks],
-				["each proved-area acceptance copy is explicitly scoped to code tracks", scopedAcceptanceUnits.every(([source, next]) => acceptsCodeScope(source, next)), "lifecycle, user notes, review termination"],
-				["missing, weakened, moved, and duplicate scope qualifiers fail", scopedAcceptanceUnits.every(([source, next]) => !acceptsCodeScope(source.replace(codeAcceptanceScope + next, next), next) && !acceptsCodeScope(source.replace(codeAcceptanceScope + next, codeAcceptanceScope.replace("apply to code tracks.", "apply to all tracks.") + next), next) && !acceptsCodeScope(source.replace(codeAcceptanceScope + next, next) + codeAcceptanceScope, next) && !acceptsCodeScope(source + codeAcceptanceScope, next)), "scope counterfactuals"],
+				["each acceptance pointer explicitly names code tracks", scopedAcceptanceUnits.every(([source, next]) => acceptsCodeScope(source, next)), "lifecycle, user notes, review termination"],
+["missing, weakened, moved, and duplicate scope qualifiers fail", scopedAcceptanceUnits.every(([source, next]) => !acceptsCodeScope(source.replace(next, ""), next) && !acceptsCodeScope(source.replace(next, next.replace("Code-track", "All-track")), next) && !acceptsCodeScope(source + "\n" + next, next)), "scope counterfactuals"],
 			]);
 
 			const acceptanceTransferExpected = normalizeText(`For each required whole-subtree or root final acceptance, use this order even after the ready flip:
@@ -4989,7 +4975,7 @@ Use [delivery-packages.md](delivery-packages.md) § Durable accounting for accou
 					expected: normalizeText(`Apply this section separately to each level pull request.
 All its code tracks and required machine reviews, track packages, requested fixes,
 and blocking user notes must be complete.
-A proved DESIGN-TRIGGERING area makes track acceptance blocking before its marker.
+Code-track acceptance follows [track-workflow.md](track-workflow.md) § Delivery and termination.
 Keep the last pull request of a subtree unmerged until every design track it
 closes has explicit whole-subtree acceptance and its design marker.
 A subtree contains a track and all its descendants.
@@ -5021,7 +5007,8 @@ Apply that sequence even when the pull request is already ready.`),
 A merge does not supply whole-subtree or root final acceptance.
 Obtain each required explicit decision before the merge.
 After the decision, record the acceptance and its evidence references only in the owning research log.
-Verify that log accounting, then present the separate final description and merge handoff.
+Verify that log accounting, then give the behavior summary and merge handoff.
+Keep the skipped late-area design-gate record visible at final acceptance.
 Ready status does not bypass this order.`),
 				},
 				{
@@ -5083,9 +5070,8 @@ An unchanged result and template need no rewrite.`),
 				},
 				{
 					id: "ready-findings", source: publishing,
-					extract: regionUnit(/^(- Report every ignored finding[\s\S]*?)(?=^- A squash merge)/gm),
-					expected: normalizeText(`- Report every ignored finding to the user.
-  Keep its index in the owning research log.`),
+					extract: regionUnit(/^(  Keep the ignored-finding index only[^\n]+\n)/gm),
+					expected: normalizeText(`  Keep the ignored-finding index only in the owning research log.`),
 				},
 				{
 					id: "ready-completion", source: publishing,
@@ -5094,18 +5080,23 @@ An unchanged result and template need no rewrite.`),
   A mention without the user's disposition is not enough.
 - Last, reread the whole description from start to end against the selected template and final result.
   Confirm that the text is consistent.
-  Present the final description to the user before the flip, including when a design gate presented the draft.`),
+  The behavior summary replaces presentation of the final description.
+  The description is available on request.`),
 				},
 				{
 					id: "post-flip", source: publishing,
 					extract: regionUnit(/^## After the flip\n\n([\s\S]*?)(?=^The user's merge act approves)/gm),
 					expected: normalizeText(`The user may wait for passing continuous integration checks or peer-review completion and ask the agent to fix failures or review observations.
-The agent lands fixes as normal commits and presents them to the user as they land.
+The agent lands one commit per requested fix and reports behavior and fix status
+when acceptance is needed. Ask one batch acceptance question with each fix separately selectable.
 Keep progress in the owning research log, not in the description.
 At renewed handoff for merge after fixes, reread the selected template.
 Refresh final-result text only if the result or template changed.
 Reconcile reviewer-pushed changes at that handoff.
-Present the final description before handing the pull request to the user for merge.`),
+Before merge, summarize behavior changes since the previous summary.
+Use one no-change sentence when unchanged. The summary grants no approval.
+The behavior summary replaces presentation of the final description.
+The description is available on request.`),
 				},
 				{ id: "transfer", source: deliveryPackages, extract: transferUnit, expected: acceptanceTransferExpected },
 				{
@@ -5551,8 +5542,8 @@ Present the final description before handing the pull request to the user for me
 			// Whitespace-only reflow passes because normalizeText collapses whitespace.
 			// HTML comments count. The word layer is best-effort during refresh review.
 			// Known word-layer escapes include "retention branches" and "branches kept for retention".
-			const EXPECTED_PUBLISHING_SHA256 = "5443051891a2b41d199b19ce2b3238bb7b2776b809c840c30c5efc49c28aff33";
-			const EXPECTED_TRACK_WORKFLOW_SHA256 = "6f0fabbfba5aa556bf611230f08518c65163eda94224765df4ccea375c9459ef";
+			const EXPECTED_PUBLISHING_SHA256 = "7abf52e1c6362a7dcd997cce14b0e4dc56c77018e0ec37c2aa0e098bcd025197";
+			const EXPECTED_TRACK_WORKFLOW_SHA256 = "36bcdec930a9d141c35cf15c24519b51b5feb0189d8ec73d61214a9d5539ace0";
 			const peerRetentionOwners = [
 				{ id: "nested", source: recursive, units: [historyUnit] },
 				{ id: "common", source: commonRecords, units: [privateSetUnit] },
@@ -5756,8 +5747,8 @@ A later track builds on the accepted boundary before it.`),
 				["wrapped inspection passes and keeps all named mutations discriminating", wrappedRetention !== recursive && acceptsLevelUnit(historyUnit, wrappedRetention) && wrappedRetentionMutations.every(({ changed, rejected, retained }) => changed && rejected && retained), wrappedRetentionMutations],
 				["the inspection pointer reaches the unique common privacy subsection", acceptsInspectionDestination(recursive, commonRecords), inspectionDestination(recursive, commonRecords).count],
 				["every unit matches its independent expectation", levelPolicyUnits.every((unit) => acceptsLevelUnit(unit, unit.source)), levelPolicyUnits.filter((unit) => !acceptsLevelUnit(unit, unit.source)).map(({ id }) => id)],
-				["every rule mutation changes input and fails", levelRuleMutations.length === 642 && levelRuleMutations.every(({ changed, rejected }) => changed && rejected), levelRuleMutations],
-				["every safety sentence removal changes its owned input and fails", safetySentenceRemovals.length === 719 && safetySentenceRemovals.filter(({ id }) => id === "history").length === 444 && !safetySentenceRemovals.some(({ id }) => id === "cleanup-writes") && safetySentenceRemovals.every(({ changed, rejected }) => changed && rejected), safetySentenceRemovals],
+				["every rule mutation changes input and fails", levelRuleMutations.length === 643 && levelRuleMutations.every(({ changed, rejected }) => changed && rejected), levelRuleMutations],
+				["every safety sentence removal changes its owned input and fails", safetySentenceRemovals.length === 720 && safetySentenceRemovals.filter(({ id }) => id === "history").length === 444 && !safetySentenceRemovals.some(({ id }) => id === "cleanup-writes") && safetySentenceRemovals.every(({ changed, rejected }) => changed && rejected), safetySentenceRemovals],
 				["ordering, pause reconciliation, and local retention agree across all four documents", agreesOnOrderAndLocalRetention(), "complete independent history, planning, resume, roadmap, and publishing expectations"],
 				["unsafe pauses, conflicting bases, missing scope or events, and ordinary duties in either publishing setting fail", orderAndRetentionMutations.every(({ changed, rejected }) => changed && rejected), orderAndRetentionMutations],
 				["moving an intact event sentence outside the marker fails", eventMoveRejected(orderingDocuments), "event remains present beyond the protected marker"],
@@ -5772,80 +5763,14 @@ A later track builds on the accepted boundary before it.`),
 			// The rendered session instructions, through the production doctrine builder.
 			const sessionDoctrine = await doctrine(we.EMPTY_WORKER_EXTENSION_SET, undefined, true, {});
 			const acceptanceUnits = [
-				{
-					id: "workflow-focus-classes",
-					where: "docs/track-workflow.md § Focus classes and gates",
-					rendering: "document",
-					source: workflow,
-					extract: regionUnit(focusClassesPattern),
-					segments: [
-						"DESIGN-TRIGGERING areas are data loss, concurrency defect, security weakness, performance degradation, and non-local logic defect. REVIEWER-ONLY areas are test-quality defect, unreadable user-facing prose, licensing exposure, consumer contract break, governing-rule defect, and unreported failure. Only a proved area adds a focus-dependent gate or area reviewer. Every proved area adds its specialist. A track with at least one proved area gets exactly one Reviewer I in a separate thread, including on documentation-only work. An implementer's approximate size above 100 counted lines also requires Reviewer I unless the track is documentation-only. With neither trigger, routine implementation review is `NOT REQUIRED`. Size alone adds no area reviewer, adversarial design reviewer, or blocking track acceptance. A proved DESIGN-TRIGGERING area also requires a high-level design, user validation, focus reconfirmation, its own adversarial design reviewer, and final design approval. A track with no proved area also has no area reviewer. For design tracks, use [recursive-workflow.md](recursive-workflow.md) § Whole-subtree acceptance. The following proved-area acceptance rules apply to code tracks.",
-						fact("blocking"),
-						fact("noMandatory"),
-						fact("finalBlocking"),
-					],
-				},
-				{
-					id: "workflow-delivery",
-					where: "docs/track-workflow.md § Delivery and termination",
-					rendering: "document",
-					source: workflow,
-					extract: regionUnit(/^(Every completed track reaches the user[\s\S]*?)(?=\n\nDone means)/gm),
-					segments: [
-						"Every completed track reaches the user through the track package defined in [delivery-packages.md](delivery-packages.md) § Track package.",
-						fact("blocking"),
-						fact("boundaryWithAcceptance"),
-						fact("noMandatory"),
-						fact("merger"),
-						fact("finalBlocking"),
-					],
-				},
-				{
-					id: "review-termination",
-					where: "docs/review-rules.md § Termination and deferred-work routing",
-					rendering: "document",
-					source: reviews,
-					extract: markedUnit("track-acceptance"),
-					segments: [
-						"A track package can follow machine-review termination. Before the package, the owning research log accounts for every ignored finding.",
-						fact("blocking"),
-						fact("noMandatory"),
-						fact("boundaryWithoutAcceptance"),
-						fact("merger"),
-						fact("finalBlocking"),
-					],
-				},
-				{
-					id: "user-notes-packet",
-					where: "docs/user-notes.md § Package acceptance and note timing",
-					rendering: "document",
-					source: userNotes,
-					extract: regionUnit(/^(The track package states which acceptance rule applies\.[\s\S]*?)(?=\n\n## Receiving and routing a user note)/gm),
-					segments: [
-						"The track package states which acceptance rule applies.",
-						fact("blocking"),
-						fact("boundaryWithAcceptance"),
-						fact("noMandatory"),
-						"Its package reports progress and every requested decision.",
-						fact("boundaryWithoutAcceptance"),
-						fact("merger"),
-						fact("finalBlocking"),
-					],
-				},
-				{
-					id: "session-instructions",
-					where: "extension/mode.ts rule 8, as rendered",
-					rendering: "doctrine",
-					source: sessionDoctrine,
-					extract: regionUnit(/(Each proved\s+DESIGN-TRIGGERING area requires design,[\s\S]*?Final acceptance always blocks\.)/g),
-					segments: [
-						"Each proved DESIGN-TRIGGERING area requires design, user validation, focus reconfirmation, adversarial design review, final approval, and",
-						fact("blocking"),
-						fact("noMandatory"),
-						fact("finalBlocking"),
-					],
-				},
-			];
+ { id: "workflow-focus-classes", where: "Focus classes", rendering: "document", source: workflow, extract: regionUnit(focusClassesPattern), segments: ["DESIGN-TRIGGERING areas are data loss, concurrency defect, security weakness, performance degradation, and non-local logic defect. REVIEWER-ONLY areas are test-quality defect, unreadable user-facing prose, licensing exposure, consumer contract break, governing-rule defect, and unreported failure. Only a proved area adds a focus-dependent gate or area reviewer. Every proved area adds its specialist. A track with at least one proved area gets exactly one Reviewer I in a separate thread, including on documentation-only work. An implementer's approximate size above 100 counted lines also requires Reviewer I unless the track is documentation-only. With neither trigger, routine implementation review is `NOT REQUIRED`. Size alone adds no area reviewer, adversarial design reviewer, or blocking track acceptance. A proved DESIGN-TRIGGERING area also requires a high-level design, user validation, focus reconfirmation, its own adversarial design reviewer, and final design approval. A track with no proved area also has no area reviewer. Acceptance follows § Delivery and termination."] },
+ { id: "workflow-delivery", where: "Delivery and termination", rendering: "document", source: workflow, extract: regionUnit(/^(Use \[delivery-packages\.md\]\(delivery-packages\.md\) for completion messages[\s\S]*?)(?=\n\nDone means)/gm), segments: [
+ "Use [delivery-packages.md](delivery-packages.md) for completion messages. A single-track change sends one change package without a track name and asks only final acceptance.",
+ fact("blocking"), fact("boundaryWithAcceptance"), fact("boundaryWithoutAcceptance"), fact("noMandatory"), fact("finalBlocking")] },
+ { id: "review-termination", where: "Review termination", rendering: "document", source: reviews, extract: markedUnit("track-acceptance"), segments: ["A track package can follow machine-review termination. Before the package, the owning research log accounts for every ignored finding.", fact("pointer")] },
+ { id: "user-notes-packet", where: "Package acceptance and note timing", rendering: "document", source: userNotes, extract: regionUnit(/^(Code-track acceptance follows[\s\S]*?)(?=^## )/gm), segments: [fact("pointer"), "Design tracks follow [recursive-workflow.md](recursive-workflow.md) § Whole-subtree acceptance."] },
+ { id: "session-instructions", where: "rule 8", rendering: "doctrine", source: sessionDoctrine, extract: regionUnit(/(Each proved\s+DESIGN-TRIGGERING area requires design,[\s\S]*?Final acceptance always blocks\.)/g), segments: ["Each proved DESIGN-TRIGGERING area requires design, user validation, focus reconfirmation, adversarial design review, and final approval.", fact("pointer"), fact("finalBlocking")] },
+];
 			const unitResults = acceptanceUnits.map((unit) => {
 				const resolved = unit.extract(unit.source);
 				return { id: unit.id, where: unit.where, count: resolved.count, actual: resolved.text, expected: composeUnit(unit, ACCEPTANCE_FACTS) };
@@ -5874,31 +5799,15 @@ A later track builds on the accepted boundary before it.`),
 			 * outside every unit, including text appended after the terminal end marker
 			 * (FG3), changes no unit.
 			 */
-			const mutateUnit = (unit, actual) => {
-				const inverted = unit.rendering === "document" ? "invertedDocument" : "invertedDoctrine";
-				const blocking = renderFact(ACCEPTANCE_FACTS, "blocking", unit.rendering);
-				const noMandatory = renderFact(ACCEPTANCE_FACTS, "noMandatory", unit.rendering);
-				const finalBlocking = renderFact(ACCEPTANCE_FACTS, "finalBlocking", unit.rendering);
-				return {
-					additiveWaiver: actual.replace(finalBlocking, `${finalBlocking.replace(/\.$/, "")}, unless the orchestrator decides to skip it.`),
-					blockingRemoved: normalizeText(actual.replace(blocking, "")),
-					blockingInverted: actual.replace(blocking, renderFact(ACCEPTANCE_FACTS, "blocking", inverted)),
-					noMandatoryInverted: actual.replace(noMandatory, renderFact(ACCEPTANCE_FACTS, "noMandatory", inverted)),
-					noMandatoryUnscoped: actual.replace(noMandatory, noMandatory.replace("code track", "track")),
-				};
-			};
-			const staleFacts = Object.freeze({
-				...ACCEPTANCE_FACTS,
-				noMandatory: Object.freeze({
-					...ACCEPTANCE_FACTS.noMandatory,
-					document: "A track with only REVIEWER-ONLY areas has no mandatory track-acceptance gate.",
-					doctrine: "REVIEWER-ONLY tracks need no track acceptance.",
-				}),
-			});
+			const mutateUnit = (unit, actual) => Object.fromEntries(unit.segments.flatMap((segment, i) => {
+ const text = typeof segment === "string" ? segment : renderFact(ACCEPTANCE_FACTS, segment.fact, unit.rendering);
+ return [["removed-" + i, normalizeText(actual.replace(text, ""))], ["contradiction-" + i, actual.replace(text, "Acceptance is optional.")], ["waiver-" + i, actual.replace(text, text + " The orchestrator may waive acceptance.")]];
+}));
+			const staleFacts = Object.fromEntries(Object.entries(ACCEPTANCE_FACTS).map(([key, value]) => [key, Object.fromEntries(Object.keys(value).map((rendering) => [rendering, "Only DESIGN-TRIGGERING areas require acceptance."]))]));
 			const mutationResults = acceptanceUnits.map((unit) => ({
 				id: unit.id,
 				mutations: mutateUnit(unit, unitById.get(unit.id)?.actual ?? ""),
-				stale: composeUnit(unit, staleFacts),
+				stale: composeUnit(unit, staleFacts).replace("Acceptance follows § Delivery and termination.", "Only DESIGN-TRIGGERING areas require acceptance."),
 			}));
 			const inertMutations = mutationResults.flatMap(({ id, mutations }) => Object.entries(mutations).filter(([, text]) => text === (unitById.get(id)?.actual ?? "")).map(([name]) => `${id}:${name}`));
 			const acceptedMutations = mutationResults.flatMap(({ id, mutations }) => Object.entries(mutations).filter(([, text]) => text === (unitById.get(id)?.expected ?? "")).map(([name]) => `${id}:${name}`));
@@ -5909,7 +5818,12 @@ A later track builds on the accepted boundary before it.`),
 			const elsewhereUnits = acceptanceUnits.filter((unit) => unit.source === workflow).map((unit) => unit.extract(workflowElsewhere));
 			const doctrineElsewhere = sessionDoctrine.replace("Never for routine dispatch.", "Do not read for routine dispatch.");
 			const doctrineElsewhereUnit = acceptanceUnits[4].extract(doctrineElsewhere);
-			checkAll("contract-acceptance-mutations", "every unit rejects a contradictory waiver, a removed blocking fact, an inverted blocking fact, an inverted no-acceptance fact, and a stale canonical copy. Benign text in another section, including text appended after the terminal end marker, leaves every unit exact", [
+			checkAll("contract-acceptance-mutations", "every unit rejects removed segments, contradictory acceptance, additive waivers, and stale risk-dependent policy. Benign text in another section leaves every unit exact", [
+				["a source-level appended contradiction is rejected", (() => {
+					const unit = acceptanceUnits.find(({ id }) => id === "user-notes-packet");
+					const changed = userNotes.replace("## Receiving and routing a user note", "Acceptance is optional for every code track.\n\n## Receiving and routing a user note");
+					return changed !== userNotes && unit.extract(changed).count === 1 && unit.extract(changed).text !== composeUnit(unit, ACCEPTANCE_FACTS);
+				})(), "contradiction before the next heading"],
 				["every mutation really changes the text it attacks", inertMutations.length === 0, inertMutations],
 				["no mutation matches the canonical expectation", acceptedMutations.length === 0, acceptedMutations],
 				["a stale canonical copy matches no unit", staleAccepted.length === 0, { staleAccepted, staleNoMandatory: staleFacts.noMandatory.document }],
@@ -6009,7 +5923,7 @@ handoff and the research log.`),
 				},
 				{
 					id: "G4-after-flip", source: publishing, heading: "## Ready-for-review flip",
-					required: "Present the final description to the user before the flip, including when a design gate presented the draft.",
+					required: "The behavior summary replaces presentation of the final description. The description is available on request.",
 					bad: "Present the final description to the user after the flip, including when a design gate presented the draft.",
 				},
 				...[
@@ -6119,18 +6033,18 @@ orchestrator stops further repair before another round.
 Count failed rounds across the affected code track and all its review-fix children.
 A split never resets that requirement count.
 After a completed investigation, two further failed ordinary rounds trigger it again.
-Complete a triggered investigation and its approvals before starting a child.
+Complete a triggered investigation and obtain solution approval before starting a child.
 A new finding identifier
 does not reset the count when the approved requirement is the same. The
 orchestrator identifies the exact user-approved requirement named in the track
 intention or design approval record. If those records name different
 requirements, the orchestrator asks the user to identify the requirement before
 counting rounds. It does not choose between them or treat a broad track
-intention as one requirement. The orchestrator proposes a requirement-level
-investigation and waits for the user's corrections and approval of that scope.
+intention as one requirement. The orchestrator starts a bounded read-only
+investigation within the approved requirement. It asks before wider access or higher cost.
 The investigation covers the relevant lifecycle stages, dependencies, unchanged
 code, actual consumers, and durable or observable boundaries. It records the
-trigger, proposed scope, corrections, approved scope, evidence, limits, holistic
+trigger, investigation scope, access or cost decisions, evidence, limits, holistic
 solution, verification plan, and user decision in the research log. A symptom
 repair is not requirement closure. The orchestrator presents a holistic solution
 for the full approved requirement and waits for separate user approval before
@@ -6144,19 +6058,18 @@ stop repair dispatch before another repair.
 Count failed rounds across the affected code track and all its review-fix children.
 A split never resets that requirement count.
 After a completed investigation, two further failed ordinary rounds trigger it again.
-Complete a triggered investigation and its approvals before starting a child.
+Complete a triggered investigation and obtain solution approval before starting a child.
 The requirement is the exact
 user-approved requirement named in the track intention or design approval
 record. If those records name different requirements, ask the user to identify
 the requirement before counting rounds. Do not choose between them or treat a
 broad track intention as one requirement. A new finding identifier does not
-create a new requirement or reset the two-round count. Propose an investigation
-scope to the user. The scope must cover relevant lifecycle stages, dependencies,
-unchanged code, actual consumers, and the durable or observable boundary where
-the requirement is judged. The user may correct the scope and must approve it
-before investigation starts.
+create a new requirement or reset the two-round count. Start a bounded read-only
+investigation within the approved requirement. Cover relevant lifecycle stages,
+dependencies, unchanged code, actual consumers, and the durable or observable
+boundary where the requirement is judged. Ask before wider access or higher cost.
 
-Record the trigger, proposed scope, user corrections, approved scope, findings,
+Record the trigger, investigation scope, access or cost decisions, findings,
 evidence, limits, holistic solution, verification plan, and decision as typed
 entries in the affected code track's owning research log.
 Use [change-records.md](change-records.md) § Manual records and safe writes for record ownership.
@@ -6171,14 +6084,14 @@ existing change research-log record, narrows no requirement, and does not requir
 verbatim retention of every tool result.`);
 			const investigationWorkflow = markedUnit("requirement-investigation-workflow")(workflow);
 			const investigationEvent = "Two failed ordinary rounds leave the same approved requirement incomplete, counted across the affected code track and its review-fix children.";
-			const investigationUserRowExpected = normalizeText(`| ${investigationEvent} | At the end of the second such round, before any further repair. | Correct or approve the investigation scope, then approve or reject the holistic solution separately. Redesign, waive, or split remain available. |`);
+			const investigationUserRowExpected = normalizeText(`| ${investigationEvent} | At the end of the second such round, before any further repair. | Approve or reject the holistic solution after bounded read-only investigation. Approve wider access or higher cost before either is used. Redesign, waive, or split remain available. |`);
 			const investigationRows = (source) => source.split("\n").filter((line) => line.startsWith("|") && line.split("|")[1]?.trim() === investigationEvent);
 			const investigationUserRows = investigationRows(userNotes);
 			const investigationUserRow = investigationUserRows.length === 1 && normalizeText(investigationUserRows[0]) === investigationUserRowExpected;
 			const investigationMutationCases = [
 				{ source: reviews.replace("When two failed ordinary fix rounds leave", "When one failed ordinary fix round leaves"), original: reviews, unitName: "requirement-investigation-review", expected: investigationReviewExpected },
 				{ source: workflow.replace("A new finding identifier does not\ncreate a new requirement", "A new finding identifier creates a new requirement"), original: workflow, unitName: "requirement-investigation-workflow", expected: investigationWorkflowExpected },
-				{ source: workflow.replace("The user may correct the scope and must approve it\nbefore investigation starts", "The user may correct the scope and may approve it after implementation resumes"), original: workflow, unitName: "requirement-investigation-workflow", expected: investigationWorkflowExpected },
+				{ source: workflow.replace("Start a bounded read-only\ninvestigation within the approved requirement", "Wait for user scope approval before investigation"), original: workflow, unitName: "requirement-investigation-workflow", expected: investigationWorkflowExpected },
 				{ source: reviews.replace("waits for separate user approval", "uses the scope approval"), original: reviews, unitName: "requirement-investigation-review", expected: investigationReviewExpected },
 			];
 			const investigationMutationResults = investigationMutationCases.map(({ source, original, unitName, expected }) => ({
@@ -6192,7 +6105,7 @@ verbatim retention of every tool result.`);
 				{ unit: markedUnit("requirement-investigation-workflow")(`## Preface\n\nUnrelated note.\n\n${workflow}`), expected: investigationWorkflowExpected },
 				{ unit: markedUnit("requirement-investigation-workflow")(`${workflow}\n\n## Appendix\n\nUnrelated note.`), expected: investigationWorkflowExpected },
 			];
-			checkAll("contract-requirement-investigation", "the conditional requirement-level investigation route stops after two same-requirement repair rounds, preserves existing budgets and reviewer boundaries, requires broad scope and two user approvals, and records its evidence without narrowing the requirement", [
+			checkAll("contract-requirement-investigation", "the conditional requirement-level investigation route stops after two same-requirement repair rounds, preserves existing budgets and reviewer boundaries, requires bounded read-only scope and solution approval, and records its evidence without narrowing the requirement", [
 				["review route resolves once and equals its canonical expectation", investigationReview.count === 1 && investigationReview.text === investigationReviewExpected, investigationReview],
 				["workflow route resolves once and equals its canonical expectation", investigationWorkflow.count === 1 && investigationWorkflow.text === investigationWorkflowExpected, investigationWorkflow],
 				["user escalation has one independent canonical row", investigationUserRow, { rows: investigationUserRows, expected: investigationUserRowExpected }],
@@ -6313,7 +6226,7 @@ verbatim retention of every tool result.`);
 				{ id: "repair-rounds-owner", source: reviews, start: "## Fix loop and gate verdicts", expected: protectedRepairOwners["repair-rounds"] },
 				{ id: "repair-consultations-owner", source: reviews, start: "## Stuck-fix consultation", expected: protectedRepairOwners["repair-consultations"] },
 				{ id: "child-fix-title-owner", source: workflow, start: "### Commit titles and bodies", expected: protectedRepairOwners["child-fix-title"] },
-				{ id: "P13-authoring", source: authorGuidelines, start: "### Built-in focus-area authoring", expected: "e2b7529353072b4a911bf86b038348f7223a94538f0aff0adb1d7f7ff863b9cc" },
+				{ id: "P13-authoring", source: authorGuidelines, start: "### Built-in focus-area authoring", expected: "ab8e9a5f89054175231092f5e1ea1826e155d84ade4dacb699e76f8114fa7c2b" },
 			].map((unit) => ({ ...unit, extract: headingUnit(unit.start) }));
 			const expectedHeadingRegionIds = [
 				"identifiers-ranges", "manual-records", "resume-forks", "handoff-pointer", "resume-order", "general-handoff", "closed-range-feedback",
@@ -6437,7 +6350,7 @@ verbatim retention of every tool result.`);
 				["general reviewer is outside focus table", roles[0]?.name === "Reviewer I" && roles[0]?.prefix === "RI" && roles[0]?.focusArea === null && !perspectiveBlastRows.some(([area]) => area === "Reviewer I"), roles[0]],
 				["index includes each runtime selector, prefix and focus once", JSON.stringify(indexRows) === JSON.stringify(roles.map((role) => [role.name, role.prefix, role.focusArea ?? "none", role.prefix.toLowerCase()])), indexRows],
 				["regression-gate prefix stays outside roster", !roles.some((role) => role.prefix === "RG") && reviews.includes("RG is a regression-gate prefix and not a perspective"), roles.map((role) => role.prefix)],
-				["on-demand P13 follows P12 and has its approved content and table row", authorGuidelines.indexOf("**P12 —") < authorGuidelines.indexOf("**P13 —") && authorGuidelines.split("**P13 —").length === 2 && authorRegion.count === 1 && hash(authorPrinciple) === "e2b7529353072b4a911bf86b038348f7223a94538f0aff0adb1d7f7ff863b9cc" && Buffer.byteLength(authorPrinciple, "utf8") === 2292 && Buffer.byteLength(`### Built-in focus-area authoring\n\n${authorPrinciple}`, "utf8") === 2327 && authorGuidelines.split(authorRow).length === 2, { bytes: Buffer.byteLength(authorPrinciple, "utf8"), digest: hash(authorPrinciple) }],
+				["on-demand P13 follows P12 and has its approved content and table row", authorGuidelines.indexOf("**P12 —") < authorGuidelines.indexOf("**P13 —") && authorGuidelines.split("**P13 —").length === 2 && authorRegion.count === 1 && hash(authorPrinciple) === "ab8e9a5f89054175231092f5e1ea1826e155d84ade4dacb699e76f8114fa7c2b" && Buffer.byteLength(authorPrinciple, "utf8") === 2311 && Buffer.byteLength(`### Built-in focus-area authoring\n\n${authorPrinciple}`, "utf8") === 2346 && authorGuidelines.split(authorRow).length === 2, { bytes: Buffer.byteLength(authorPrinciple, "utf8"), digest: hash(authorPrinciple) }],
 			]);
 			checkAll("contract-review-charters", "Reviewer I keeps bounded duties, conditional composition and independent dispatch; specialist limits and prefixes stay exact", [
 				["Reviewer I names its five local duties and evidence boundaries", ["maintainability", "concretely harmful antipatterns", "responsibility distribution", "completeness against the approved current-track requirements", "ordinary local correctness", "adverse effect", "unjustified coupling", "responsibility placed in a component"].every((term) => normalizeText(reviewerICharter).includes(term)), reviewerICharter],
@@ -6540,7 +6453,7 @@ For changes that load the nested sections, follow [recursive-workflow.md](recurs
 
 This restriction applies to a design-stage adversary, Reviewer I, every implementation specialist, an agentic fix gate, a user-review fix-range gate, and a stuck-fix consultation. Ordinary repository and library evidence needed for the assigned work remains available. This permission is not a closed changed-file allowlist.
 
-A design-stage adversarial reviewer receives the standalone approved design, approved change context, track intention, applicable approved risk record and area proofs, tracked source evidence, charter, and output contract. This is the only reviewer role that receives the approved risk record and area proofs as separate artifacts.
+A design-stage adversarial reviewer receives the standalone approved design, approved change context, track intention, applicable risk record and area proofs, tracked source evidence, charter, and output contract. This is the only reviewer role that receives the risk record and area proofs as separate artifacts.
 
 Reviewer I and implementation specialists receive the approved review range, track intention, applicable charter, output contract, and ordinary evidence. They receive no risk record, area proof, implementer episode, implementer report, private triage, or implementer reasoning.
 
@@ -6583,7 +6496,7 @@ Record each grant in the override log.`),
 			const amendment = "The supplied action temporary folder permits only the reviewer's own writing-checker diff and adds no reviewer input. A reviewer never lists tmp/ or reads another action's folder.";
 			const originalParagraphDigests = [
 				"861dc9144bb1e16eacf358b3fb1815b2e2ae080a206d28c7a3229c5021275d34", "f9f0228001b9e056eb489d5c6c3fee415fcf95ac23df822bd029f27eb0b1f3b3",
-				"97bdc4a6e0c6c02859805227869b9c748580adbd694349c75b79b1793212e0da", "527f29a60ddd3564dfcbde73d357f3c43d867bb0b808b9d3852ddb3b385d48b1",
+				"f483f360f4d97036a9f09af119be8e40469e76380a93eccb25387473e074e878", "527f29a60ddd3564dfcbde73d357f3c43d867bb0b808b9d3852ddb3b385d48b1",
 				"3d991b3f9e25a2710869ef6bd13c69c1239e1dea6fa4378bb527b01a32384315", "bb64471333eef93ce91baac46799ce3ad4ff1c244b9ce34bc184c44d3c4e405f",
 				"2ddf2a77aff76b073c243ddff077dabcaa939fc205295e5ba3d746a18df6c9ab", "432813aee3332b7e91b0648bc96aa5fe7a5138c5c37c261e51a292cb0805ffa0",
 			];
@@ -6746,6 +6659,26 @@ omitted and why.`);
 				const owned = block(source, "delivery-package-contract");
 				return owned.count === 1 && owned.endCount === 1 && digest(source) === EXPECTED_DELIVERY_PACKAGES_SHA256;
 			};
+			const trackPresentationText = 'For each track presentation in a multi-track change (pre-track check, plan, track package, or acceptance request), state "Track n of m".\nHere n is the track position and m is the current planned track count at that level.\nAfter a split, use the new count in the next presentation.\nPosition does not replace the track identifier (canonical path number). Present a review-fix child with the affected track\'s identifier and position.\n';
+			const trackPresentationRule = normalizeText(trackPresentationText);
+			const acceptsTrackPresentation = (source, packages) => {
+				const gate = headingUnit("## Confirmation gate")(source);
+				const single = headingUnit("## Single-track combined package")(packages);
+				return gate.count === 1 && gate.text.includes(trackPresentationRule)
+					&& packages.includes("## Track <position> of <count> (<number>): <name>")
+					&& single.count === 1 && single.text.includes("A single-track change sends one completion message using the change package.")
+					&& single.text.includes("Do not send a separate track package.");
+			};
+			const trackPresentationMutations = [
+				...["pre-track check, ", "plan, ", "track package, ", "or acceptance request", "track position", "current planned track count", "at that level", "After a split, use the new count in the next presentation.", "Position does not replace the track identifier (canonical path number).", "Present a review-fix child with the affected track's identifier and position."].map((part) =>
+					[part, workflow.replace(trackPresentationText, (raw) => raw.replace(part, "")), deliveryPackages]),
+				["nested-level-count", workflow.replace("at that level", "across all levels"), deliveryPackages],
+				["single-track-scope", workflow.replace("each track presentation in a multi-track change", "each track presentation in every change"), deliveryPackages],
+				["old-workflow", workflow.replace(trackPresentationText, ""), deliveryPackages],
+				["package-heading", workflow, deliveryPackages.replace("## Track <position> of <count> (<number>): <name>", "## Track <number>: <name>")],
+				["identifier-slot", workflow, deliveryPackages.replace(" (<number>)", "")],
+				["single-track-package", workflow, deliveryPackages.replace("Do not send a separate track package.", "Send a separate track package.")],
+			].map(([id, source, packages]) => ({ id, changed: source !== workflow || packages !== deliveryPackages, rejected: !acceptsTrackPresentation(source, packages) }));
 			const swapFirstPackageLabels = deliveryPackages
 				.replace("**Result**", "**resolver-temporary-label**")
 				.replace("**Needs attention**", "**Result**")
@@ -6754,10 +6687,10 @@ omitted and why.`);
 				["field-order", swapFirstPackageLabels],
 				["verification-heading", deliveryPackages.replace("## Durable accounting", "## Verification\n\nAll checks passed.\n\n## Durable accounting")],
 				["unconditional-attention", deliveryPackages.replace("Omit this field when none\nexists.", "Always include this field, even when none exists.")],
-				["duplicate-single-track", deliveryPackages.replace("Do not send a track package\nand then repeat the same facts in a second change package.", "Send a track package and then repeat the same facts in a second change package.")],
+				["duplicate-single-track", deliveryPackages.replace("Do not send a separate track package.", "Send a track package and then repeat the same facts in a second change package.")],
 				["narrow-accounting", deliveryPackages.replace("all check results and limits", "failed check results only")],
 				["on-demand-menu", deliveryPackages.replace("Do not add a file table", "Add a list of material available on request")],
-				["optional-enabled-routing", deliveryPackages.replace("always\ninclude **Model-routing recommendations**", "optionally\ninclude **Model-routing recommendations**")],
+				["optional-enabled-routing", deliveryPackages.replace("support advice, include **Model-routing recommendations**", "optionally\ninclude **Model-routing recommendations**")],
 				["enabled-disabled-routing", deliveryPackages.replace("When the setting is disabled, omit the field.", "When the setting is disabled, include the field.")],
 				["label-outside-owned-block", deliveryPackages.replace("<!-- delivery-package-contract:begin -->", "**Result**\n<!-- delivery-package-contract:begin -->").replace("**Result**\n<What", "<What")],
 				["acceptance-pointer", deliveryPackages.replace("Follow\n[track-workflow.md](track-workflow.md) § Delivery and termination", "Ignore\n[track-workflow.md](track-workflow.md) § Delivery and termination")],
@@ -6783,9 +6716,9 @@ omitted and why.`);
 final acceptance. Use this sequence:
 
 1. Before each intermediate code or design package, reconcile all accounting
-   sources for that track and its subtree. Reference those owning records and
-   accepted ranges. Do not claim that a future delivery commit exists.
-2. Before the combined single-track or root final package, reconcile every
+   sources for that track and its subtree. Show record and range references only
+   when a decision needs them. Do not claim that a future delivery commit exists.
+2. Before the change package, reconcile every
    accounting source across the whole change. Complete each design-track
    acceptance before its marker. Retain all records and accepted histories
    through root final acceptance.
@@ -6812,7 +6745,7 @@ exists.`);
 				return resolved.count === 1 && resolved.text === expectedDisabledAccounting;
 			};
 			const disabledAccountingMutations = [
-				["future-intermediate-record", deliveryPackages.replace("Reference those owning records and\n   accepted ranges.", "Reference the future final commit body.")],
+				["future-intermediate-record", deliveryPackages.replace("Show record and range references only\n   when a decision needs them.", "Reference the future final commit body.")],
 				["missing-commit-authority", deliveryPackages.replace(literalPattern("Follow project commit rules or the default in [pr-publishing.md](pr-publishing.md) § Default template."), "Copy accounting instead of following commit rules.")],
 				["disabled-source-preservation", deliveryPackages.replace(literalPattern("Before rewriting, preserve accepted source history under [track-workflow.md](track-workflow.md) § Delivery and termination."), "")],
 				["cleanup-before-verification", deliveryPackages.replace(literalPattern("Verify the delivery result and owning-log accounting separately against the accepted history and every required conclusion. Only then close"), "Close before verifying the accounting. Then restore")],
@@ -6870,29 +6803,21 @@ it defines.`);
 			});
 			const expectedWorkflowReferenceTexts = [
 				normalizeText("| orchestrator | track or change package | [delivery-packages.md](delivery-packages.md) | § Package preparation |"),
-				normalizeText(`Recommend changes to existing guidance or cautions first. Recommend another
-entry change only when empirical evidence is sufficient for that specific
-change. Do not derive broad capability claims from weak evidence. Do not invent
-a recommendation when the records support none. In that case, use the exact
-no-change statement required by
-[delivery-packages.md](delivery-packages.md) § Change package.`),
 				expectedPackageLoading,
-				normalizeText(`Every completed track reaches the user through the track package defined in
-[delivery-packages.md](delivery-packages.md) § Track package. User acceptance of
-a track is blocking when that track proves at least one DESIGN-TRIGGERING area.
-Where a marker applies, it waits for required track acceptance and every
-requested fix.
-A code track with only REVIEWER-ONLY areas, or no proved area,
-has no mandatory track-acceptance gate.
-In a single-track change, any blocking track acceptance and final change
-acceptance are one event. Final change acceptance is always blocking.`),
+				normalizeText(`Use [delivery-packages.md](delivery-packages.md) for completion messages.
+A single-track change sends one change package without a track name and asks only final acceptance.
+Every code track in a multi-track change needs blocking track acceptance, regardless of proved areas.
+Where a marker applies, it waits for required track acceptance and every requested fix.
+Complete machine gates, the package, and resolved blocking user notes before the marker.
+A single-track change asks only final change acceptance.
+Final change acceptance is always blocking.`),
 				normalizeText(`With draft publishing, [pr-publishing.md](pr-publishing.md) § After the merge
 owns per-level delivery accounting and root closure.
 Without publishing, use all owning accounting sources defined in
 [delivery-packages.md](delivery-packages.md) § Durable accounting.
 These include root and design-track logs, code reports, affected-track repair
 records, and their read-only source chains.
-Intermediate packages reference those sources, not a future commit.
+Show source references only when a decision needs them. Never claim a future commit exists.
 After root final acceptance, create the final squashed delivery commit using project commit rules.
 Read the project's contributor instructions and their cited commit guidance.
 Explicit instructions take precedence over examples from history.
@@ -6919,16 +6844,10 @@ an old change folder.`),
 			const reviewedReference = (file, headings, text) => ({ file, headings, text: normalizeText(text), uniqueOwner: true });
 			const expectedPackageReferenceContexts = [
 				reviewedReference("README.md", ["# ytdb-slate: multi-agent orchestration for the pi coding agent", "## Shipped docs"], "- [`docs/delivery-packages.md`](docs/delivery-packages.md) — the compact track and change package format, read only before package preparation"),
-				reviewedReference("docs/model-routing.md", ["# Logical-model routing and recovery", "## Completion recommendations"], `The advice is advisory and ready to copy. When the feature is enabled, the
-change package always includes its routing field. Weak evidence produces no
-invented recommendation. It produces the exact no-change statement required by
-[delivery-packages.md](delivery-packages.md) § Change package. The feature does
-not edit any file. It does not authorize a model selection, a new model, or a
-roster change.`),
 				reviewedReference("docs/pr-publishing.md", ["# Draft-PR publishing", "## Ready-for-review flip"], `Apply this section separately to each level pull request.
 All its code tracks and required machine reviews, track packages, requested fixes,
 and blocking user notes must be complete.
-A proved DESIGN-TRIGGERING area makes track acceptance blocking before its marker.
+Code-track acceptance follows [track-workflow.md](track-workflow.md) § Delivery and termination.
 Keep the last pull request of a subtree unmerged until every design track it
 closes has explicit whole-subtree acceptance and its design marker.
 A subtree contains a track and all its descendants.
@@ -6943,7 +6862,7 @@ Use [delivery-packages.md](delivery-packages.md) § Durable accounting for accou
 				reviewedReference("docs/recursive-workflow.md", ["# Recursive workflow", "## Whole-subtree acceptance"], `Every design track requires one explicit blocking acceptance of its whole subtree.
 This requirement applies with any proved-area set and with publishing enabled or disabled.
 Present one design-track package for that aggregate decision.
-It identifies the approved design, accepted child evidence, and every subtree level delivery.
+Show design, child-evidence, and delivery references only when the decision needs them.
 State remaining decisions, evidence limits, deviations, and effects on later sibling tracks.
 Use [delivery-packages.md](delivery-packages.md) § Track package for the package fields.`),
 				reviewedReference("docs/recursive-workflow.md", ["# Recursive workflow", "## Whole-subtree acceptance"], `Acceptance of a descendant pull request does not accept the whole design subtree.
@@ -6957,28 +6876,25 @@ Root final acceptance remains a separate blocking decision.
 In either publishing setting, follow [delivery-packages.md](delivery-packages.md) § Durable accounting after each decision.
 Reconcile and verify the owning log under that sequence before merge or root closure.
 Use [change-records.md](change-records.md) § Identifiers, code ranges, and design markers for the marker after acceptance.`),
-				reviewedReference("docs/recursive-workflow.md", ["# Recursive workflow", "## Packages, attribution, and issues"], `Use [delivery-packages.md](delivery-packages.md) § Track package for code and design references.
-Use its § Change package for the root's complete level-delivery list.
+				reviewedReference("docs/recursive-workflow.md", ["# Recursive workflow", "## Packages, attribution, and issues"], `Use [delivery-packages.md](delivery-packages.md) for package fields.
+Keep the complete level-delivery list in the owning research log.
 Use its § Durable accounting for record sources and owning-log reconciliation.
 Use [pr-publishing.md](pr-publishing.md) § Description rules for each level's template-shaped description.
 Do not count accepted child work as new implementation.`),
 				...expectedWorkflowReferenceTexts.map((text, index) => reviewedReference("docs/track-workflow.md", [
 					"# Track-based development workflow",
-					...(index === 0 ? [] : index === 1
-						? ["## Review coverage", "### Routing recommendations at change completion"]
-						: ["## Delivery and termination", ...(index === 4 ? ["### Delivery history and accounting"] : [])]),
+					...(index === 0 ? [] : ["## Delivery and termination", ...(index === 3 ? ["### Delivery history and accounting"] : [])]),
 				], text)),
 				reviewedReference("docs/user-notes.md", ["# User notes and user-facing registers"], `[delivery-packages.md](delivery-packages.md) owns the short user-facing package
 format. Other workflow documents may call a track package a **track packet** and
 a change package a **final report**. Those terms do not change the feedback or
 accounting rules in this document.`),
-				reviewedReference("docs/user-notes.md", ["# User notes and user-facing registers", "## Package acceptance and note timing"], `Every completed track reaches the user through the track package defined in
-[delivery-packages.md](delivery-packages.md) § Track package. The owning research log
-keeps the full working evidence and required durable accounting.
-The package references those records and the diff.`),
-				reviewedReference("docs/user-notes.md", ["# User notes and user-facing registers", "## Durable final accounting"], `A single-track change uses the combined package defined in
-[delivery-packages.md](delivery-packages.md) § Single-track combined package. A
-multi-track change uses the separate change package defined in that document.
+				reviewedReference("docs/user-notes.md", ["# User notes and user-facing registers", "## Package acceptance and note timing"], `Use [delivery-packages.md](delivery-packages.md) for completion messages.
+A single-track change sends one change package without a track name and asks only final acceptance.
+The owning research log keeps full evidence and accounting.
+Show record and diff references only when a decision needs them.`),
+				reviewedReference("docs/user-notes.md", ["# User notes and user-facing registers", "## Durable final accounting"], `Use [delivery-packages.md](delivery-packages.md) § Change package for final completion.
+A single-track change sends no separate track package.
 Package preparation does not delay or replace the feedback triggers above.`),
 				reviewedReference("docs/user-notes.md", ["# User notes and user-facing registers", "## Durable final accounting", "### Final accounting preparation"], `Before final acceptance, reconcile all owning records defined in
 [delivery-packages.md](delivery-packages.md) § Durable accounting.
@@ -7008,7 +6924,9 @@ The accounting covers:`),
 			const modeSource = readFileSync(join(REPO, "extension", "mode.ts"), "utf8");
 			checkAll("contract-delivery-packages", "one exact package-policy block owns field order, conditional sections, enabled routing, single-track output, and durable accounting. One exact loading unit limits the document read to package preparation. Every literal filename reference in shipped documentation has a reviewed context and heading owner", [
 				["the complete package document and its owned contract resolve once and match the reviewed SHA-256 digest", packageContract.count === 1 && packageContract.endCount === 1 && acceptsPackageContract(deliveryPackages), { count: packageContract.count, endCount: packageContract.endCount, digest: digest(deliveryPackages) }],
-				["the structural heading and template-label rosters keep the approved order", packageHeadings.join() === "Package preparation,Track package,Track <number>: <name>,Change package,Change: <name>,Single-track combined package,Durable accounting" && JSON.stringify(packageTemplates) === JSON.stringify([["Result", "Needs attention", "References", "Next step"], ["Outcome", "Goal status", "Remaining concerns", "References", "Model-routing recommendations", "Decision"]]), { packageHeadings, packageTemplates }],
+				["track presentations define position, current level count, post-split updates, and the single-track boundary", acceptsTrackPresentation(workflow, deliveryPackages), trackPresentationRule],
+				["all sixteen independent presentation removals and boundary counterfactuals change input and fail", trackPresentationMutations.length === 16 && new Set(trackPresentationMutations.map(({ id }) => id)).size === 16 && trackPresentationMutations.every(({ changed, rejected }) => changed && rejected), trackPresentationMutations],
+				["the structural heading and template-label rosters keep the approved order", packageHeadings.join() === "Package preparation,Track package,Track <position> of <count> (<number>): <name>,Change package,Change: <name>,Single-track combined package,Durable accounting" && JSON.stringify(packageTemplates) === JSON.stringify([["Intention", "Result", "Needs attention", "Next step"], ["Intention", "Outcome", "Goal status", "Remaining concerns", "Model-routing recommendations", "Decision"]]), { packageHeadings, packageTemplates }],
 				["order, verification, attention, duplication, accounting, menu, routing, ownership, and acceptance-pointer mutations each change the source and fail", packageMutationOutcomes.every(({ changed, accepted }) => changed && !accepted), packageMutationOutcomes],
 				["missing and duplicated package boundaries and additive rules outside the owned block fail closed", !missingPackageBoundary && duplicatePackageBoundary.count === 2 && duplicatePackageBoundary.endCount === 2 && !acceptsPackageContract(additivePackageSource), { missingPackageBoundary, duplicatePackageBoundary, additiveAccepted: acceptsPackageContract(additivePackageSource) }],
 				["the package document delegates acceptance policy to the canonical workflow unit", !Object.values(ACCEPTANCE_FACTS).some((entry) => typeof entry.document === "string" && deliveryPackages.includes(entry.document)) && packageContract.text.includes("Follow\n[track-workflow.md](track-workflow.md) § Delivery and termination"), Object.values(ACCEPTANCE_FACTS).filter((entry) => typeof entry.document === "string" && deliveryPackages.includes(entry.document))],

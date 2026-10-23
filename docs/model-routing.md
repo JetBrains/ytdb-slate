@@ -257,8 +257,8 @@ current measured fixtures.
 ## Completion recommendations
 
 Trusted projects can set `workflow.routingRecommendations` to `true`. At change
-completion, the orchestrator then offers short routing advice in the final
-report before final acceptance. The setting defaults to `false`.
+completion, offer routing advice before final acceptance only when records
+support a recommendation. The setting defaults to `false`.
 
 The evidence set contains only current-change action records that name a
 dispatched logical model. Current workflow context defines the change boundary.
@@ -278,9 +278,8 @@ preference, or membership need sufficient empirical evidence for that exact
 change. One result does not support a broad benchmark or capability claim.
 
 The advice is advisory and ready to copy. When the feature is enabled, the
-change package always includes its routing field. Weak evidence produces no
-invented recommendation. It produces the exact no-change statement required by
-[delivery-packages.md](delivery-packages.md) § Change package. The feature does
+change package includes its routing field only when records support advice.
+Keep a no-advice result only in the research log. Do not invent a recommendation. The feature does
 not edit any file. It does not authorize a model selection, a new model, or a
 roster change.
 

@@ -152,6 +152,8 @@ It does not remove or condition current required artifacts, including the
 per-track implementer report. Closing a change keeps its folder and records.
 Only the user deletes that folder.
 
+Mandatory multi-track handoffs under [track-workflow.md](track-workflow.md) § Confirmation gate are the sole unconditional-handoff exception.
+
 P11 also governs user interaction. Questions follow unresolved decisions, not
 the number of workflow steps, records, or tracks. Applicable evidence and prior
 explicit answers reduce repeated questions. They do not remove reassessment,
@@ -166,6 +168,15 @@ required reviews, ordered gates, user authority, or final acceptance.
   reference. Accept the repeated subject and its word cost. Avoid disconnected
   fragments. The configured limit controls the sentence-length finding.
 
+### User information
+
+- **P15 — Hide workflow details unless needed.** Show a workflow detail only when
+  a decision or required user action needs it. Keep the evidence in the owning records.
+- **P16 — Present only what the current need requires.** Present content fully once.
+  Later presentations show changes from the last shown version, else the last
+  approved or accepted version. Give one no-change sentence when unchanged.
+  Presentation grants no approval. Supply the context needed for each decision.
+
 ### Built-in focus-area authoring
 
 - **P13 — Research and define built-in focus areas by risk.** *(Repo-local note, not from the report.)* When proposing a new built-in focus area and its reviewer, apply these rules:
@@ -175,7 +186,7 @@ required reviews, ordered gates, user authority, or final acceptance.
   2. State a boundary with every existing area. Explain which outcome belongs where and when both areas engage.
   3. Explain all four proof parts for the area: defect class, place, material consequence of omitting its reviewer, and review contribution. The contribution identifies useful review evidence and why planned implementation checks cannot settle the risk.
   4. Choose DESIGN-TRIGGERING, which requires a high-level design, or REVIEWER-ONLY, which adds a reviewer only. Give the reason.
-  5. Run the new reviewer only through a proved area, applying P11. A proved area has user approval of its four-part proof.
+  5. Run the new reviewer only through a proved area, applying P11. A proved area has a four-part proof judged sufficient by the orchestrator.
   6. Create one perspective file with a one-sentence definition, charter, design-quality questions, and examples of useful evidence, in that order. Cover every design concern inside the area without a fixed question count. Evidence examples are not required checks or artifacts.
   7. Keep every rule and question applicable to any project using Slate.
   8. Update the code list of review perspectives, finding prefix, both focus-area tables, class list, structure and agreement checks, and published size figure. Keep all of them consistent.
@@ -205,6 +216,8 @@ required reviews, ordered gates, user authority, or final acceptance.
 | P11 proportional process | The shipped workflow documents apply it to gates, artifacts, and review actions. It has no code home. |
 | P12 reader understanding | `writing-check.mjs` reports sentence-length findings. The writing guidance and review rules apply it to project prose. |
 | P13 risk-based focus-area authorship | no runtime code home for author research or approval. Focus definitions, reviewer content, the code roster, and structure and agreement checks apply the rule. |
+| P15 needed workflow details | The lifecycle and delivery-package rules govern user messages. |
+| P16 current information need | The lifecycle comparison rule governs later presentations. |
 | P14 mechanical workflow steps | `action-temporary.ts` manages temporary folders. Other existing rules remain future work for a tracked issue. |
 
 Repo-local note (not from the report): `maxConcurrent` defaults to 8.

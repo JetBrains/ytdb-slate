@@ -25,9 +25,9 @@ for the assigned work remains available. This permission is not a closed
 changed-file allowlist.
 
 A design-stage adversarial reviewer receives the standalone approved design,
-approved change context, track intention, applicable approved risk record and
+approved change context, track intention, applicable risk record and
 area proofs, tracked source evidence, charter, and output contract. This is the
-only reviewer role that receives the approved risk record and area proofs as
+only reviewer role that receives the risk record and area proofs as
 separate artifacts.
 
 Reviewer I and implementation specialists receive the approved review range,
@@ -136,7 +136,7 @@ and merge reason.
 | --- | --- |
 | blocker | fix before acceptance, or explicit user waiver after escalation |
 | major | fix in the change, or explicit user waiver |
-| minor | fix when it overlaps a region already being fixed for a finding at major severity or above. Otherwise record it as ignored, unless it is moot or rejected |
+| minor | validate severity, then choose whether to fix or ignore. Record the disposition and reason only in the research log, unless moot or rejected |
 | pre-existing defect | immediate user escalation for fix, waive, or tracked issue |
 | design-stage finding | strengthen the rationale, reverse the decision, accept a recorded risk, or route it to the implementer report |
 
@@ -281,18 +281,18 @@ orchestrator stops further repair before another round.
 Count failed rounds across the affected code track and all its review-fix children.
 A split never resets that requirement count.
 After a completed investigation, two further failed ordinary rounds trigger it again.
-Complete a triggered investigation and its approvals before starting a child.
+Complete a triggered investigation and obtain solution approval before starting a child.
 A new finding identifier
 does not reset the count when the approved requirement is the same. The
 orchestrator identifies the exact user-approved requirement named in the track
 intention or design approval record. If those records name different
 requirements, the orchestrator asks the user to identify the requirement before
 counting rounds. It does not choose between them or treat a broad track
-intention as one requirement. The orchestrator proposes a requirement-level
-investigation and waits for the user's corrections and approval of that scope.
+intention as one requirement. The orchestrator starts a bounded read-only
+investigation within the approved requirement. It asks before wider access or higher cost.
 The investigation covers the relevant lifecycle stages, dependencies, unchanged
 code, actual consumers, and durable or observable boundaries. It records the
-trigger, proposed scope, corrections, approved scope, evidence, limits, holistic
+trigger, investigation scope, access or cost decisions, evidence, limits, holistic
 solution, verification plan, and user decision in the research log. A symptom
 repair is not requirement closure. The orchestrator presents a holistic solution
 for the full approved requirement and waits for separate user approval before
@@ -348,24 +348,18 @@ review section is complete.
 
 Apply this ordered test to each finding that is not waived, moot, or rejected:
 
-1. Fix a blocker inside this change.
-2. Fix a finding that touches a changed-code region which this change already
-   fixes for a finding at major severity or above.
-3. Fix a major finding inside this change.
-4. Record every other finding with the ignored disposition.
+1. Route the five mandatory user cases before automatic repair.
+2. Apply recommended fixes for blocker and major findings inside this change.
+3. Validate each remaining minor finding and choose whether to fix or ignore it.
+4. Record each minor disposition and reason only in the research log.
 
 For design tracks, use [recursive-workflow.md](recursive-workflow.md) § Whole-subtree acceptance.
-The following proved-area acceptance rules apply to code tracks.
+Code-track acceptance follows the governing policy below.
 
 <!-- track-acceptance:begin -->
 A track package can follow machine-review termination. Before the package, the
-owning research log accounts for every ignored finding. User acceptance of
-a track is blocking when that track proves at least one DESIGN-TRIGGERING area.
-A code track with only REVIEWER-ONLY areas, or no proved area, has no mandatory
-track-acceptance gate. Without mandatory track acceptance, an applicable marker
-waits for completed machine gates, the package, and resolved blocking user
-notes. In a single-track change, any blocking track acceptance and final change
-acceptance are one event. Final change acceptance is always blocking.
+owning research log accounts for every ignored finding.
+Code-track acceptance follows [track-workflow.md](track-workflow.md) § Delivery and termination.
 <!-- track-acceptance:end -->
 
 The marked block above is the protected acceptance unit of this document. Its

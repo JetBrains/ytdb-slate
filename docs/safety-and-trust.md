@@ -2,6 +2,46 @@
 
 The [How Slate works](../README.md#how-slate-works) section defines orchestrator mode, worker thread, and main session.
 
+## Fresh-session entry
+
+A handoff replaces the main session and restores its threads and episodes.
+Use `/slate handoff [--track-boundary|--post-check|--context-budget|--user-request] [focus]`.
+The leading option records the purpose separately from the focus and kickoff template.
+A bare new request means `user-request`.
+A retry without an option retains the pending purpose.
+Use `--user-request` to replace that purpose explicitly.
+
+The session-bound `slate-handoff-purpose` entry records one attempt.
+Cancellation, idle-wait failure, or replacement failure retains it for that attempt's retry.
+Successful transfer consumes it. The successor does not inherit it for another handoff.
+The successor-bound `slate-handoff` entry stores the purpose and pending kickoff.
+Older entries without a purpose remain readable without an invented cause.
+A boundary during a context-budget pause names both causes.
+
+The snapshot's `pauseReason` is `context-budget` or `adoption`.
+Failed adoption keeps the kickoff pending and starts no model turn.
+Choose a permitted model and effort, then run `/slate resume`.
+For an adoption pause, resume validates both before saving an unpaused state and delivering the kickoff.
+Budget pauses and legacy pauses can resume on any model.
+Failed unpause persistence keeps the pause.
+The hidden `slate-kickoff-claimed` message claims delivery before the hidden `slate-kickoff` starts a turn.
+Reload never replays a claimed kickoff.
+A rejected fresh-session send reports failure through the successor context.
+The resume command uses the ordinary extension send, which returns no delivery promise.
+Its status confirms only that the pause cleared, not that a kickoff turn started.
+The host reports late send failures, but RPC mode can suppress that error.
+After a claimed send fails, request continuation manually instead of replaying automatically.
+Project kickoff templates still require project trust.
+
+Main recovery sends hidden `slate-failover` instructions with a unique `details.attemptId`.
+Only the matching message start produces the continuation status, at most once.
+Aborted, cancelled, replaced, or paused attempts produce no such status.
+The acknowledgement does not itself prove recovery success or release recovery ownership.
+Pi 1.4.0's ordinary extension send returns no delivery promise.
+A deferred preparation failure can escape extension observation.
+Remote procedure call (RPC) mode can suppress that late caller error.
+Slate does not claim all-mode detection of a continuation that never starts.
+
 ## Worker extensions (`workerExtensions`)
 
 By default worker threads load no project or discovered extensions. Slate supplies three internal worker components: reminder, nested-call lifecycle, and codemode. The lifecycle component joins admitted nested tool calls before action settlement completes. Codemode is a pi tool that runs JavaScript that calls other tools. If codemode cannot load, the worker runs without it and reports a warning. A worker extension can deactivate codemode without a warning. After top-level tool results reach the reminder handler, the component tells the worker to issue independent tool calls in one turn. It sends the reminder once for each such turn. The reminder persists in the worker transcript and stays hidden from the user in the normal terminal interface. These components do not depend on project trust.
@@ -43,4 +83,4 @@ Slate excludes untrusted project Slate configuration and content selected throug
 
 Home preferences do not change pi's project-trust decision. Pi's independent instruction loading stays unchanged. In particular, this feature does not filter pi's `AGENTS.md` context files. Slate restores a handoff entry from the successor session using the same record validation as saved Slate state. The entry does not use project trust. Slate ignores old `.pi/slate/pending-handoff.json` files and leaves them untouched. Worker pi settings remain nonpersistent.
 
-The stable `slate-handoff` custom session entry contains `sessionId`, `snapshot`, and optional `model`, `thinkingLevel`, and `logicalModel`. Only a session whose identifier equals `sessionId` can adopt it. A saved `slate-state` entry takes precedence. Older Slate versions do not understand `slate-handoff`. They cannot adopt a handoff that has no saved state. An older Slate version can drop scoped records from a saved state when it restores them. The files remain on disk.
+The stable `slate-handoff` custom session entry contains `sessionId`, `snapshot`, and optional `purpose`, `kickoff`, `model`, `thinkingLevel`, `logicalModel`, and `summaryVisible`. Only a session whose identifier equals `sessionId` can adopt it. A saved `slate-state` entry takes precedence. Older Slate versions do not understand `slate-handoff`. They cannot adopt a handoff that has no saved state. An older Slate version can drop scoped records from a saved state when it restores them. The files remain on disk.

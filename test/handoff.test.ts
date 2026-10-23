@@ -59,7 +59,7 @@ function assertPauseContract(content: string, headline: string): string[] {
   const lines = content.split("\n");
   assert.equal(lines[0], headline, "the headline must open the pause message");
   assert.deepEqual(lines.slice(1, 1 + SAVE_CONTRACT.length), SAVE_CONTRACT, "the save contract must follow the headline in order");
-  assert.match(lines[1 + SAVE_CONTRACT.length] ?? "", /^Then instruct the user to run \/slate handoff \[optional focus]/);
+  assert.match(lines[1 + SAVE_CONTRACT.length] ?? "", /^Then instruct the user to run \/slate handoff --context-budget \[optional focus]/);
   assert.match(lines[2 + SAVE_CONTRACT.length] ?? "", /^Alternatively, start a new pi session manually/);
   return lines;
 }
@@ -516,7 +516,7 @@ test("cancel and setup failure keep the legacy file and the parent state", async
         await assert.rejects(hooks.startHandoff(ctx), /session replacement failed/);
         assert.equal(successor.getBranch().some((item) => item.type === "custom" && item.customType === "slate-handoff"), true);
       } else await hooks.startHandoff(ctx);
-      assert.deepEqual(saved, mode === "cancel" ? ["slate-state"] : [], `${mode}: only a live parent can save`);
+      assert.deepEqual(saved, mode === "cancel" ? ["slate-handoff-purpose", "slate-state"] : ["slate-handoff-purpose"], `${mode}: only a live parent can save`);
       if (mode === "cancel") assert.equal(store.paused, false);
       assert.equal(parent.getBranch().length, 1, `${mode}: the parent keeps only its last saved state`);
       assert.equal((parent.getBranch()[0] as any).data.workerCostUsd, 13, `${mode}: saved parent cost survives`);
@@ -553,13 +553,13 @@ test("setup writes the successor-bound entry before session_start even without a
         const oldWarn = console.warn; console.warn = () => {};
         try { await successorHandlers.get("session_start")({}, freshCtx); } finally { console.warn = oldWarn; }
         assert.equal(successorStore.orchestratorMode, true, "real adoption handler reads the setup entry");
-        await options.withSession({ sendUserMessage: async (text: string) => { kickoff = text; } });
+        await options.withSession({ ...freshCtx, sendMessage: async (message: { content: string }) => { kickoff = message.content; } });
         return { cancelled: false };
       },
     } as any;
     await hooks.startHandoff(ctx);
     assert.equal(setupObserved, true);
-    assert.match(kickoff, /threads.*episode/);
+    assert.equal(kickoff, "", "failed adoption keeps the kickoff pending without a model turn");
   });
 });
 

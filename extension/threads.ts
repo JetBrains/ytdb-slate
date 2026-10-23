@@ -7,6 +7,7 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { ActionDisplayProgress } from "./render.ts";
 import { sanitizeMaxConcurrent } from "./concurrency.ts";
 import { allocateActionTemporary, finishActionTemporary, retainedActionTemporary, type ActionTemporary } from "./action-temporary.ts";
 import { readFileSync } from "node:fs";
@@ -139,6 +140,11 @@ export interface UsageStats {
 }
 
 export interface DispatchProgress {
+	displayActivity?: string;
+	displayFailure?: string;
+	displayWarning?: boolean;
+	displayFailureReason?: string;
+	displayWarningSummary?: string;
 	threadId: string;
 	threadName: string;
 	lines: string[];
@@ -148,6 +154,7 @@ export interface DispatchProgress {
 }
 
 export interface DispatchResult {
+	display?: import("./render.ts").DisplayDetails;
 	episodeText: string;
 	episode: EpisodeRecord;
 	thread: ThreadRecord;
@@ -631,6 +638,7 @@ export class ThreadManager {
 		this.actionFinalizers.set(thread.id, finalizer);
 		let acquired = false;
 		let shutdown = async (): Promise<void> => {};
+		const display = new ActionDisplayProgress();
 		let result: DispatchResult | undefined;
 		let failure: { error: unknown } | undefined;
 		try {
@@ -642,7 +650,7 @@ export class ThreadManager {
 			const lease = this.logicalRuntime?.ownership.acquire(thread.id);
 			if (lease?.kind === "busy") throw new Error(`Thread ${thread.id} cannot start because its recovery owner is busy.`);
 			try {
-				result = await this.runDispatchInner(thread, opts, prompt, episodeId, ctx, signal, onProgress, admission, initialRoute, reviewGuidance, (close) => { shutdown = close; }, changeGuidance, actionMessage);
+				result = await this.runDispatchInner(thread, opts, prompt, episodeId, ctx, signal, onProgress, admission, initialRoute, reviewGuidance, (close) => { shutdown = close; }, changeGuidance, actionMessage, display);
 			} finally {
 				if (lease?.kind === "acquired") lease.lease.release();
 			}
@@ -658,7 +666,10 @@ export class ThreadManager {
 				if (temporary && retention === undefined) retention = await finishActionTemporary(temporary);
 				if (retention !== undefined) {
 					if (failure) failure.error = new Error(`${failure.error instanceof Error ? failure.error.message : String(failure.error)} ${retention}`, { cause: failure.error });
-					else if (result) result = { ...result, warnings: [...result.warnings, retention] };
+					else if (result) {
+						display.warn(retention);
+						result = { ...result, warnings: [...result.warnings, retention], display: display.details() };
+					}
 				}
 			} finally {
 				if (temporary) this.store.actionTemporaryOwners.delete(temporary);
@@ -685,6 +696,7 @@ export class ThreadManager {
 		registerShutdown?: (close: () => Promise<void>) => void,
 		changeGuidance?: string,
 		actionMessage?: ReturnType<typeof actionTemporaryMessage>,
+		display = new ActionDisplayProgress(),
 	): Promise<DispatchResult> {
 		const usage: UsageStats = { turns: 0, input: 0, output: 0, cost: 0, contextTokens: 0 };
 		let workerCostUsd: number | undefined;
@@ -712,6 +724,7 @@ export class ThreadManager {
 		const reportProgressFailure = (error: unknown) => {
 			const message = `slate: progress callback failed — ${sanitizeForNotify(error instanceof Error ? error.message : String(error), 200)}`;
 			if (progressWarnings.includes(message)) return;
+			display.warn(message);
 			progressWarnings.push(message);
 			warnings.push(message);
 			lines.push(`⚠ ${message}`);
@@ -719,9 +732,13 @@ export class ThreadManager {
 		let terminalProgressSent = false;
 		const emit = (done: boolean, status?: "ok" | "failed") => {
 			if (terminalProgressSent && !done) return;
-			if (done) terminalProgressSent = true;
+			if (done) {
+				terminalProgressSent = true;
+				if (status === "failed" && !display.failureReason) display.failed(thread.outcomeReason);
+			}
 			try {
-				onProgress?.({ threadId: thread.id, threadName: thread.name, lines, usage, done, status });
+				onProgress?.({ threadId: thread.id, threadName: thread.name, lines, usage, done, status,
+					...display.details() });
 			} catch (error) {
 				reportProgressFailure(error);
 			}
@@ -802,7 +819,7 @@ export class ThreadManager {
 		// Routing notices go to BOTH channels: the progress lines (so they are visible
 		// while the action runs) and the tool result (so the ORCHESTRATOR reads them —
 		// a cost cliff or an evidence gap is its decision to make, not the user's).
-		const routeWarn = (message: string) => {
+		const routeWarn = (message: string, summary = message, priority = 1) => {
 			const nestedSettlement = message.startsWith(NESTED_SETTLEMENT_WARNING_PREFIX);
 			const missingCodemode = message.startsWith("slate: codemode is unavailable for this worker — ");
 			if (!nestedSettlement && !missingCodemode && isStartupWarning(message)) {
@@ -811,6 +828,7 @@ export class ThreadManager {
 				observeStartupFailure();
 			}
 			if (!nestedSettlement && !missingCodemode && isLifecycleWarning(message)) lifecycleWarnings.push(message);
+			display.warn(summary, priority);
 			warnings.push(message);
 			lines.push(`⚠ ${message}`);
 			if (captureExecutionReports && executionReport === undefined) executionReport = message;
@@ -869,10 +887,12 @@ export class ThreadManager {
 			if (event.type === "message_update") {
 				// Streaming deltas are deliberately not completed facts.
 			} else if (event.type === "tool_execution_start") {
+				display.toolStarted(event.toolName);
 				lines.push(`→ ${(event as unknown as { toolName: string }).toolName}`);
 				emit(false);
 			} else if (event.type === "tool_execution_end") {
 				const tool = event as unknown as { toolName: string; result: unknown; isError: boolean };
+				if (tool.isError) display.toolFailed(tool.toolName);
 				if (typeof event.parentToolCallId === "string") {
 					const counts = nestedToolCounts.get(tool.toolName) ?? { failed: 0, succeeded: 0 };
 					counts[tool.isError ? "failed" : "succeeded"]++;
@@ -935,6 +955,7 @@ export class ThreadManager {
 					reportedContextTokens = contextTokens;
 					usage.contextTokens = contextTokens;
 				}
+				display.response();
 				const text = emittedText.replace(/\s+/g, " ").trim();
 				if (text) lines.push(text.length > 120 ? `${text.slice(0, 120)}...` : text);
 				emit(false);
@@ -1299,6 +1320,7 @@ export class ThreadManager {
 			session?.workerReminderHandledToolResult?.() === true,
 			actionCompacted,
 		)) {
+			display.warn("Review the worker transcript before you rely on the result.", 2);
 			routeWarn("slate: a worker tool result reached the reminder handler, but the reminder is missing. Review the worker transcript before you rely on the result.");
 			emit(false);
 		}
@@ -1373,7 +1395,7 @@ export class ThreadManager {
 				throw new Error(appendLifecycleWarnings(`Slate stored episode ${episodeId}, but could not save its thread record: ${sanitizeForNotify(saveError instanceof Error ? saveError.message : String(saveError), 200)}.`));
 			}
 			emit(true, "failed");
-			return { episodeText: failed.text, episode, thread, usage, warnings };
+			return { episodeText: failed.text, episode, thread, usage, warnings, display: display.details() };
 		}
 		// Capture before compression so an episode-write failure does not itself
 		// remove the exact output. The returned union is the single source for the
@@ -1419,11 +1441,11 @@ export class ThreadManager {
 				const responseScope = observation.stored ? "stored final response" : "final response";
 				if (observation.grammar === "absent") {
 					routeWarn(
-						`slate: episode ${safeEpisodeId}'s ${responseScope} has no pipe-delimited findings row. Use exactly five fields for each finding. Put a file and line or line range in the location field, with no pipe character. Otherwise end with the exact line No findings.`,
+						`slate: episode ${safeEpisodeId}'s ${responseScope} has no pipe-delimited findings row. Use exactly five fields for each finding. Put a file and line or line range in the location field, with no pipe character. Otherwise end with the exact line No findings.`, "",
 					);
 				} else {
 					routeWarn(
-						`slate: episode ${safeEpisodeId}'s ${responseScope} has a malformed findings row. Use exactly five pipe-delimited fields for each finding. Put a file and line or line range in the location field, with no pipe character.`,
+						`slate: episode ${safeEpisodeId}'s ${responseScope} has a malformed findings row. Use exactly five pipe-delimited fields for each finding. Put a file and line or line range in the location field, with no pipe character.`, "",
 					);
 				}
 			}
@@ -1566,8 +1588,9 @@ export class ThreadManager {
 			throw new Error(appendLifecycleWarnings(`Slate stored episode ${episodeId}, but could not save its thread record: ${sanitizeForNotify(saveError instanceof Error ? saveError.message : String(saveError), 200)}.`));
 		}
 
+		if (status === "failed") display.failed(diagnostics, compressed.text);
 		emit(true, status);
-		return { episodeText: compressed.text, episode, thread, usage, warnings };
+		return { episodeText: compressed.text, episode, thread, usage, warnings, display: display.details() };
 	}
 
 	async disposeAll(): Promise<void> {

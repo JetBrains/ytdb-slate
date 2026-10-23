@@ -32,7 +32,7 @@ function readPreferences(path: string): Record<string, unknown> {
 export function readStartupSummary(path = preferencePath()): { enabled: boolean; warning?: string } {
 	try {
 		const value = readPreferences(path).startupSummary;
-		if (value === undefined) return { enabled: true };
+		if (value === undefined) return { enabled: false };
 		if (typeof value === "boolean") return { enabled: value };
 		return { enabled: true, warning: `slate: ${path} needs a boolean startupSummary value. The summary is on.` };
 	} catch (error) {
@@ -102,12 +102,12 @@ export function renderStartupSummary(style?: SummaryStyle): string[] {
 	const lines: SummaryPart[][] = [
 		[["What Slate does, step by step:", "heading"]],
 		[["1. Research:", "heading"], [" Slate studies your request and the code through worker threads."]],
-		[["2. Risk approval:", "heading"], [" Slate lists the risks of the change, and "], ["you approve or reject", "action"], [" each one."]],
-		[["3. Design:", "heading"], [" multi-track work, a proved design risk, or an estimate above 100 counted lines needs a design. "], ["You validate and approve it", "action"], [". Only proved design risks add adversarial design reviewers."]],
-		[["4. Tracks:", "heading"], [" workers implement and report approximate size. A proved risk adds reviewers. More than 100 counted lines adds a general reviewer unless the track changes only documents that neither ship as code nor run."]],
+		[["2. Risks:", "heading"], [" Slate judges risks and required reviews internally."]],
+		[["3. Solution:", "heading"], [" Slate presents a short plan or a required design. "], ["You approve the short plan or validate the design. If adversarial design review is required, you give final design approval after it. Otherwise, design validation includes final approval", "action"], ["."]],
+		[["4. Tracks:", "heading"], [" a code track implements one bounded part of approved work. Required reviewers check it. A design track plans a larger part of the work and owns child tracks. "], ["You accept each code track in a multi-track change and each design track with all its child tracks", "action"], [". At required boundaries, run "], ["/slate handoff --track-boundary", "command"], [" to continue in a new main session."]],
 		[["5. Final acceptance:", "heading"], [" you review the whole change and "], ["accept it", "action"], ["."]],
 		[["6. Delivery:", "heading"], [" Slate prepares a final commit or optional level pull requests. A level contains tracks from one split. "], ["Only you merge", "action"], [". A merge is not final acceptance."]],
-		[["Run ", "dim"], ["/slate summary off", "command"], [" or ", "dim"], ["/slate summary on", "command"], [" to hide or show this summary when orchestrator mode starts.", "dim"]],
+		[["Run ", "dim"], ["/slate summary off", "command"], [" or ", "dim"], ["/slate summary on", "command"], [" to disable or enable automatic display. On applies at the next automatic opportunity. Off also hides the panel now.", "dim"]],
 	];
 	return lines.map((parts) => parts.map(([text, kind]) => kind && style ? style(kind, text) : text).join(""));
 }

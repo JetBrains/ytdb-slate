@@ -67,11 +67,12 @@ function extensionContext(cwd: string, warnings: string[] = [], trusted = true):
   } as unknown as ExtensionContext;
 }
 
-async function renderDoctrine(runtime: Readonly<LogicalRuntime> | null = createLogicalRuntime({ trusted: true }), config: SlateConfig = {}, trusted = true, paused = false, model?: { provider: string; id: string }, extensions = EMPTY_WORKER_EXTENSION_SET, change?: { current?: string; source?: string; legacy?: boolean }, register = registerSlateMode): Promise<string> {
+async function renderDoctrine(runtime: Readonly<LogicalRuntime> | null = createLogicalRuntime({ trusted: true }), config: SlateConfig = {}, trusted = true, paused = false, model?: { provider: string; id: string }, extensions = EMPTY_WORKER_EXTENSION_SET, change?: { current?: string; source?: string; legacy?: boolean }, register = registerSlateMode, pauseReason?: "context-budget" | "adoption"): Promise<string> {
   const api = new FakeExtensionApi();
   const store = new SlateStore(api as unknown as ExtensionAPI);
   store.orchestratorMode = true;
   store.paused = paused;
+  store.pauseReason = pauseReason;
   if (change) {
     store.currentChange = change.current;
     store.sourceChange = change.source;
@@ -134,12 +135,12 @@ test("logical doctrine production renders match published portable measurements"
   ], paths: [], toolNames: [] };
   const metric = (text: string) => ({ portable: text.split(docsDirectory).join("").length, lines: text.split("\n").length, paths: text.split(docsDirectory).length - 1 });
   assert.deepEqual(metric(runtime.promptText()!), { portable: 3596, lines: 11, paths: 0 });
-  assert.deepEqual(metric(await renderDoctrine(runtime)), { portable: 8461, lines: 74, paths: 5 });
-  assert.deepEqual(metric(await renderDoctrine(runtime, {}, false)), { portable: 2768, lines: 33, paths: 4 });
-  assert.deepEqual(metric(await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped)), { portable: 10043, lines: 87, paths: 6 });
+  assert.deepEqual(metric(await renderDoctrine(runtime)), { portable: 8404, lines: 74, paths: 5 });
+  assert.deepEqual(metric(await renderDoctrine(runtime, {}, false)), { portable: 2711, lines: 33, paths: 4 });
+  assert.deepEqual(metric(await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped)), { portable: 9942, lines: 87, paths: 6 });
   const change = { current: `change-20260101T000000Z-${"a".repeat(32)}`, source: `change-20260101T000001Z-${"b".repeat(32)}`, legacy: true };
   const linked = await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped, change);
-  assert.deepEqual(metric(linked), { portable: 10471, lines: 90, paths: 6 });
+  assert.deepEqual(metric(linked), { portable: 10370, lines: 90, paths: 6 });
   assert.ok(metric(linked).portable * 1.05 < 26300);
   assert.match(linked, /Follow each log's first entry to read the full source chain and accounting/);
   assert.match(linked, /Read-only legacy root log: research-log.md/);
@@ -242,12 +243,12 @@ test("every declared doctrine composition fits the original production hook", { 
   assert.equal(comparison(before, `${normalized}x`)[0], false);
   assert.equal(comparison(before, `${normalized}${prefix}`)[1], false);
   const fixed = newRuntimes[4]!;
-  const grown = { ...fixed, promptText: () => `${fixed.promptText()}${"x".repeat(48)}` };
+  const grown = { ...fixed, promptText: () => `${fixed.promptText()}${"x".repeat(128)}` };
   const fixedBefore = await renderDoctrine(oldRuntimes[4], {}, true, false, undefined, EMPTY_WORKER_EXTENSION_SET, undefined, reference.register);
   assert.equal(comparison(fixedBefore, await renderDoctrine(grown))[0], false, "fixed project input exposes logical prompt growth");
   for (const paused of domains.paused) {
     const pausedBefore = await renderDoctrine(oldRuntimes[0], {}, true, paused, undefined, EMPTY_WORKER_EXTENSION_SET, undefined, reference.register);
-    const changed = `${await renderDoctrine(newRuntimes[0], {}, true, paused)}${paused ? "x" : ""}`;
+    const changed = `${await renderDoctrine(newRuntimes[0], {}, true, paused)}${paused ? "x".repeat(128) : ""}`;
     assert.equal(comparison(pausedBefore, changed)[0], !paused, "paused-only growth is visible");
   }
   for (const ref of ["HEAD", `${original}^`]) assert.throws(() => verifyIdentity(ref), /original commit identity/);
@@ -295,7 +296,7 @@ test("P14 preserves exact conditional text, P13, and published byte figures", { 
   assert.ok(validBudget(budget));
   for (const line of published) assert.equal(validBudget(budget.replace(line, "")), false);
   const p13 = source.slice(source.indexOf("- **P13"), source.indexOf("### Workflow steps in code") - 2);
-  assert.equal(createHash("sha256").update(p13).digest("hex"), "b04cb0d7429c9e202451af7d3c2f695ea326561e263e6423159d8ee23175f5e7");
+  assert.equal(createHash("sha256").update(p13).digest("hex"), "05322ebeef792c4face701dc9c45d1712a01aa3519e3bcc3133f8447118e0766");
   assert.doesNotMatch(await renderDoctrine(), /Put workflow steps in code/);
   for (const changed of [source.replace(block, ""), source.replace("*(Repo-local note, not from the report.)*\n  Move", "*(From the report.)*\n  Move"), source.replace("when the user decided to keep it as text", "even when the user requires code"), source.replace("when the move would not reduce context usage", "when the move would reduce context usage"), source.replace("when the move would not reduce context usage", "when code would cost more than the protection it adds"), source.replace(row, ""), source.replace(row, row.replace("future work", "completed work")), source.replace(block, `${block}${body}`), source.replace(block, "").replace("### Built-in focus-area authoring", `${block}\n### Built-in focus-area authoring`)]) {
     assert.notEqual(changed, source);
@@ -505,7 +506,7 @@ for (const explicitModel of [false, true]) test(explicitModel
 
 test("single-action doctrine requires new threads and episode references", { timeout: 5000 }, async () => {
   const doctrine = await renderDoctrine();
-  assert.match(doctrine, /Each `thread` call starts a new thread for one action\./);
+  assert.match(doctrine, /Each `thread` starts one action\./);
   assert.match(doctrine, /Follow-ups need new threads\./);
   const boundaryDuty = /No worker conversation crosses (?:threads|that boundary)\./;
   assert.match(doctrine, boundaryDuty);
@@ -527,13 +528,13 @@ test("fixed doctrine preserves loading clauses and resolves filenames beside Lif
     assert.equal(readFileSync(join(process.cwd(), "extension", "paths.ts"), "utf8").split(`export const ${name} =`).length, 2);
   }
   // Loading requirements are owned by Lifecycle, not the candidate renderer.
-  const clauses = [/read change-records\.md for every change/, /load recursive-workflow\.md if a current or proposed plan/,
-    /plan has a design track or/, /or review-fix child track/, /At planning and/,
-    /and resume reconciliation, load/, /Load it before proposing a review-fix split/,
-    /Read applicable sections before relying on their rules/, /Beside Lifecycle:/];
+  const clauses = [/Read change-records\.md for every change/, /load recursive-workflow\.md for any planned/,
+    /planned design or/, /or review-fix track/, /At planning\/resume/,
+    /At planning\/resume, load/, /and before proposing a review-fix split/,
+    /Read applicable sections before use/, /Read change-records/];
   for (const trusted of [true, false]) {
     const doctrine = await renderDoctrine(undefined, {}, trusted);
-    const pointers = doctrine.match(/   Beside Lifecycle: [^\n]+/g) ?? [];
+    const pointers = doctrine.match(/   Read change-records[^\n]+/g) ?? [];
     assert.equal(pointers.length, 1);
     const pointer = pointers[0]!;
     assert.ok(clauses.every((clause) => clause.test(pointer)));
@@ -565,7 +566,7 @@ test("fixed doctrine preserves loading clauses and resolves filenames beside Lif
 
 test("doctrine uses approved focus states, the four-part proof, and effective gates", { timeout: 5000 }, async () => {
   const doctrine = (await renderDoctrine()).replace(/\s+/g, " ");
-  assert.ok(doctrine.includes("Keep separate change/track records. NAMED: defect, place, consequence, review contribution. User approval proves it. Rejection is SKIPPED."));
+  assert.ok(doctrine.includes("Keep separate change/track records. NAMED: defect, place, consequence, review contribution. Judge proof sufficiency internally."));
   assert.ok(doctrine.includes("Proved areas add specialists and one Reviewer I."));
   assert.ok(doctrine.includes("Estimate tracks first. Multi-track work or estimates >100 counted lines need design before work, even documentation-only."));
   assert.ok(doctrine.includes("Implementer reports approximate size in response and report. Above 100 adds Reviewer I except documentation-only."));
@@ -579,16 +580,16 @@ test("doctrine uses approved focus states, the four-part proof, and effective ga
   assert.doesNotMatch(doctrine, /Reviewer I remains required on every track|Review every track with Reviewer I/);
   assert.ok(doctrine.includes(`Definitions: ${BLAST_RADIUS_DOC}. Lifecycle: ${TRACK_WORKFLOW_DOC}.`));
   assert.doesNotMatch(doctrine, /Concurrency defect|Data loss|Security weakness|Licensing exposure/);
-  assert.ok(doctrine.includes("Approve proofs before edits."));
-  assert.ok(doctrine.includes("User judges proofs and simplicity."));
+  assert.ok(doctrine.includes("Judge proof sufficiency internally."));
+  assert.ok(doctrine.includes("User judges the solution."));
 });
 
 test("doctrine reuses known facts and only applicable user authorization", { timeout: 5000 }, async () => {
   const doctrine = (await renderDoctrine()).replace(/\s+/g, " ");
   assert.ok(doctrine.includes("Apply evidence and prior answers first."));
   assert.ok(doctrine.includes("Evidence cannot authorize."));
-  assert.ok(doctrine.includes("Reuse approvals only for covered decisions with current conditions and prerequisites complete when answered."));
-  assert.ok(doctrine.includes("Ask only unresolved parts. Explain changes. Preserve gates and reviews."));
+  assert.ok(doctrine.includes("Reuse approvals only for covered decisions with current prerequisites met when answered."));
+  assert.ok(doctrine.includes("Ask unresolved parts. Explain changes. Preserve gates and reviews."));
   const workflow = readFileSync(TRACK_WORKFLOW_DOC, "utf8");
   assert.match(workflow, /Reassess evidence and answer applicability at every existing reassessment\s+boundary/);
   assert.match(workflow, /Do not ask the user for that fact\s+again while its source remains applicable/);
@@ -598,7 +599,7 @@ test("doctrine reuses known facts and only applicable user authorization", { tim
 
 test("design gates state validation, adversarial review, and final approval as one ordered contract", { timeout: 5000 }, async () => {
   const doctrine = (await renderDoctrine()).replace(/\s+/g, " ");
-  assert.ok(doctrine.includes("Each proved DESIGN-TRIGGERING area requires design, user validation, focus reconfirmation, adversarial design review, final approval, and blocking track acceptance."));
+  assert.ok(doctrine.includes("Each proved DESIGN-TRIGGERING area requires design, user validation, focus reconfirmation, adversarial design review, and final approval."));
   assert.doesNotMatch(doctrine, /final design approval before.*adversarial design review/);
 });
 
@@ -635,7 +636,7 @@ test("rule 8 renders exact feature-off and enabled publishing tails", { timeout:
 });
 
 test("routing-recommendation doctrine is trusted, opt-in, and feature-off inert", { timeout: 5000 }, async () => {
-  const pointer = "At change completion, follow Lifecycle's routing-recommendation rule before final acceptance.";
+  const pointer = "Show routing advice only when records support it.";
   const absent = await renderDoctrine();
   const disabled = await renderDoctrine(undefined, { workflow: { routingRecommendations: false } });
   const enabled = await renderDoctrine(undefined, { workflow: { routingRecommendations: true } });
@@ -784,10 +785,11 @@ test("the paused doctrine states worker availability and the one-writer save con
   assert.equal(running.includes("PAUSED"), false, "an unpaused session must carry no pause text");
   assert.ok(paused.startsWith(running), "the addendum must be appended after the ordinary doctrine");
 
+  assert.doesNotMatch(paused.slice(running.length), /context budget exceeded|reached.*budget/);
   const addendum = paused.slice(running.length).replace(/\s+/g, " ").trim();
   assert.equal(
     addendum,
-    "# PAUSED — context budget exceeded" +
+    "# PAUSED" +
       " Slate is paused for handoff. Orchestrator worker dispatches remain available." +
       " Save the project state in the research log through exactly one worker at a time." +
       " Wait for that worker result and verify that it reports success before writing the final handoff brief." +
@@ -802,6 +804,26 @@ test("the paused doctrine states worker availability and the one-writer save con
   const verify = addendum.indexOf("verify that it reports success");
   const brief = addendum.indexOf("Reply with a concise handoff brief");
   assert.ok(writer > 0 && writer < verify && verify < brief);
+});
+
+test("budget pause instructions name their purpose without growing the paused doctrine", { timeout: 5000 }, async () => {
+  const legacy = await renderDoctrine(undefined, {}, true, true);
+  const budget = await renderDoctrine(undefined, {}, true, true, undefined, EMPTY_WORKER_EXTENSION_SET, undefined, registerSlateMode, "context-budget");
+  assert.match(budget, /\/slate handoff --context-budget \[optional\s+focus\]/);
+  assert.equal(budget.length - legacy.length, " --context-budget".length);
+  assert.doesNotMatch(legacy, /--context-budget|context budget exceeded/);
+});
+
+test("turning slate off clears both the pause and its cause", { timeout: 5000 }, async () => {
+  const api = new FakeExtensionApi();
+  const store = new SlateStore(api as unknown as ExtensionAPI);
+  store.orchestratorMode = true;
+  store.paused = true;
+  store.pauseReason = "context-budget";
+  registerSlateMode(api as unknown as ExtensionAPI, store, { startHandoff: async () => {} } as any, () => ({}), () => EMPTY_WORKER_EXTENSION_SET, () => undefined);
+  await api.commands.get("slate")!.handler("off", extensionContext("/tmp") as any);
+  assert.equal(store.paused, false);
+  assert.equal(store.pauseReason, undefined);
 });
 
 test("missing parent runtime produces an explicit blocked rule", { timeout: 5000 }, async () => {

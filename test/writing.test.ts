@@ -272,6 +272,10 @@ test("no prose leaves the previous measured summary unchanged", () => {
   const latest = counters.latest;
   assert.equal(measureWritingTurn({ role: "user", content: "not prose" } as TurnEndEvent["message"], checker, counters), "no-text");
   assert.equal(counters.latest, latest);
+  for (const customType of ["slate-kickoff", "slate-kickoff-claimed", "slate-failover"]) {
+    assert.equal(measureWritingTurn({ role: "custom", customType, content: "not assistant prose", display: false } as unknown as TurnEndEvent["message"], checker, counters), "no-text");
+    assert.equal(counters.latest, latest);
+  }
 });
 
 test("checker failure clears the summary but leaves the window intact", () => {
@@ -293,6 +297,44 @@ test("a delivery-side failure cannot mutate measurement", () => {
   assert.throws(() => { throw new Error(renderWritingReminderMessage(counters.latest)); });
   assert.deepEqual(counters, before);
 });
+
+for (const reason of ["context-budget", "adoption", undefined] as const) {
+  test(`paused input refusal preserves the ${reason ?? "legacy"} cause`, async (t) => {
+    const handlers = new Map<string, (event: any, ctx: ExtensionContext) => unknown>();
+    const notifications: unknown[] = [];
+    const reports: unknown[] = [];
+    const sent: unknown[] = [];
+    const store = { orchestratorMode: true, paused: true, pauseReason: reason };
+    const pi = {
+      on(name: string, handler: any) { handlers.set(name, handler); },
+      registerCommand() {}, registerTool() {},
+      sendMessage(message: unknown) { sent.push(message); },
+    } as unknown as ExtensionAPI;
+    registerSlateMode(pi, store as any,
+      { startHandoff: async () => {}, effectiveContextBudget: () => undefined },
+      () => ({}), () => ({ units: [], paths: [], toolNames: [] }));
+    const ctx = {
+      hasUI: true,
+      ui: { notify: (message: string, level: string) => notifications.push([message, level]) },
+    } as unknown as ExtensionContext;
+    const input = handlers.get("input");
+    assert.ok(input);
+    const expected = reason === "context-budget"
+      ? "slate: paused for handoff — input rejected. Run /slate resume or /slate handoff --context-budget [focus]."
+      : "slate: paused for handoff — input rejected. Run /slate resume or /slate handoff [focus].";
+    t.mock.method(console, "warn", (message: unknown) => reports.push(message));
+    const prompt = { type: "input", text: "continue work", source: "interactive" };
+    assert.deepEqual(await input(prompt, ctx), { action: "handled" });
+    assert.deepEqual(notifications, [[expected, "warning"]]);
+    assert.deepEqual(reports, []);
+    assert.deepEqual(await input(prompt, { ...ctx, hasUI: false }), { action: "handled" });
+    assert.deepEqual(reports, [expected]);
+    assert.equal(notifications.length, 1);
+    assert.deepEqual(sent, []);
+    assert.equal(store.paused, true);
+    assert.equal(store.pauseReason, reason);
+  });
+}
 
 test("mode measures at message end, retries loading, and advances turn cadence", async (t) => {
   const handlers = new Map<string, Array<(event: any, ctx: ExtensionContext) => unknown>>();

@@ -198,27 +198,27 @@ characters. Tool names use 64 characters. Descriptions use 140 characters.
 | fixture | paths | portable characters | lines |
 | --- | ---: | ---: | ---: |
 | shipped logical section | 0 | 3,596 | 11 |
-| trusted shipped-default doctrine | 5 | 8,461 | 74 |
-| untrusted doctrine without a home configuration file | 4 | 2,768 | 33 |
-| draft pull requests, shipped policy | 6 | 8,529 | 75 |
-| capped workers, shipped policy | 5 | 9,808 | 84 |
-| draft plus capped workers | 6 | 9,876 | 85 |
-| deferred issues plus capped workers | 5 | 9,882 | 85 |
-| routing recommendations plus capped workers | 5 | 9,905 | 85 |
-| draft plus deferred issues and capped workers | 6 | 9,950 | 86 |
-| draft plus routing recommendations and capped workers | 6 | 9,969 | 86 |
-| deferred issues plus routing recommendations and capped workers | 5 | 9,979 | 86 |
-| canonical maximal baseline with all workflow options | 6 | 10,043 | 87 |
-| maximal baseline with an open change | 6 | 10,241 | 88 |
-| maximal baseline with source and legacy root log | 6 | 10,471 | 90 |
-| dogfood `.pi/slate.json` and its two extension units | 6 | 9,168 | 86 |
-| runtime boundary plus draft and capped workers, source and legacy log | 6 | 26,108 | 88 |
-| runtime boundary plus draft and deferred issues, source and legacy log | 6 | 26,182 | 89 |
-| runtime boundary plus routing recommendations, source and legacy log | 5 | 26,137 | 88 |
-| runtime boundary plus deferred issues and routing recommendations, source and legacy log | 5 | 26,211 | 89 |
-| runtime boundary plus draft and routing recommendations, source and legacy log | 6 | 26,201 | 89 |
-| same boundary composition plus deferred issues | 6 | 26,275 | 90 |
-| valid shipped policy plus 88 capped worker tools, source and legacy log | 6 | 28,145 | 173 |
+| trusted shipped-default doctrine | 5 | 8,404 | 74 |
+| untrusted doctrine without a home configuration file | 4 | 2,711 | 33 |
+| draft pull requests, shipped policy | 6 | 8,472 | 75 |
+| capped workers, shipped policy | 5 | 9,751 | 84 |
+| draft plus capped workers | 6 | 9,819 | 85 |
+| deferred issues plus capped workers | 5 | 9,825 | 85 |
+| routing recommendations plus capped workers | 5 | 9,804 | 85 |
+| draft plus deferred issues and capped workers | 6 | 9,893 | 86 |
+| draft plus routing recommendations and capped workers | 6 | 9,868 | 86 |
+| deferred issues plus routing recommendations and capped workers | 5 | 9,878 | 86 |
+| canonical maximal baseline with all workflow options | 6 | 9,942 | 87 |
+| maximal baseline with an open change | 6 | 10,140 | 88 |
+| maximal baseline with source and legacy root log | 6 | 10,370 | 90 |
+| dogfood `.pi/slate.json` and its two extension units | 6 | 9,067 | 86 |
+| runtime boundary plus draft and capped workers, source and legacy log | 6 | 26,051 | 88 |
+| runtime boundary plus draft and deferred issues, source and legacy log | 6 | 26,125 | 89 |
+| runtime boundary plus routing recommendations, source and legacy log | 5 | 26,036 | 88 |
+| runtime boundary plus deferred issues and routing recommendations, source and legacy log | 5 | 26,110 | 89 |
+| runtime boundary plus draft and routing recommendations, source and legacy log | 6 | 26,100 | 89 |
+| same boundary composition plus deferred issues | 6 | 26,174 | 90 |
+| valid shipped policy plus 88 capped worker tools, source and legacy log | 6 | 28,044 | 173 |
 
 An untrusted session with an empty home `slate.json` receives the same doctrine
 as the trusted shipped-default fixture above. It includes routing and writing
@@ -229,25 +229,25 @@ project preferences can.
 The canonical maximal baseline uses all six shipped logical definitions, all
 three workflow options, and the fixed capped worker roster. Its largest variant
 has an open change, one direct source folder, and a legacy root log. Its
-five-percent requirement is `ceil(10,471 × 1.05) = 10,995`.
+five-percent requirement is `ceil(10,370 × 1.05) = 10,889`.
 The 26,300 whole-doctrine ceiling exceeds it. The table pins all eight
 combinations of the three workflow options with the capped worker roster. The
 dogfood row reads the actual project configuration. A change to `.pi/slate.json` requires a fresh render.
 
-The four routing-enabled rows from 26,137 through 26,275 are
-boundary-composition controls. The 26,108 and 26,182 rows keep the
-routing-recommendation feature off as compatibility controls. The 26,275 row
-pins the largest supported composition. It has 25 characters of headroom.
+The four routing-enabled rows from 26,036 through 26,174 are
+boundary-composition controls. The 26,051 and 26,125 rows keep the
+routing-recommendation feature off as compatibility controls. The 26,174 row
+pins the largest supported composition. It has 126 characters of headroom.
 Each row combines a valid logical section padded to exactly 19,400 characters with supported doctrine tails. The rows do not define reserve-bearing
 baselines. Every row remains below the 26,300 portable-character ceiling.
-A valid third worker unit with a 19-character label reaches 26,300 exactly
-when all three workflow options are on. A 20-character label reaches 26,301,
+A valid third worker unit with a 120-character label reaches 26,300 exactly
+when all three workflow options are on. A 121-character label reaches 26,301,
 the first value beyond the ceiling.
 
 The over-cap counterfactual uses a valid shipped logical policy and one supported
 worker-extension unit with 88 capped tools. It also includes an open change,
-its source, and the legacy root log. Its 28,145 portable characters exceed
-the whole-doctrine ceiling by 1,845. The check therefore detects whole-doctrine
+its source, and the legacy root log. Its 28,044 portable characters exceed
+the whole-doctrine ceiling by 1,744. The check therefore detects whole-doctrine
 growth without using a retired model-row shape or an assumed per-tool increment.
 Worker-extension doctrine has no runtime size cap, so the fixture reaches the
 whole-doctrine guard rather than failing logical-policy validation first.
@@ -417,9 +417,9 @@ dispatch. It excludes the research log and every other task input. Worker histor
 can resend that reference in later model requests. The figure is not a total
 conversation-size or billing promise. Each charter row measures one role file.
 These figures add no runtime limit and raise no existing budget. The on-demand
-P13 author guideline body contains 2,292 UTF-8 bytes. Its subsection heading
+P13 author guideline body contains 2,311 UTF-8 bytes. Its subsection heading
 and following blank line add 35 bytes. The heading and body together contain
-2,327 bytes. Its separate principle-table row contains 201 bytes. Neither enters injected totals or the always-loaded
+2,346 bytes. Its separate principle-table row contains 201 bytes. Neither enters injected totals or the always-loaded
 principle subset.
 
 P14 enters neither injected totals nor the always-loaded principle subset.
@@ -534,42 +534,42 @@ reads. Any subset fits because removing ranges cannot increase union size.
 
 | Phase | Publishing | Plan | Required bytes | Estimated tokens | Byte limit | Token limit | Conditional maximum bytes | Estimated tokens | Byte limit | Token limit |
 | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1. Research | off | ordinary | 72508 | 18127 | 75856 | 18964 | 140905 | 35227 | 144492 | 36123 |
-| 1. Research | off | nested | 123605 | 30902 | 129137 | 32285 | 192002 | 48001 | 197773 | 49444 |
-| 1. Research | on | ordinary | 85969 | 21493 | 92700 | 23175 | 154366 | 38592 | 161336 | 40334 |
-| 1. Research | on | nested | 137066 | 34267 | 145981 | 36496 | 205463 | 51366 | 214617 | 53655 |
-| 2. Risk approval | off | ordinary | 109495 | 27374 | 114401 | 28601 | 177892 | 44473 | 183038 | 45760 |
-| 2. Risk approval | off | nested | 160592 | 40148 | 167682 | 41921 | 228989 | 57248 | 236319 | 59080 |
-| 2. Risk approval | on | ordinary | 122956 | 30739 | 131245 | 32812 | 191353 | 47839 | 199882 | 49971 |
-| 2. Risk approval | on | nested | 174053 | 43514 | 184526 | 46132 | 242450 | 60613 | 253163 | 63291 |
-| 3. Design validation | off | ordinary | 109495 | 27374 | 114401 | 28601 | 177892 | 44473 | 183038 | 45760 |
-| 3. Design validation | off | nested | 160592 | 40148 | 167682 | 41921 | 228989 | 57248 | 236319 | 59080 |
-| 3. Design validation | on | ordinary | 122956 | 30739 | 131245 | 32812 | 191353 | 47839 | 199882 | 49971 |
-| 3. Design validation | on | nested | 174053 | 43514 | 184526 | 46132 | 242450 | 60613 | 253163 | 63291 |
-| 4. Focus reconfirmation | off | ordinary | 109495 | 27374 | 114401 | 28601 | 177892 | 44473 | 183038 | 45760 |
-| 4. Focus reconfirmation | off | nested | 160592 | 40148 | 167682 | 41921 | 228989 | 57248 | 236319 | 59080 |
-| 4. Focus reconfirmation | on | ordinary | 122956 | 30739 | 131245 | 32812 | 191353 | 47839 | 199882 | 49971 |
-| 4. Focus reconfirmation | on | nested | 174053 | 43514 | 184526 | 46132 | 242450 | 60613 | 253163 | 63291 |
-| 5. Adversarial design review | off | ordinary | 132787 | 33197 | 138753 | 34689 | 228968 | 57242 | 236562 | 59141 |
-| 5. Adversarial design review | off | nested | 183884 | 45971 | 192034 | 48009 | 280065 | 70017 | 289844 | 72461 |
-| 5. Adversarial design review | on | ordinary | 146248 | 36562 | 155597 | 38900 | 242429 | 60608 | 253406 | 63352 |
-| 5. Adversarial design review | on | nested | 197345 | 49337 | 208878 | 52220 | 293526 | 73382 | 306688 | 76672 |
-| 6. Final design approval | off | ordinary | 132787 | 33197 | 138753 | 34689 | 228968 | 57242 | 236562 | 59141 |
-| 6. Final design approval | off | nested | 183884 | 45971 | 192034 | 48009 | 280065 | 70017 | 289844 | 72461 |
-| 6. Final design approval | on | ordinary | 146248 | 36562 | 155597 | 38900 | 242429 | 60608 | 253406 | 63352 |
-| 6. Final design approval | on | nested | 197345 | 49337 | 208878 | 52220 | 293526 | 73382 | 306688 | 76672 |
-| 7. Track loop | off | ordinary | 156058 | 39015 | 163384 | 40846 | 292413 | 73104 | 302924 | 75731 |
-| 7. Track loop | off | nested | 207155 | 51789 | 216665 | 54167 | 292413 | 73104 | 302924 | 75731 |
-| 7. Track loop | on | ordinary | 169519 | 42380 | 180228 | 45057 | 305874 | 76469 | 319769 | 79943 |
-| 7. Track loop | on | nested | 220616 | 55154 | 233509 | 58378 | 305874 | 76469 | 319769 | 79943 |
-| 8. Final acceptance | off | ordinary | 156058 | 39015 | 163384 | 40846 | 292413 | 73104 | 302924 | 75731 |
-| 8. Final acceptance | off | nested | 207155 | 51789 | 216665 | 54167 | 292413 | 73104 | 302924 | 75731 |
-| 8. Final acceptance | on | ordinary | 169519 | 42380 | 180228 | 45057 | 305874 | 76469 | 319769 | 79943 |
-| 8. Final acceptance | on | nested | 220616 | 55154 | 233509 | 58378 | 305874 | 76469 | 319769 | 79943 |
-| 9. Delivery | off | ordinary | 156058 | 39015 | 163384 | 40846 | 292842 | 73211 | 302924 | 75731 |
-| 9. Delivery | off | nested | 207155 | 51789 | 216665 | 54167 | 292842 | 73211 | 302924 | 75731 |
-| 9. Delivery | on | ordinary | 169519 | 42380 | 180228 | 45057 | 305874 | 76469 | 319769 | 79943 |
-| 9. Delivery | on | nested | 220616 | 55154 | 233509 | 58378 | 305874 | 76469 | 319769 | 79943 |
+| 1. Research | off | ordinary | 75392 | 18848 | 75856 | 18964 | 144384 | 36096 | 144492 | 36123 |
+| 1. Research | off | nested | 126369 | 31593 | 129137 | 32285 | 195361 | 48841 | 197773 | 49444 |
+| 1. Research | on | ordinary | 88817 | 22205 | 92700 | 23175 | 157809 | 39453 | 161336 | 40334 |
+| 1. Research | on | nested | 139794 | 34949 | 145981 | 36496 | 208786 | 52197 | 214617 | 53655 |
+| 2. Risk assessment | off | ordinary | 112193 | 28049 | 114401 | 28601 | 181185 | 45297 | 183038 | 45760 |
+| 2. Risk assessment | off | nested | 163170 | 40793 | 167682 | 41921 | 232162 | 58041 | 236319 | 59080 |
+| 2. Risk assessment | on | ordinary | 125618 | 31405 | 131245 | 32812 | 194610 | 48653 | 199882 | 49971 |
+| 2. Risk assessment | on | nested | 176595 | 44149 | 184526 | 46132 | 245587 | 61397 | 253163 | 63291 |
+| 3. Design validation | off | ordinary | 112193 | 28049 | 114401 | 28601 | 181185 | 45297 | 183038 | 45760 |
+| 3. Design validation | off | nested | 163170 | 40793 | 167682 | 41921 | 232162 | 58041 | 236319 | 59080 |
+| 3. Design validation | on | ordinary | 125618 | 31405 | 131245 | 32812 | 194610 | 48653 | 199882 | 49971 |
+| 3. Design validation | on | nested | 176595 | 44149 | 184526 | 46132 | 245587 | 61397 | 253163 | 63291 |
+| 4. Focus reconfirmation | off | ordinary | 112193 | 28049 | 114401 | 28601 | 181185 | 45297 | 183038 | 45760 |
+| 4. Focus reconfirmation | off | nested | 163170 | 40793 | 167682 | 41921 | 232162 | 58041 | 236319 | 59080 |
+| 4. Focus reconfirmation | on | ordinary | 125618 | 31405 | 131245 | 32812 | 194610 | 48653 | 199882 | 49971 |
+| 4. Focus reconfirmation | on | nested | 176595 | 44149 | 184526 | 46132 | 245587 | 61397 | 253163 | 63291 |
+| 5. Adversarial design review | off | ordinary | 135108 | 33777 | 138753 | 34689 | 231884 | 57971 | 236562 | 59141 |
+| 5. Adversarial design review | off | nested | 186085 | 46522 | 192034 | 48009 | 282861 | 70716 | 289844 | 72461 |
+| 5. Adversarial design review | on | ordinary | 148533 | 37134 | 155597 | 38900 | 245309 | 61328 | 253406 | 63352 |
+| 5. Adversarial design review | on | nested | 199510 | 49878 | 208878 | 52220 | 296286 | 74072 | 306688 | 76672 |
+| 6. Final design approval | off | ordinary | 135108 | 33777 | 138753 | 34689 | 231884 | 57971 | 236562 | 59141 |
+| 6. Final design approval | off | nested | 186085 | 46522 | 192034 | 48009 | 282861 | 70716 | 289844 | 72461 |
+| 6. Final design approval | on | ordinary | 148533 | 37134 | 155597 | 38900 | 245309 | 61328 | 253406 | 63352 |
+| 6. Final design approval | on | nested | 199510 | 49878 | 208878 | 52220 | 296286 | 74072 | 306688 | 76672 |
+| 7. Track loop | off | ordinary | 158042 | 39511 | 163384 | 40846 | 295147 | 73787 | 302924 | 75731 |
+| 7. Track loop | off | nested | 209019 | 52255 | 216665 | 54167 | 295147 | 73787 | 302924 | 75731 |
+| 7. Track loop | on | ordinary | 171467 | 42867 | 180228 | 45057 | 308572 | 77143 | 319769 | 79943 |
+| 7. Track loop | on | nested | 222444 | 55611 | 233509 | 58378 | 308572 | 77143 | 319769 | 79943 |
+| 8. Final acceptance | off | ordinary | 158042 | 39511 | 163384 | 40846 | 295147 | 73787 | 302924 | 75731 |
+| 8. Final acceptance | off | nested | 209019 | 52255 | 216665 | 54167 | 295147 | 73787 | 302924 | 75731 |
+| 8. Final acceptance | on | ordinary | 171467 | 42867 | 180228 | 45057 | 308572 | 77143 | 319769 | 79943 |
+| 8. Final acceptance | on | nested | 222444 | 55611 | 233509 | 58378 | 308572 | 77143 | 319769 | 79943 |
+| 9. Delivery | off | ordinary | 158042 | 39511 | 163384 | 40846 | 295576 | 73894 | 302924 | 75731 |
+| 9. Delivery | off | nested | 209019 | 52255 | 216665 | 54167 | 295576 | 73894 | 302924 | 75731 |
+| 9. Delivery | on | ordinary | 171467 | 42867 | 180228 | 45057 | 308572 | 77143 | 319769 | 79943 |
+| 9. Delivery | on | nested | 222444 | 55611 | 233509 | 58378 | 308572 | 77143 | 319769 | 79943 |
 
 Conditional sets have the following whole-document costs. Early notes cost
 zero extra after required notes enter phase 7. Unusual prose costs zero extra
@@ -584,10 +584,10 @@ when no applicable project commit rule exists. It does not enable publishing.
 | Conditional set | Bytes | Estimated tokens |
 | --- | ---: | ---: |
 | Default commit format | 429 | 108 |
-| Rationale | 29398 | 7350 |
+| Rationale | 30268 | 7567 |
 | Unusual prose | 28076 | 7019 |
-| Early notes | 10923 | 2731 |
-| Ordinary split | 51097 | 12775 |
+| Early notes | 10648 | 2662 |
+| Ordinary split | 50977 | 12745 |
 | Manual review | 55860 | 13965 |
 
 Private evidence, designs, reports, source chains, project additions, configured

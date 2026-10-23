@@ -38,7 +38,7 @@ Only the user merges the pull request.
 Each multi-track boundary uses a marker commit after its required gates,
 as defined in track-workflow.md § Delivery and termination.
 
-Draft publishing does not remove or move planning, design, focus approval,
+Draft publishing does not remove or move planning, design, focus assessment,
 review, track-packet, user-note, blocking track-acceptance, final-acceptance,
 or finding-disposition requirements. Retain the current change folder's
 research log and every implementer report through and after delivery. Only
@@ -51,15 +51,9 @@ Every path under `slate-changes/` stays outside pull requests, including `tmp/` 
 Create the level's draft after all applicable pre-implementation gates.
 Create it before the level's first code track implementation.
 
-For a change with a high-level design and a level pull request, draft the
-template-shaped level description before final design approval.
-Use only established facts, as defined in § Description rules.
-Present the draft beside the validated design.
-Each design track with a level pull request presents its level description
-with its validated design for one final approval.
-When an adversarial design review is required, present both after that review.
-One final approval covers the design and description.
-The description has no separate approval gate.
+For a change with a high-level design and a level pull request, author the
+template-shaped description from established facts, as defined in § Description rules.
+Author and maintain it without presenting it for approval.
 Create the pull request after final design approval.
 
 For a change without a high-level design, create the pull request after the
@@ -154,7 +148,7 @@ An unchanged result and template need no rewrite.
 Apply this section separately to each level pull request.
 All its code tracks and required machine reviews, track packages, requested fixes,
 and blocking user notes must be complete.
-A proved DESIGN-TRIGGERING area makes track acceptance blocking before its marker.
+Code-track acceptance follows [track-workflow.md](track-workflow.md) § Delivery and termination.
 Keep the last pull request of a subtree unmerged until every design track it
 closes has explicit whole-subtree acceptance and its design marker.
 A subtree contains a track and all its descendants.
@@ -173,11 +167,10 @@ stay agent duties below. The flip is gated by this checklist, executed in order:
 - Any layered peer-review process (see track-workflow.md § Layering richer
   workflows on top) is completed or explicitly user-waived — flipping never
   discards a pending review.
-- All commits landed since the last user-approved gate are presented
-  to the user. For a change without a design gate, present the description here
-  because no design approval presented it before implementation.
-- Report every ignored finding to the user.
-  Keep its index in the owning research log.
+- Summarize behavior changes since the last user-approved gate, including
+  for a change without a design gate. Apply the presentation comparison rule.
+  Ask for ready-for-review permission. Keep commits and accounting in the log.
+  Keep the ignored-finding index only in the owning research log.
 - A squash merge does not preserve marker commits in the default-branch history.
   For changes that load the nested sections, complete the retention protocol in
   [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history before the final ready flip and each merge handoff, and for the comparisons after each merge.
@@ -188,23 +181,29 @@ stay agent duties below. The flip is gated by this checklist, executed in order:
   A mention without the user's disposition is not enough.
 - Last, reread the whole description from start to end against the selected template and final result.
   Confirm that the text is consistent.
-  Present the final description to the user before the flip, including when a design gate presented the draft.
+  The behavior summary replaces presentation of the final description.
+  The description is available on request.
 
 ## After the flip
 
 The user may wait for passing continuous integration checks or peer-review completion and ask the agent to fix failures or review observations.
-The agent lands fixes as normal commits and presents them to the user as they land.
+The agent lands one commit per requested fix and reports behavior and fix status
+when acceptance is needed. Ask one batch acceptance question with each fix separately selectable.
 Keep progress in the owning research log, not in the description.
 At renewed handoff for merge after fixes, reread the selected template.
 Refresh final-result text only if the result or template changed.
 Reconcile reviewer-pushed changes at that handoff.
-Present the final description before handing the pull request to the user for merge.
+Before merge, summarize behavior changes since the previous summary.
+Use one no-change sentence when unchanged. The summary grants no approval.
+The behavior summary replaces presentation of the final description.
+The description is available on request.
 
 The user's merge act approves the current pull request.
 A merge does not supply whole-subtree or root final acceptance.
 Obtain each required explicit decision before the merge.
 After the decision, record the acceptance and its evidence references only in the owning research log.
-Verify that log accounting, then present the separate final description and merge handoff.
+Verify that log accounting, then give the behavior summary and merge handoff.
+Keep the skipped late-area design-gate record visible at final acceptance.
 Ready status does not bypass this order.
 
 ## After the merge
@@ -212,10 +211,10 @@ Ready status does not bypass this order.
 After the user merges a level pull request, verify that level's delivery accounting.
 Verify the observed merge commit's identity and parents against its accepted history and pull request.
 Record the observed merge-result binding only in the owning research log.
-Report the delivery state in the next applicable package.
+Report delivery state only when a decision needs it.
 The merge commit itself supplies that binding, including for the last level.
-The root final package lists every level delivery.
-It distinguishes merged levels from every level waiting for merge, including levels held behind an unmerged foundation.
+The owning research log lists every level delivery and its merge state.
+Disclose unmerged dependencies when they affect acceptance.
 Close the root change only after all delivery accounting is verified.
 Use track-workflow.md § Session handoff and the research log for closure.
 Abandonment at any stage also ends with

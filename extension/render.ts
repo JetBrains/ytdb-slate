@@ -1,158 +1,177 @@
 /**
- * TUI rendering for the `thread` tool (ExecPlan M3).
- *
- * Collapsed: one-line header (status icon, thread, task preview), streaming
- * progress lines while running, Key Findings digest + usage when done.
- * Expanded (Ctrl+O): full episode markdown + usage stats.
+ * Compact displays for orchestration tools. Expanded views show protected plain
+ * text and full arguments. Display protection does not alter tool evidence.
  */
 
-import { getMarkdownTheme, keyHint } from "@earendil-works/pi-coding-agent";
-import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
-import { displayThreadType, renderThreadId, threadTypeMarker, type ThreadType } from "./state.ts";
-import type { UsageStats } from "./threads.ts";
+import { Text } from "@earendil-works/pi-tui";
 
-// Minimal structural theme type (avoids depending on exact Theme export).
 type ThemeLike = {
-	fg: (color: string, text: string) => string;
+	fg: (color: "error" | "toolTitle" | "warning" | "success", text: string) => string;
 	bold: (text: string) => string;
 };
+type DisplayContext = { expanded?: boolean; isPartial?: boolean; isError?: boolean };
+type DisplayOptions = { expanded: boolean; isPartial?: boolean };
 
-interface ThreadCallArgs {
-	name?: string;
-	type?: ThreadType;
-	task?: string;
-	context?: string[];
-	model?: string;
-}
-
-interface ThreadDetails {
-	threadId?: string;
-	threadName?: string;
-	type?: ThreadType;
-	episodeId?: string;
+// These helpers and presentation fields are internal display metadata, not a supported consumer contract.
+export interface DisplayDetails {
+	[key: string]: unknown;
+	done?: boolean;
 	status?: "ok" | "failed";
 	lines?: string[];
-	usage?: UsageStats;
-	done?: boolean;
-	// Latest physical pair accepted for local Pi handoff (tools.ts's established
-	// `ran*` detail names). This is distinct from the logical model argument and is
-	// not proof of remote execution or billing.
-	ranModel?: string;
-	ranEffort?: string;
-	ranEffortUnmeasured?: boolean;
+	warnings?: readonly string[];
+	displayActivity?: string;
+	displayFailure?: string;
+	displayFailureReason?: string;
+	displayWarning?: boolean;
+	displayWarningSummary?: string;
+	count?: number;
+	failedCount?: number;
 }
 
-function formatTokens(n: number): string {
-	if (n < 1000) return String(n);
-	if (n < 1_000_000) return `${Math.round(n / 1000)}k`;
-	return `${(n / 1_000_000).toFixed(1)}M`;
+function validDetails(value: unknown): boolean {
+	if (value === undefined || value === null) return true;
+	if (typeof value !== "object" || Array.isArray(value)) return false;
+	const d = object(value);
+	return ["done", "displayWarning"].every((key) => d[key] === undefined || typeof d[key] === "boolean")
+		&& ["threadName", "displayActivity", "displayFailure", "displayFailureReason", "displayWarningSummary"].every((key) => d[key] === undefined || typeof d[key] === "string")
+		&& (d.status === undefined || d.status === "ok" || d.status === "failed")
+		&& (d.lines === undefined || Array.isArray(d.lines))
+		&& (d.warnings === undefined || (Array.isArray(d.warnings) && d.warnings.every((item) => typeof item === "string")))
+		&& ["count", "failedCount"].every((key) => d[key] === undefined || (typeof d[key] === "number" && Number.isSafeInteger(d[key]) && d[key] >= 0));
 }
 
-function formatUsage(u: UsageStats | undefined): string {
-	if (!u) return "";
-	const parts: string[] = [];
-	if (u.turns) parts.push(`${u.turns} turn${u.turns > 1 ? "s" : ""}`);
-	if (u.input) parts.push(`↑${formatTokens(u.input)}`);
-	if (u.output) parts.push(`↓${formatTokens(u.output)}`);
-	if (u.cost) parts.push(`$${u.cost.toFixed(4)}`);
-	if (u.contextTokens) parts.push(`ctx:${formatTokens(u.contextTokens)}`);
-	return parts.join(" ");
+/** Remove control characters individually so removal cannot assemble an escape. */
+export function protectDisplay(value: string, oneLine = false): string {
+	const input = oneLine ? value.replace(/[\r\n\t\u2028\u2029]/g, " ") : value;
+	const clean = input.replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069\ufff9-\ufffb]/g, "");
+	return oneLine ? clean.replace(/[\n\t\u2028\u2029]/g, " ") : clean;
 }
 
-function contentText(result: { content?: Array<{ type: string; text?: string }> }): string {
-	return (result.content ?? [])
-		.filter((c) => c.type === "text")
-		.map((c) => c.text ?? "")
-		.join("\n");
+function object(value: unknown): Record<string, unknown> {
+	return value !== null && typeof value === "object" && !Array.isArray(value)
+		? value as Record<string, unknown> : {};
+}
+function short(value: unknown, limit = 160): string {
+	return typeof value === "string" ? protectDisplay(value, true).slice(0, limit) : "";
+}
+function strings(value: unknown): string[] {
+	return Array.isArray(value) ? value.filter((line): line is string => typeof line === "string") : [];
+}
+function contentText(value: unknown): string {
+	const content = object(value).content;
+	return Array.isArray(content) ? content.map((part) => {
+		const item = object(part);
+		return item.type === "text" && typeof item.text === "string" ? item.text : "";
+	}).join("\n") : "";
+}
+function inspection(value: unknown): string {
+	return protectDisplay(JSON.stringify(value, null, 2) ?? "(none)");
+}
+function failedDisplay(tool: string, theme: ThemeLike): Text {
+	return new Text(theme.fg("error", `✗ ${tool}: invalid display data`), 0, 0);
 }
 
-/** Extract one `## Section` body from episode markdown. */
-function extractSection(episode: string, section: string): string {
-	const re = new RegExp(`^## ${section}\\s*$`, "m");
-	const m = re.exec(episode);
-	if (!m) return "";
-	const rest = episode.slice(m.index + m[0].length);
-	const next = rest.search(/^## /m);
-	return (next >= 0 ? rest.slice(0, next) : rest).trim();
+export function renderCompactCall(tool: string, args: unknown, theme: ThemeLike, context?: DisplayContext) {
+	try {
+		const data = object(args);
+		if (args === null || typeof args !== "object" || Array.isArray(args) ||
+			["name", "task", "action"].some((key) => data[key] !== undefined && typeof data[key] !== "string") ||
+			(data.context !== undefined && (!Array.isArray(data.context) || data.context.some((item) => typeof item !== "string")))) {
+			return failedDisplay(tool, theme);
+		}
+		const label = tool === "thread" ? short(data.name, 60) : tool === "slate_change" ? short(data.action, 20) : "";
+		let text = theme.fg("toolTitle", theme.bold(tool)) + (label ? ` ${label}` : "");
+		if (context?.expanded) text += `\n${inspection(args)}`;
+		return new Text(text, 0, 0);
+	} catch {
+		return failedDisplay(tool, theme);
+	}
 }
 
-export function renderThreadCall(args: ThreadCallArgs, theme: ThemeLike) {
-	let text = theme.fg("toolTitle", theme.bold("thread "));
-	text += theme.fg("accent", args.name ? `new:"${args.name}"` : "new");
-	const typeMarker = args.type === undefined ? "" : threadTypeMarker(args.type);
-	if (typeMarker) text += theme.fg("muted", typeMarker);
-	// The call names a provider-free logical model. The result reports the physical route.
-	const routed = args.model ?? "";
-	if (routed) text += theme.fg("muted", ` [${routed}]`);
-	if (args.context && args.context.length > 0) text += theme.fg("muted", ` ⇐ ${args.context.join(", ")}`);
-	const task = (args.task ?? "").replace(/\s+/g, " ");
-	text += `\n  ${theme.fg("dim", task.length > 100 ? `${task.slice(0, 100)}...` : task)}`;
-	return new Text(text, 0, 0);
-}
-
-export function renderThreadResult(
-	result: { content?: Array<{ type: string; text?: string }>; details?: unknown },
-	options: { expanded: boolean; isPartial?: boolean },
-	theme: ThemeLike,
+export function renderCompactResult(
+	tool: string, result: unknown, options: DisplayOptions, theme: ThemeLike, context?: DisplayContext,
 ) {
-	const details = (result.details ?? {}) as ThreadDetails;
-	const name = details.threadName ?? renderThreadId(details.threadId) ?? "thread";
-	const typeMarker = threadTypeMarker(displayThreadType(details.type));
-	const shownType = typeMarker ? theme.fg("muted", typeMarker) : "";
-
-	// Streaming: show live progress lines.
-	if (options.isPartial || !details.done) {
-		const lines = (details.lines ?? []).slice(-6);
-		let text = `${theme.fg("warning", "⏳")} ${theme.fg("toolTitle", theme.bold(name))}${shownType} ${theme.fg("muted", "running")}`;
-		for (const line of lines) {
-			text += `\n  ${theme.fg("dim", line.length > 110 ? `${line.slice(0, 110)}...` : line)}`;
+	try {
+		const data = object(result);
+		if (!validDetails(data.details)) return failedDisplay(tool, theme);
+		const details = object(data.details);
+		const failed = context?.isError === true || data.isError === true || (tool !== "episode" && details.status === "failed");
+		const partial = !failed && details.done !== true && (context?.isPartial ?? options.isPartial) === true;
+		const expanded = context?.expanded ?? options.expanded;
+		const name = tool === "thread" ? short(details.threadName, 60) || tool : tool;
+		const status = failed ? "failed" : partial ? "running" : "done";
+		let text = theme.fg(failed ? "error" : partial ? "warning" : "success", `${failed ? "✗" : partial ? "⏳" : "✓"} ${name} ${status}`);
+		if (tool === "episode" && !failed && !partial) text = theme.fg("success", "✓ Episode loaded");
+		if (expanded) {
+			// Text does not interpret Markdown or create terminal hyperlinks.
+			const lines = details.lines;
+			const streaming = (context?.isPartial ?? options.isPartial) === true && details.done !== true;
+			const tail = streaming && Array.isArray(lines) ? lines.slice(-50) : undefined;
+			if (tail?.some((line) => typeof line !== "string")) return failedDisplay(tool, theme);
+			const inspected = tail
+				? { ...details, lines: tail, earlierLines: Math.max(0, (lines as unknown[]).length - 50) } : data.details;
+			text += `\n${protectDisplay(contentText(result))}\nDetails:\n${inspection(inspected)}`;
+		} else {
+			if (partial && typeof details.displayActivity === "string") text += `\n  ${short(details.displayActivity)}`;
+			const failure = short(details.displayFailure);
+			if (failure) text += `\n  ${failure}`;
+			const reason = short(details.displayFailureReason);
+			if (failed && reason) text += `\n  ${reason}`;
+			if (failed && !failure && !reason) {
+				const summary = details.status === "failed" ? "" : short(contentText(result));
+				text += `\n  ${summary || "Action failed. Expand for details."}`;
+			}
+			if (tool === "episode" && !failed && details.status === "failed") text += "\n  Stored action failed. Expand for details.";
+			if (tool === "threads" && typeof details.count === "number") {
+				text += `\n  ${details.count} ${details.count === 1 ? "thread" : "threads"}`;
+				if (typeof details.failedCount === "number" && details.failedCount > 0) text += `, ${details.failedCount} failed`;
+			}
+			if (details.displayWarning === true || strings(details.warnings).length > 0) {
+				text += `\n  ⚠ ${short(details.displayWarningSummary) || "Action warning. Expand for details."}`;
+			}
 		}
 		return new Text(text, 0, 0);
+	} catch {
+		return failedDisplay(tool, theme);
 	}
+}
 
-	const failed = details.status === "failed";
-	const icon = failed ? theme.fg("error", "✗") : theme.fg("success", "✓");
-	const episodeLabel = `${details.episodeId ?? "episode"}${failed ? " FAILED" : ""}`;
-	const usageStr = formatUsage(details.usage);
-	const full = contentText(result);
+export function renderThreadCall(args: unknown, theme: ThemeLike, context?: DisplayContext) {
+	return renderCompactCall("thread", args, theme, context);
+}
+export function renderThreadResult(result: unknown, options: DisplayOptions, theme: ThemeLike, context?: DisplayContext) {
+	return renderCompactResult("thread", result, options, theme, context);
+}
 
-	if (options.expanded) {
-		const container = new Container();
-		container.addChild(
-			new Text(
-				`${icon} ${theme.fg("toolTitle", theme.bold(name))}${shownType} ${theme.fg(failed ? "error" : "accent", episodeLabel)}`,
-				0,
-				0,
-			),
-		);
-		container.addChild(new Spacer(1));
-		container.addChild(new Markdown(full.trim(), 0, 0, getMarkdownTheme()));
-		if (usageStr) {
-			container.addChild(new Spacer(1));
-			container.addChild(new Text(theme.fg("dim", usageStr), 0, 0));
+/** Constant-size display state, independent of the retained evidence list. */
+export class ActionDisplayProgress {
+	activity = "";
+	failure = "";
+	warning = false;
+	failureReason = "";
+	warningSummary = "";
+	private warningPriority = 0;
+	toolStarted(name: unknown): void { this.activity = `Tool: ${short(name, 80)}`; }
+	toolFailed(name: unknown): void { this.failure = `Tool failed: ${short(name, 80)}`; }
+	response(): void { this.activity = "Worker response received"; }
+	failed(reason?: string, episodeText?: string): void {
+		this.failureReason = short(reason).trim();
+		if (this.failureReason || this.failure) return;
+		const issues = episodeText?.match(/^## Open Issues[^\n]*\n([\s\S]*?)(?=^## |$(?![\s\S]))/m)?.[1];
+		const first = issues?.split("\n").map((line) => protectDisplay(line, true).trim())
+			.find((line) => line && !/^(?:none\.?|n\/a|-)$/i.test(line));
+		this.failureReason = short(first);
+	}
+	warn(summary = "", priority = 1): void {
+		this.warning = true;
+		if (summary && priority >= this.warningPriority) {
+			this.warningSummary = short(summary);
+			this.warningPriority = priority;
 		}
-		return container;
 	}
-
-	// Collapsed: headline + Key Findings digest (or Open Issues when failed).
-	let text = `${icon} ${theme.fg("toolTitle", theme.bold(name))}${shownType} ${theme.fg(failed ? "error" : "accent", episodeLabel)}`;
-	// The latest locally accepted physical pair, labelled `ran` for compatibility.
-	// Collapsed only: the EXPANDED view renders the full
-	// episode markdown, whose header already prints this — repeating it there would be
-	// the duplication that reporting was just consolidated out of.
-	const ran = [details.ranModel, details.ranEffort ? `@${details.ranEffort}` : undefined].filter((part) => !!part).join(" ");
-	if (ran) text += theme.fg("muted", ` [ran ${ran}${details.ranEffortUnmeasured ? " unmeasured" : ""}]`);
-	const digestSection = failed ? "Open Issues" : "Key Findings";
-	const digest = extractSection(full, digestSection);
-	if (digest) {
-		const digestLines = digest.split("\n").slice(0, 8);
-		text += `\n${theme.fg("muted", `— ${digestSection}:`)}`;
-		for (const line of digestLines) {
-			text += `\n  ${theme.fg("toolOutput", line.length > 110 ? `${line.slice(0, 110)}...` : line)}`;
-		}
-		if (digest.split("\n").length > 8) text += `\n  ${theme.fg("muted", "…")}`;
+	details(): DisplayDetails {
+		return { displayActivity: this.activity, displayFailure: this.failure,
+			displayFailureReason: this.failureReason, displayWarning: this.warning,
+			displayWarningSummary: this.warningSummary };
 	}
-	if (usageStr) text += `\n${theme.fg("dim", usageStr)}`;
-	text += `\n${theme.fg("muted", `(${keyHint("app.tools.expand", "to expand")})`)}`;
-	return new Text(text, 0, 0);
 }
