@@ -5,7 +5,7 @@
 import { readFileSync } from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type, type Static } from "typebox";
-import { renderThreadCall, renderThreadResult } from "./render.ts";
+import { renderCompactCall, renderCompactResult, renderThreadCall, renderThreadResult, type DisplayDetails } from "./render.ts";
 import { sanitizeForNotify } from "./notify.ts";
 import {
 	displayThreadType,
@@ -132,6 +132,7 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 				throw new Error("An implementer on an open change requires trackNumber for its report.");
 			}
 			const displayedType = (threadId: string) => displayThreadType(store.threads.get(threadId)?.type ?? type);
+			// Presentation fields are internal display metadata, not a supported consumer contract.
 			const onProgress = (p: DispatchProgress) => {
 				onUpdate?.({
 					content: [
@@ -147,7 +148,13 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 						lines: p.lines,
 						usage: p.usage,
 						done: p.done,
-					},
+						status: p.status,
+						displayActivity: p.displayActivity,
+						displayFailure: p.displayFailure,
+						displayWarning: p.displayWarning,
+						displayFailureReason: p.displayFailureReason,
+						displayWarningSummary: p.displayWarningSummary,
+					} satisfies DisplayDetails,
 				});
 			};
 
@@ -217,24 +224,27 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 					ranModel: result.episode.model,
 					ranEffort: result.episode.effort,
 					ranEffortUnmeasured: result.episode.effortUnmeasured,
+					...result.display,
 					warnings: result.warnings,
 					usage: result.usage,
 					done: true,
-				},
+				} satisfies DisplayDetails,
 			};
 		},
 
-		renderCall(args, theme) {
-			return renderThreadCall({ ...args, type: displayThreadType(args.type) } as never, theme as never);
+		renderCall(args, theme, context) {
+			return renderThreadCall(args, theme, context);
 		},
-		renderResult(result, options, theme) {
-			return renderThreadResult(result as never, options as never, theme as never);
+		renderResult(result, options, theme, context) {
+			return renderThreadResult(result, options, theme, context);
 		},
 	});
 
 	pi.registerTool({
 		name: "threads",
 		label: "Threads",
+		renderCall: (args, theme, context) => renderCompactCall("threads", args, theme, context),
+		renderResult: (result, options, theme, context) => renderCompactResult("threads", result, options, theme, context),
 		description:
 			"List worker threads, their status, episodes, activity, and models. " +
 			"type=<type> marks a non-general thread. " +
@@ -282,13 +292,15 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 				const models = marks.length > 0 ? ` ${marks.join(" ")}` : "";
 				return `${renderThreadId(t.id)} "${t.name}" [${t.status}]${typeMarker}${models} — episode: ${episode} — updated ${new Date(t.updatedAt).toISOString()}`;
 			});
-			return { content: [{ type: "text", text: lines.join("\n") }], details: { count: threads.length } };
+			return { content: [{ type: "text", text: lines.join("\n") }], details: { count: threads.length, failedCount: threads.filter((thread) => thread.status === "failed").length } };
 		},
 	});
 
 	pi.registerTool({
 		name: "episode",
 		label: "Episode",
+		renderCall: (args, theme, context) => renderCompactCall("episode", args, theme, context),
+		renderResult: (result, options, theme, context) => renderCompactResult("episode", result, options, theme, context),
 		description: "Fetch the full text of a stored episode by id (e.g. \"t1.e2\").",
 		promptSnippet: "Fetch a stored episode's full text by id",
 		parameters: Type.Object({

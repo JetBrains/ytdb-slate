@@ -19,6 +19,7 @@ import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { Type } from "typebox";
 import { createChangeFolder } from "./artifact-names.ts";
+import { renderCompactCall, renderCompactResult } from "./render.ts";
 import { createChangeDirectory } from "./slate-files.ts";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { SlateHandoffHooks } from "./handoff.ts";
@@ -482,6 +483,8 @@ export function registerSlateMode(
 	pi.registerTool({
 		name: "slate_change",
 		label: "Slate change",
+		renderCall: (args, theme, context) => renderCompactCall("slate_change", args, theme, context),
+		renderResult: (result, options, theme, context) => renderCompactResult("slate_change", result, options, theme, context),
 		description: "Start or close the current workflow change. Slate generates the folder name. Close deletes nothing. Orchestrator mode only.",
 		parameters: Type.Object({ action: Type.Union([Type.Literal("start"), Type.Literal("close")]) }),
 		async execute(_id, params, _signal, _update, ctx) {

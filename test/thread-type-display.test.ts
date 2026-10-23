@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { initTheme, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { registerSlateMode } from "../extension/mode.ts";
-import { renderThreadResult } from "../extension/render.ts";
+import { renderCompactCall, renderThreadResult } from "../extension/render.ts";
 import { effectiveThreadType, SlateStore, type ThreadRecord, type ThreadType } from "../extension/state.ts";
 import { EMPTY_WORKER_EXTENSION_SET } from "../extension/worker-extensions.ts";
 import { registerSlateTools } from "../extension/tools.ts";
@@ -383,22 +383,27 @@ test("threads listing exposes a sanitized request and model divergence", async (
   assert.doesNotMatch(same.content[0]?.text ?? "", /different from requested|reason=/);
 });
 
-test("a new dispatch call renders its requested type", () => {
+test("a new dispatch call keeps type in expanded arguments only", () => {
   const { registered } = toolsFixture([]);
   const threadTool = registered.get("thread");
   assert.ok(threadTool?.renderCall);
 
   const renderedCall = threadTool.renderCall({ name: "fresh", type: "reviewer", task: "Inspect" }, theme);
-  assert.equal(firstLine(renderedCall), "thread new:\"fresh\" type=reviewer");
+  assert.equal(firstLine(renderedCall), "thread fresh");
 });
 
-test("dispatch call lines render every new thread type", () => {
+test("dispatch call lines omit routine type and model details", () => {
   const { registered } = toolsFixture([]);
   const threadTool = registered.get("thread");
   assert.ok(threadTool?.renderCall);
   for (const entry of cases) {
     const rendered: { render(width: number): string[] } = threadTool.renderCall({ name: entry.name, type: entry.type, task: "Inspect", model: "fixture", reason: "test fixture" }, theme);
-    assert.equal(firstLine(rendered), `thread new:"${entry.name}"${entry.marker} [fixture]`);
+    assert.equal(firstLine(rendered), `thread ${entry.name}`);
+    const expanded = renderCompactCall("thread", { type: entry.type, model: "fixture" }, theme, { expanded: true }).render(1000).join("\n");
+    assert.ok(expanded.includes(`"type": "${entry.type}"`));
+    assert.ok(expanded.includes('"model": "fixture"'));
+    const result = renderThreadResult({ details: { type: entry.type } }, { expanded: true }, theme).render(1000).join("\n");
+    assert.ok(result.includes(`"type": "${entry.type}"`));
   }
 });
 
@@ -421,16 +426,24 @@ test("thread tool populates type details for progress and completion", async () 
       details?: { type?: string; done?: boolean };
     }) => updates.push(update),
     ctx,
-  ) as { details: { type?: string } };
+  ) as { content: Array<{ type: string; text: string }>; details: { type?: string } };
 
   assert.equal(updates.length, 2);
   assert.deepEqual(updates.map((update) => update.details?.done), [false, true]);
   assert.deepEqual(updates.map((update) => update.details?.type), ["reviewer", "reviewer"]);
   assert.match(updates[1]?.content?.[0]?.text ?? "", /^\[reviewer\] ok\n/);
   assert.equal(result.details.type, "reviewer");
+  assert.deepEqual(updates.map((update) => update.content), [
+    [{ type: "text", text: "[reviewer] running\n" }],
+    [{ type: "text", text: "[reviewer] ok\n" }],
+  ]);
+  assert.deepEqual(result.content, [{ type: "text", text:
+    `[episode t1.e1 | thread t1 "reviewer" | STATUS: OK]\n` +
+    `Cost: ≥$0.0000 across reported calls and models. Some cost was not reported | tokens: input ≥0, output ≥0, cache read ≥0, cache write ≥0 | ended unknown model @unknown effort\n\nepisode`,
+  }]);
 });
 
-test("dispatch result lines keep the marker through streaming, collapsed, and expanded states", () => {
+test("dispatch result lines show status without episode or type details", () => {
   initTheme(undefined, false);
   const absentProgress = renderThreadResult(
     { details: { threadName: "absent", done: false } },
@@ -439,24 +452,24 @@ test("dispatch result lines keep the marker through streaming, collapsed, and ex
   );
   assert.equal(firstLine(absentProgress), "⏳ absent running");
 
-  for (const [type, marker] of [["reviewer", " type=reviewer"], ["general", ""]] as const) {
+  for (const type of ["reviewer", "general"] as const) {
     const details = { threadName: type, type, episodeId: "t1.e1", status: "ok" as const };
     const progress = renderThreadResult({ details: { ...details, done: false } }, { expanded: false, isPartial: true }, theme);
-    assert.equal(firstLine(progress), `⏳ ${type}${marker} running`);
+    assert.equal(firstLine(progress), `⏳ ${type} running`);
 
     const completed = renderThreadResult(
       { content: [{ type: "text", text: "" }], details: { ...details, done: true } },
       { expanded: false },
       theme,
     );
-    assert.equal(firstLine(completed), `✓ ${type}${marker} t1.e1`);
+    assert.equal(firstLine(completed), `✓ ${type} done`);
 
     const expanded = renderThreadResult(
       { content: [{ type: "text", text: "episode" }], details: { ...details, done: true } },
       { expanded: true },
       theme,
     );
-    assert.equal(firstLine(expanded), `✓ ${type}${marker} t1.e1`);
+    assert.equal(firstLine(expanded), `✓ ${type} done`);
   }
 });
 
@@ -481,8 +494,8 @@ test("result rendering normalizes unknown, absent, and malformed stored types", 
       theme,
     );
     assert.equal(firstLine(progress), "⏳ safe running");
-    assert.equal(firstLine(collapsed), "✓ safe t1.e1");
-    assert.equal(firstLine(expanded), "✓ safe t1.e1");
+    assert.equal(firstLine(collapsed), "✓ safe done");
+    assert.equal(firstLine(expanded), "✓ safe done");
   }
 });
 
@@ -500,8 +513,7 @@ test("failed result lines use failure styling when expanded and collapsed", () =
   const expanded = firstLine(renderThreadResult(result, { expanded: true }, taggedTheme));
   const collapsed = firstLine(renderThreadResult(result, { expanded: false }, taggedTheme));
   for (const line of [expanded, collapsed]) {
-    assert.match(line, /<error>✗<\/error>/);
-    assert.match(line, /<error>t1\.e1 FAILED<\/error>/);
+    assert.match(line, /<error>✗ review failed<\/error>/);
   }
 });
 
