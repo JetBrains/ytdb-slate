@@ -152,6 +152,8 @@ It does not remove or condition current required artifacts, including the
 per-track implementer report. Closing a change keeps its folder and records.
 Only the user deletes that folder.
 
+Mandatory multi-track handoffs under [track-workflow.md](track-workflow.md) § Confirmation gate are the sole unconditional-handoff exception.
+
 P11 also governs user interaction. Questions follow unresolved decisions, not
 the number of workflow steps, records, or tracks. Applicable evidence and prior
 explicit answers reduce repeated questions. They do not remove reassessment,

@@ -309,7 +309,7 @@ test("folder grammar rejects malformed, calendar-invalid, traversal and runtime 
   assert.equal(isChangeFolder(generated), true);
   for (const candidate of ["../other", "change-20260230T123456Z-" + "a".repeat(32), "change-20260101T123456Z-" + "G".repeat(32), "runtime-20260101T123456Z-" + "a".repeat(32), generated + "/log"])
     assert.equal(isChangeFolder(candidate), false, candidate);
-  assert.deepEqual(Object.keys(ADOPTED_SNAPSHOT_FIELDS), ["format", "threads", "episodes", "threadSeq", "currentChange", "changeOwnerSessionId", "sourceChange", "orchestratorMode", "paused", "workerCostUsd", "carriedCostUsd"]);
+  assert.deepEqual(Object.keys(ADOPTED_SNAPSHOT_FIELDS), ["format", "threads", "episodes", "threadSeq", "currentChange", "changeOwnerSessionId", "sourceChange", "orchestratorMode", "paused", "pauseReason", "workerCostUsd", "carriedCostUsd"]);
 });
 
 const reportMethodGroups = [
@@ -530,7 +530,7 @@ for (const event of ["session_start", "session_shutdown"]) {
 for (const reject of [false, true]) {
   test(`handoff ${reject ? "rejects idle cancellation without replacement" : "awaits ordinary worker idle before replacement"}`, { timeout: 1000 }, async (t) => {
     const f = harness(t), store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
-    const hooks = registerSlateHandoff({ on() {}, registerCommand() {} } as unknown as ExtensionAPI, store, () => ({}), () => createBaseModelTracker({ warn() {} }));
+    const hooks = registerSlateHandoff({ on() {}, registerCommand() {}, appendEntry() {} } as unknown as ExtensionAPI, store, () => ({}), () => createBaseModelTracker({ warn() {} }));
     let release!: () => void;
     const operation = new Promise<void>((resolve) => { release = resolve; });
     let replacements = 0;

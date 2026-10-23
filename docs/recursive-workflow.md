@@ -635,7 +635,7 @@ Do not invent a tree or gates from missing files.
 ## Handoff boundaries
 
 Use [track-workflow.md](track-workflow.md) § Confirmation gate for handoff timing,
-record order, and waivers.
+record order, and mandatory boundaries.
 Use its § Resume order and reconciliation to check the summary's subtree entry.
 Existing context-budget, user-requested, and unfinished-session handoff rules still apply.
 
@@ -730,7 +730,6 @@ Reconcile and verify the owning log under that sequence before merge or root clo
 Use [change-records.md](change-records.md) § Identifiers, code ranges, and design markers for the marker after acceptance.
 
 Code-track acceptance follows [track-workflow.md](track-workflow.md) § Delivery and termination.
-A code track without mandatory acceptance still receives its package and every other required gate.
 Merging a level supplies no missing gate or decision.
 A design node alone adds no routine implementation reviewer.
 Its aggregate evidence must show each child's required review coverage and separate fix-range verdicts.

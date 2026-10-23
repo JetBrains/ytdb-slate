@@ -354,17 +354,12 @@ Apply this ordered test to each finding that is not waived, moot, or rejected:
 4. Record each minor disposition and reason only in the research log.
 
 For design tracks, use [recursive-workflow.md](recursive-workflow.md) § Whole-subtree acceptance.
-The following proved-area acceptance rules apply to code tracks.
+Code-track acceptance follows the governing policy below.
 
 <!-- track-acceptance:begin -->
 A track package can follow machine-review termination. Before the package, the
-owning research log accounts for every ignored finding. User acceptance of
-a track is blocking when that track proves at least one DESIGN-TRIGGERING area.
-A code track with only REVIEWER-ONLY areas, or no proved area, has no mandatory
-track-acceptance gate. Without mandatory track acceptance, an applicable marker
-waits for completed machine gates, the package, and resolved blocking user
-notes. In a single-track change, any blocking track acceptance and final change
-acceptance are one event. Final change acceptance is always blocking.
+owning research log accounts for every ignored finding.
+Code-track acceptance follows [track-workflow.md](track-workflow.md) § Delivery and termination.
 <!-- track-acceptance:end -->
 
 The marked block above is the protected acceptance unit of this document. Its

@@ -1,7 +1,7 @@
 # Track-based development workflow
 
 This document is the lifecycle spine for every repository change. Proved focus
-areas select design, review, and track-acceptance gates.
+areas select design and review gates.
 
 | actor | action | document | exact section |
 | --- | --- | --- | --- |
@@ -201,12 +201,7 @@ DESIGN-TRIGGERING area also requires a high-level design, user validation,
 focus reconfirmation, its own adversarial design reviewer, and final design
 approval. A track with no proved area also has no area reviewer.
 
-For design tracks, use [recursive-workflow.md](recursive-workflow.md) § Whole-subtree acceptance.
-The following proved-area acceptance rules apply to code tracks.
-
-User acceptance of a track is blocking when that track proves at
-least one DESIGN-TRIGGERING area. A code track with only REVIEWER-ONLY areas, or no
-proved area, has no mandatory track-acceptance gate. Final change acceptance is always blocking.
+Acceptance follows § Delivery and termination.
 
 <!-- focus-area-table:begin -->
 | # | focus area | the gate it adds | where the gate runs |
@@ -404,29 +399,45 @@ they change approved behavior or constraints. If an implementer discovers a
 design gap later, pause affected work and complete this route before continuing.
 
 <!-- multi-track-handoff:begin -->
-For a multi-track change, ask for handoff at the start of each design track.
-Ask again immediately before each code track's implementation.
+For a multi-track change, handoff is mandatory at the start of each design track.
+Handoff is mandatory before each code track's implementation.
 A design track plans a nested change before implementation.
+The design-track boundary precedes research, expansion, and design work.
+The code-track boundary follows all required planning and pre-implementation gates.
+These include confirmation, scope-exception decisions, applicable design gates, and enabled draft creation.
 Save subtree detail in the active subtree log first.
 Save the state summary in the root `research-log.md` last as a typed `handoff` entry.
 The summary names the subtree entry it relies on.
 For a review-fix subtree, use the affected code track's existing records.
 When no subtree log exists, save the summary in the root log alone.
-The orchestrator then asks whether to run `/slate handoff [focus]`.
-This command restores all threads and episodes in a fresh session.
-Do not propose a plain new pi session instead.
-
-The design-track boundary precedes research, expansion, and design work.
-The code-track boundary follows all required planning and pre-implementation gates.
-These include confirmation, scope-exception decisions, and applicable design gates.
-A review-fix child remains inside the affected code track and adds no new handoff boundary.
 
 Complete the prior ordinary track package and required acceptance before the next ordinary track boundary, except for a recorded permitted dependency pause.
 A subtree under that pause does not block the named unfinished sibling dependency's boundary until the recorded resume condition holds.
 Use [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for the pause conditions.
 The paused subtree's package and acceptance stay pending and still block its own completion.
+Complete requested fixes and blocking acceptance before the marker, state save, and handoff.
+Save the prior package's assessment of effects on upcoming tracks.
+Single-track changes are exempt. If one later splits, accept its initial package and fixes before the marker, save, and first handoff, before the next track.
 
-The orchestrator pauses dispatch pending an actual handoff and resume or an explicit user decision to continue in the same session. The explicit same-session decision is recorded as a user waiver in the existing override log. A resumed session follows Resume order and reconciliation and does not repeat a boundary request already recorded as completed. Same-track fix rounds do not retrigger the request. Single-track changes are exempt. This workflow rule has no automated runtime enforcement.
+The successor performs Resume reconciliation, then a short pre-track check of the design or intention.
+Use reconciled records and the prior package's assessment, or completed planning records for the first track.
+Settle facts and applicable answers before asking unresolved questions.
+Record the track, design or intention version, source state, decisions, and gates.
+Reuse the check while those inputs apply, even after another handoff.
+New evidence reopens only the affected part.
+A meaningful design or intention change requires its decisions and gates, revised records, then a second handoff before implementation.
+Finishing a required gate, confirming an answer, or rewording unchanged meaning adds no handoff.
+Further substantive changes follow the same rule.
+
+At a mandatory boundary request `/slate handoff --track-boundary`. After a post-check change use `--post-check`.
+Details: [safety-and-trust.md](safety-and-trust.md) § Fresh-session entry.
+Pause dispatch until actual transfer. Record each purpose and completion separately.
+Reuse completed boundary transfers on resume.
+Cancellation, failure, and `/slate resume` do not satisfy the boundary.
+There is no same-session substitute. The command grants no acceptance.
+Same-track fix rounds and review-fix children add no boundary or acceptance.
+Budget and user-requested handoffs keep their purposes.
+This workflow rule has no automated runtime enforcement.
 <!-- multi-track-handoff:end -->
 
 ## Risk planning and reconciliation
@@ -607,7 +618,7 @@ Before a session handoff, use § Confirmation gate's handoff block for record or
 The root state summary names the proved focus
 areas and risk-record location, current track, current implementer
 report location, last boundary marker, live registers, open findings, checks
-run, and next action. A
+run, next action, and the last shown or fallback approved comparison versions. A
 context-budget handoff, user-requested handoff, or session end with unfinished
 work triggers this summary.
 
@@ -690,17 +701,15 @@ it defines.
 <!-- delivery-package-loading:end -->
 
 For design tracks, use [recursive-workflow.md](recursive-workflow.md) § Whole-subtree acceptance.
-The following proved-area acceptance rules apply to code tracks.
+The following acceptance rules apply to code tracks.
 
 Use [delivery-packages.md](delivery-packages.md) for completion messages.
 A single-track change sends one change package without a track name and asks only final acceptance.
-User acceptance of
-a track is blocking when that track proves at least one DESIGN-TRIGGERING area.
-Where a marker applies, it waits for required track acceptance and every
-requested fix. A code track with only REVIEWER-ONLY areas, or no proved area,
-has no mandatory track-acceptance gate.
-In a single-track change, any blocking track acceptance and final change
-acceptance are one event. Final change acceptance is always blocking.
+Every code track in a multi-track change needs blocking track acceptance, regardless of proved areas.
+Where a marker applies, it waits for required track acceptance and every requested fix.
+Complete machine gates, the package, and resolved blocking user notes before the marker.
+A single-track change asks only final change acceptance.
+Final change acceptance is always blocking.
 
 Done means all required reviews and gates passed. For routine implementation
 review, the required set is the set in § Review coverage. An empty set reports

@@ -1461,14 +1461,14 @@ try {
 			dogfood: metrics(await doctrine(dogExtensions, () => dogRuntime, true, dogConfig)),
 		};
 		const exact = {
-			prompt: { portable: 3596, lines: 11, paths: 0 }, trusted: { portable: 8445, lines: 75, paths: 5 },
-			untrusted: { portable: 2752, lines: 34, paths: 4 }, draft: { portable: 8513, lines: 76, paths: 6 },
-			extensions: { portable: 9792, lines: 85, paths: 5 }, allTails: { portable: 9860, lines: 86, paths: 6 },
-			followUp: { portable: 9866, lines: 86, paths: 5 }, routing: { portable: 9845, lines: 86, paths: 5 },
-			draftFollowUp: { portable: 9934, lines: 87, paths: 6 }, draftRouting: { portable: 9909, lines: 87, paths: 6 },
-			followUpRouting: { portable: 9919, lines: 87, paths: 5 }, maximal: { portable: 9983, lines: 88, paths: 6 },
-			maximalOpen: { portable: 10181, lines: 89, paths: 6 }, maximalLinked: { portable: 10411, lines: 91, paths: 6 },
-			dogfood: { portable: 9108, lines: 87, paths: 6 },
+			prompt: { portable: 3596, lines: 11, paths: 0 }, trusted: { portable: 8404, lines: 74, paths: 5 },
+			untrusted: { portable: 2711, lines: 33, paths: 4 }, draft: { portable: 8472, lines: 75, paths: 6 },
+			extensions: { portable: 9751, lines: 84, paths: 5 }, allTails: { portable: 9819, lines: 85, paths: 6 },
+			followUp: { portable: 9825, lines: 85, paths: 5 }, routing: { portable: 9804, lines: 85, paths: 5 },
+			draftFollowUp: { portable: 9893, lines: 86, paths: 6 }, draftRouting: { portable: 9868, lines: 86, paths: 6 },
+			followUpRouting: { portable: 9878, lines: 86, paths: 5 }, maximal: { portable: 9942, lines: 87, paths: 6 },
+			maximalOpen: { portable: 10140, lines: 88, paths: 6 }, maximalLinked: { portable: 10370, lines: 90, paths: 6 },
+			dogfood: { portable: 9067, lines: 86, paths: 6 },
 		};
 		const doctrineBaselines = Object.values(rendered);
 		checkAll("doctrine-budget", "exact production renders match published portable baselines and every current baseline keeps five-percent reserve", [
@@ -1512,11 +1512,11 @@ try {
 			["19,401 rejected", aboveChars.promptText() === undefined && aboveChars.criticalErrors.some((x) => /19401 portable characters/.test(x)), aboveChars.criticalErrors],
 			["105 lines accepted", atLines.promptText()?.split("\n").length === 105, atLines.criticalErrors],
 			["106 lines rejected", aboveLines.promptText() === undefined && aboveLines.criticalErrors.some((x) => /106 lines/.test(x)), aboveLines.criticalErrors],
-			["whole-doctrine padding stays inside the supported label cap", labelAt === 79 && labelAt + 1 <= 128, { at: labelAt, above: labelAt + 1 }],
+			["whole-doctrine padding stays inside the supported label cap", labelAt === 120 && labelAt + 1 <= 128, { at: labelAt, above: labelAt + 1 }],
 			["whole-doctrine equality is accepted and first-over-limit is rejected", portable(wholeAt) === 26300 && portable(wholeAbove) === 26301 && portable(wholeAt) <= DOCTRINE_LIMITS.maximalChars && !(portable(wholeAbove) <= DOCTRINE_LIMITS.maximalChars), { at: portable(wholeAt), above: portable(wholeAbove), ceiling: DOCTRINE_LIMITS.maximalChars }],
-			["boundary compositions stay exact and below whole-doctrine cap", portable(featureOffDraft) === 26092 && portable(featureOffTight) === 26166 && portable(routingWithoutDrafts) === 26077 && portable(routingWithFollowUp) === 26151 && portable(routing) === 26141 && portable(deferred) === 26215 && [featureOffDraft, featureOffTight, routingWithoutDrafts, routingWithFollowUp, routing, deferred].every((text) => portable(text) <= DOCTRINE_LIMITS.maximalChars), { featureOffDraft: portable(featureOffDraft), featureOffTight: portable(featureOffTight), routingWithoutDrafts: portable(routingWithoutDrafts), routingWithFollowUp: portable(routingWithFollowUp), routing: portable(routing), deferred: portable(deferred) }],
-			["boundary composition line counts match the published tables", featureOffDraft.split("\n").length === 89 && featureOffTight.split("\n").length === 90 && routingWithoutDrafts.split("\n").length === 89 && routingWithFollowUp.split("\n").length === 90 && routing.split("\n").length === 90 && deferred.split("\n").length === 91, { featureOffDraft: featureOffDraft.split("\n").length, featureOffTight: featureOffTight.split("\n").length, routingWithoutDrafts: routingWithoutDrafts.split("\n").length, routingWithFollowUp: routingWithFollowUp.split("\n").length, routing: routing.split("\n").length, deferred: deferred.split("\n").length }],
-			["fresh valid-router over-cap control reaches whole-doctrine guard", portable(over) === 28085 && portable(over) > DOCTRINE_LIMITS.maximalChars, portable(over)],
+			["boundary compositions stay exact and below whole-doctrine cap", portable(featureOffDraft) === 26051 && portable(featureOffTight) === 26125 && portable(routingWithoutDrafts) === 26036 && portable(routingWithFollowUp) === 26110 && portable(routing) === 26100 && portable(deferred) === 26174 && [featureOffDraft, featureOffTight, routingWithoutDrafts, routingWithFollowUp, routing, deferred].every((text) => portable(text) <= DOCTRINE_LIMITS.maximalChars), { featureOffDraft: portable(featureOffDraft), featureOffTight: portable(featureOffTight), routingWithoutDrafts: portable(routingWithoutDrafts), routingWithFollowUp: portable(routingWithFollowUp), routing: portable(routing), deferred: portable(deferred) }],
+			["boundary composition line counts match the published tables", featureOffDraft.split("\n").length === 88 && featureOffTight.split("\n").length === 89 && routingWithoutDrafts.split("\n").length === 88 && routingWithFollowUp.split("\n").length === 89 && routing.split("\n").length === 89 && deferred.split("\n").length === 90, { featureOffDraft: featureOffDraft.split("\n").length, featureOffTight: featureOffTight.split("\n").length, routingWithoutDrafts: routingWithoutDrafts.split("\n").length, routingWithFollowUp: routingWithFollowUp.split("\n").length, routing: routing.split("\n").length, deferred: deferred.split("\n").length }],
+			["fresh valid-router over-cap control reaches whole-doctrine guard", portable(over) === 28044 && portable(over) > DOCTRINE_LIMITS.maximalChars, portable(over)],
 		]);
 	});
 
@@ -1610,7 +1610,7 @@ try {
 			ref === "HEAD" ? /^Original doctrine reference rejected: commit identity$|^Cannot read original doctrine base d8bca25ef8947e370a92a68a4d98d0e2ec9f1a53: fatal: ambiguous argument 'HEAD': unknown revision or path not in the working tree\.\n/
 				: /^Original doctrine reference rejected: commit identity$/)));
 		const provenanceControls = await Promise.all([{ ...reference, register: mode.registerSlateMode }, { ...reference, create: logicalRuntime.createLogicalRuntime }, { ...reference, directory: prefix }].map((selected) => rejects(() => verifyReference(selected), /provenance/)));
-		const fixed = newRuntimes[4], grown = { ...fixed, promptText: () => `${fixed.promptText()}${"x".repeat(48)}` };
+		const fixed = newRuntimes[4], grown = { ...fixed, promptText: () => `${fixed.promptText()}${"x".repeat(128)}` };
 		const fixedBefore = await doctrine(EMPTY_EXT, () => oldRuntimes[4], true, {}, {}, reference.register);
 		const fixedAfter = await doctrine(EMPTY_EXT, () => grown, true);
 		const pausedControls = await Promise.all(domains.paused.map(async (paused) => {
@@ -2743,44 +2743,46 @@ Automatic repair never bypasses halt rules, user notes, checks, gates, or accept
 				};
 			};
 			const phaseHandoff = resolvePhaseHandoff(workflow);
-			const expectedPhaseHandoff = normalizeText(`For a multi-track change, ask for handoff at the start of each design track.
-Ask again immediately before each code track's implementation.
+			const expectedPhaseHandoff = normalizeText(`For a multi-track change, handoff is mandatory at the start of each design track.
+Handoff is mandatory before each code track's implementation.
 A design track plans a nested change before implementation.
+The design-track boundary precedes research, expansion, and design work.
+The code-track boundary follows all required planning and pre-implementation gates.
+These include confirmation, scope-exception decisions, applicable design gates, and enabled draft creation.
 Save subtree detail in the active subtree log first.
 Save the state summary in the root \`research-log.md\` last as a typed \`handoff\` entry.
 The summary names the subtree entry it relies on.
 For a review-fix subtree, use the affected code track's existing records.
 When no subtree log exists, save the summary in the root log alone.
-The orchestrator then asks whether to run \`/slate handoff [focus]\`.
-This command restores all threads and episodes in a fresh session.
-Do not propose a plain new pi session instead.
 
-The design-track boundary precedes research, expansion, and design work.
-The code-track boundary follows all required planning and pre-implementation gates.
-These include confirmation, scope-exception decisions, and applicable design gates.
-A review-fix child remains inside the affected code track and adds no new handoff boundary.
 Complete the prior ordinary track package and required acceptance before the next ordinary track boundary, except for a recorded permitted dependency pause.
 A subtree under that pause does not block the named unfinished sibling dependency's boundary until the recorded resume condition holds.
 Use [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for the pause conditions.
 The paused subtree's package and acceptance stay pending and still block its own completion.
+Complete requested fixes and blocking acceptance before the marker, state save, and handoff.
+Save the prior package's assessment of effects on upcoming tracks.
+Single-track changes are exempt. If one later splits, accept its initial package and fixes before the marker, save, and first handoff, before the next track.
 
-The orchestrator pauses dispatch pending an actual handoff and resume or an explicit user decision to continue in the same session. The explicit same-session decision is recorded as a user waiver in the existing override log. A resumed session follows Resume order and reconciliation and does not repeat a boundary request already recorded as completed. Same-track fix rounds do not retrigger the request. Single-track changes are exempt. This workflow rule has no automated runtime enforcement.`);
-			const phaseHandoffMutationSources = [
-				workflow.replace("For a multi-track change", "For every change"),
-				workflow.replace("immediately before each code track's implementation", "after each code track's implementation"),
-				workflow.replace("at the start of each design track", "after each design track"),
-				workflow.replace("active subtree log first", "active subtree log last"),
-				workflow.replace("The summary names the subtree entry it relies on.", "The summary needs no subtree entry."),
-				workflow.replace("The explicit same-session decision is recorded as a user waiver in the existing override log.", "The explicit same-session decision needs no log entry."),
-				workflow.replace("does not repeat a boundary request already recorded as completed", "repeats every boundary request"),
-				workflow.replace("Same-track fix rounds do not retrigger the request.", "Every same-track fix round retriggers the request."),
-				workflow.replace("A review-fix child remains inside the affected code track and adds no new handoff boundary.", "Each review-fix child has a separate code-track handoff boundary."),
-				workflow.replace(literalPattern("except for a recorded permitted dependency pause"), "except for any unfinished subtree"),
-				workflow.replace(literalPattern(", except for a recorded permitted dependency pause"), ""),
-				workflow.replace(literalPattern("The paused subtree's package and acceptance stay pending and still block its own completion."), "The paused subtree needs no package or acceptance for completion."),
-				workflow.replace("Single-track changes are exempt.", "Single-track changes follow the same rule."),
-				workflow.replace("<!-- multi-track-handoff:end -->", "A same-session continuation needs no additional decision.\n<!-- multi-track-handoff:end -->"),
-			];
+The successor performs Resume reconciliation, then a short pre-track check of the design or intention.
+Use reconciled records and the prior package's assessment, or completed planning records for the first track.
+Settle facts and applicable answers before asking unresolved questions.
+Record the track, design or intention version, source state, decisions, and gates.
+Reuse the check while those inputs apply, even after another handoff.
+New evidence reopens only the affected part.
+A meaningful design or intention change requires its decisions and gates, revised records, then a second handoff before implementation.
+Finishing a required gate, confirming an answer, or rewording unchanged meaning adds no handoff.
+Further substantive changes follow the same rule.
+
+At a mandatory boundary request \`/slate handoff --track-boundary\`. After a post-check change use \`--post-check\`.
+Details: [safety-and-trust.md](safety-and-trust.md) § Fresh-session entry.
+Pause dispatch until actual transfer. Record each purpose and completion separately.
+Reuse completed boundary transfers on resume.
+Cancellation, failure, and \`/slate resume\` do not satisfy the boundary.
+There is no same-session substitute. The command grants no acceptance.
+Same-track fix rounds and review-fix children add no boundary or acceptance.
+Budget and user-requested handoffs keep their purposes.
+This workflow rule has no automated runtime enforcement.`);
+			const phaseHandoffMutationSources = expectedPhaseHandoff.split(/(?<=[.!]) /).map((sentence) => workflow.replace(literalPattern(sentence), "REMOVED HANDOFF DUTY."));
 			const phaseHandoffMutationOutcomes = phaseHandoffMutationSources.map((source) => {
 				const resolved = resolvePhaseHandoff(source);
 				return { changed: source !== workflow, accepted: resolved.count === 1 && resolved.endCount === 1 && resolved.text === expectedPhaseHandoff, resolved };
@@ -2891,6 +2893,8 @@ It does not remove or condition current required artifacts, including the
 per-track implementer report. Closing a change keeps its folder and records.
 Only the user deletes that folder.
 
+Mandatory multi-track handoffs under [track-workflow.md](track-workflow.md) § Confirmation gate are the sole unconditional-handoff exception.
+
 P11 also governs user interaction. Questions follow unresolved decisions, not
 the number of workflow steps, records, or tracks. Applicable evidence and prior
 explicit answers reduce repeated questions. They do not remove reassessment,
@@ -2905,6 +2909,7 @@ required reviews, ordered gates, user authority, or final acceptance.`;
 				p11.replace("It does not remove or condition current required artifacts", "It may condition current required artifacts"),
 				p11.replace("Questions follow unresolved decisions", "Questions follow workflow steps"),
 				p11.replace("They do not remove reassessment", "They may remove reassessment"),
+                p11.replace("sole unconditional-handoff exception", "unconditional exception for every process step"),
 			];
 			const contradictoryP11Source = `- **P11 — Proportional process.** *(Repo-local note, not from the report.)*
   Required gates and artifacts follow the confirmed size grade. Any future rule
@@ -2928,7 +2933,7 @@ required reviews, ordered gates, user authority, or final acceptance.`;
 				["design validation and reconfirmation precede one area adversary and final approval", /user validation, focus reconfirmation, its own adversarial\s*design reviewer, and final design approval/.test(focusGates), focusGates],
 				["each track assesses design coverage and re-enters before affected implementation", acceptsDesignEntry(workflow), resolveDesignEntry(workflow)],
 				["design-entry rule and boundary mutations fail while an outside edit passes", designEntryMutations.every(({ changed, rejected }) => changed && rejected) && acceptsDesignEntry(`${workflow}\nUnrelated outside-unit text.\n`), designEntryMutations],
-				["multi-track implementation boundaries require state save, handoff request, pause, override, resume de-duplication, and single-track exemption", phaseHandoff.count === 1 && phaseHandoff.endCount === 1 && phaseHandoff.text === expectedPhaseHandoff, { phaseHandoff, expectedPhaseHandoff }],
+				["mandatory boundaries require ordered acceptance, state save, transfer, reusable pre-track checks, and single-track exemption", phaseHandoff.count === 1 && phaseHandoff.endCount === 1 && phaseHandoff.text === expectedPhaseHandoff, { phaseHandoff, expectedPhaseHandoff }],
 				["weakened scope, ordering, logging, resume, fix-round, single-track, and contradictory additions fail through the same validator", phaseHandoffMutationOutcomes.every(({ changed, accepted }) => changed && !accepted), phaseHandoffMutationOutcomes],
 				["named-dependency and until-resume mutations change their intended input and fail", dependencyPauseMutationOutcomes.every(({ changed, rejected }) => changed && rejected), dependencyPauseMutationOutcomes],
 				["whitespace-wrapped dependency pause stays exact and both mutations remain discriminating", wrappedDependencyPause !== workflow && wrappedPauseHandoff.count === 1 && wrappedPauseHandoff.endCount === 1 && wrappedPauseHandoff.text === expectedPhaseHandoff && wrappedPauseMutations.every(({ changed, rejected }) => changed && rejected), { wrappedPauseHandoff, wrappedPauseMutations }],
@@ -2954,46 +2959,25 @@ required reviews, ordered gates, user authority, or final acceptance.`;
 			/**
 			 * ONE canonical record of every acceptance fact the protected units state,
 			 * and the ONLY expected source of acceptance policy in this harness. The
-			 * three outcomes are its outcome subset; `merger`, `boundaryWithAcceptance`
-			 * and `boundaryWithoutAcceptance` are acceptance facts that the earlier
-			 * exact copies already pinned, so dropping one is a visible policy loss and
-			 * not an invisible narrowing (DNL19).
+			 * governing unit owns multi-track acceptance, single-track completion, marker
+			 * prerequisites, and final acceptance. Other units carry protected pointers
+			 * rather than restating that policy.
 			 *
 			 * Each fact carries the wording of its renderings: `document` for a shipped
 			 * document, `doctrine` for the rendered session instructions, which are
 			 * compressed on purpose and paid for on every turn. A rendering is a
-			 * rendering of the SAME fact, never a second expected source. The inverted
-			 * wordings exist for the mutation check below and are never expected text.
+			 * rendering of the SAME fact, never a second expected source. Mutation checks
+			 * remove each segment and replace it with contradictory or waived duties.
 			 */
 			}
 			const ACCEPTANCE_FACTS = Object.freeze({
-				blocking: Object.freeze({
-					document: "User acceptance of a track is blocking when that track proves at least one DESIGN-TRIGGERING area.",
-					doctrine: "blocking track acceptance.",
-					invertedDocument: "User acceptance of a track is optional when that track proves at least one DESIGN-TRIGGERING area.",
-					invertedDoctrine: "optional track acceptance.",
-				}),
-				// Both document and session exemptions apply only to code tracks.
-				noMandatory: Object.freeze({
-					document: "A code track with only REVIEWER-ONLY areas, or no proved area, has no mandatory track-acceptance gate.",
-					doctrine: "REVIEWER-ONLY or no-area code tracks need no track acceptance.",
-					invertedDocument: "A code track with only REVIEWER-ONLY areas, or no proved area, has a mandatory track-acceptance gate.",
-					invertedDoctrine: "REVIEWER-ONLY or no-area code tracks need blocking track acceptance.",
-				}),
-				finalBlocking: Object.freeze({
-					document: "Final change acceptance is always blocking.",
-					doctrine: "Final acceptance always blocks.",
-				}),
-				merger: Object.freeze({
-					document: "In a single-track change, any blocking track acceptance and final change acceptance are one event.",
-				}),
-				boundaryWithAcceptance: Object.freeze({
-					document: "Where a marker applies, it waits for required track acceptance and every requested fix.",
-				}),
-				boundaryWithoutAcceptance: Object.freeze({
-					document: "Without mandatory track acceptance, an applicable marker waits for completed machine gates, the package, and resolved blocking user notes.",
-				}),
-			});
+ blocking: { document: "Every code track in a multi-track change needs blocking track acceptance, regardless of proved areas." },
+ noMandatory: { document: "A single-track change asks only final change acceptance." },
+ finalBlocking: { document: "Final change acceptance is always blocking.", doctrine: "Final acceptance always blocks." },
+ boundaryWithAcceptance: { document: "Where a marker applies, it waits for required track acceptance and every requested fix." },
+ boundaryWithoutAcceptance: { document: "Complete machine gates, the package, and resolved blocking user notes before the marker." },
+ pointer: { document: "Code-track acceptance follows [track-workflow.md](track-workflow.md) § Delivery and termination.", doctrine: "Lifecycle governs blocking code-track acceptance regardless of proved areas." },
+});
 			/** A segment that renders one canonical fact. A plain string is local framing. */
 			if (!ONLY) {
 			fact = (key) => ({ fact: key });
@@ -3678,10 +3662,10 @@ history as boundary authority. The track table is display-only.`);
 				{ id: "identifiers-ranges", source: commonRecords, start: "## Identifiers, code ranges, and design markers", extract: headingUnit("## Identifiers, code ranges, and design markers"), expected: "589179375ceade49d4f6aee8d597b88916a2839a84e5c35feb877d65bdeee338" },
 				{ id: "tool-records-and-recovery", source: commonRecords, start: "## Manual records and safe writes", extract: headingUnit("## Manual records and safe writes"), expected: "8ec25b74e709c2f8a72556947aecee40f0cff2f38947976e9609c0e2436b47e0" },
 				{ id: "resume-forks", source: recursive, start: "## Resume and folder forks", extract: headingUnit("## Resume and folder forks"), expected: "0bf3c8bcc7b36ee0dd8a5a6fd514b73f5e19b5514f5a3a1711034ac2b051729e" },
-				{ id: "handoff-pointer", source: recursive, start: "## Handoff boundaries", extract: headingUnit("## Handoff boundaries"), expected: "fc5ca34c11f5f1defb5989c10af42cbac9af901c102dc18c6c8d1b55a98cd52f" },
+				{ id: "handoff-pointer", source: recursive, start: "## Handoff boundaries", extract: headingUnit("## Handoff boundaries"), expected: "225c24f843fa607d5ebfd489e574e16641953dab064546450ea0082463bf48d0" },
 				{ id: "marker-identity", source: workflow, extract: markedUnit("marker-identity-policy"), expected: "ae24e23298695b323c803f31515c87ee8de5777cd0b0a13dba90d747c9df4308" },
 				{ id: "resume-order", source: workflow, start: "## Resume order and reconciliation", extract: headingUnit("## Resume order and reconciliation"), expected: recordDigest(resumeOrderExpected) },
-				{ id: "general-handoff", source: workflow, start: "### Handoff summary", extract: headingUnit("### Handoff summary"), expected: "deebae98b03815c0a68bd933d6d910624a5e6206f1c410a7fd9052c1d23fe64f" },
+				{ id: "general-handoff", source: workflow, start: "### Handoff summary", extract: headingUnit("### Handoff summary"), expected: "b3aaa6e40d75e2a2e311e8da00982a70b8fbe46e3921a578e01274f98fe171ee" },
 				{ id: "closed-range-feedback", source: workflow, start: "### Closed-range corrections", extract: headingUnit("### Closed-range corrections"), expected: "460af97e1d77774e44cad918e52d89a1c36ecad5ab107d25c1a8a21b191f22f3" },
 			];
 			const acceptsRecordUnit = (unit, source) => {
@@ -3770,7 +3754,7 @@ Use [change-records.md](change-records.md) § Design authority and privacy.`) },
 				["each comparison rejects its changed input and disabling it accepts that violation", pointerComparisonControls.every(({ changed, rejected, disabledAccepts }) => changed && rejected && disabledAccepts), pointerComparisonControls],
 				["outside-region edits preserve the pointer expectations", acceptsNestedPointers(`${recursive}\n## Outside pointer control\nUnrelated text.\n`), "outside control"],
 			]);
-			const completeNestedDigest = "57277fb38180b488f361f24c6dcfdc8699887225a6f36f88dcced3377eff3bff";
+			const completeNestedDigest = "a4f69001b13968b8a0dd54da7ab3c18f4177e7dd52ca971da4b7d1b3d6d2b85c";
 			const acceptsCompleteNested = (source) => createHash("sha256").update(source).digest("hex") === completeNestedDigest;
 			const completeNestedAttacks = [
 				["weaker-record-rule", `${recursive}\n## Additional record guidance\nWorkers may replace earlier log entries.\n`],
@@ -4304,7 +4288,7 @@ Use [recursive-workflow.md](recursive-workflow.md) for the nested rules.
 Use [track-workflow.md](track-workflow.md) for the common lifecycle.`);
 			const recursiveDeliveryUnits = [
 				{ id: "repairs", source: recursive, start: "## Review-fix subtrees and repair limits", expected: protectedRepairSummary },
-				{ id: "aggregate", source: recursive, start: "## Whole-subtree acceptance", expected: "f0597b033fef62b41df3390c845dbd3a0f52efa8f55e5d835c37fba871861f46" },
+				{ id: "aggregate", source: recursive, start: "## Whole-subtree acceptance", expected: "0aa1169d045aa718d1790bf1e851fae1325373759a2216766b9a0d3cc3bdcb6e" },
 				{ id: "issues", source: recursive, start: "## Packages, attribution, and issues", end: null, expected: "d2bcb68eb3d8a5de2bb055c7f56a1141d1d3f8e4bc67ad7802d6152f5ce307b0" },
 				{ id: "sources", source: deliveryPackages, start: "## Durable accounting", expected: "810e56768025e50034a34cf79921744cbd7c754dd7791dfe6b621defe4ae56d9" },
 				{ id: "workflow-accounting", source: workflow, start: "### Delivery history and accounting", expected: "fd736e66ec29aa17f54db8b8b0c1716e8f1259a486d59cd1fe5815d33c9d7a40" },
@@ -4352,19 +4336,9 @@ Use [track-workflow.md](track-workflow.md) for the common lifecycle.`);
 				const source = projectReadme.replace("The orchestrator records risks", `${heading}\n\nThe orchestrator records risks`);
 				return { id, changed: source !== projectReadme, rejected: !acceptsRecursiveDelivery(publicWorkflowUnit, source) };
 			});
-			const codeAcceptanceScope = "For design tracks, use [recursive-workflow.md](recursive-workflow.md) § Whole-subtree acceptance.\nThe following proved-area acceptance rules apply to code tracks.\n\n";
-			const scopedAcceptanceUnits = [
-				[workflow, "User acceptance of a track is blocking when that track proves at"],
-				[workflow, "Use [delivery-packages.md](delivery-packages.md) for completion messages."],
-				[userNotes, "The track package states which acceptance rule applies."],
-				[reviews, "<!-- track-acceptance:begin -->"],
-			];
-			const completionIntroduction = "Use [delivery-packages.md](delivery-packages.md) for completion messages.\nA single-track change sends one change package without a track name and asks only final acceptance.\n";
-			const acceptsCodeScope = (source, next) => {
-				const workflowCopy = next.startsWith("User acceptance") || next.startsWith("Use [delivery-packages");
-				const scopedSource = next.startsWith("User acceptance") ? source.replace(completionIntroduction, "") : source;
-				return source.split(codeAcceptanceScope).length === (workflowCopy ? 3 : 2) && scopedSource.split(codeAcceptanceScope + next).length === 2;
-			};
+const codeAcceptanceScope = "Code-track acceptance follows [track-workflow.md](track-workflow.md) § Delivery and termination.";
+ const scopedAcceptanceUnits = [[userNotes, codeAcceptanceScope], [reviews, codeAcceptanceScope]];
+ const acceptsCodeScope = (source, next) => source.split(next).length === 2;
 			const finalSectionAttacks = [
 				["issues-after-owned-end", "Creating a subtree issue approves implementation."],
 				["whole-subtree-after-owned-end", "A design track with no proved area needs no whole-subtree acceptance."],
@@ -4379,8 +4353,8 @@ Use [track-workflow.md](track-workflow.md) for the common lifecycle.`);
 				["an unrelated section after public workflow text preserves its pin", publicWorkflowRaw !== "" && publicWorkflowOutsideSection !== projectReadme && acceptsRecursiveDelivery(publicWorkflowUnit, publicWorkflowOutsideSection), "next level-two heading control"],
 				["headings inside public workflow text fail without hiding remaining rules", publicWorkflowHeadingAttacks.every(({ changed, rejected }) => changed && rejected), publicWorkflowHeadingAttacks],
 				["visible contradictions after the final marker fail the complete final section", finalSectionAttacks.every(({ changed, rejected }) => changed && rejected), finalSectionAttacks],
-				["each proved-area acceptance copy is explicitly scoped to code tracks", scopedAcceptanceUnits.every(([source, next]) => acceptsCodeScope(source, next)), "lifecycle, user notes, review termination"],
-				["missing, weakened, moved, and duplicate scope qualifiers fail", scopedAcceptanceUnits.every(([source, next]) => !acceptsCodeScope(source.replace(codeAcceptanceScope + next, next), next) && !acceptsCodeScope(source.replace(codeAcceptanceScope + next, codeAcceptanceScope.replace("apply to code tracks.", "apply to all tracks.") + next), next) && !acceptsCodeScope(source.replace(codeAcceptanceScope + next, next) + codeAcceptanceScope, next) && !acceptsCodeScope(source + codeAcceptanceScope, next)), "scope counterfactuals"],
+				["each acceptance pointer explicitly names code tracks", scopedAcceptanceUnits.every(([source, next]) => acceptsCodeScope(source, next)), "lifecycle, user notes, review termination"],
+["missing, weakened, moved, and duplicate scope qualifiers fail", scopedAcceptanceUnits.every(([source, next]) => !acceptsCodeScope(source.replace(next, ""), next) && !acceptsCodeScope(source.replace(next, next.replace("Code-track", "All-track")), next) && !acceptsCodeScope(source + "\n" + next, next)), "scope counterfactuals"],
 			]);
 
 			const acceptanceTransferExpected = normalizeText(`For each required whole-subtree or root final acceptance, use this order even after the ready flip:
@@ -5001,7 +4975,7 @@ Use [delivery-packages.md](delivery-packages.md) § Durable accounting for accou
 					expected: normalizeText(`Apply this section separately to each level pull request.
 All its code tracks and required machine reviews, track packages, requested fixes,
 and blocking user notes must be complete.
-A proved DESIGN-TRIGGERING area makes track acceptance blocking before its marker.
+Code-track acceptance follows [track-workflow.md](track-workflow.md) § Delivery and termination.
 Keep the last pull request of a subtree unmerged until every design track it
 closes has explicit whole-subtree acceptance and its design marker.
 A subtree contains a track and all its descendants.
@@ -5568,8 +5542,8 @@ The description is available on request.`),
 			// Whitespace-only reflow passes because normalizeText collapses whitespace.
 			// HTML comments count. The word layer is best-effort during refresh review.
 			// Known word-layer escapes include "retention branches" and "branches kept for retention".
-			const EXPECTED_PUBLISHING_SHA256 = "4c7133e5cca3f0f511045191db6db86979cc92b06b30ba33e81385028900eff1";
-			const EXPECTED_TRACK_WORKFLOW_SHA256 = "7fe5e6b72eb3878117908ea75476d3231c003b993656c7668138d2113950cd32";
+			const EXPECTED_PUBLISHING_SHA256 = "7abf52e1c6362a7dcd997cce14b0e4dc56c77018e0ec37c2aa0e098bcd025197";
+			const EXPECTED_TRACK_WORKFLOW_SHA256 = "9fd0a5d265e53191480424eb0bb1886f9f93efc0c1802784182abe7285dd4689";
 			const peerRetentionOwners = [
 				{ id: "nested", source: recursive, units: [historyUnit] },
 				{ id: "common", source: commonRecords, units: [privateSetUnit] },
@@ -5789,80 +5763,14 @@ A later track builds on the accepted boundary before it.`),
 			// The rendered session instructions, through the production doctrine builder.
 			const sessionDoctrine = await doctrine(we.EMPTY_WORKER_EXTENSION_SET, undefined, true, {});
 			const acceptanceUnits = [
-				{
-					id: "workflow-focus-classes",
-					where: "docs/track-workflow.md § Focus classes and gates",
-					rendering: "document",
-					source: workflow,
-					extract: regionUnit(focusClassesPattern),
-					segments: [
-						"DESIGN-TRIGGERING areas are data loss, concurrency defect, security weakness, performance degradation, and non-local logic defect. REVIEWER-ONLY areas are test-quality defect, unreadable user-facing prose, licensing exposure, consumer contract break, governing-rule defect, and unreported failure. Only a proved area adds a focus-dependent gate or area reviewer. Every proved area adds its specialist. A track with at least one proved area gets exactly one Reviewer I in a separate thread, including on documentation-only work. An implementer's approximate size above 100 counted lines also requires Reviewer I unless the track is documentation-only. With neither trigger, routine implementation review is `NOT REQUIRED`. Size alone adds no area reviewer, adversarial design reviewer, or blocking track acceptance. A proved DESIGN-TRIGGERING area also requires a high-level design, user validation, focus reconfirmation, its own adversarial design reviewer, and final design approval. A track with no proved area also has no area reviewer. For design tracks, use [recursive-workflow.md](recursive-workflow.md) § Whole-subtree acceptance. The following proved-area acceptance rules apply to code tracks.",
-						fact("blocking"),
-						fact("noMandatory"),
-						fact("finalBlocking"),
-					],
-				},
-				{
-					id: "workflow-delivery",
-					where: "docs/track-workflow.md § Delivery and termination",
-					rendering: "document",
-					source: workflow,
-					extract: regionUnit(/^(Use \[delivery-packages\.md\]\(delivery-packages\.md\) for completion messages[\s\S]*?)(?=\n\nDone means)/gm),
-					segments: [
-						"Use [delivery-packages.md](delivery-packages.md) for completion messages. A single-track change sends one change package without a track name and asks only final acceptance.",
-						fact("blocking"),
-						fact("boundaryWithAcceptance"),
-						fact("noMandatory"),
-						fact("merger"),
-						fact("finalBlocking"),
-					],
-				},
-				{
-					id: "review-termination",
-					where: "docs/review-rules.md § Termination and deferred-work routing",
-					rendering: "document",
-					source: reviews,
-					extract: markedUnit("track-acceptance"),
-					segments: [
-						"A track package can follow machine-review termination. Before the package, the owning research log accounts for every ignored finding.",
-						fact("blocking"),
-						fact("noMandatory"),
-						fact("boundaryWithoutAcceptance"),
-						fact("merger"),
-						fact("finalBlocking"),
-					],
-				},
-				{
-					id: "user-notes-packet",
-					where: "docs/user-notes.md § Package acceptance and note timing",
-					rendering: "document",
-					source: userNotes,
-					extract: regionUnit(/^(The track package states which acceptance rule applies\.[\s\S]*?)(?=\n\n## Receiving and routing a user note)/gm),
-					segments: [
-						"The track package states which acceptance rule applies.",
-						fact("blocking"),
-						fact("boundaryWithAcceptance"),
-						fact("noMandatory"),
-						"Its package reports progress and every requested decision.",
-						fact("boundaryWithoutAcceptance"),
-						fact("merger"),
-						fact("finalBlocking"),
-					],
-				},
-				{
-					id: "session-instructions",
-					where: "extension/mode.ts rule 8, as rendered",
-					rendering: "doctrine",
-					source: sessionDoctrine,
-					extract: regionUnit(/(Each proved\s+DESIGN-TRIGGERING area requires design,[\s\S]*?Final acceptance always blocks\.)/g),
-					segments: [
-						"Each proved DESIGN-TRIGGERING area requires design, user validation, focus reconfirmation, adversarial design review, final approval, and",
-						fact("blocking"),
-						fact("noMandatory"),
-						fact("finalBlocking"),
-					],
-				},
-			];
+ { id: "workflow-focus-classes", where: "Focus classes", rendering: "document", source: workflow, extract: regionUnit(focusClassesPattern), segments: ["DESIGN-TRIGGERING areas are data loss, concurrency defect, security weakness, performance degradation, and non-local logic defect. REVIEWER-ONLY areas are test-quality defect, unreadable user-facing prose, licensing exposure, consumer contract break, governing-rule defect, and unreported failure. Only a proved area adds a focus-dependent gate or area reviewer. Every proved area adds its specialist. A track with at least one proved area gets exactly one Reviewer I in a separate thread, including on documentation-only work. An implementer's approximate size above 100 counted lines also requires Reviewer I unless the track is documentation-only. With neither trigger, routine implementation review is `NOT REQUIRED`. Size alone adds no area reviewer, adversarial design reviewer, or blocking track acceptance. A proved DESIGN-TRIGGERING area also requires a high-level design, user validation, focus reconfirmation, its own adversarial design reviewer, and final design approval. A track with no proved area also has no area reviewer. Acceptance follows § Delivery and termination."] },
+ { id: "workflow-delivery", where: "Delivery and termination", rendering: "document", source: workflow, extract: regionUnit(/^(Use \[delivery-packages\.md\]\(delivery-packages\.md\) for completion messages[\s\S]*?)(?=\n\nDone means)/gm), segments: [
+ "Use [delivery-packages.md](delivery-packages.md) for completion messages. A single-track change sends one change package without a track name and asks only final acceptance.",
+ fact("blocking"), fact("boundaryWithAcceptance"), fact("boundaryWithoutAcceptance"), fact("noMandatory"), fact("finalBlocking")] },
+ { id: "review-termination", where: "Review termination", rendering: "document", source: reviews, extract: markedUnit("track-acceptance"), segments: ["A track package can follow machine-review termination. Before the package, the owning research log accounts for every ignored finding.", fact("pointer")] },
+ { id: "user-notes-packet", where: "Package acceptance and note timing", rendering: "document", source: userNotes, extract: regionUnit(/^(Code-track acceptance follows[\s\S]*?)(?=^## )/gm), segments: [fact("pointer"), "Design tracks follow [recursive-workflow.md](recursive-workflow.md) § Whole-subtree acceptance."] },
+ { id: "session-instructions", where: "rule 8", rendering: "doctrine", source: sessionDoctrine, extract: regionUnit(/(Each proved\s+DESIGN-TRIGGERING area requires design,[\s\S]*?Final acceptance always blocks\.)/g), segments: ["Each proved DESIGN-TRIGGERING area requires design, user validation, focus reconfirmation, adversarial design review, and final approval.", fact("pointer"), fact("finalBlocking")] },
+];
 			const unitResults = acceptanceUnits.map((unit) => {
 				const resolved = unit.extract(unit.source);
 				return { id: unit.id, where: unit.where, count: resolved.count, actual: resolved.text, expected: composeUnit(unit, ACCEPTANCE_FACTS) };
@@ -5891,31 +5799,15 @@ A later track builds on the accepted boundary before it.`),
 			 * outside every unit, including text appended after the terminal end marker
 			 * (FG3), changes no unit.
 			 */
-			const mutateUnit = (unit, actual) => {
-				const inverted = unit.rendering === "document" ? "invertedDocument" : "invertedDoctrine";
-				const blocking = renderFact(ACCEPTANCE_FACTS, "blocking", unit.rendering);
-				const noMandatory = renderFact(ACCEPTANCE_FACTS, "noMandatory", unit.rendering);
-				const finalBlocking = renderFact(ACCEPTANCE_FACTS, "finalBlocking", unit.rendering);
-				return {
-					additiveWaiver: actual.replace(finalBlocking, `${finalBlocking.replace(/\.$/, "")}, unless the orchestrator decides to skip it.`),
-					blockingRemoved: normalizeText(actual.replace(blocking, "")),
-					blockingInverted: actual.replace(blocking, renderFact(ACCEPTANCE_FACTS, "blocking", inverted)),
-					noMandatoryInverted: actual.replace(noMandatory, renderFact(ACCEPTANCE_FACTS, "noMandatory", inverted)),
-					noMandatoryUnscoped: actual.replace(noMandatory, noMandatory.replace("code track", "track")),
-				};
-			};
-			const staleFacts = Object.freeze({
-				...ACCEPTANCE_FACTS,
-				noMandatory: Object.freeze({
-					...ACCEPTANCE_FACTS.noMandatory,
-					document: "A track with only REVIEWER-ONLY areas has no mandatory track-acceptance gate.",
-					doctrine: "REVIEWER-ONLY tracks need no track acceptance.",
-				}),
-			});
+			const mutateUnit = (unit, actual) => Object.fromEntries(unit.segments.flatMap((segment, i) => {
+ const text = typeof segment === "string" ? segment : renderFact(ACCEPTANCE_FACTS, segment.fact, unit.rendering);
+ return [["removed-" + i, normalizeText(actual.replace(text, ""))], ["contradiction-" + i, actual.replace(text, "Acceptance is optional.")], ["waiver-" + i, actual.replace(text, text + " The orchestrator may waive acceptance.")]];
+}));
+			const staleFacts = Object.fromEntries(Object.entries(ACCEPTANCE_FACTS).map(([key, value]) => [key, Object.fromEntries(Object.keys(value).map((rendering) => [rendering, "Only DESIGN-TRIGGERING areas require acceptance."]))]));
 			const mutationResults = acceptanceUnits.map((unit) => ({
 				id: unit.id,
 				mutations: mutateUnit(unit, unitById.get(unit.id)?.actual ?? ""),
-				stale: composeUnit(unit, staleFacts),
+				stale: composeUnit(unit, staleFacts).replace("Acceptance follows § Delivery and termination.", "Only DESIGN-TRIGGERING areas require acceptance."),
 			}));
 			const inertMutations = mutationResults.flatMap(({ id, mutations }) => Object.entries(mutations).filter(([, text]) => text === (unitById.get(id)?.actual ?? "")).map(([name]) => `${id}:${name}`));
 			const acceptedMutations = mutationResults.flatMap(({ id, mutations }) => Object.entries(mutations).filter(([, text]) => text === (unitById.get(id)?.expected ?? "")).map(([name]) => `${id}:${name}`));
@@ -5926,7 +5818,12 @@ A later track builds on the accepted boundary before it.`),
 			const elsewhereUnits = acceptanceUnits.filter((unit) => unit.source === workflow).map((unit) => unit.extract(workflowElsewhere));
 			const doctrineElsewhere = sessionDoctrine.replace("Never for routine dispatch.", "Do not read for routine dispatch.");
 			const doctrineElsewhereUnit = acceptanceUnits[4].extract(doctrineElsewhere);
-			checkAll("contract-acceptance-mutations", "every unit rejects a contradictory waiver, a removed blocking fact, an inverted blocking fact, an inverted no-acceptance fact, and a stale canonical copy. Benign text in another section, including text appended after the terminal end marker, leaves every unit exact", [
+			checkAll("contract-acceptance-mutations", "every unit rejects removed segments, contradictory acceptance, additive waivers, and stale risk-dependent policy. Benign text in another section leaves every unit exact", [
+				["a source-level appended contradiction is rejected", (() => {
+					const unit = acceptanceUnits.find(({ id }) => id === "user-notes-packet");
+					const changed = userNotes.replace("## Receiving and routing a user note", "Acceptance is optional for every code track.\n\n## Receiving and routing a user note");
+					return changed !== userNotes && unit.extract(changed).count === 1 && unit.extract(changed).text !== composeUnit(unit, ACCEPTANCE_FACTS);
+				})(), "contradiction before the next heading"],
 				["every mutation really changes the text it attacks", inertMutations.length === 0, inertMutations],
 				["no mutation matches the canonical expectation", acceptedMutations.length === 0, acceptedMutations],
 				["a stale canonical copy matches no unit", staleAccepted.length === 0, { staleAccepted, staleNoMandatory: staleFacts.noMandatory.document }],
@@ -6889,14 +6786,11 @@ it defines.`);
 				expectedPackageLoading,
 				normalizeText(`Use [delivery-packages.md](delivery-packages.md) for completion messages.
 A single-track change sends one change package without a track name and asks only final acceptance.
-User acceptance of
-a track is blocking when that track proves at least one DESIGN-TRIGGERING area.
-Where a marker applies, it waits for required track acceptance and every
-requested fix.
-A code track with only REVIEWER-ONLY areas, or no proved area,
-has no mandatory track-acceptance gate.
-In a single-track change, any blocking track acceptance and final change
-acceptance are one event. Final change acceptance is always blocking.`),
+Every code track in a multi-track change needs blocking track acceptance, regardless of proved areas.
+Where a marker applies, it waits for required track acceptance and every requested fix.
+Complete machine gates, the package, and resolved blocking user notes before the marker.
+A single-track change asks only final change acceptance.
+Final change acceptance is always blocking.`),
 				normalizeText(`With draft publishing, [pr-publishing.md](pr-publishing.md) § After the merge
 owns per-level delivery accounting and root closure.
 Without publishing, use all owning accounting sources defined in
@@ -6933,7 +6827,7 @@ an old change folder.`),
 				reviewedReference("docs/pr-publishing.md", ["# Draft-PR publishing", "## Ready-for-review flip"], `Apply this section separately to each level pull request.
 All its code tracks and required machine reviews, track packages, requested fixes,
 and blocking user notes must be complete.
-A proved DESIGN-TRIGGERING area makes track acceptance blocking before its marker.
+Code-track acceptance follows [track-workflow.md](track-workflow.md) § Delivery and termination.
 Keep the last pull request of a subtree unmerged until every design track it
 closes has explicit whole-subtree acceptance and its design marker.
 A subtree contains a track and all its descendants.

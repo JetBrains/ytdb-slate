@@ -148,7 +148,7 @@ An unchanged result and template need no rewrite.
 Apply this section separately to each level pull request.
 All its code tracks and required machine reviews, track packages, requested fixes,
 and blocking user notes must be complete.
-A proved DESIGN-TRIGGERING area makes track acceptance blocking before its marker.
+Code-track acceptance follows [track-workflow.md](track-workflow.md) § Delivery and termination.
 Keep the last pull request of a subtree unmerged until every design track it
 closes has explicit whole-subtree acceptance and its design marker.
 A subtree contains a track and all its descendants.

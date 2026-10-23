@@ -534,42 +534,42 @@ reads. Any subset fits because removing ranges cannot increase union size.
 
 | Phase | Publishing | Plan | Required bytes | Estimated tokens | Byte limit | Token limit | Conditional maximum bytes | Estimated tokens | Byte limit | Token limit |
 | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1. Research | off | ordinary | 74396 | 18599 | 75856 | 18964 | 143901 | 35976 | 144492 | 36123 |
-| 1. Research | off | nested | 125460 | 31365 | 129137 | 32285 | 194965 | 48742 | 197773 | 49444 |
-| 1. Research | on | ordinary | 87806 | 21952 | 92700 | 23175 | 157311 | 39328 | 161336 | 40334 |
-| 1. Research | on | nested | 138870 | 34718 | 145981 | 36496 | 208375 | 52094 | 214617 | 53655 |
-| 2. Risk assessment | off | ordinary | 111197 | 27800 | 114401 | 28601 | 180702 | 45176 | 183038 | 45760 |
-| 2. Risk assessment | off | nested | 162261 | 40566 | 167682 | 41921 | 231766 | 57942 | 236319 | 59080 |
-| 2. Risk assessment | on | ordinary | 124607 | 31152 | 131245 | 32812 | 194112 | 48528 | 199882 | 49971 |
-| 2. Risk assessment | on | nested | 175671 | 43918 | 184526 | 46132 | 245176 | 61294 | 253163 | 63291 |
-| 3. Design validation | off | ordinary | 111197 | 27800 | 114401 | 28601 | 180702 | 45176 | 183038 | 45760 |
-| 3. Design validation | off | nested | 162261 | 40566 | 167682 | 41921 | 231766 | 57942 | 236319 | 59080 |
-| 3. Design validation | on | ordinary | 124607 | 31152 | 131245 | 32812 | 194112 | 48528 | 199882 | 49971 |
-| 3. Design validation | on | nested | 175671 | 43918 | 184526 | 46132 | 245176 | 61294 | 253163 | 63291 |
-| 4. Focus reconfirmation | off | ordinary | 111197 | 27800 | 114401 | 28601 | 180702 | 45176 | 183038 | 45760 |
-| 4. Focus reconfirmation | off | nested | 162261 | 40566 | 167682 | 41921 | 231766 | 57942 | 236319 | 59080 |
-| 4. Focus reconfirmation | on | ordinary | 124607 | 31152 | 131245 | 32812 | 194112 | 48528 | 199882 | 49971 |
-| 4. Focus reconfirmation | on | nested | 175671 | 43918 | 184526 | 46132 | 245176 | 61294 | 253163 | 63291 |
-| 5. Adversarial design review | off | ordinary | 134505 | 33627 | 138753 | 34689 | 231794 | 57949 | 236562 | 59141 |
-| 5. Adversarial design review | off | nested | 185569 | 46393 | 192034 | 48009 | 282858 | 70715 | 289844 | 72461 |
-| 5. Adversarial design review | on | ordinary | 147915 | 36979 | 155597 | 38900 | 245204 | 61301 | 253406 | 63352 |
-| 5. Adversarial design review | on | nested | 198979 | 49745 | 208878 | 52220 | 296268 | 74067 | 306688 | 76672 |
-| 6. Final design approval | off | ordinary | 134505 | 33627 | 138753 | 34689 | 231794 | 57949 | 236562 | 59141 |
-| 6. Final design approval | off | nested | 185569 | 46393 | 192034 | 48009 | 282858 | 70715 | 289844 | 72461 |
-| 6. Final design approval | on | ordinary | 147915 | 36979 | 155597 | 38900 | 245204 | 61301 | 253406 | 63352 |
-| 6. Final design approval | on | nested | 198979 | 49745 | 208878 | 52220 | 296268 | 74067 | 306688 | 76672 |
-| 7. Track loop | off | ordinary | 158012 | 39503 | 163384 | 40846 | 295060 | 73765 | 302924 | 75731 |
-| 7. Track loop | off | nested | 209076 | 52269 | 216665 | 54167 | 295060 | 73765 | 302924 | 75731 |
-| 7. Track loop | on | ordinary | 171422 | 42856 | 180228 | 45057 | 308470 | 77118 | 319769 | 79943 |
-| 7. Track loop | on | nested | 222486 | 55622 | 233509 | 58378 | 308470 | 77118 | 319769 | 79943 |
-| 8. Final acceptance | off | ordinary | 158012 | 39503 | 163384 | 40846 | 295060 | 73765 | 302924 | 75731 |
-| 8. Final acceptance | off | nested | 209076 | 52269 | 216665 | 54167 | 295060 | 73765 | 302924 | 75731 |
-| 8. Final acceptance | on | ordinary | 171422 | 42856 | 180228 | 45057 | 308470 | 77118 | 319769 | 79943 |
-| 8. Final acceptance | on | nested | 222486 | 55622 | 233509 | 58378 | 308470 | 77118 | 319769 | 79943 |
-| 9. Delivery | off | ordinary | 158012 | 39503 | 163384 | 40846 | 295489 | 73873 | 302924 | 75731 |
-| 9. Delivery | off | nested | 209076 | 52269 | 216665 | 54167 | 295489 | 73873 | 302924 | 75731 |
-| 9. Delivery | on | ordinary | 171422 | 42856 | 180228 | 45057 | 308470 | 77118 | 319769 | 79943 |
-| 9. Delivery | on | nested | 222486 | 55622 | 233509 | 58378 | 308470 | 77118 | 319769 | 79943 |
+| 1. Research | off | ordinary | 74960 | 18740 | 75856 | 18964 | 143952 | 35988 | 144492 | 36123 |
+| 1. Research | off | nested | 125937 | 31485 | 129137 | 32285 | 194929 | 48733 | 197773 | 49444 |
+| 1. Research | on | ordinary | 88385 | 22097 | 92700 | 23175 | 157377 | 39345 | 161336 | 40334 |
+| 1. Research | on | nested | 139362 | 34841 | 145981 | 36496 | 208354 | 52089 | 214617 | 53655 |
+| 2. Risk assessment | off | ordinary | 111761 | 27941 | 114401 | 28601 | 180753 | 45189 | 183038 | 45760 |
+| 2. Risk assessment | off | nested | 162738 | 40685 | 167682 | 41921 | 231730 | 57933 | 236319 | 59080 |
+| 2. Risk assessment | on | ordinary | 125186 | 31297 | 131245 | 32812 | 194178 | 48545 | 199882 | 49971 |
+| 2. Risk assessment | on | nested | 176163 | 44041 | 184526 | 46132 | 245155 | 61289 | 253163 | 63291 |
+| 3. Design validation | off | ordinary | 111761 | 27941 | 114401 | 28601 | 180753 | 45189 | 183038 | 45760 |
+| 3. Design validation | off | nested | 162738 | 40685 | 167682 | 41921 | 231730 | 57933 | 236319 | 59080 |
+| 3. Design validation | on | ordinary | 125186 | 31297 | 131245 | 32812 | 194178 | 48545 | 199882 | 49971 |
+| 3. Design validation | on | nested | 176163 | 44041 | 184526 | 46132 | 245155 | 61289 | 253163 | 63291 |
+| 4. Focus reconfirmation | off | ordinary | 111761 | 27941 | 114401 | 28601 | 180753 | 45189 | 183038 | 45760 |
+| 4. Focus reconfirmation | off | nested | 162738 | 40685 | 167682 | 41921 | 231730 | 57933 | 236319 | 59080 |
+| 4. Focus reconfirmation | on | ordinary | 125186 | 31297 | 131245 | 32812 | 194178 | 48545 | 199882 | 49971 |
+| 4. Focus reconfirmation | on | nested | 176163 | 44041 | 184526 | 46132 | 245155 | 61289 | 253163 | 63291 |
+| 5. Adversarial design review | off | ordinary | 134676 | 33669 | 138753 | 34689 | 231452 | 57863 | 236562 | 59141 |
+| 5. Adversarial design review | off | nested | 185653 | 46414 | 192034 | 48009 | 282429 | 70608 | 289844 | 72461 |
+| 5. Adversarial design review | on | ordinary | 148101 | 37026 | 155597 | 38900 | 244877 | 61220 | 253406 | 63352 |
+| 5. Adversarial design review | on | nested | 199078 | 49770 | 208878 | 52220 | 295854 | 73964 | 306688 | 76672 |
+| 6. Final design approval | off | ordinary | 134676 | 33669 | 138753 | 34689 | 231452 | 57863 | 236562 | 59141 |
+| 6. Final design approval | off | nested | 185653 | 46414 | 192034 | 48009 | 282429 | 70608 | 289844 | 72461 |
+| 6. Final design approval | on | ordinary | 148101 | 37026 | 155597 | 38900 | 244877 | 61220 | 253406 | 63352 |
+| 6. Final design approval | on | nested | 199078 | 49770 | 208878 | 52220 | 295854 | 73964 | 306688 | 76672 |
+| 7. Track loop | off | ordinary | 157526 | 39382 | 163384 | 40846 | 294631 | 73658 | 302924 | 75731 |
+| 7. Track loop | off | nested | 208503 | 52126 | 216665 | 54167 | 294631 | 73658 | 302924 | 75731 |
+| 7. Track loop | on | ordinary | 170951 | 42738 | 180228 | 45057 | 308056 | 77014 | 319769 | 79943 |
+| 7. Track loop | on | nested | 221928 | 55482 | 233509 | 58378 | 308056 | 77014 | 319769 | 79943 |
+| 8. Final acceptance | off | ordinary | 157526 | 39382 | 163384 | 40846 | 294631 | 73658 | 302924 | 75731 |
+| 8. Final acceptance | off | nested | 208503 | 52126 | 216665 | 54167 | 294631 | 73658 | 302924 | 75731 |
+| 8. Final acceptance | on | ordinary | 170951 | 42738 | 180228 | 45057 | 308056 | 77014 | 319769 | 79943 |
+| 8. Final acceptance | on | nested | 221928 | 55482 | 233509 | 58378 | 308056 | 77014 | 319769 | 79943 |
+| 9. Delivery | off | ordinary | 157526 | 39382 | 163384 | 40846 | 295060 | 73765 | 302924 | 75731 |
+| 9. Delivery | off | nested | 208503 | 52126 | 216665 | 54167 | 295060 | 73765 | 302924 | 75731 |
+| 9. Delivery | on | ordinary | 170951 | 42738 | 180228 | 45057 | 308056 | 77014 | 319769 | 79943 |
+| 9. Delivery | on | nested | 221928 | 55482 | 233509 | 58378 | 308056 | 77014 | 319769 | 79943 |
 
 Conditional sets have the following whole-document costs. Early notes cost
 zero extra after required notes enter phase 7. Unusual prose costs zero extra
@@ -584,10 +584,10 @@ when no applicable project commit rule exists. It does not enable publishing.
 | Conditional set | Bytes | Estimated tokens |
 | --- | ---: | ---: |
 | Default commit format | 429 | 108 |
-| Rationale | 30124 | 7531 |
+| Rationale | 30268 | 7567 |
 | Unusual prose | 28076 | 7019 |
-| Early notes | 11305 | 2827 |
-| Ordinary split | 51064 | 12766 |
+| Early notes | 10648 | 2662 |
+| Ordinary split | 50977 | 12745 |
 | Manual review | 55860 | 13965 |
 
 Private evidence, designs, reports, source chains, project additions, configured

@@ -314,10 +314,9 @@ Plan. Workers execute.
    Lifecycle: ${TRACK_WORKFLOW_DOC}. User judges the solution.
    Read change-records.md for every change. At planning/resume, load recursive-workflow.md for any planned design or review-fix track, and before proposing a review-fix split. Read applicable sections before use.
    Apply evidence and prior answers first.
-   Evidence cannot authorize. Reuse approvals only for covered decisions with current conditions and prerequisites complete when answered. Ask only unresolved parts. Explain changes. Preserve gates and reviews. Each proved DESIGN-TRIGGERING area requires design, user
-   validation, focus reconfirmation, adversarial design review, final approval,
-   and blocking track acceptance.
-   REVIEWER-ONLY or no-area code tracks need no track acceptance.
+   Evidence cannot authorize. Reuse approvals only for covered decisions with current prerequisites met when answered. Ask unresolved parts. Explain changes. Preserve gates and reviews. Each proved DESIGN-TRIGGERING area requires design, user
+   validation, focus reconfirmation, adversarial design review, and final approval.
+   Lifecycle governs blocking code-track acceptance regardless of proved areas.
    Final acceptance always blocks.
    Lifecycle governs short plans, internal splits, packages and behavior summaries.
    ${rule8Tail}${routingRecommendationTail}
@@ -357,7 +356,7 @@ function loadDoctrineExtra(cwd: string, config: SlateConfig, trusted: boolean): 
 
 const PAUSED_ADDENDUM = `
 
-# PAUSED — context budget exceeded
+# PAUSED
 
 Slate is paused for handoff. Orchestrator worker dispatches remain available.
 Save the project state in the research log through exactly one worker at a time.
@@ -367,9 +366,6 @@ do not claim that the state was saved. Do not start other user work. Reply with
 a concise handoff brief (overall goal, per-thread state with episode ids,
 immediate next actions) and direct the user to run /slate handoff [optional
 focus].`;
-
-const PAUSED_INPUT_REFUSAL =
-	"slate: paused for handoff — input rejected. Run /slate resume or /slate handoff [focus].";
 
 /**
  * Report one refused prompt on exactly ONE channel, and never throw.
@@ -387,17 +383,19 @@ const PAUSED_INPUT_REFUSAL =
  *
  * It sends no message and starts no turn.
  */
-function reportPausedInput(ctx: ExtensionContext): void {
+function reportPausedInput(ctx: ExtensionContext, reason: SlateStore["pauseReason"]): void {
+	const flag = reason === "context-budget" ? " --context-budget" : "";
+	const message = `slate: paused for handoff — input rejected. Run /slate resume or /slate handoff${flag} [focus].`;
 	try {
 		if (ctx.hasUI) {
-			ctx.ui.notify(PAUSED_INPUT_REFUSAL, "warning");
+			ctx.ui.notify(message, "warning");
 			return;
 		}
 	} catch {
 		/* fall through to the console report */
 	}
 	try {
-		console.warn(PAUSED_INPUT_REFUSAL);
+		console.warn(message);
 	} catch {
 		/* every channel failed; the refusal below still holds */
 	}
@@ -546,7 +544,7 @@ export function registerSlateMode(
 			pi.setActiveTools([...new Set([...baseline, ...extras])].filter((name) => name !== "slate_change"));
 			savedTools = undefined;
 		}
-		if (!on) store.paused = false; // a pause is meaningless outside orchestrator mode
+		if (!on) { store.paused = false; store.pauseReason = undefined; } // a pause is meaningless outside orchestrator mode
 		store.orchestratorMode = on;
 		if (persist) store.save();
 		updateStatus();
@@ -596,7 +594,7 @@ export function registerSlateMode(
 	// ordinary user input and receives the same pause rule.
 	pi.on("input", async (event, ctx) => {
 		if (store.orchestratorMode && store.paused) {
-			reportPausedInput(ctx);
+			reportPausedInput(ctx, store.pauseReason);
 			return { action: "handled" };
 		}
 		// Registered slash commands return before pi emits input. Extension and
@@ -651,7 +649,8 @@ export function registerSlateMode(
 					if (ctx.hasUI) ctx.ui.notify("slate: orchestrator mode is not active — nothing to hand off.", "warning");
 					return;
 				}
-				await hooks.startHandoff(ctx, rest.join(" ") || undefined, summaryVisible);
+				const purpose = rest[0] === "--track-boundary" ? "track-boundary" : rest[0] === "--post-check" ? "post-check" : rest[0] === "--context-budget" ? "context-budget" : rest[0] === "--user-request" ? "user-request" : undefined;
+				await hooks.startHandoff(ctx, (purpose === undefined ? rest : rest.slice(1)).join(" ") || undefined, summaryVisible, purpose);
 				return;
 			}
 			if (arg === "effective") {
@@ -662,9 +661,9 @@ export function registerSlateMode(
 				return;
 			}
 			if (arg === "resume") {
-				store.paused = false;
-				store.save();
-				if (ctx.hasUI) ctx.ui.notify("slate: pause cleared — user prompts are accepted again.", "info");
+				if (hooks.resume) { if (!await hooks.resume(ctx)) return; }
+				else { store.paused = false; store.pauseReason = undefined; store.save(); }
+				if (ctx.hasUI) ctx.ui.notify("slate: pause cleared — user prompts are accepted again. If work does not continue, ask to continue.", "info");
 				return;
 			}
 			const target = arg === "on" ? true : arg === "off" ? false : !store.orchestratorMode;
@@ -703,7 +702,7 @@ export function registerSlateMode(
 			...loadDoctrineExtra(ctx.cwd, config, trusted).map((d) => `\n\n${d}`),
 			...docs.map((d) => `\n\n${d}`),
 		];
-		if (store.paused) parts.push(PAUSED_ADDENDUM);
+		if (store.paused && store.pauseReason !== "adoption") parts.push(store.pauseReason === "context-budget" ? PAUSED_ADDENDUM.replace("/slate handoff", "/slate handoff --context-budget") : PAUSED_ADDENDUM);
 		return { systemPrompt: event.systemPrompt + parts.join("") };
 	});
 

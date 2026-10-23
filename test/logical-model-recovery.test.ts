@@ -202,6 +202,17 @@ test("registered main hooks refuse busy overlap and recover only after proved ex
 	assert.equal(switches, 1);
 	assert.equal(sent.length, 1);
 	assert.match((sent[0] as any).content, /Do not replay a completed call/);
+	const notices: string[] = [];
+	Object.assign(ctx, { hasUI: true, ui: { notify: (text: string) => notices.push(text) } });
+	const started = handlers.get("message_start")!;
+	const message = sent[0] as any;
+	assert.equal(notices.length, 0);
+	await started({ message: { ...message, role: "custom", details: { attemptId: "unrelated" } } }, ctx);
+	assert.equal(notices.length, 0);
+	await started({ message: { ...message, role: "custom" } }, ctx);
+	await started({ message: { ...message, role: "custom" } }, ctx);
+	assert.equal(notices.filter((text) => text.includes("continuation started")).length, 1);
+	assert.equal(Object.keys(runtime.rememberedSelections().providers ?? {}).length, 0, "delivery acknowledgement is not recovery success");
 	assert.deepEqual(runtime.ownership.acquire("other", SAVED_DEFAULT_RESOURCE_KEY), { kind: "busy", resource: "saved-default", key: SAVED_DEFAULT_RESOURCE_KEY });
 	await turn({ message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "recovered" }] } }, ctx);
 	await settle({}, ctx);

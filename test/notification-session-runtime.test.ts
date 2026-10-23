@@ -14,6 +14,7 @@ import { NotificationDispatcher, type NotificationMessage } from "../extension/n
 import { registerSlateHandoff } from "../extension/handoff.ts";
 import { registerSlateMode } from "../extension/mode.ts";
 import { SlateStore } from "../extension/state.ts";
+import { createLogicalRuntime } from "../extension/logical-model-runtime.ts";
 import { createBaseModelTracker } from "../extension/base-model.ts";
 import { EMPTY_WORKER_EXTENSION_SET } from "../extension/worker-extensions.ts";
 import { InteractiveMode } from "../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/interactive-mode.js";
@@ -63,7 +64,8 @@ async function live(t: TestContext, before: ExtensionFactory, after: ExtensionFa
 		pi.on("session_shutdown", events.retire); events.registerSettlement();
 		if (options.handoff) {
 			const store = new SlateStore(pi); store.orchestratorMode = true;
-			const hooks = registerSlateHandoff(pi, store, () => config, () => createBaseModelTracker({ warn: assert.fail }), undefined, events.ownReplacement);
+			const logical = createLogicalRuntime({ trusted: true, projectConfig: { router: { models: { replace: [{ model: "luna-6", effort: "off", capabilityRating: 40, costRating: 40, preferredProvider: "notification-offline", providers: { "notification-offline": "main" } }] } } } });
+			const hooks = registerSlateHandoff(pi, store, () => config, () => createBaseModelTracker({ warn: assert.fail }), () => logical, events.ownReplacement);
 			registerSlateMode(pi, store, hooks, () => config, () => EMPTY_WORKER_EXTENSION_SET);
 		}
 	};
@@ -75,16 +77,20 @@ async function live(t: TestContext, before: ExtensionFactory, after: ExtensionFa
 		});
 		const created = await createAgentSessionFromServices({ services, sessionManager, sessionStartEvent,
 			model: modelRuntime.getModel("notification-offline", "main"), thinkingLevel: "off", noTools: options.tool ? undefined : "all" });
-		await created.session.bindExtensions({ mode: "tui", commandContextActions: {
-			waitForIdle: () => created.session.waitForIdle(), newSession: (options) => runtime.newSession(options),
-			fork: (id, options) => runtime.fork(id, options), switchSession: (path, options) => runtime.switchSession(path, options),
-			navigateTree: (id, options) => created.session.navigateTree(id, options), reload: () => created.session.reload(),
-		}, uiContext: {
-			notify() {}, setWidget() {}, setStatus() {}, onTerminalInput: () => () => {},
-		} as unknown as ExtensionUIContext });
 		return { ...created, services, diagnostics: services.diagnostics };
 	};
 	const runtime = await createAgentSessionRuntime(createRuntime, { cwd: root, agentDir: agent, sessionManager: options.persisted ? SessionManager.create(root, join(root, "sessions")) : SessionManager.inMemory(root) });
+	const bind = async (session: typeof runtime.session) => {
+		await session.bindExtensions({ mode: "tui", commandContextActions: {
+			waitForIdle: () => session.waitForIdle(), newSession: (options) => runtime.newSession(options),
+			fork: (id, options) => runtime.fork(id, options), switchSession: (path, options) => runtime.switchSession(path, options),
+			navigateTree: (id, options) => session.navigateTree(id, options), reload: () => session.reload(),
+		}, uiContext: {
+			notify() {}, setWidget() {}, setStatus() {}, onTerminalInput: () => () => {},
+		} as unknown as ExtensionUIContext });
+	};
+	runtime.setRebindSession(bind);
+	await bind(runtime.session);
 	t.after(async () => { await runtime.dispose(); rmSync(root, { recursive: true, force: true }); });
 	const flush = async () => {
 		for (let round = 0; round < 3; round++) {

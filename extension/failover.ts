@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { isContextOverflow, isRetryableAssistantError, type AssistantMessage } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { currentModelSpec, readLiveEffort, type BaseModelTracker } from "./base-model.ts";
@@ -49,13 +50,23 @@ export function registerOrchestratorFailover(
 	getRetryPolicy: () => CompressorRetryPolicy | undefined,
 	getSessionEpoch: () => number = () => 0,
 	observer?: { cancelled: () => boolean; finished: () => void },
+	isPaused: () => boolean = () => false,
 ): { recovering: () => boolean } {
 	const evidence = new MainRetryEvidence();
 	let operation: MainOperation | undefined;
+	let pendingStart: { id: string; operation: MainOperation; label: string } | undefined;
+	pi.on("message_start", (event, ctx) => {
+		const pending = pendingStart;
+		const message = event.message;
+		if (!pending || message.role !== "custom" || message.customType !== "slate-failover" || (message.details as { attemptId?: unknown } | undefined)?.attemptId !== pending.id) return;
+		pendingStart = undefined;
+		if (!ctx.signal?.aborted && !observer?.cancelled() && !isPaused() && isCurrent(pending.operation)) notice(ctx, pending.label);
+	});
 
 	const finish = (held: MainOperation): void => {
 		if (operation !== held) return;
 		operation = undefined;
+		pendingStart = undefined;
 		try { held.lease.release(); } catch { /* idempotent lease contract */ }
 		// Notify only the session that owned this recovery, after releasing ownership.
 		if (held.runtime.ownership.isCurrentLifecycle() && held.sessionEpoch === getSessionEpoch() && getRuntime() === held.runtime) observer?.finished();
@@ -120,8 +131,13 @@ export function registerOrchestratorFailover(
 			current.active = candidate;
 			evidence.reset();
 			try {
-				pi.sendMessage({ customType: "slate-failover", content: CONTINUATION, display: true }, { deliverAs: "steer", triggerTurn: true });
-				notice(ctx, `slate: main recovery switched to ${to} at ${actual}.`);
+				if (isPaused()) {
+					stop(current, ctx, "slate: recovery stopped. Run /slate resume, then ask to continue. An adoption pause also requires a permitted model and effort.");
+					return;
+				}
+				const attemptId = randomUUID();
+				pendingStart = { id: attemptId, operation: current, label: `slate: recovery continuation started on ${to} at ${actual}.` };
+				pi.sendMessage({ customType: "slate-failover", content: CONTINUATION, details: { attemptId }, display: false }, { deliverAs: "steer", triggerTurn: true });
 			} catch (error) {
 				stop(current, ctx, `slate: main recovery could not continue after switching to ${sanitizeForNotify(to)} — ${sanitizeForNotify(error instanceof Error ? error.message : String(error))}.`);
 			}

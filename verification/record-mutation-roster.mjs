@@ -99,7 +99,7 @@ const levelCounts = { "publishing-intro": 8, "level-publishing": 22, "publishing
  "history-owner-pointers": 2, ready: 10, "ready-history": 2, "ready-description": 3, "merge-acceptance": 7,
  "description-scope": 17, "description-record": 2, "default-template": 4, sync: 7, "ready-findings": 1, "ready-completion": 6, "post-flip": 12, transfer: 12, "disabled-preservation": 3, configuration: 3 };
 const headingCounts = { "identifiers-ranges": 33, "manual-records": 137, "resume-forks": 21, "handoff-pointer": 3,
- "resume-order": 19, "general-handoff": 3, "closed-range-feedback": 19, repairs: 60, aggregate: 22, sources: 68,
+ "resume-order": 19, "general-handoff": 3, "closed-range-feedback": 19, repairs: 60, aggregate: 21, sources: 68,
  "workflow-accounting": 63, "notes-accounting": 23, "publishing-sync": 7, "public-roadmap": 20, "repair-escalation": 49,
  "repair-rounds-owner": 52, "repair-consultations-owner": 26, "child-fix-title-owner": 7, "P13-authoring": 28 };
 const sentenceIds = (counts) => Object.entries(counts).flatMap(([id, count]) => numbered(id, count));
@@ -129,7 +129,7 @@ export const EXPECTED_MUTATIONS = {
  "scope-outcome/redirect-record", "scope-outcome/omit-record",
  "note-route/redirect-record", "note-route/omit-record",
  "template-applicability/disabled-exemption", "template-applicability/disabled-template", "template-applicability/publishing-duty", "commit-discipline/design-summary"],
- "delivery-rules": sentenceIds({ repairs: 60, aggregate: 22, issues: 15, sources: 68, "workflow-accounting": 63,
+ "delivery-rules": sentenceIds({ repairs: 60, aggregate: 21, issues: 15, sources: 68, "workflow-accounting": 63,
  "notes-accounting": 23, "publishing-sync": 7, "public-workflow": 24, "public-roadmap": 20 }),
  transfer: numbered("transfer", 5),
  "sequential-acceptance": ["subtree-merged-before-root-without-marker-distinction", "root-recreates-earlier-subtree-marker", "root-adds-marker-for-every-accepted-subtree"],

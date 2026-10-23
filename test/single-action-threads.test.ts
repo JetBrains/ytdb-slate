@@ -1289,6 +1289,10 @@ test("episode compression excludes worker reminders and only the injected user p
   assert.deepEqual(messagesForCompression([reminder, assistant, reminder]), [assistant]);
   assert.deepEqual(messagesForCompression([assistant], "loaded episode text"), [assistant]);
   assert.deepEqual(messagesForCompression([injected, assistant]), [injected, assistant]);
+  for (const customType of ["slate-kickoff", "slate-kickoff-claimed", "slate-failover"]) {
+    const entry = { role: "custom", customType, content: "model evidence", display: false };
+    assert.deepEqual(messagesForCompression([entry, assistant], "model evidence"), [entry, assistant]);
+  }
   const hidden = { role: "custom", ...actionTemporaryMessage("slate-changes/change/tmp/action.aaaaaa") };
   assert.deepEqual(messagesForCompression([hidden, assistant, hidden]), [assistant]);
   const generated = "loaded episode text\n\n## Action\n\ntask";

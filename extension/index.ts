@@ -258,6 +258,7 @@ export default function (pi: ExtensionAPI) {
 		() => compressorRetryPolicy,
 		() => logicalSessionEpoch,
 		{ cancelled: notifications.cancelled, finished: notifications.recoveryFinished },
+		() => store.paused,
 	);
 	recovering = failover.recovering;
 	notifications.registerSettlement();

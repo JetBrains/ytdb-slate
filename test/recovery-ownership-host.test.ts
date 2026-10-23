@@ -85,6 +85,7 @@ test("real Slate factory keeps recovery ownership across Pi session replacement"
 		fallbackAuthEntries: 0,
 		primaryStreams: 0,
 		fallbackStreams: 0,
+		continuationIds: [] as string[],
 		authEntered: authEntered.resolve,
 		authGate: authGate.promise,
 	};
@@ -146,6 +147,7 @@ function provider(provider: string, id: string, block: boolean) {
   });
 }
 export default function (pi: ExtensionAPI) {
+  pi.on("message_start", (event: any) => { if (event.message?.customType === "slate-failover") state.continuationIds.push(event.message.details?.attemptId); });
   pi.registerProvider(provider("ownership-primary", "primary", false));
   pi.registerProvider(provider("ownership-fallback", "fallback", true));
 }
@@ -224,6 +226,10 @@ export default function (pi: ExtensionAPI) {
 		assert.equal(state.primaryStreams, 3);
 		assert.equal(state.fallbackStreams, 1);
 		assert.equal(successor.model?.provider, "ownership-fallback");
+		assert.equal(state.continuationIds.length, 1, "one correlated recovery continuation started");
+		assert.match(state.continuationIds[0]!, /^[0-9a-f-]{36}$/);
+		const continuation = successor.sessionManager.getBranch().find((item) => item.type === "custom_message" && item.customType === "slate-failover");
+		assert.equal((continuation as any)?.details.attemptId, state.continuationIds[0]);
 	} finally {
 		state.blockFallbackAuth = false;
 		authGate.resolve();
@@ -237,7 +243,7 @@ export default function (pi: ExtensionAPI) {
 	}
 });
 
-test("real Pi replacement runs handoff setup before successor adoption", { timeout: 12_000 }, async () => {
+for (const kickoffCase of ["paused", "success", "reject"] as const) test(`real Pi replacement runs handoff setup before successor adoption: ${kickoffCase}`, { timeout: 12_000 }, async () => {
 	const root = mkdtempSync(join(tmpdir(), "slate-handoff-host-"));
 	const project = join(root, "project");
 	const agent = join(root, "agent");
@@ -246,17 +252,20 @@ test("real Pi replacement runs handoff setup before successor adoption", { timeo
 	writeFileSync(join(agent, "settings.json"), "{}\n");
 	writeFileSync(join(project, ".pi", "settings.json"), "{}\n");
 	const key = `slate-handoff-host:${process.pid}:${Date.now()}`;
-	const evidence: { sawEntry: boolean; adoptedCost: number; successorId?: string } = { sawEntry: false, adoptedCost: 0 };
+	const evidence: { sawEntry: boolean; adoptedCost: number; successorId?: string; failure?: string; kickoffStarts: number } = { sawEntry: false, adoptedCost: 0, kickoffStarts: 0 };
 	(globalThis as Record<symbol, unknown>)[Symbol.for(key)] = evidence;
 	const fixture = join(root, "handoff-extension.ts");
 	writeFileSync(fixture, `
 import { SlateStore } from ${JSON.stringify(resolve("extension/state.ts"))};
 import { registerSlateHandoff } from ${JSON.stringify(resolve("extension/handoff.ts"))};
 import { createBaseModelTracker } from ${JSON.stringify(resolve("extension/base-model.ts"))};
+import { createLogicalRuntime } from ${JSON.stringify(resolve("extension/logical-model-runtime.ts"))};
 const evidence = (globalThis as any)[Symbol.for(${JSON.stringify(key)})];
 export default function(pi: any) {
   const store = new SlateStore(pi);
-  const hooks = registerSlateHandoff(pi, store, () => ({}), () => createBaseModelTracker({ warn() {} }));
+  const logical = createLogicalRuntime({ trusted: true, projectConfig: { router: { models: { replace: [{ model: "luna-6", preferredProvider: "matrix-primary", providers: { "matrix-primary": "primary" } }] } } } });
+  const hooks = registerSlateHandoff(pi, store, () => ({ preserveGlobalModelDefault: false }), () => createBaseModelTracker({ warn() {} }), () => ${kickoffCase === "paused" ? "undefined" : "logical"});
+  pi.on("message_start", (event: any) => { if (event.message?.customType === "slate-kickoff") evidence.kickoffStarts++; });
   pi.on("session_start", (event: any, ctx: any) => {
     if (event.reason === "new") {
       const entry = ctx.sessionManager.getBranch().find((item: any) => item.type === "custom" && item.customType === "slate-handoff");
@@ -270,7 +279,7 @@ export default function(pi: any) {
     }
   });
   pi.registerCommand("host-handoff", { description: "Exercise the real Pi handoff path", handler: async (_args: string, ctx: any) => {
-    await hooks.startHandoff(ctx);
+    await hooks.startHandoff({ ...ctx, newSession: (options: any) => ctx.newSession({ ...options, withSession: (fresh: any) => options.withSession({ ...fresh, hasUI: true, ui: { ...fresh.ui, notify: (text: string) => { evidence.failure = text; } }, sendMessage: (message: any, delivery: any) => { if (${JSON.stringify(kickoffCase)} === "reject" && message.customType === "slate-kickoff") return Promise.reject(new Error("fresh kickoff refused")); return fresh.sendMessage(message, delivery); } }) }) });
   } });
 }
 `);
@@ -316,7 +325,12 @@ export default function(pi: any) {
 		assert.equal(evidence.sawEntry, true, "setup had bound the entry before successor session_start");
 		assert.equal(evidence.adoptedCost, 17, "the adoption handler restored the parent's nonempty state");
 		assert.equal((successor.getBranch().find((item) => item.type === "custom" && item.customType === "slate-state") as any)?.data.workerCostUsd, 17);
-		assert.equal(state.primaryCalls, 1, "withSession delivered the handoff kickoff through the closed provider");
+		assert.equal(state.primaryCalls, kickoffCase === "success" ? 1 : 0, "only successful adopted kickoff reaches the provider");
+		assert.equal(evidence.kickoffStarts, kickoffCase === "success" ? 1 : 0);
+		assert.equal((successor.getBranch().filter((item) => item.type === "custom" && item.customType === "slate-state").at(-1) as any)?.data.paused, kickoffCase === "paused");
+		if (kickoffCase === "paused") assert.match(evidence.failure ?? "", /Choose a permitted model and effort, then run \/slate resume/);
+		if (kickoffCase === "reject") assert.match(evidence.failure ?? "", /kickoff failed.*fresh kickoff refused/);
+		assert.ok((successor.getBranch().find((item) => item.type === "custom" && item.customType === "slate-handoff") as any)?.data.kickoff, "the pending kickoff survives failed adoption");
 	} finally {
 		if (runtime) await runtime.dispose();
 		if (previousAgent === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previousAgent;

@@ -35,6 +35,7 @@ import {
 	CONFIG_DIR_NAME,
 	getAgentDir,
 	SettingsManager,
+	SessionManager,
 	type ExtensionAPI,
 	type ExtensionCommandContext,
 	type ExtensionContext,
@@ -77,7 +78,11 @@ const BRIEF_MAX_CHARS = 6000;
 type ThinkingLevel = ReturnType<ExtensionAPI["getThinkingLevel"]>;
 
 /** Stable custom session entry: `slate-handoff`. Copied entries retain this successor ID. */
+export type HandoffPurpose = "track-boundary" | "post-check" | "context-budget" | "user-request";
+
 interface SessionHandoff {
+	purpose?: HandoffPurpose;
+	kickoff?: string;
 	sessionId: string;
 	// No model fields when the parent session had no model.
 	model?: { provider: string; id: string };
@@ -88,7 +93,8 @@ interface SessionHandoff {
 }
 
 export interface SlateHandoffHooks {
-	startHandoff(ctx: ExtensionCommandContext, focus?: string, summaryVisible?: boolean): Promise<void>;
+	startHandoff(ctx: ExtensionCommandContext, focus?: string, summaryVisible?: boolean, purpose?: HandoffPurpose): Promise<void>;
+	resume?(ctx: ExtensionCommandContext): Promise<boolean>;
 	takeSummaryVisibility?(): boolean | undefined;
 	effectiveContextBudget(contextWindow: number, ctx: ExtensionContext): number | undefined;
 }
@@ -281,7 +287,7 @@ function buildKickoff(cwd: string, trusted: boolean, brief: string, focus?: stri
 	// follows the same validation as saved state, including in untrusted projects.
 	if (!base) {
 		base = [
-			"Slate orchestrator handoff (context hygiene; the previous orchestrator exceeded its context budget).",
+			"Slate orchestrator handoff.",
 			"Orchestrator mode and all worker threads/episodes from the previous session are restored:",
 			"use `threads` to list them and `episode` to fetch details. Continue the work.",
 		].join("\n");
@@ -290,6 +296,28 @@ function buildKickoff(cwd: string, trusted: boolean, brief: string, focus?: stri
 	if (brief) parts.push("", "## Handoff brief from the previous orchestrator", "", brief);
 	if (focus) parts.push("", `Immediate focus: ${focus}`);
 	return parts.join("\n");
+}
+
+type KickoffSender = (message: { customType: string; content: string; display: boolean; details?: { sessionId: string } }, options?: { triggerTurn?: boolean }) => void | Promise<void>;
+
+/** Claim delivery before starting a turn. A claimed kickoff is never replayed on reload. */
+async function deliverKickoff(ctx: ExtensionContext, send: KickoffSender): Promise<void> {
+	try {
+		const branch = ctx.sessionManager.getBranch();
+		const sessionId = ctx.sessionManager.getSessionId();
+		const entry = [...branch].reverse().find((item) => item.type === "custom" && item.customType === "slate-handoff" && (item.data as SessionHandoff)?.sessionId === sessionId);
+		if (!entry || entry.type !== "custom" || typeof (entry.data as SessionHandoff).kickoff !== "string") return;
+		if (branch.some((item) => item.type === "custom_message" && item.customType === "slate-kickoff-claimed" && (item.details as { sessionId?: unknown })?.sessionId === sessionId)) return;
+		const state = [...branch].reverse().find((item) => item.type === "custom" && item.customType === "slate-state");
+		if (!state || state.type !== "custom" || (state.data as SlateSnapshot).paused !== false) {
+			reportFailure(ctx, "slate: handoff adoption is paused. Choose a permitted model and effort, then run /slate resume. The kickoff is pending.");
+			return;
+		}
+		await send({ customType: "slate-kickoff-claimed", content: "", display: false, details: { sessionId } });
+		await send({ customType: "slate-kickoff", content: (entry.data as SessionHandoff).kickoff!, display: false }, { triggerTurn: true });
+	} catch (error) {
+		reportFailure(ctx, `slate: handoff kickoff failed: ${sanitizeForNotify(String(error))}. Run /slate resume, then enter a continuation request if needed.`);
+	}
 }
 
 export function registerSlateHandoff(
@@ -347,7 +375,7 @@ export function registerSlateHandoff(
 			"Wait for that worker result and verify that it reports success before writing the final HANDOFF BRIEF.",
 			"If preparation fails or is incomplete, report that fact instead of claiming that the state was saved.",
 			"Reply with a concise HANDOFF BRIEF — overall goal, per-thread state with episode ids, immediate next actions.",
-			"Then instruct the user to run /slate handoff [optional focus] to continue in a fresh session where all threads and episodes are restored automatically.",
+			"Then instruct the user to run /slate handoff --context-budget [optional focus] to continue in a fresh session where all threads and episodes are restored automatically.",
 			`Alternatively, start a new pi session manually, run /slate on, and have the new orchestrator read the episode files under ${CONFIG_DIR_NAME}/slate/<runtime folder>/episodes/ (or the legacy ${CONFIG_DIR_NAME}/slate/episodes/).`,
 		].join("\n");
 
@@ -368,7 +396,7 @@ export function registerSlateHandoff(
 					: DEFAULT_PAUSE_THRESHOLD_PERCENT;
 			if (percent < threshold) return;
 			const pct = Math.round(percent);
-			notifyText = `slate: context at ${pct}% (budget ${threshold}%) — paused. Run /slate handoff [focus] to continue in a fresh session.`;
+			notifyText = `slate: context at ${pct}% (budget ${threshold}%) — paused. Run /slate handoff --context-budget [focus] to continue in a fresh session.`;
 			headline = `[slate] Context is at ${pct}% — over the ${threshold}% budget. Slate auto-paused: user prompts are refused, and state-save workers remain available.`;
 		} else {
 			// BUDGET mode: absolute token budget resolved against the LIVE model.
@@ -401,15 +429,16 @@ export function registerSlateHandoff(
 				effective < configured
 					? ` (configured ${configured.toLocaleString("en-US")}, clamped for this model's context window)`
 					: "";
-			notifyText = `slate: context at ${used} tokens (budget ${cap}${clampNote}) — paused. Run /slate handoff [focus] to continue in a fresh session.`;
+			notifyText = `slate: context at ${used} tokens (budget ${cap}${clampNote}) — paused. Run /slate handoff --context-budget [focus] to continue in a fresh session.`;
 			headline = `[slate] Context is at ${used} tokens — over the ${cap}-token budget${clampNote}. Slate auto-paused: user prompts are refused, and state-save workers remain available.`;
 		}
 
 		store.paused = true;
+		store.pauseReason = "context-budget";
 		store.save();
 		if (ctx.hasUI) ctx.ui.notify(notifyText, "warning");
 		pi.sendMessage(
-			{ customType: "slate-pause", content: pauseInstructions(headline), display: true },
+			{ customType: "slate-pause", content: pauseInstructions(headline), display: false },
 			{ deliverAs: "steer", triggerTurn: true },
 		);
 	};
@@ -431,10 +460,11 @@ export function registerSlateHandoff(
 		if (!budgetModeActive(getConfig())) return;
 		if (event.reason !== "threshold") return;
 		store.paused = true;
+		store.pauseReason = "context-budget";
 		store.save();
 		if (ctx.hasUI) {
 			ctx.ui.notify(
-				"slate: auto-compaction intercepted — paused instead. Run /slate handoff [focus] to continue in a fresh session.",
+				"slate: auto-compaction intercepted — paused instead. Run /slate handoff --context-budget [focus] to continue in a fresh session.",
 				"warning",
 			);
 		}
@@ -459,7 +489,7 @@ export function registerSlateHandoff(
 				content: `${pauseInstructions(
 					"[slate] pi hit its auto-compaction threshold; slate cancelled the compaction and auto-paused instead: user prompts are refused, and state-save workers remain available. (While paused, a repeat compaction passes through as the escape valve.)",
 				)}\n(If slate has since been resumed or unpaused, disregard this message.)`,
-				display: true,
+				display: false,
 			},
 			{ deliverAs: "steer" },
 		);
@@ -494,6 +524,7 @@ export function registerSlateHandoff(
 			// State is durable before model adoption. Keep the replacement paused
 			// until an exact allowed logical identity and fixed effort are live.
 			store.paused = true;
+			store.pauseReason = "adoption";
 			try {
 				store.save();
 			} catch (error) {
@@ -505,6 +536,7 @@ export function registerSlateHandoff(
 				);
 				return;
 			}
+			if (typeof pending.kickoff === "string") pi.sendMessage({ customType: "slate-pause", content: "Handoff model adoption is pending. While paused, do not start a turn. Choose a permitted model and effort, then run /slate resume. Disregard this pause after adoption or resume succeeds.", display: false });
 			if (typeof pending.summaryVisible === "boolean") adoptedSummaryVisibility = pending.summaryVisible;
 			getRuntime()?.resetPreferences();
 			if (ctx.hasUI) {
@@ -639,10 +671,12 @@ export function registerSlateHandoff(
 				}
 				if (adopted && runtime.ownership.isCurrentLifecycle()) {
 					store.paused = false;
+					store.pauseReason = undefined;
 					try {
 						store.save();
 					} catch (error) {
 						store.paused = true;
+						store.pauseReason = "adoption";
 						reportFailure(
 							ctx,
 							`slate: could not persist the unpaused handoff state — ${sanitizeForNotify(
@@ -659,7 +693,7 @@ export function registerSlateHandoff(
 		}
 	});
 
-	const performHandoff = async (ctx: ExtensionCommandContext, focus?: string, summaryVisible?: boolean): Promise<void> => {
+	const performHandoff = async (ctx: ExtensionCommandContext, focus?: string, summaryVisible?: boolean, purpose?: HandoffPurpose): Promise<boolean> => {
 		const brief = lastAssistantText(ctx);
 		const parentSession = ctx.sessionManager.getSessionFile();
 		// ctx.model can be undefined (no-model session): capture neither field
@@ -667,6 +701,7 @@ export function registerSlateHandoff(
 		// against, and adoption skips the whole restore when model is absent.
 		const model = ctx.model ? { provider: ctx.model.provider, id: ctx.model.id } : undefined;
 		const handoff = {
+			purpose,
 			model,
 			...(typeof summaryVisible === "boolean" ? { summaryVisible } : {}),
 			thinkingLevel: model ? pi.getThinkingLevel() : undefined,
@@ -683,28 +718,32 @@ export function registerSlateHandoff(
 				carriedCostUsd: store.carriedCostUsd + orchestratorCostUsd(ctx),
 			},
 		};
-		const kickoff = buildKickoff(ctx.cwd, ctx.isProjectTrusted(), brief, focus);
+		const causes = [purpose ? `Handoff purpose: ${purpose}.` : "", store.paused && store.pauseReason === "context-budget" ? "The previous session reached its context budget." : ""].filter(Boolean);
+		const kickoff = [buildKickoff(ctx.cwd, ctx.isProjectTrusted(), brief, focus), ...causes].join("\n");
 		try {
 			const { cancelled } = await ctx.newSession({
 				...(parentSession ? { parentSession } : {}),
 				setup: async (successor) => {
-					const entry: SessionHandoff = { ...handoff, sessionId: successor.getSessionId() };
+					const entry: SessionHandoff = { ...handoff, kickoff, sessionId: successor.getSessionId() };
 					successor.appendCustomEntry("slate-handoff", entry as unknown as Record<string, unknown>);
 				},
 				withSession: async (fresh) => {
-					await fresh.sendUserMessage(kickoff);
+					await deliverKickoff(fresh, (message, options) => fresh.sendMessage(message, options));
 				},
 			});
 			if (cancelled) {
 				store.paused = false;
+				store.pauseReason = undefined;
 				store.save();
 				if (ctx.hasUI) ctx.ui.notify("slate: handoff cancelled — pause cleared.", "warning");
 			}
+			return !cancelled;
 		} catch (error) {
 			// Best-effort: if the replacement partially happened, the old pi/ctx
 			// are stale and these calls themselves throw.
 			try {
 				store.paused = false;
+				store.pauseReason = undefined;
 				store.save();
 				if (ctx.hasUI) {
 					ctx.ui.notify(
@@ -719,12 +758,46 @@ export function registerSlateHandoff(
 		}
 	};
 
-	const startHandoff = async (ctx: ExtensionCommandContext, focus?: string, summaryVisible?: boolean): Promise<void> => {
+	const startHandoff = async (ctx: ExtensionCommandContext, focus?: string, summaryVisible?: boolean, purpose?: HandoffPurpose): Promise<void> => {
 		await replacement(ctx, async () => {
+			const parentManager = ctx.sessionManager;
+			const sessionId = parentManager.getSessionId();
+			const intent = [...ctx.sessionManager.getBranch()].reverse().find((entry) => entry.type === "custom" && entry.customType === "slate-handoff-purpose" && (entry.data as { sessionId?: unknown })?.sessionId === sessionId);
+			const saved = intent?.type === "custom" ? (intent.data as { purpose?: unknown; consumed?: boolean }) : undefined;
+			const value = saved?.consumed ? undefined : saved?.purpose;
+			const retained = value === "track-boundary" || value === "post-check" || value === "context-budget" || value === "user-request" ? value : undefined;
+			const selected = purpose ?? retained ?? "user-request";
+			pi.appendEntry("slate-handoff-purpose", { sessionId, purpose: selected });
 			await ctx.waitForIdle();
-			await performHandoff(ctx, focus, summaryVisible);
+			const transferred = await performHandoff(ctx, focus, summaryVisible, selected);
+			if (transferred && parentManager instanceof SessionManager) {
+				parentManager.appendCustomEntry("slate-handoff-purpose", { sessionId, purpose: selected, consumed: true });
+			}
 		});
 	};
 
-	return { startHandoff, takeSummaryVisibility, effectiveContextBudget };
+	const resume = async (ctx: ExtensionCommandContext): Promise<boolean> => {
+		if (store.paused && store.pauseReason === "adoption") {
+			const runtime = getRuntime();
+			const route = ctx.model && { provider: ctx.model.provider, model: ctx.model.id };
+			const mapped = route && runtime?.reverseMap(route, getBaseModel().currentLogicalIdentity());
+			if (!runtime || !mapped || mapped.kind !== "one" || runtime.effortFor(mapped.logicalModel) !== readLiveEffort(pi)) {
+				reportFailure(ctx, "slate: pause remains active. Choose a permitted model and effort, then run /slate resume.");
+				return false;
+			}
+		}
+		const previouslyPaused = store.paused;
+		const previousReason = store.pauseReason;
+		store.paused = false;
+		store.pauseReason = undefined;
+		try { store.save(); } catch (error) {
+			store.paused = previouslyPaused;
+			store.pauseReason = previousReason;
+			reportFailure(ctx, `slate: could not save the resumed session: ${String(error)}. Run /slate resume to retry.`);
+			return false;
+		}
+		await deliverKickoff(ctx, (message, options) => { pi.sendMessage(message, options); });
+		return true;
+	};
+	return { startHandoff, resume, takeSummaryVisibility, effectiveContextBudget };
 }

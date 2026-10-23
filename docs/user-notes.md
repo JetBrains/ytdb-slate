@@ -22,19 +22,8 @@ A single-track change sends one change package without a track name and asks onl
 The owning research log keeps full evidence and accounting.
 Show record and diff references only when a decision needs them.
 
-For design tracks, use [recursive-workflow.md](recursive-workflow.md) § Whole-subtree acceptance.
-The following proved-area acceptance rules apply to code tracks.
-
-The track package states which acceptance rule applies. User acceptance of a
-track is blocking when that track proves at least one DESIGN-TRIGGERING area.
-Where a marker applies, it waits for required track acceptance and every
-requested fix. A code track with only REVIEWER-ONLY areas, or no proved area, has
-no mandatory track-acceptance gate. Its package reports progress and every
-requested decision. Without mandatory track acceptance, an
-applicable marker waits for completed machine gates, the package, and resolved
-blocking user notes. In a single-track change, any blocking track acceptance
-and final change acceptance are one event. Final change acceptance is always
-blocking.
+Code-track acceptance follows [track-workflow.md](track-workflow.md) § Delivery and termination.
+Design tracks follow [recursive-workflow.md](recursive-workflow.md) § Whole-subtree acceptance.
 
 
 ## Receiving and routing a user note

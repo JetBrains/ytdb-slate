@@ -89,8 +89,8 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
         assert.equal(output.match(verdict)?.[1], cleanOutput.match(verdict)?.[1], output);
         assert.match(output, /^CHECK +roster +PASS\b/m);
         selectedOutput(output, contract, true);
-        assert.deepEqual(mutationCounts(output), contract === "contract-heading-regions" ? { "heading-policy": 869 } : {});
-        if (contract === "contract-heading-regions") assert.equal(mutationCounts(cleanOutput)["heading-policy"], 869);
+        assert.deepEqual(mutationCounts(output), contract === "contract-heading-regions" ? { "heading-policy": 868 } : {});
+        if (contract === "contract-heading-regions") assert.equal(mutationCounts(cleanOutput)["heading-policy"], 868);
       }
     });
     const publishingFile = "docs/pr-publishing.md";

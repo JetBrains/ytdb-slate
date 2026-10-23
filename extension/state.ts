@@ -203,6 +203,7 @@ export interface SlateSnapshot {
 	sourceChange?: string;
 	orchestratorMode: boolean;
 	paused: boolean;
+	pauseReason?: "context-budget" | "adoption";
 	workerCostUsd: number;
 	carriedCostUsd: number; // orchestrator spend banked from ancestor sessions at handoff
 }
@@ -483,6 +484,7 @@ export const ADOPTED_SNAPSHOT_FIELDS = {
 	sourceChange: true,
 	orchestratorMode: true,
 	paused: true,
+	pauseReason: true,
 	workerCostUsd: true,
 	carriedCostUsd: true,
 } satisfies Record<keyof Required<SlateSnapshot>, true>;
@@ -845,6 +847,7 @@ export class SlateStore {
 	orchestratorMode = false;
 	/** When true with orchestratorMode (context budget exceeded), the pi input hook refuses new user prompts. Worker dispatches stay open for the state save. */
 	paused = false;
+	pauseReason: "context-budget" | "adoption" | undefined;
 	/**
 	 * Cumulative USD spend of worker threads this session. Includes the episode
 	 * compressor's LLM calls, so the "workers" figure shown in the status line covers
@@ -888,6 +891,7 @@ export class SlateStore {
 			...(this.currentChange ? { currentChange: this.currentChange, changeOwnerSessionId: this.changeOwnerSessionId, sourceChange: this.sourceChange } : {}),
 			orchestratorMode: this.orchestratorMode,
 			paused: this.paused,
+			...(this.pauseReason ? { pauseReason: this.pauseReason } : {}),
 			workerCostUsd: this.workerCostUsd,
 			carriedCostUsd: this.carriedCostUsd,
 		};
@@ -938,12 +942,14 @@ export class SlateStore {
 		this.sourceChange = undefined;
 		this.orchestratorMode = false;
 		this.paused = false;
+		this.pauseReason = undefined;
 		this.workerCostUsd = 0;
 		this.carriedCostUsd = 0;
 		if (!latest || latest.format !== SLATE_STATE_FORMAT) return;
 
 		this.orchestratorMode = latest.orchestratorMode ?? false;
 		this.paused = latest.paused ?? false;
+		this.pauseReason = latest.pauseReason === "context-budget" || latest.pauseReason === "adoption" ? latest.pauseReason : undefined;
 		// ?? 0: old snapshots lack the cost fields.
 		this.workerCostUsd = latest.workerCostUsd ?? 0;
 		this.carriedCostUsd = latest.carriedCostUsd ?? 0;
