@@ -1,48 +1,60 @@
-# ytdb-slate 0.14.0
+# ytdb-slate 0.15.0
 
-This release adds notifications for interactive sessions. It also adds support for nested design and implementation tracks. Slate needs no configuration change from 0.13.0. Notifications are on by default, so read the compatibility section before you upgrade.
+This release adds JavaScript tool calls to workers and reduces routine workflow output. It also gives concurrent actions separate temporary folders. Read the compatibility changes before upgrading from 0.14.0.
 
 ## Highlights
 
-- **Notifications for interactive sessions.** Slate now alerts you when a session needs your input or ends with an error. Slate can send each alert through four channels:
-  - a desktop notification from the operating system
-  - a terminal notification through an operating system command (OSC) escape sequence: OSC 9, OSC 777 or OSC 99
-  - the terminal bell
-  - a push message to your phone through an ntfy server. ntfy is an open-source push notification service.
+- **JavaScript tool calls in workers.** Codemode is a pi tool that runs JavaScript that calls other tools. Slate now supplies codemode to each worker alongside its normal tools. Workers can group independent calls in one script. Scripts use pi's shared queue. Slate blocks calls to inactive tools, nested codemode calls, and Slate's orchestration tools.
 
-  Terminal, desktop and bell notifications are on by default. Push is off by default. Notifications work with orchestrator mode on or off. Slate sends an alert only after 30 seconds without activity. It sends the same kind of alert at most once every 60 seconds. Print mode and remote procedure call (RPC) mode send no notifications. The new `notifications` group in `slate.json` controls the channels. `docs/configuration.md` describes each key.
-- **Nested tracks.** Slate divides a large change into tracks. A track is one part of the planned work. A code track changes code. A design track plans a part of the change and divides that part into child tracks. A child track can also be a design track, so the work can have several nested parts. Slate numbers child tracks with dotted numbers. For example, track `1.2` is the second child of track `1`. Every track uses the same review and acceptance steps. The orchestrator follows these rules for nested tracks:
-  - Some tracks need code from another track. Slate finishes the code track first. The dependent tracks then start from the Git branch of that code track. You merge the pull requests in that order.
-  - Slate keeps every reviewed state of the work in a separate Git branch. The reviewed commits then stay available when a squash merge or a branch deletion removes them from the pull request branch. When draft pull requests are on, Slate pushes these branches to the remote repository.
-  - Slate deletes these kept branches only after you accept and merge all of the work. Slate deletes no other branch or file. Slate reports the result before the change closes.
+  Slate waits for admitted nested tool calls before completing an action. Worker summaries include a bounded list of nested tool outcomes, with failures first. If codemode cannot load, the worker continues without it and reports a warning.
 
-  Slate does not start tracks or check these rules automatically.
-- **One draft pull request for each group of child tracks.** This item applies only when `workflow.draftPRs` is on. Slate now opens one draft pull request for each group of child tracks of the same design track. A pull request contains only the code tracks of its group. A group that has only design tracks gets no pull request of its own. Each child design track gets its own pull requests for its own child tracks. For example, design track `1` has the code tracks `1.1` and `1.2` and the design track `1.3`. Slate opens one pull request for `1.1` and `1.2`. The child tracks of `1.3` get their own pull request. A change without design tracks still uses one pull request. The default of `workflow.draftPRs` is still `false`.
+- **Separate temporary folders for actions.** Each worker action in an open change gets its own temporary folder. Slate prevents the change from closing while an action still owns a folder. After successful worker shutdown, Slate removes only the exact empty action folder. It keeps nonempty folders and reports their paths. It never recursively deletes worker files.
+
+- **Fewer routine questions and shorter output.** The orchestrator is the assistant that directs the work. It now judges risk assessments and routine review results without asking for separate approval of each judgment. You can inspect those assessments and direct changes. Slate presents a plan or design in full once, then shows only changes. Required design approvals and final acceptance remain explicit user decisions.
+
+  Tool progress displays and completion messages are shorter. Relevant failures, risks, and required decisions remain visible. You can expand tool displays for more detail. The status line shows total cost without the cost-source breakdown.
+
+- **Fresh sessions between tracks.** A track is one bounded part of a change. For changes with several tracks, Slate requires a handoff before each track. A handoff moves work to a fresh main session. The new session checks the saved plan before work starts. Every code track in such a change now requires explicit user acceptance before work continues.
+
+- **Pull request descriptions follow project templates.** Slate no longer adds its own progress tables or delivery accounting to descriptions. It uses the project's pull request template. Without a project template, it uses short “Why” and “What changed” sections. Detailed workflow records remain in research logs.
 
 ## Fixes
 
-- Slate now reports tool errors from completed worker sessions in the result that the orchestrator receives. Before this fix, these errors could stay hidden in the worker summary.
+- Invalid `maxConcurrent` values now produce a warning and use the default. Zero and negative values no longer leave all worker actions waiting indefinitely.
+- Worker tool selections that use only modifiers such as `+read` or `-bash` now keep added tools in the correct selection form.
+- Concurrent worker loading preserves the component identity required by codemode.
+- Slate protects displayed external text from terminal control sequences. Stored records and underlying tool results remain unchanged.
+
+## Breaking changes
+
+1. **The tested pi integration moves to pi 1.4.0.** Slate now uses that version's shared script queue. Action: Upgrade to pi 1.4.0 before using this release. Do not treat the unrestricted peer dependency range as evidence that an older host works.
+
+2. **Worker tool lists do not disable Slate's codemode tool.** Entries named `codemode`, `+codemode`, or `-codemode` cannot control it. Slate also withholds any selected worker extension that registers a tool named `codemode`. Action: Review custom worker tool policies. Resolve any extension name conflict before relying on that extension's tools.
+
+3. **The default action concurrency increases from 4 to 8.** This can increase simultaneous model requests and tool work. Action: Set `"maxConcurrent": 4` in `slate.json` if you need the previous default limit.
 
 ## Compatibility
 
-This release adds the optional `notifications` group to `slate.json`. It removes and renames no key. No existing default changes. Router configuration, the shipped logical models and the default compressor do not change.
+No `slate.json` key is added, removed, or renamed.
 
-To turn off notifications, set `notifications.terminal`, `notifications.native` and `notifications.bell` to `false`. Push stays off unless you turn it on.
+The startup workflow summary is now off when no preference exists. Existing explicit preferences keep their meaning. Run `/slate summary on` to enable automatic display at the next interactive startup or mode activation. Run `/slate summary` to show it immediately.
 
-Push settings are allowed only in the `slate.json` file in your home directory. A project `slate.json` can turn push off, but it cannot turn push on. Slate ignores the push server, topic and credentials in a project file, and it shows one warning. To use push, set `notifications.push.enabled`, `notifications.push.server` and `notifications.push.topic` in your home file. Then subscribe to the topic in an ntfy phone app.
+`maxConcurrent` accepts only whole numbers from 1 through `Number.MAX_SAFE_INTEGER`. Slate does not convert strings or round fractions. Invalid values warn and use 8.
 
-Some channels need setup:
+Slate derives pi's `PI_CODEMODE_MAX_WORKERS` environment variable from `maxConcurrent` unless an external value exists. The variable limits script workers across the process. Child pi processes inherit the value but use separate pools. Set the variable explicitly when you need a different script-worker limit.
 
-- Desktop notifications on Linux need `notify-send` with support for `--app-name`.
-- Notifications from an inactive tmux window need `allow-passthrough all` on tmux 3.4 or later.
-- Windows Terminal needs the sequence list `["osc777"]` and `compatibility.allowOSC777: true`.
+A tool that ignores cancellation can still keep an action open. Codemode does not provide a filesystem sandbox or undo completed tool effects.
 
-Slate does not report a failed notification. Slate has not tested terminal notifications when pi runs directly on Windows.
+Notification defaults, model-routing settings, the default compressor, and context-budget defaults remain unchanged. When `workflow.routingRecommendations` is enabled, Slate shows advice only when the current change's records support it.
 
-A change that is already in progress keeps its recorded workflow. Slate moves it to the new workflow only when you approve that. A new change with more than one track needs a high-level design.
+An existing change keeps its recorded workflow unless you explicitly approve migration. Slate does not rename, rewrite, or delete saved change records for this upgrade.
 
-Start a new pi session after you change `slate.json`.
+Start a new pi session after changing `slate.json`.
 
 ## SDK compatibility
 
-The pi software development kit (SDK) development pins change from pi 1.0.0 to pi 1.2.0. Slate 0.14.0 was developed and tested against pi 1.2.0 and TypeBox 1.3.27. The SDK packages are still peer dependencies with the range `*`. This release states no minimum pi version, because no test establishes one.
+The pi software development kit (SDK) development pins change from 1.2.0 to 1.4.0 for `@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent`, and `@earendil-works/pi-tui`. The TypeBox pin remains 1.3.27.
+
+The tested combination is pi 1.4.0 with TypeBox 1.3.27. Tests exercise the host script queue, real worker scripts, and concurrent worker loading. A successful continuous integration run covers the current release candidate with this pin.
+
+The SDK peer dependency ranges remain `*`. These ranges do not establish compatibility with every pi version. The available tests do not establish the lowest working pi version.
