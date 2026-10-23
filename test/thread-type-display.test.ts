@@ -137,7 +137,7 @@ test("mode refresh keeps pause on the status line without a thread widget", asyn
     },
     sessionManager: { getBranch: () => [], getEntries: () => [] },
   } as unknown as ExtensionContext);
-  const plain = "slate: orchestrator ⋅ total $0.0000 (me $0.0000 + workers $0.0000)";
+  const plain = "slate: orchestrator ⋅ total $0.0000";
   assert.deepEqual(statuses.at(-1), { key: "slate", text: plain });
   assert.equal(appended.length, 0);
   writing.showStatus = true;
@@ -186,7 +186,7 @@ test("TUI status themes each segment and hides writing without showStatus", asyn
   } as unknown as ExtensionContext;
   await sessionStart({}, ctx);
   const label = "<bold><accent>◆ slate orchestrator</accent></bold>";
-  const cost = "<muted>total $0.0000 (me $0.0000 + workers $0.0000)</muted>";
+  const cost = "<muted>total $0.0000</muted>";
   const base = `${label} ⋅ ${cost}`;
   assert.deepEqual(statuses.at(-1), { key: "slate", text: base });
   writing.showStatus = true;
@@ -258,7 +258,7 @@ function statusThemeFixture(initialTheme: "missing" | "null" | "getter" | "fg") 
   };
 }
 
-const PLAIN_STATUS = "slate: orchestrator ⋅ total $0.0000 (me $0.0000 + workers $0.0000)";
+const PLAIN_STATUS = "slate: orchestrator ⋅ total $0.0000";
 
 test("TUI status without a theme uses plain text without a warning", async () => {
   for (const missing of ["missing", "null"] as const) {
@@ -283,7 +283,7 @@ test("TUI status catches a throwing theme getter and warns once despite a succes
   }]);
   f.setTheme("good");
   f.store.save();
-  assert.equal(f.statuses.at(-1), "◆ slate orchestrator ⋅ total $0.0000 (me $0.0000 + workers $0.0000)");
+  assert.equal(f.statuses.at(-1), "◆ slate orchestrator ⋅ total $0.0000");
   f.setTheme("getter");
   f.store.save();
   assert.equal(f.statuses.at(-1), PLAIN_STATUS);
