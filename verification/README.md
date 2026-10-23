@@ -6,7 +6,7 @@ two callers, `extension/failover.ts` (orchestrator failover) and
 half of the same hazard: the guarantee in `extension/worker.ts` that a
 **worker-side per-dispatch** model/effort switch never reaches the user's global
 defaults at all. Same failure class (a slate-initiated switch leaving the user's
-pi configuration changed), different mechanism. Pi 1.3.0 makes ordinary
+pi configuration changed), different mechanism. Pi 1.4.0 makes ordinary
 extension setters session-scoped, so the production switch sites write zero
 global-settings bytes. The probe also drives the real `AgentSession` setters
 with `persist:true`. That explicit fixture keeps the compatibility restore under
@@ -22,8 +22,10 @@ input for patch coverage. The real-Pi host process runs that test alone with a
 separate temporary directory and Jiti cache. It writes a separate host LCOV file.
 Either process can fail the wrapper. The runner audits that their union equals
 discovery and contains no overlap or duplicate. Host coverage is not merged,
-concatenated, filtered, or credited. The existing
-source-authoritative denominator, 85 percent line and branch floors, and
+concatenated, filtered, or credited.
+Jiti-loaded code gets no patch-coverage credit because its byte offsets do not match the TypeScript source. In the native test process, each launch site that loads extension code through jiti must disable coverage collection. Set an own `NODE_V8_COVERAGE` child-environment key to `undefined`, or unset the variable in the shell. Otherwise, jiti records overwrite native line counts. The host process collects jiti coverage in its separate host LCOV, which gets no patch-coverage credit.
+Native child processes keep coverage unless a test excludes it.
+The existing source-authoritative denominator, 85 percent line and branch floors, and
 small-branch-denominator warning policy remain unchanged.
 
 ## Continuous integration
@@ -448,7 +450,7 @@ Four drive modes, chosen per rung:
    performs the per-dispatch model **and** effort switch exactly as
    `threads.ts`'s `applyRoute` does (`session.setModel` then
    `session.setThinkingLevel`). Used only by `WK1`, in two phases across two pi
-   processes. In pi 1.3.0, `createAgentSession` creates its default runtime
+   processes. In pi 1.4.0, `createAgentSession` creates its default runtime
    without enabling network catalog refresh. The harness sets `PI_OFFLINE=1`
    as an additional safeguard against model-network access.
 
@@ -1446,7 +1448,7 @@ signal (`AGENTS.md` § How extension-load failures surface). pi drops an entry i
 in `session_start` appears as an `extension_error` event on stdout only. A tool
 registration that disappears produces **no diagnostic at all**.
 
-The last failure mode needs a positive control, because pinned Pi 1.3.0 offers
+The last failure mode needs a positive control, because pinned Pi 1.4.0 offers
 no rpc command and no CLI flag that lists the registered tools.
 `verification/ci-canary.ts`
 loads beside the checkout, and it prints one
@@ -1505,7 +1507,7 @@ The timing figures above remain historical measurements from 2026-09-04.
 
 ```
 repo  = /home/you/src/main-as-source (02b6bf8)
-pi    = /home/you/src/main-as-source/node_modules/.bin/pi (1.3.0, pinned 1.3.0)
+pi    = /home/you/src/main-as-source/node_modules/.bin/pi (1.4.0, pinned 1.4.0)
 lab   = /tmp/slate-loadcheck.example
 
 CHECK L4                               PASS — the canary observed all three dispatch tools registered: thread, threads, episode
@@ -1648,6 +1650,10 @@ another live session, and a removal would corrupt the write of that session.
 `.gitignore` covers `.pi/*.lock` for the case where a signal kills the harness, or
 a dogfooding session, before any cleanup runs.
 
+The load check unsets `PI_CODEMODE_MAX_WORKERS` before its probe and sessions.
+The ladder also unsets it before all launches. The release roster explicitly
+unsets it for isolated load. Both reminder sessions use an empty environment.
+The test wrapper explicitly selects 2 for both test processes.
 The separate version-pin probe reads the real user agent directory before the
 throwaway session directories exist. It creates and removes `settings.json.lock`
 beside the real user settings file. That operation moves the real agent
@@ -1678,7 +1684,7 @@ processes: 1 version-pin probe plus 2 rpc sessions.
 
 | id | what it proves |
 | --- | --- |
-| `L1` | pi **exited 0** and loaded the checkout (rpc, offline, empty agent dir, no `models.json` and no `auth.json`, environment scrubbed by name pattern). The verdict names the pattern scrub, and it claims no more than that. The run does **not** deliver an environment with no credentials of any kind: the scrub is a variable-name pattern list, and a credential under an unmatched name reaches the child, as the measured `AWS_ACCESS_KEY_ID` case above shows. What holds is that the run has nothing to spend a credential on. This check is a real signal on pinned Pi 1.3.0, where the covered load failures exit 1 |
+| `L1` | pi **exited 0** and loaded the checkout (rpc, offline, empty agent dir, no `models.json` and no `auth.json`, environment scrubbed by name pattern). The verdict names the pattern scrub, and it claims no more than that. The run does **not** deliver an environment with no credentials of any kind: the scrub is a variable-name pattern list, and a credential under an unmatched name reaches the child, as the measured `AWS_ACCESS_KEY_ID` case above shows. What holds is that the run has nothing to spend a credential on. This check is a real signal on pinned Pi 1.4.0, where the covered load failures exit 1 |
 | `L2` | stderr holds **neither** `Failed to load extension` **nor** `Extension error (`. The check reads both markers, because the first is the channel for a reported load failure and the second is the channel for a hook, which the first misses. Its own verdict line names the two markers and reproduces neither, so a grep of a CI log for either literal finds no line from a run that passed |
 | `L3` | **stdout** holds no `extension_error` event, which is the only signal from a hook that throws in rpc mode |
 | `L4` | the canary saw all three dispatch tools: `thread`, `threads` and `episode`. Nothing else detects their removal |
@@ -1719,10 +1725,10 @@ past.
 One gap remains, and this document states it plainly. `T2` and `T4` together
 cover the syntax of the file, its top-level shape, and the sanitizer-covered
 config groups. **An unknown key, and a wrong-typed value under a key without a
-sanitizer, pass both checks in silence**. `{"totallyUnknownKey": 5, "maxConcurrent": "lots"}`
-gives a pass for `T4` and a pass for `T2`. No check in CI validates the
-content of the config, and the reader of `README.md` § Configuration still
-carries that duty.
+sanitizer, pass both checks in silence**. `{"totallyUnknownKey": 5}`
+passes both checks. A malformed `maxConcurrent` still passes the syntax and shape
+check `T4`, but the trusted `T2` run observes its sanitizer warning and fails.
+These checks do not provide complete static validation.
 
 The harness proves no tool behaviour. No check here executes a tool, starts a
 worker session, or exercises failover or handoff: the harness performs loads,

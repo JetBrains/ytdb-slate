@@ -8,7 +8,6 @@ export const WORKER_NESTED_CLOSED_REASON = "Slate worker tool admission is close
 /** Own nested admission and terminal evidence for one worker session. */
 export function createWorkerNestedLifecycle(warn: (message: string) => void, warningMs = NESTED_SETTLEMENT_WARNING_MS) {
 	let open = true;
-	const closeController = new AbortController();
 	const calls = new Map<string, { unadmitted: number; admitted: number; name: string }>();
 	let pending = 0;
 	let resolveJoin: (() => void) | undefined;
@@ -42,8 +41,7 @@ export function createWorkerNestedLifecycle(warn: (message: string) => void, war
 	};
 	return {
 		extension,
-		closeSignal: closeController.signal,
-		close() { open = false; closeController.abort(); },
+		close() { open = false; },
 		startWarning() {
 			timer = setTimeout(() => {
 				if (pending === 0) return;

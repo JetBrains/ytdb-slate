@@ -51,7 +51,7 @@ run writing-scaling node verification/writing-check-scaling.mjs
 run writing-reminder bash verification/run-writing-reminder-check.sh --repo .
 run worker-reminder bash verification/run-worker-reminder-check.sh --repo .
 load_home=$(mktemp -d "${TMPDIR:-/tmp}/slate-release-load-home.XXXXXX"); printf '%s\n' '{"id":"1","type":"get_commands"}' >"$load_home/request.jsonl"
-run isolated-load bash -c 'env HOME="$1" PI_CODING_AGENT_DIR="$1/agent" PI_OFFLINE=1 "$2" --no-extensions -e "$3" --mode rpc -a <"$1/request.jsonl"' _ "$load_home" "$repo/node_modules/.bin/pi" "$repo"
+run isolated-load bash -c 'env -u PI_CODEMODE_MAX_WORKERS HOME="$1" PI_CODING_AGENT_DIR="$1/agent" PI_OFFLINE=1 "$2" --no-extensions -e "$3" --mode rpc -a <"$1/request.jsonl"' _ "$load_home" "$repo/node_modules/.bin/pi" "$repo"
 grep -Eq 'Failed to load extension|Cannot find module|SyntaxError|Extension error|extension_error' "$evidence/isolated-load.log" && fail 'isolated load emitted a failure marker'
 node -e 'const fs=require("fs"),x=fs.readFileSync(process.argv[1],"utf8").trim().split("\n").filter(v=>v.startsWith("{")).map(JSON.parse),r=x.find(v=>v.type==="response"&&v.command==="get_commands"),s=r?.data?.commands?.filter(c=>c.name==="slate");if(s?.length!==1)throw Error("isolated load did not register one /slate command")' "$evidence/isolated-load.log"
 expected_roster='typecheck packaging packaging-self load resolver tests ladder package-content package-content-self writing writing-scaling writing-reminder worker-reminder isolated-load'

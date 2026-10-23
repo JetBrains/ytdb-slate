@@ -14,6 +14,8 @@ Slate is a multi-agent orchestration extension for the [pi coding agent](https:/
 
 ## Quick start
 
+Slate requires pi 1.4.0 or later. Older pi can still load the package, but it is not supported. Slate provides no runtime version warning.
+
 You need an installed and authenticated [pi coding agent](https://pi.dev/docs/latest/quickstart). From your project directory, install a pinned Slate version:
 
 ```bash

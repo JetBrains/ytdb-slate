@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+unset PI_CODEMODE_MAX_WORKERS
 # =============================================================================
 # slate — verification ladder for the global model-default restore
 # =============================================================================
@@ -726,7 +727,7 @@ PY3
 # SettingsManager instead of the read-only snapshot storage (AF8/AF9).
 # The control calls setModel and setThinkingLevel with persist:true.
 # Those explicit writes reach global settings with file-backed storage.
-# Ordinary pi 1.3.0 switches write no global defaults with either storage.
+# Ordinary pi 1.4.0 switches write no global defaults with either storage.
 # One text replacement derives the control from the module under test.
 mkcopy "$REPO/extension/worker.ts" "$WEAK/worker-control.ts"
 python3 - "$WEAK/worker-control.ts" "$WEAK/worker-filebacked.ts" <<'PY5'
@@ -881,7 +882,7 @@ if want R1; then
 fi
 
 # R2 current pi contract plus compatibility negative control. Extension setters
-# are session-scoped in pi 1.3.0, so knob-off must still write zero bytes. The
+# are session-scoped in pi 1.4.0, so knob-off must still write zero bytes. The
 # probe forces the real AgentSession setters through persist:true. Disabling
 # Slate's wrapper then leaves the changed global defaults in place.
 if want R2; then
@@ -893,7 +894,7 @@ if want R2; then
 	seed "$CANON_XHIGH"; runprobe R2-persist-on "$REPO/extension/model-default.ts" probe-c/gamma-1 0 none --provider probe-a --model alpha-1
 	ON=$(triple)
 	if [ "$R2SW" != yes ]; then fail R2 "the end-to-end failover did not switch, so the current-pi contract is vacuous"
-	elif [ "$CURRENT" != "probe-a/alpha-1:medium" ]; then fail R2 "pi 1.3.0 extension setters persisted unexpectedly: $CURRENT"
+	elif [ "$CURRENT" != "probe-a/alpha-1:medium" ]; then fail R2 "pi 1.4.0 extension setters persisted unexpectedly: $CURRENT"
 	elif [ "$OFF" != "probe-c/gamma-1:high" ]; then fail R2 "persist:true negative control did not leak the target pair and clamped level (got $OFF)"
 	elif [ "$ON" != "probe-a/alpha-1:xhigh" ]; then fail R2 "Slate did not restore the explicit persisted-switch fixture (got $ON)"
 	else pass R2 "real failover setters are session-scoped ($CURRENT); persist:true leaks with the knob off ($OFF) and Slate restores with it on ($ON)"; fi
@@ -1463,7 +1464,7 @@ fi
 if want WK1; then
 	wkrun() { # $1 label, $2 worker module, $3 phase, rest = extra pi args
 		local label="$1" module="$2" phase="$3"; shift 3
-		# Pi 1.3.0 SDK creation enables no network catalog refresh by default.
+		# Pi 1.4.0 SDK creation enables no network catalog refresh by default.
 		# PI_OFFLINE=1 adds a safeguard against model-network access.
 		# piexec checks the redirected agent directory again.
 		piexec WORKER_MODULE="$module" WORKER_PHASE="$phase" WORKER_RESULT="$OUT/$label.json" PI_OFFLINE=1 \

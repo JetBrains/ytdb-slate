@@ -7157,9 +7157,45 @@ The accounting covers:`),
 				"and anything the orchestrator must know.",
 				"When codemode is available, use one script to run independent tool calls together, chain dependent calls, or filter large output.",
 				"Keep large intermediate data, such as copied text, in script variables instead of the context.",
-				"If a script fails because the process-wide codemode script limit is reached, use normal tool calls.",
+				"Pi waits for script capacity. If a codemode script fails or does not start, call still-needed tools directly instead of resubmitting the script, even if an error suggests a retry. Apply the independent-call rule above to direct calls. A script that started may already have caused tool effects. Check the available execution evidence before you act. Do not blindly repeat calls that already ran.",
 				"A codemode script can call only tools you can also call directly. Slate blocks every other tool named in the codemode description or a tool search.",
 			].join(" ");
+			const recoveryRule = "Pi waits for script capacity. If a codemode script fails or does not start, call still-needed tools directly instead of resubmitting the script, even if an error suggests a retry. Apply the independent-call rule above to direct calls. A script that started may already have caused tool effects. Check the available execution evidence before you act. Do not blindly repeat calls that already ran.";
+			const hasRecovery = (preamble) => preamble.split(recoveryRule).length === 2;
+			const recoveryMutations = [
+				commonPreamble.replace(recoveryRule, ""),
+				commonPreamble + " " + recoveryRule,
+				commonPreamble.replace(", even if an error suggests a retry", ""),
+				commonPreamble.replace("A script that started may already have caused tool effects. ", ""),
+			];
+			const testRunner = readFileSync(join(REPO, "verification", "run-tests.sh"), "utf8");
+			const poolLaunches = ["native", "host"].map((kind) =>
+				`cd "$repo" && PI_CODEMODE_MAX_WORKERS=2 PI_CODING_AGENT_DIR="$work/${kind}-agent"`);
+			const hasPoolLaunches = (source) => poolLaunches.every((launch) => source.split(launch).length === 2);
+			const presenceControls = [
+				["load check shell before version probe and sessions", "run-load-check.sh", "\nunset PI_CODEMODE_MAX_WORKERS\n"],
+				["ladder shell before every child launch", "run-ladder.sh", "\nunset PI_CODEMODE_MAX_WORKERS\n"],
+				["release roster isolated-load command", "release-checks.sh", "run isolated-load bash -c 'env -u PI_CODEMODE_MAX_WORKERS HOME="],
+			].map(([boundary, file, control]) => ({ boundary, control, source: readFileSync(join(REPO, "verification", file), "utf8") }));
+			const hasPresenceControl = (source, control) => source.split(control).length === 2
+				&& (control !== "\nunset PI_CODEMODE_MAX_WORKERS\n" || source.startsWith(`#!/usr/bin/env bash${control}`));
+			const presenceAudit = createMutationAudit({ "harness-presence": [
+				"run-load-check.sh/removed", "run-load-check.sh/moved",
+				"run-ladder.sh/removed", "run-ladder.sh/moved", "release-checks.sh/removed",
+			] });
+			const presenceMutations = presenceControls.flatMap(({ source, control }, index) => {
+				const file = ["run-load-check.sh", "run-ladder.sh", "release-checks.sh"][index];
+				const removed = source.replace(control, "\n");
+				return [
+					{ id: `${file}/removed`, original: source, source: removed, control },
+					...(index < 2 ? [{ id: `${file}/moved`, original: source, source: removed + control, control }] : []),
+				];
+			});
+			presenceAudit.record("harness-presence", presenceMutations.map(({ id, original, source, control }) => ({
+				id, changed: source !== original, rejected: !hasPresenceControl(source, control),
+			})));
+			const presenceAuditResult = presenceAudit.inspect();
+			console.log(`NOTE harness presence mutations: ${JSON.stringify(presenceMutations.map(({ id, source, control }) => ({ id, accepted: hasPresenceControl(source, control) })))}`);
 			const parallelToolRule = "Issue all independent tool calls simultaneously in one worker turn. Use separate turns only when results depend on each other or conflict.";
 			const reasonSentences = [
 				"The harness runs calls issued in one turn at the same time.",
@@ -7190,9 +7226,76 @@ The accounting covers:`),
 			const workerReminderSource = readFileSync(join(REPO, "extension", "worker-reminder.ts"), "utf8")
 				.replace(/\/\*[\s\S]*?\*\//g, " ")
 				.replace(/(^|[^:])\/\/[^\n]*/g, "$1 ");
+
+			const ts = (await import(pathToFileURL(join(REPO, "node_modules/typescript/lib/typescript.js")).href)).default;
+			const workerAst = ts.createSourceFile("worker.ts", workerSource, ts.ScriptTarget.Latest, true);
+			const opener = workerAst.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === "openWorkerSession");
+			const shared = workerAst.statements.find(node => ts.isVariableStatement(node)
+				&& node.declarationList.declarations.some(d => d.name.getText(workerAst) === "workerCodemodeLoad"));
+			const edges = [];
+			function scanImports(directory) {
+				for (const entry of readdirSync(join(REPO, directory), { withFileTypes: true })) {
+					const file = join(directory, entry.name);
+					if (entry.isDirectory()) { scanImports(file); continue; }
+					if (!/\.[cm]?[jt]s$/.test(file)) continue;
+					const ast = ts.createSourceFile(file, readFileSync(join(REPO, file), "utf8"), ts.ScriptTarget.Latest, true);
+					function visit(node) {
+						let specifier;
+						if (ts.isImportDeclaration(node)) {
+							const clause = node.importClause;
+							const bindings = clause?.namedBindings;
+							const onlyTypes = clause?.isTypeOnly || (clause && !clause.name && bindings && ts.isNamedImports(bindings)
+								&& bindings.elements.length > 0 && bindings.elements.every(e => e.isTypeOnly));
+							if (!onlyTypes) specifier = node.moduleSpecifier;
+						} else if (ts.isExportDeclaration(node) && !node.isTypeOnly) {
+							const onlyTypes = node.exportClause && ts.isNamedExports(node.exportClause)
+								&& node.exportClause.elements.length > 0 && node.exportClause.elements.every(e => e.isTypeOnly);
+							if (!onlyTypes) specifier = node.moduleSpecifier;
+						} else if (ts.isImportEqualsDeclaration(node) && !node.isTypeOnly && ts.isExternalModuleReference(node.moduleReference)) {
+							specifier = node.moduleReference.expression;
+						} else if (ts.isCallExpression(node) && (node.expression.kind === ts.SyntaxKind.ImportKeyword
+							|| (ts.isIdentifier(node.expression) && node.expression.text === "require"))) specifier = node.arguments[0];
+						if (specifier && ts.isStringLiteralLike(specifier) && /(?:^|\/)worker-codemode(?:\.[cm]?[jt]s)?$/.test(specifier.text)) {
+							edges.push({ file, text: node.getText(ast), dynamic: ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword });
+						}
+						ts.forEachChild(node, visit);
+					}
+					visit(ast);
+				}
+			}
+			scanImports("extension");
+			let guardedAwait = false;
+			let synchronousAssignment = false;
+			function findGuard(node) {
+				if (ts.isTryStatement(node) && /codemodeFailure\s*=\s*error/.test(node.catchClause?.getText(workerAst) ?? "")) {
+					function inspect(statement) {
+						if (ts.isAwaitExpression(statement) && ts.isIdentifier(statement.expression)
+							&& statement.expression.text === "workerCodemodeLoad") guardedAwait = true;
+						if (ts.isIfStatement(statement) && statement.expression.getText(workerAst) === "!workerCodemodeLoad"
+							&& ts.isExpressionStatement(statement.thenStatement)) {
+							const assignment = statement.thenStatement.expression;
+							synchronousAssignment = ts.isBinaryExpression(assignment)
+								&& assignment.left.getText(workerAst) === "workerCodemodeLoad"
+								&& assignment.operatorToken.kind === ts.SyntaxKind.EqualsToken
+								&& ts.isCallExpression(assignment.right) && assignment.right.expression.kind === ts.SyntaxKind.ImportKeyword;
+						}
+						ts.forEachChild(statement, inspect);
+					}
+					inspect(node.tryBlock);
+				}
+				ts.forEachChild(node, findGuard);
+			}
+			if (opener) findGuard(opener);
 			checkAll("worker-reminder-wiring", "worker reminder loader, handler, tool exclusion, and dispatch warning wiring stays intact", [
 				["worker creates the internal session-local runtime directly", /import\s*\{\s*createWorkerReminderRuntime\s*\}\s*from\s*["']\.\/worker-reminder\.ts["']/.test(workerSource) && /const\s+workerReminder\s*=\s*createWorkerReminderRuntime\(\)/.test(workerSource), workerSource.match(/import[^\n]*worker-reminder[^\n]*/)?.[0] ?? "not found"],
-				["every loader receives the reminder, guarded codemode, and last lifecycle factory", (workerSource.match(/new\s+DefaultResourceLoader\s*\(/g) ?? []).length === 1 && /await import\("\.\/worker-codemode\.ts"\)/.test(workerSource) && /codemodeFactory = codemode\.createWorkerCodemodeComponent\(warn, nestedLifecycle\.closeSignal\)/.test(workerSource) && /extensionFactories[\s\S]*workerReminder\.extension[\s\S]*factory: codemodeFactory[\s\S]*factory: nestedLifecycle\.extension/.test(loaderBlock), loaderBlock],
+				["every loader receives the reminder, guarded codemode, and last lifecycle factory", (workerSource.match(/new\s+DefaultResourceLoader\s*\(/g) ?? []).length === 1 && shared && opener && shared.end <= opener.pos && guardedAwait && synchronousAssignment && !/await import\("\.\/worker-codemode\.ts"\)/.test(opener.getText(workerAst)) && /const factory = codemode\.createWorkerCodemodeComponent\(warn\)/.test(workerSource) && /extensionFactories[\s\S]*workerReminder\.extension[\s\S]*factory: codemodeFactory[\s\S]*factory: nestedLifecycle\.extension/.test(loaderBlock), loaderBlock],
+				["only the opener loads the component at runtime", edges.length === 1 && edges[0].file === join("extension", "worker.ts") && edges[0].dynamic && edges[0].text === 'import("./worker-codemode.ts")', edges],
+				["component delegates directly to pi without queue or reader", (() => {
+					const source = readFileSync(join(REPO, "extension/worker-codemode.ts"), "utf8");
+					return source.includes('createCodemodeExtension({ mode: "on", models: false })(pi)')
+						&& !/CODEMODE_LIMIT_TEXT|CODEMODE_WAIT_TEXT|readFullError|CodemodeQueueClock|createCodemodeQueue|scriptQueue|registerTool/.test(source);
+				})(), "direct registration and no wrapper"],
+				["component metadata and returned factory are validated", /WORKER_CODEMODE_COMPONENT_NAME !== "slate-worker-codemode"/.test(workerSource) && /typeof codemode\.createWorkerCodemodeComponent !== "function"/.test(workerSource) && /typeof factory !== "function"/.test(workerSource), "name, creator, factory"],
 				["factory wiring is independent of the allowlist and prompt cache key", loaderStart >= 0 && reloadStart > loaderStart && allowlistStart > reloadStart && !/promptCacheKey/.test(loaderBlock) && (loaderBlock.match(/workerReminder\.extension/g) ?? []).length === 1, { loaderStart, reloadStart, allowlistStart, promptCacheKey: loaderBlock.match(/promptCacheKey/)?.[0] ?? "absent", factoryCount: (loaderBlock.match(/workerReminder\.extension/g) ?? []).length }],
 				["handlers register directly in the internal factory rather than session_start", /pi\.on\(\s*["']message_end["']/.test(workerReminderSource) && /pi\.on\(\s*["']tool_result["']/.test(workerReminderSource) && !/["']session_start["']/.test(workerReminderSource), workerReminderSource.match(/pi\.on\([^\n]*/g) ?? []],
 				["loaded extensions are read exactly once after reload and before the allowlist gate", (workerSource.match(/loader\.getExtensions\(\)/g) ?? []).length === 1 && /const\s+loaded\s*=\s*loader\.getExtensions\(\)/.test(loadedBlock), { count: (workerSource.match(/loader\.getExtensions\(\)/g) ?? []).length, loadedBlock }],
@@ -7230,12 +7333,21 @@ The accounting covers:`),
 				["same-group guidance precedes selected instructions and prompt documents without action paths", guidanceStates.every(([change, review, expected]) => JSON.stringify(worker.workerSystemPromptBlocks(true, review, "SELECTED", ["DOC"], worker.changeGuidance(change, review))) === JSON.stringify([worker.workerPreamble(true, review), expected, "SELECTED", "DOC"]) && !expected.includes("/tmp/action.")), guidanceStates],
 				["published system figures match production and keep independent limits", guidanceStates.every(([change, review, , , limit], i) => { const bytes = Buffer.byteLength(worker.changeGuidance(change, review)); return folderBudget.includes(`| ${i < 2 ? "Open-change" : "No-change"} ${review ? "review" : "record-writing"} system | ${bytes} | 2 | ${bytes + 2} | ${limit} |`); }), guidanceStates],
 				["published system totals use production preambles and change blocks", [false, true].every((review) => { const totals = [false, true].map((trusted) => Buffer.byteLength(worker.workerSystemPromptBlocks(trusted, review, undefined, [], worker.changeGuidance(canonicalChange, review)).join("\n\n")).toLocaleString("en-US")); return folderBudget.includes(`Open-change ${review ? "review" : "record-writing"} system totals are ${totals[0]} or ${totals[1]} bytes without or with writing guidance.`); }), folderBudget],
-				["untrusted preamble is the 1017-byte common text", worker.WORKER_PREAMBLE === commonPreamble && Buffer.byteLength(worker.workerPreamble(false, false)) === 1017, worker.workerPreamble(false, false)],
+				["untrusted preamble is the 1313-byte common text", worker.WORKER_PREAMBLE === commonPreamble && Buffer.byteLength(worker.workerPreamble(false, false)) === 1313, worker.workerPreamble(false, false)],
+				...presenceControls.flatMap(({ boundary, source, control }) => [
+					[`${boundary} explicitly selects absence`, hasPresenceControl(source, control), control],
+					[`${boundary} rejects removal of its unset`, !hasPresenceControl(source.replace(control, ""), control), control],
+				]),
+				["five independent removal and late-move mutations execute once and fail their launch rows", presenceAuditResult.ok, presenceAuditResult],
+				["both test processes select pool limit 2", hasPoolLaunches(testRunner), poolLaunches],
+				["removing either test-process limit fails the launch contract", poolLaunches.every((launch) => { const mutated = testRunner.replace(launch, launch.replace("PI_CODEMODE_MAX_WORKERS=2 ", "")); return mutated !== testRunner && !hasPoolLaunches(mutated); }), poolLaunches],
+				["recovery guidance appears exactly once in every prompt form", [false, true].every(trusted => [false, true].every(review => hasRecovery(worker.workerPreamble(trusted, review)))), recoveryRule],
+				["missing, duplicate, retry-override and effect-caution mutations fail recovery checks", recoveryMutations.every(mutated => mutated !== commonPreamble && !hasRecovery(mutated)), recoveryMutations],
 				["parallel tool guidance appears exactly once across every worker configuration", [worker.workerPreamble(false, false), worker.workerPreamble(true, false), worker.workerPreamble(false, true), worker.workerPreamble(true, true)].every((preamble) => preamble.split(parallelToolRule).length === 2), { base: worker.workerPreamble(false, false), writing: worker.workerPreamble(true, false), reviewer: worker.workerPreamble(false, true), both: worker.workerPreamble(true, true) }],
 				["the two cost-reason sentences appear exactly once across every worker configuration", [worker.workerPreamble(false, false), worker.workerPreamble(true, false), worker.workerPreamble(false, true), worker.workerPreamble(true, true)].every((preamble) => reasonSentences.every((sentence) => preamble.split(sentence).length === 2)), { sentences: reasonSentences, base: worker.workerPreamble(false, false) }],
 				["false trust omits writing guidance with or without the reviewer charter", worker.workerPreamble(false, false) === commonPreamble && !worker.workerPreamble(false, true).includes(currentGuidance), { plain: worker.workerPreamble(false, false), reviewer: worker.workerPreamble(false, true) }],
-				["true trust enables the current 1570-byte preamble with writing guidance", worker.WORKER_WRITING_GUIDANCE === currentGuidance && worker.workerPreamble(true, false) === `${commonPreamble} ${currentGuidance}` && Buffer.byteLength(worker.workerPreamble(true, false)) === 1570, worker.workerPreamble(true, false)],
-				["reviewer variants match the current measured byte boundaries", Buffer.byteLength(worker.workerPreamble(false, true)) === 3172 && Buffer.byteLength(worker.workerPreamble(true, true)) === 3725, { reviewer: Buffer.byteLength(worker.workerPreamble(false, true)), both: Buffer.byteLength(worker.workerPreamble(true, true)) }],
+				["true trust enables the current 1866-byte preamble with writing guidance", worker.WORKER_WRITING_GUIDANCE === currentGuidance && worker.workerPreamble(true, false) === `${commonPreamble} ${currentGuidance}` && Buffer.byteLength(worker.workerPreamble(true, false)) === 1866, worker.workerPreamble(true, false)],
+				["reviewer variants match the current measured byte boundaries", Buffer.byteLength(worker.workerPreamble(false, true)) === 3468 && Buffer.byteLength(worker.workerPreamble(true, true)) === 4021, { reviewer: Buffer.byteLength(worker.workerPreamble(false, true)), both: Buffer.byteLength(worker.workerPreamble(true, true)) }],
 				["worker prompt uses permitted Slate configuration and passes charter and selected guidance to the system blocks", /const configPermitted = permitsSlateConfig\(opts\.config, trusted\)/.test(workerSource) && /appendSystemPrompt\s*:\s*workerSystemPromptBlocks\(configPermitted\s*,\s*opts\.reviewerCharter\s*===\s*true\s*,\s*opts\.reviewGuidance\s*,\s*promptDocs\s*,\s*opts\.changeGuidance\)\s*,/.test(workerSource), workerSource.match(/appendSystemPrompt\s*:[^\n]*/)?.[0] ?? "not found"],
 				["the removed writingCheck parameter and dispatch field are absent", !/writingCheck/.test(workerSource) && !/writingCheck/.test(threadsSource), { worker: workerSource.match(/writingCheck/)?.[0] ?? "absent", threads: threadsSource.match(/writingCheck/)?.[0] ?? "absent" }],
 				["ThreadManager derives the charter switch from effective thread type through the shared judgement-type predicate", /effectiveThreadType\(args\.thread\s*,\s*args\.report\)/.test(threadsSource) && /reviewerCharter\s*:\s*isJudgementThreadType\(type\)/.test(threadsSource) && worker.JUDGEMENT_THREAD_TYPES?.join(",") === "reviewer,adversarial", { typeRead: threadsSource.match(/effectiveThreadType\([^)]*\)/)?.[0] ?? "not found", charter: threadsSource.match(/reviewerCharter\s*:[^,\n]*/)?.[0] ?? "not found", judgementTypes: worker.JUDGEMENT_THREAD_TYPES }],

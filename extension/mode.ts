@@ -586,7 +586,7 @@ export function registerSlateMode(
 		if (store.orchestratorMode && choice.enabled) displaySummary(ctx);
 	};
 
-	// In pinned pi 1.3.0, AgentSession.prompt() handles registered extension
+	// In pinned pi 1.4.0, AgentSession.prompt() handles registered extension
 	// commands before the input event. It returns when a command claims the text.
 	// /slate resume and /slate handoff therefore never reach this handler.
 	// Command matching is exact and case-sensitive. sendUserMessage() skips

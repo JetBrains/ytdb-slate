@@ -810,7 +810,7 @@ export interface SlateConfig {
 	cacheKeyEnabled?: boolean; // set false to disable prompt cache keys entirely (default true)
 	cacheKeyShards?: number; // REMOVED partitioning setting: accepted, reported once at session load, and ignored
 	requestThrottle?: RequestThrottleConfig | SanitizedRequestThrottle; // raw or session-sanitized per-model worker request pacing — see request-throttle.ts
-	maxConcurrent?: number; // global cap on concurrently running worker actions (default 4; must be ≥ 1 — unenforced, ≤ 0 silently hangs all dispatches; rationale: docs/design-principles.md §5 repo-local note)
+	maxConcurrent?: number; // per-manager action cap, validated as a positive safe integer with fallback 8. See docs/design-principles.md §5.
 	pauseThresholdPercent?: number; // DEPRECATED: legacy percent-based auto-pause (default 40); applies only when set AND contextBudget is absent or entirely invalid (invalid sanitizes to absent — a partially invalid object stays budget mode)
 	contextBudget?: number | ContextBudgetObject; // absolute orchestrator token budget; bare number = { tokens: N }; {} opts into built-in defaults (256k, 400k for anthropic/*) — see handoff.ts
 	orchestratorModeDefault?: boolean; // seed orchestrator mode ON for fresh interactive sessions (unsaved until first real mutation)

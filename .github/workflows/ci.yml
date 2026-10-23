@@ -27,7 +27,8 @@
 # claim to be: `npm ci` populates the npm cache under HOME like any install, and
 # the scratch directories above live under TMPDIR, not in the workspace. The
 # load check also touches real pi state on one read path. It runs one
-# `pi --version` pin probe with the ordinary environment, and pi creates and
+# `pi --version` pin probe with ordinary agent-directory resolution and
+# PI_CODEMODE_MAX_WORKERS unset. Pi creates and
 # removes a settings.json.lock directory beside the real user settings file
 # during it. No load-check session reads the real user agent directory.
 #

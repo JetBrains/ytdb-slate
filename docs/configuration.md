@@ -65,7 +65,7 @@ The project must be trusted before Slate reads this file. Start a new session af
 | `requestThrottle.maxRequestsPerMinute` | number | `12` | Maximum logical SDK requests admitted for one actual `provider/id` in the preceding 60 seconds. The value must be a whole number from 1 through 1000. Provider network retries inside one SDK request do not consume another admission. Different models have independent counters. This threshold is request pacing, not a cache-hit or provider-rate-limit guarantee. |
 | `requestThrottle.baseWaitMs` | number | `1000` | Base delay before a blocked request rechecks capacity. The value must be a whole number from 1 through 60000. A positive minimum prevents a repeated zero-delay loop. |
 | `requestThrottle.jitterMs` | number | `1000` | Uniform random extra delay from zero through this inclusive bound before a blocked request rechecks. The value must be a whole number from 0 through 60000. Admission is approximately fair. It is not first-in-first-out and does not promise a bounded wait. |
-| `maxConcurrent` | number | `4` | Maximum number of worker actions running concurrently (must be ≥ 1 — unenforced: a value of 0 or less silently hangs all dispatches). Excess actions wait for a global concurrency slot. Every action has its own thread. Default rationale: shipped `docs/design-principles.md` §5 (repo-local note). |
+| `maxConcurrent` | number | `8` | Maximum concurrent worker actions per manager. Accepts positive safe integers only. Invalid input warns and selects 8. Excess actions wait for a slot. Every action has its own thread. See the worker-limit guidance below and `docs/design-principles.md` §5. |
 | `contextBudget` | number \| object | `256000` (Anthropic models: `400000`) | Absolute orchestrator context budget (tokens) at which Slate auto-pauses and prepares a fresh-session handoff — semantics, defaults, per-model overrides, and rationale in [`docs/context-budget.md`](context-budget.md). |
 | `orchestratorPromptDocs` | string[] | `[]` | Markdown files whose paths follow the source rules above and whose **contents** are appended to the orchestrator system prompt. |
 | `workerPromptDocs` | string[] | `[]` | Markdown files whose **contents** are appended to every worker-thread system prompt. |
@@ -89,6 +89,42 @@ The project must be trusted before Slate reads this file. Start a new session af
 Notification settings define permissions and text policy. Slate validates these settings at session start. Slate registers terminal, bell, native and push delivery channels. A channel is one delivery route. Slate registers no notification tool. See [Notifications](#notifications) for automatic delivery and setup.
 
 Invalid values produce generic warnings that name the setting and its home or project source without showing supplied values. Invalid channel values use the channel defaults, combined with home permission for project values. Invalid detail falls back to `generic`. Invalid intervals use their defaults. Invalid sequence selection uses `auto`. Invalid or incomplete push destinations disable push.
+
+## Action concurrency and script workers
+
+A positive safe integer is a whole number from 1 through `Number.MAX_SAFE_INTEGER`.
+Missing `maxConcurrent` selects 8 without warning.
+Other invalid values produce one fixed warning:
+
+> slate: maxConcurrent must be a positive safe integer. Using 8.
+
+Slate does not convert strings or round fractions.
+Both action admission and the derived script-worker limit use the validated value.
+A script worker executes one codemode script.
+Slate sets `PI_CODEMODE_MAX_WORKERS` from action concurrency at session startup
+when the variable is absent or still holds Slate's last written string.
+A present external value remains exact, including empty and invalid strings.
+Pi interprets those overrides and applies its own fallback.
+
+Configuration reload takes effect at the next session startup.
+The latest committed startup updates the Slate-owned process default.
+Earlier managers keep their action limits, but scripts use the current process pool.
+An external change revokes Slate ownership. Deletion permits a fresh default.
+An external rewrite to exactly Slate's current string cannot be detected.
+A later startup may replace that same string. Shutdown does not restore a value.
+
+The worker-limit variable is per process.
+Child processes inherit it, including bash tool commands and nested pi sessions.
+Each nested pi has its own pool of the inherited size.
+Users can set the variable explicitly for children, for example
+`PI_CODEMODE_MAX_WORKERS=2 pi`.
+Separate pools multiply possible script workers across processes.
+They do not share one capacity limit.
+
+A decrease does not stop running scripts.
+An increase does not itself wake pi waiters.
+Pi reevaluates capacity on its next admission or release.
+Eight concurrent actions do not guarantee eight available script slots.
 
 ## Notifications
 
@@ -522,7 +558,7 @@ The `docs/agents/...` values below are placeholders. Point them at Markdown file
   "orchestratorModeDefault": true,
   "cacheKeyEnabled": true,
   "requestThrottle": { "enabled": true, "maxRequestsPerMinute": 12, "baseWaitMs": 1000, "jitterMs": 1000 },
-  "maxConcurrent": 4,
+  "maxConcurrent": 8,
   "orchestratorPromptDocs": ["docs/agents/orchestrator-guidelines.md"],
   "workerPromptDocs": ["docs/agents/thread-guidelines.md"],
   "workflow": { "draftPRs": true, "followUpIssues": false, "routingRecommendations": false },

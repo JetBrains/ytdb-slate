@@ -80,7 +80,7 @@ export function isJudgementThreadType(type: unknown): type is (typeof JUDGEMENT_
 	return (JUDGEMENT_THREAD_TYPES as readonly unknown[]).includes(type);
 }
 
-// pi-ai 1.3.0 declares this value in
+// pi-ai 1.4.0 declares this value in
 // @earendil-works/pi-ai/dist/api/openai-prompt-cache.js. pi's extension loader
 // aliases the package root to the compat.js FILE, so an extension cannot safely
 // import that deep subpath. The node test pins this copy to pi-ai's declaration.
@@ -98,7 +98,7 @@ export const WORKER_PREAMBLE = [
 	"and anything the orchestrator must know.",
 	"When codemode is available, use one script to run independent tool calls together, chain dependent calls, or filter large output.",
 	"Keep large intermediate data, such as copied text, in script variables instead of the context.",
-	"If a script fails because the process-wide codemode script limit is reached, use normal tool calls.",
+	"Pi waits for script capacity. If a codemode script fails or does not start, call still-needed tools directly instead of resubmitting the script, even if an error suggests a retry. Apply the independent-call rule above to direct calls. A script that started may already have caused tool effects. Check the available execution evidence before you act. Do not blindly repeat calls that already ran.",
 	"A codemode script can call only tools you can also call directly. Slate blocks every other tool named in the codemode description or a tool search.",
 ].join(" ");
 
@@ -186,7 +186,7 @@ function installPromptCacheKey(session: WorkerSession, promptCacheKey?: string):
 		}
 
 		try {
-			// pi-ai 1.3.0 api/openai-responses.js buildParams always creates
+			// pi-ai 1.4.0 api/openai-responses.js buildParams always creates
 			// prompt_cache_key and assigns undefined when resolved cacheRetention is
 			// "none". Own-property presence therefore distinguishes that deliberate
 			// opt-out from a payload shape that never considered this field.
@@ -321,7 +321,7 @@ export function createWorkerRequestContract(): WorkerRequestContract {
  *
  * The wrapper preserves the software development kit (SDK) authentication branch.
  * AgentSession._getSummarizationRequestAuth takes its strict branch only when
- * agent.streamFunction === streamSimple. In pinned pi 1.3.0, createAgentSession
+ * agent.streamFunction === streamSimple. In pinned pi 1.4.0, createAgentSession
  * installs its own stream function, so fresh worker sessions take the lenient
  * branch. test/request-throttle-worker.test.ts checks that identity.
  *
@@ -445,6 +445,9 @@ export function inheritHostProviderRegistrations(
 	}
 }
 
+// One load result belongs to this opener module, including a rejected import.
+let workerCodemodeLoad: Promise<typeof import("./worker-codemode.ts")> | undefined;
+
 export async function openWorkerSession(opts: {
 	ctx: ExtensionContext;
 	sessionFile?: string; // resume when provided, else create new under this runtime folder
@@ -478,7 +481,7 @@ export async function openWorkerSession(opts: {
 	// user has NOT trusted. Carry the host session's actual trust decision into
 	// both the resource loader and the session.
 	//
-	// READ-ONLY view (AF8/AF9): pi 1.3.0 keeps ordinary session.setModel and
+	// READ-ONLY view (AF8/AF9): pi 1.4.0 keeps ordinary session.setModel and
 	// setThinkingLevel calls inside the session. Slate requests no persistence.
 	// This storage protects global settings from calls with persist:true and
 	// from hosts that persist switches. A file-backed manager would save those
@@ -543,10 +546,17 @@ export async function openWorkerSession(opts: {
 	let codemodeFactory: ExtensionFactory | undefined;
 	let codemodeFailure: unknown;
 	try {
-		const codemode = await import("./worker-codemode.ts");
+		if (!workerCodemodeLoad) workerCodemodeLoad = import("./worker-codemode.ts");
+		const codemode = await workerCodemodeLoad;
+		if (codemode.WORKER_CODEMODE_COMPONENT_NAME !== "slate-worker-codemode"
+			|| typeof codemode.createWorkerCodemodeComponent !== "function") {
+			throw new Error("Invalid worker codemode component exports");
+		}
+		const factory = codemode.createWorkerCodemodeComponent(warn);
+		if (typeof factory !== "function") throw new Error("Invalid worker codemode component factory");
 		codemodeName = codemode.WORKER_CODEMODE_COMPONENT_NAME;
 		codemodePath = `<inline:${codemodeName}>`;
-		codemodeFactory = codemode.createWorkerCodemodeComponent(warn, nestedLifecycle.closeSignal);
+		codemodeFactory = factory;
 	} catch (error) {
 		codemodeFailure = error;
 	}
@@ -648,7 +658,7 @@ export async function openWorkerSession(opts: {
 		? SessionManager.open(opts.sessionFile)
 		: SessionManager.create(ctx.cwd, ensureRuntimeDirectory(ctx.cwd, opts.runtimeFolder ?? defaultArtifactFolder(), "threads"));
 
-	// In pi 1.3.0, createAgentSession creates a ModelRuntime when none is passed.
+	// In pi 1.4.0, createAgentSession creates a ModelRuntime when none is passed.
 	// It uses auth.json, models.json and models-store.json under agentDir.
 	// SDK creation enables network catalog refresh only with allowModelNetwork.
 	// This call supplies no runtime option, so creation uses no network catalog

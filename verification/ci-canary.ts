@@ -13,7 +13,7 @@
  * are and why they resolve nowhere else, see AGENTS.md § Overview). Every
  * assertion lives in the driver script, which reads this line.
  *
- * Pi 1.3.0 exposes no remote procedure call (RPC) command or command-line
+ * Pi 1.4.0 exposes no remote procedure call (RPC) command or command-line
  * interface (CLI) flag that enumerates registered tools.
  * get_commands lists commands only. Removing a dispatch-tool registration
  * leaves exit 0, empty stderr and a working /slate command. This hook observes

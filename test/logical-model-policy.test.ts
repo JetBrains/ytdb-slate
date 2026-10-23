@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
 import { SHIPPED_COMPRESSOR_MODELS, SHIPPED_LOGICAL_MODELS, type LogicalModelDefinition } from "../extension/logical-model-definitions.ts";
 import { resolveLogicalModelPolicy, type LogicalModelPolicy } from "../extension/logical-model-resolver.ts";
@@ -483,7 +483,18 @@ test("only the reviewed writing-checker computed import is accepted once", () =>
   assert.deepEqual(twice.issues.map((issue) => issue.kind), ["computed-reference"]);
 });
 
-test("dormant target matching follows pinned jiti path and decoration behavior", { timeout: 15_000 }, async () => {
+test("dormant target matching follows pinned jiti path and decoration behavior", { timeout: 15_000 }, async (t) => {
+  if (process.env.NODE_V8_COVERAGE) {
+    // Jiti byte offsets do not match native TypeScript coverage.
+    const namePattern = `^${t.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`;
+    const child = spawnSync(process.execPath, ["--test", `--test-name-pattern=${namePattern}`, fileURLToPath(import.meta.url)], {
+      cwd: process.cwd(), encoding: "utf8", timeout: 10_000, killSignal: "SIGKILL",
+      env: { ...process.env, NODE_TEST_CONTEXT: undefined, NODE_V8_COVERAGE: undefined },
+    });
+    assert.equal(child.error, undefined, String(child.error));
+    assert.equal(child.status, 0, child.stdout + child.stderr);
+    return;
+  }
   const jitiUrl = pathToFileURL(join(REPOSITORY_ROOT, "node_modules", "@earendil-works", "pi-coding-agent", "node_modules", "jiti", "lib", "jiti-static.mjs")).href;
   const { createJiti } = await import(jitiUrl) as { createJiti(id: string, options?: object): { import(id: string): Promise<Record<string, unknown>> } };
   const nestedImporter = join(REPOSITORY_ROOT, "extension", "fixtures", "probe.ts");

@@ -7,6 +7,7 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { sanitizeMaxConcurrent } from "./concurrency.ts";
 import { allocateActionTemporary, finishActionTemporary, retainedActionTemporary, type ActionTemporary } from "./action-temporary.ts";
 import { readFileSync } from "node:fs";
 import { basename } from "node:path";
@@ -307,7 +308,7 @@ export class ThreadManager {
 		this.sessionScope = sessionScope;
 		this.readReviewFile = readReviewFile ?? ((file) => readFileSync(file, "utf8"));
 		// Action concurrency and request pacing limit different quantities.
-		this.semaphore = new Semaphore(config.maxConcurrent ?? 4);
+		this.semaphore = new Semaphore(sanitizeMaxConcurrent(config.maxConcurrent));
 	}
 
 	getConfig(): SlateConfig {

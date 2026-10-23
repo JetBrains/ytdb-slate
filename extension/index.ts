@@ -38,6 +38,7 @@ import { createChangeFolder } from "./artifact-names.ts";
 import { createChangeDirectory } from "./slate-files.ts";
 import { getAgentDir, SettingsManager, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { loadConfig, permitsSlateConfig } from "./config.ts";
+import { commitCodemodeLimit, sanitizeMaxConcurrent } from "./concurrency.ts";
 import { createNativeNotificationChannel, stopNativeNotificationHelpers } from "./notification-native.ts";
 import type { CompressorRetryPolicy } from "./logical-model-adapters.ts";
 import { RecoveryOwnership } from "./logical-model-recovery.ts";
@@ -146,6 +147,7 @@ export default function (pi: ExtensionAPI) {
 			warn("slate: Pi retry settings could not be read. Episode compression will retain completed output instead of advancing between models.");
 		}
 		// Context budget and worker extensions are validated eagerly.
+		config.maxConcurrent = sanitizeMaxConcurrent(config.maxConcurrent, warn);
 		config.contextBudget = sanitizeContextBudget(config.contextBudget, warn);
 		config.workerExtensions = sanitizeWorkerExtensions(config.workerExtensions, warn);
 		config.cacheKeyEnabled = sanitizeCacheKeyEnabled(config.cacheKeyEnabled, warn);
@@ -197,7 +199,9 @@ export default function (pi: ExtensionAPI) {
 			promptCacheKey: createSessionPromptCacheKey(),
 			requestThrottle: createRequestThrottle(requestThrottleSettings),
 		};
-		manager = new ThreadManager(store, config, resolveWorkerExtensionSet, logicalRuntime, compressorRetryPolicy, sessionScope);
+		const nextManager = new ThreadManager(store, config, resolveWorkerExtensionSet, logicalRuntime, compressorRetryPolicy, sessionScope);
+		commitCodemodeLimit(config.maxConcurrent);
+		manager = nextManager;
 		store.restore(ctx);
 		notifications.start(config, ctx);
 	});
