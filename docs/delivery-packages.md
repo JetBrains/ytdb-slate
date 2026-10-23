@@ -40,10 +40,10 @@ check results and review verdicts.
 
 ## Track package
 
-Use this order:
+Use this order. `<number>` is the track identifier (canonical path number).
 
 ```markdown
-## Track <number>: <name>
+## Track <position> of <count> (<number>): <name>
 
 **Intention**
 <The approved behavior and scope.>

@@ -80,7 +80,7 @@ const duties: Record<string, string[]> = {
     "Keep a no-advice result only in the research log. Do not invent a recommendation.",
   ],
   "context-budget.md": [
-    "Its 28,085 portable characters exceed the whole-doctrine ceiling by 1,785.",
+    "Its 28,044 portable characters exceed the whole-doctrine ceiling by 1,744.",
   ],
   "change-records.md": [
     "Keep that endpoint in the owning research log.",

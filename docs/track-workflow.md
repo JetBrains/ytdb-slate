@@ -231,6 +231,11 @@ copy of this table.
 
 ## Confirmation gate
 
+For each track presentation in a multi-track change (pre-track check, plan, track package, or acceptance request), state "Track n of m".
+Here n is the track position and m is the current planned track count at that level.
+After a split, use the new count in the next presentation.
+Position does not replace the track identifier (canonical path number). Present a review-fix child with the affected track's identifier and position.
+
 Follow [review-rules.md](review-rules.md) § Findings and output for severity, required fixes,
 minor dispositions, and moot or rejected findings in both review phases.
 

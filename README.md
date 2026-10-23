@@ -38,7 +38,7 @@ Try a request with a clear outcome:
 Add input validation to the account settings endpoint. First research the relevant code and tests. Show me the proposed plan and risks before implementation.
 ```
 
-Slate asks for required decisions before editing code. It delegates work after workflow gates allow it. Slate shows a short workflow summary when orchestrator mode is on at interactive startup or when you turn it on. A saved `startupSummary: false` choice stops automatic display. The summary disappears when you send your first prompt to the model.
+Slate asks for required decisions before editing code. It delegates work after workflow gates allow it. The workflow summary is off by default. Run `/slate summary on` to save an opt-in. The panel appears at the next interactive startup or mode activation, not when you save the choice. The summary disappears when you send your first prompt to the model. A handoff successor keeps the current panel visibility instead of using the saved choice.
 
 Run `/slate off` to stop Slate's delegation and remove the summary. `/slate summary off` also removes it. Toggling orchestrator mode off with `/slate` removes it too. Other slash commands leave it visible unless they reload or replace the session. `/reload`, `/new`, `/resume`, and `/fork` clear the panel when they reload or replace the session. Slate then shows it only when orchestrator mode is on and the saved choice allows automatic display. Run `/slate summary` to show it at any time. See [Commands](#commands).
 
@@ -76,7 +76,7 @@ The orchestrator records risks for the change and each track. The orchestrator j
 | `/slate` | Toggle orchestrator mode. |
 | `/slate summary` | Show the workflow summary in any mode, even when automatic display is off. |
 | `/slate summary off` | Stop automatic display and remove a visible summary. |
-| `/slate summary on` | Allow automatic display when orchestrator mode is on. |
+| `/slate summary on` | Save automatic display for the next startup or mode activation. |
 | `/slate effective` | Show the effective logical-model policy and remembered route selections. |
 | `/slate handoff [focus]` | Prepare a new-session handoff, with an optional focus. |
 | `/slate resume` | Clear a context-budget pause and accept user prompts again. |

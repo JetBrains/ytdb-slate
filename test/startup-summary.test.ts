@@ -31,22 +31,39 @@ function fixture(t: test.TestContext) {
 
 test("preference saves in the redirected agent folder, keeps other keys, and ignores slate.json", (t) => {
 	const f = fixture(t);
-	assert.deepEqual(readStartupSummary(), { enabled: true });
+	assert.deepEqual(readStartupSummary(), { enabled: false });
 	assert.equal(preferencePath(), f.path);
-	writeFileSync(join(f.project, ".pi", "slate.json"), '{"startupSummary":false}');
+	writeFileSync(join(f.project, ".pi", "slate.json"), '{"startupSummary":true}');
 	mkdirSync(f.agent);
-	writeFileSync(join(f.agent, "slate.json"), '{"startupSummary":false}');
-	assert.equal(readStartupSummary().enabled, true);
-	assert.match(JSON.stringify(loadConfig(f.project, true, () => {})), /"startupSummary":false/);
+	writeFileSync(join(f.agent, "slate.json"), '{"startupSummary":true}');
+	assert.equal(readStartupSummary().enabled, false);
+	assert.match(JSON.stringify(loadConfig(f.project, true, () => {})), /"startupSummary":true/);
 	assert.equal(saveStartupSummary(false).path, f.path);
 	assert.deepEqual(readStartupSummary(), { enabled: false });
 	assert.equal(permitsSlateConfig(loadConfig(f.project, false, () => {}), false), true);
 	writeFileSync(f.path, '{"extra":{"value":3}}');
+	assert.deepEqual(readStartupSummary(), { enabled: false });
 	saveStartupSummary(true);
 	assert.deepEqual(JSON.parse(readFileSync(f.path, "utf8")), { extra: { value: 3 }, startupSummary: true });
 	assert.deepEqual(readStartupSummary(), { enabled: true });
 	rmSync(join(f.agent, "slate.json"));
 	assert.equal(permitsSlateConfig(loadConfig(f.project, false, () => {}), false), false);
+});
+
+test("absent keys stay off and explicit booleans keep their meaning", async (t) => {
+	for (const [label, content, enabled] of [
+		["absent key", "{}", false],
+		["unrelated key", '{"other":1}', false],
+		["explicit on", '{"startupSummary":true}', true],
+		["explicit off", '{"startupSummary":false}', false],
+	] as const) {
+		await t.test(label, (caseT) => {
+			const f = fixture(caseT);
+			mkdirSync(f.agent);
+			writeFileSync(f.path, content);
+			assert.deepEqual(readStartupSummary(), { enabled });
+		});
+	}
 });
 
 test("invalid preference reads show the summary, and commands refuse to replace invalid files", (t) => {
@@ -66,6 +83,7 @@ test("invalid preference reads show the summary, and commands refuse to replace 
 	rmSync(f.path);
 	mkdirSync(f.path);
 	assert.match(readStartupSummary().warning!, /Cannot read or parse/);
+	assert.equal(readStartupSummary().enabled, true);
 	assert.throws(() => saveStartupSummary(false));
 	assert.equal(lstatSync(f.path).isDirectory(), true);
 });
@@ -264,27 +282,47 @@ const snapshot = (currentChange?: string, owner?: string, orchestratorMode = tru
 const PANEL = [
 	"What Slate does, step by step:",
 	"1. Research: Slate studies your request and the code through worker threads.",
-	"2. Risk approval: Slate lists the risks of the change, and you approve or reject each one.",
-	"3. Design: multi-track work, a proved design risk, or an estimate above 100 counted lines needs a design. You validate and approve it. Only proved design risks add adversarial design reviewers.",
-	"4. Tracks: workers implement and report approximate size. A proved risk adds reviewers. More than 100 counted lines adds a general reviewer unless the track changes only documents that neither ship as code nor run.",
+	"2. Risks: Slate judges risks and required reviews internally.",
+	"3. Solution: Slate presents a short plan or a required design. You approve the short plan or validate the design. If adversarial design review is required, you give final design approval after it. Otherwise, design validation includes final approval.",
+	"4. Tracks: a code track implements one bounded part of approved work. Required reviewers check it. A design track plans a larger part of the work and owns child tracks. You accept each code track in a multi-track change and each design track with all its child tracks. At required boundaries, run /slate handoff --track-boundary to continue in a new main session.",
 	"5. Final acceptance: you review the whole change and accept it.",
 	"6. Delivery: Slate prepares a final commit or optional level pull requests. A level contains tracks from one split. Only you merge. A merge is not final acceptance.",
-	"Run /slate summary off or /slate summary on to hide or show this summary when orchestrator mode starts.",
+	"Run /slate summary off or /slate summary on to disable or enable automatic display. On applies at the next automatic opportunity. Off also hides the panel now.",
 ];
 
 const STYLED_PANEL = [
 	"<b><accent>What Slate does, step by step:</accent></b>",
 	"<b><accent>1. Research:</accent></b> Slate studies your request and the code through worker threads.",
-	"<b><accent>2. Risk approval:</accent></b> Slate lists the risks of the change, and <b><warning>you approve or reject</warning></b> each one.",
-	"<b><accent>3. Design:</accent></b> multi-track work, a proved design risk, or an estimate above 100 counted lines needs a design. <b><warning>You validate and approve it</warning></b>. Only proved design risks add adversarial design reviewers.",
-	"<b><accent>4. Tracks:</accent></b> workers implement and report approximate size. A proved risk adds reviewers. More than 100 counted lines adds a general reviewer unless the track changes only documents that neither ship as code nor run.",
+	"<b><accent>2. Risks:</accent></b> Slate judges risks and required reviews internally.",
+	"<b><accent>3. Solution:</accent></b> Slate presents a short plan or a required design. <b><warning>You approve the short plan or validate the design. If adversarial design review is required, you give final design approval after it. Otherwise, design validation includes final approval</warning></b>.",
+	"<b><accent>4. Tracks:</accent></b> a code track implements one bounded part of approved work. Required reviewers check it. A design track plans a larger part of the work and owns child tracks. <b><warning>You accept each code track in a multi-track change and each design track with all its child tracks</warning></b>. At required boundaries, run <mdCode>/slate handoff --track-boundary</mdCode> to continue in a new main session.",
 	"<b><accent>5. Final acceptance:</accent></b> you review the whole change and <b><warning>accept it</warning></b>.",
 	"<b><accent>6. Delivery:</accent></b> Slate prepares a final commit or optional level pull requests. A level contains tracks from one split. <b><warning>Only you merge</warning></b>. A merge is not final acceptance.",
-	"<dim>Run </dim><mdCode>/slate summary off</mdCode><dim> or </dim><mdCode>/slate summary on</mdCode><dim> to hide or show this summary when orchestrator mode starts.</dim>",
+	"<dim>Run </dim><mdCode>/slate summary off</mdCode><dim> or </dim><mdCode>/slate summary on</mdCode><dim> to disable or enable automatic display. On applies at the next automatic opportunity. Off also hides the panel now.</dim>",
 ];
+
+test("default-off startup permits manual display and saves on for the next automatic opportunity", { timeout: 10000 }, async (t) => {
+	const f = harness(t);
+	f.snapshot(snapshot());
+	await f.start();
+	assert.deepEqual(readStartupSummary(), { enabled: false });
+	assert.equal(f.widgets.has(SUMMARY_WIDGET_KEY), false);
+	await f.command("summary on");
+	assert.deepEqual(readStartupSummary(), { enabled: true });
+	assert.equal(f.widgets.has(SUMMARY_WIDGET_KEY), false);
+	await f.start("reload");
+	assert.deepEqual(f.widgets.get(SUMMARY_WIDGET_KEY), STYLED_PANEL);
+	await f.command("summary off");
+	await f.start("reload");
+	assert.deepEqual(readStartupSummary(), { enabled: false });
+	assert.equal(f.widgets.has(SUMMARY_WIDGET_KEY), false);
+	await f.command("summary");
+	assert.deepEqual(f.widgets.get(SUMMARY_WIDGET_KEY), STYLED_PANEL);
+});
 
 test("reload keeps the summary panel and restores the mode status", { timeout: 10000 }, async (t) => {
 	const f = harness(t);
+	saveStartupSummary(true);
 	f.snapshot(snapshot("change-20260924T105757Z-ab29a0b2cdd1cdc0fa26d66bc4718dc9", "parent"));
 	await f.start();
 	assert.deepEqual(f.widgets.get(SUMMARY_WIDGET_KEY), STYLED_PANEL);
@@ -302,6 +340,7 @@ test("reload keeps the summary panel and restores the mode status", { timeout: 1
 
 test("a visible parent panel stays visible through handoff even with the saved preference off", { timeout: 10000 }, async (t) => {
 	const parent = harness(t);
+	saveStartupSummary(true);
 	parent.snapshot(snapshot());
 	await parent.start();
 	assert.deepEqual(parent.widgets.get(SUMMARY_WIDGET_KEY), STYLED_PANEL);
@@ -323,6 +362,7 @@ test("a visible parent panel stays visible through handoff even with the saved p
 
 test("an interactive prompt hides the panel in the successor despite automatic display being on", { timeout: 10000 }, async (t) => {
 	const parent = harness(t);
+	saveStartupSummary(true);
 	parent.snapshot(snapshot());
 	await parent.start();
 	await parent.submit("Hide this panel.");
@@ -331,6 +371,7 @@ test("an interactive prompt hides the panel in the successor despite automatic d
 	const entry = parent.successorEntry()!;
 	assert.equal(entry.summaryVisible, false);
 	const successor = harness(t);
+	saveStartupSummary(true);
 	successor.handoff(entry);
 	await successor.start("new");
 	assert.equal(readStartupSummary().enabled, true);
@@ -378,6 +419,7 @@ test("handoff entries without visibility retain the automatic display rule", { t
 
 test("invalid handoff snapshot does not carry a visible panel", { timeout: 10000 }, async (t) => {
 	const f = harness(t);
+	saveStartupSummary(true);
 	f.handoff({ sessionId: "successor", summaryVisible: true, snapshot: { format: "invalid" } });
 	await f.start("new");
 	assert.match(f.notices.at(-1)!.text, /invalid successor handoff state/);
@@ -387,6 +429,7 @@ test("invalid handoff snapshot does not carry a visible panel", { timeout: 10000
 
 test("failed handoff save does not carry a hidden panel", { timeout: 10000 }, async (t) => {
 	const f = harness(t);
+	saveStartupSummary(true);
 	f.handoff({ sessionId: "successor", summaryVisible: false, snapshot: snapshot() });
 	f.failNextSave();
 	await f.start("new");
@@ -397,6 +440,7 @@ test("failed handoff save does not carry a hidden panel", { timeout: 10000 }, as
 
 test("copied and already restored handoff entries do not change automatic display", { timeout: 10000 }, async (t) => {
 	const f = harness(t);
+	saveStartupSummary(true);
 	writeFileSync(join(f.project, ".pi", "slate.json"), '{"orchestratorModeDefault":true}');
 	f.handoff({ sessionId: "original", summaryVisible: false, snapshot: snapshot() });
 	await f.start("fork");
@@ -419,6 +463,7 @@ test("a failed carried panel update warns through the summary channel", { timeou
 
 test("fresh terminal mode seeding displays the panel after restore, but an explicit off state does not", { timeout: 10000 }, async (t) => {
 	const f = harness(t);
+	saveStartupSummary(true);
 	await f.start();
 	assert.equal(f.widgets.has(SUMMARY_WIDGET_KEY), false, "fresh normal mode has no panel");
 	writeFileSync(join(f.project, ".pi", "slate.json"), '{"orchestratorModeDefault":true}');
@@ -432,6 +477,7 @@ test("fresh terminal mode seeding displays the panel after restore, but an expli
 
 test("normal mode stays clear through reload status, while toggles and repeat on restore the panel", { timeout: 10000 }, async (t) => {
 	const f = harness(t);
+	saveStartupSummary(true);
 	f.snapshot(snapshot(undefined, undefined, false));
 	await f.start();
 	assert.equal(f.widgets.has(SUMMARY_WIDGET_KEY), false);
@@ -470,12 +516,14 @@ test("the saved off choice suppresses automatic display, not manual display in e
 	await f.command("summary off");
 	assert.equal(f.widgets.has(SUMMARY_WIDGET_KEY), false);
 	await f.command("summary on");
+	assert.equal(f.widgets.has(SUMMARY_WIDGET_KEY), false, "saving on does not show the panel");
 	await f.command("on");
 	assert.deepEqual(f.widgets.get(SUMMARY_WIDGET_KEY), STYLED_PANEL);
 });
 
 test("the first terminal prompt clears only the summary widget without changing model input", { timeout: 10000 }, async (t) => {
 	const f = harness(t);
+	saveStartupSummary(true);
 	f.snapshot(snapshot());
 	await f.start();
 	const lines = f.widgets.get(SUMMARY_WIDGET_KEY)!;
@@ -506,6 +554,7 @@ test("the first terminal prompt clears only the summary widget without changing 
 
 test("a failed summary clear warns and leaves the prompt untouched", { timeout: 10000 }, async (t) => {
 	const f = harness(t);
+	saveStartupSummary(true);
 	f.snapshot(snapshot());
 	await f.start();
 	f.breakClear(true);
@@ -599,7 +648,7 @@ test("startup errors warn once and do not stop the session", { timeout: 10000 },
 	await f.start();
 	assert.equal(f.notices.filter((n) => n.type === "warning").length, 1);
 	assert.ok(f.widgets.has(SUMMARY_WIDGET_KEY));
-	writeFileSync(f.path, "{}");
+	writeFileSync(f.path, '{"startupSummary":true}');
 	f.breakWidget(true);
 	f.notices.length = 0;
 	await f.start("reload");
@@ -609,6 +658,7 @@ test("startup errors warn once and do not stop the session", { timeout: 10000 },
 
 test("a terminal fixture without a theme keeps its plain widget", { timeout: 10000 }, async (t) => {
 	const f = harness(t);
+	saveStartupSummary(true);
 	f.snapshot(snapshot());
 	f.missTheme(true);
 	await f.start();
@@ -621,6 +671,7 @@ test("a terminal fixture without a theme keeps its plain widget", { timeout: 100
 
 test("theme failures warn without breaking terminal startup", { timeout: 10000 }, async (t) => {
 	const f = harness(t);
+	saveStartupSummary(true);
 	f.snapshot(snapshot());
 	f.breakTheme(true);
 	await f.start();
@@ -670,8 +721,8 @@ test("the short phase list follows all nine lifecycle phases in the shipped docu
 		[labels[5], phases.slice(8, 9)],
 	], [
 		["Research", ["research."]],
-		["Risk approval", ["assess and record all eleven risk lines."]],
-		["Design", phases.slice(2, 6)],
+		["Risks", ["assess and record all eleven risk lines."]],
+		["Solution", phases.slice(2, 6)],
 		["Tracks", ["run the track loop."]],
 		["Final acceptance", ["obtain blocking final acceptance."]],
 		["Delivery", ["deliver."]],

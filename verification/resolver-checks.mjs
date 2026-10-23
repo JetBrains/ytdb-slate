@@ -4307,7 +4307,7 @@ Use [track-workflow.md](track-workflow.md) for the common lifecycle.`);
 				}
 				: unit.id === "public-workflow" ? policyRegion(unit.start, unit.end, unit.endAtLineStart) : headingUnit(unit.start) }));
 			const repairEscalationDigest = "9f61738c4c77d9e59406480fdaa58485ce66fb2a921e634ed26c45c4cc1ee99b";
-			const EXPECTED_DELIVERY_PACKAGES_SHA256 = "f99fc28f23c57786a50b8df0d190dcdec978b270deaea9eda09ef972bca31ceb";
+			const EXPECTED_DELIVERY_PACKAGES_SHA256 = "d754bcde9c3d082f88653a8ce2b05ab5c199d090a91a4097feaa43a59518e38a";
 			if (!ONLY) {
 			const acceptsRecursiveDelivery = (unit, source) => {
 				const resolved = unit.extract(source);
@@ -5543,7 +5543,7 @@ The description is available on request.`),
 			// HTML comments count. The word layer is best-effort during refresh review.
 			// Known word-layer escapes include "retention branches" and "branches kept for retention".
 			const EXPECTED_PUBLISHING_SHA256 = "7abf52e1c6362a7dcd997cce14b0e4dc56c77018e0ec37c2aa0e098bcd025197";
-			const EXPECTED_TRACK_WORKFLOW_SHA256 = "9fd0a5d265e53191480424eb0bb1886f9f93efc0c1802784182abe7285dd4689";
+			const EXPECTED_TRACK_WORKFLOW_SHA256 = "36bcdec930a9d141c35cf15c24519b51b5feb0189d8ec73d61214a9d5539ace0";
 			const peerRetentionOwners = [
 				{ id: "nested", source: recursive, units: [historyUnit] },
 				{ id: "common", source: commonRecords, units: [privateSetUnit] },
@@ -6659,6 +6659,26 @@ omitted and why.`);
 				const owned = block(source, "delivery-package-contract");
 				return owned.count === 1 && owned.endCount === 1 && digest(source) === EXPECTED_DELIVERY_PACKAGES_SHA256;
 			};
+			const trackPresentationText = 'For each track presentation in a multi-track change (pre-track check, plan, track package, or acceptance request), state "Track n of m".\nHere n is the track position and m is the current planned track count at that level.\nAfter a split, use the new count in the next presentation.\nPosition does not replace the track identifier (canonical path number). Present a review-fix child with the affected track\'s identifier and position.\n';
+			const trackPresentationRule = normalizeText(trackPresentationText);
+			const acceptsTrackPresentation = (source, packages) => {
+				const gate = headingUnit("## Confirmation gate")(source);
+				const single = headingUnit("## Single-track combined package")(packages);
+				return gate.count === 1 && gate.text.includes(trackPresentationRule)
+					&& packages.includes("## Track <position> of <count> (<number>): <name>")
+					&& single.count === 1 && single.text.includes("A single-track change sends one completion message using the change package.")
+					&& single.text.includes("Do not send a separate track package.");
+			};
+			const trackPresentationMutations = [
+				...["pre-track check, ", "plan, ", "track package, ", "or acceptance request", "track position", "current planned track count", "at that level", "After a split, use the new count in the next presentation.", "Position does not replace the track identifier (canonical path number).", "Present a review-fix child with the affected track's identifier and position."].map((part) =>
+					[part, workflow.replace(trackPresentationText, (raw) => raw.replace(part, "")), deliveryPackages]),
+				["nested-level-count", workflow.replace("at that level", "across all levels"), deliveryPackages],
+				["single-track-scope", workflow.replace("each track presentation in a multi-track change", "each track presentation in every change"), deliveryPackages],
+				["old-workflow", workflow.replace(trackPresentationText, ""), deliveryPackages],
+				["package-heading", workflow, deliveryPackages.replace("## Track <position> of <count> (<number>): <name>", "## Track <number>: <name>")],
+				["identifier-slot", workflow, deliveryPackages.replace(" (<number>)", "")],
+				["single-track-package", workflow, deliveryPackages.replace("Do not send a separate track package.", "Send a separate track package.")],
+			].map(([id, source, packages]) => ({ id, changed: source !== workflow || packages !== deliveryPackages, rejected: !acceptsTrackPresentation(source, packages) }));
 			const swapFirstPackageLabels = deliveryPackages
 				.replace("**Result**", "**resolver-temporary-label**")
 				.replace("**Needs attention**", "**Result**")
@@ -6904,7 +6924,9 @@ The accounting covers:`),
 			const modeSource = readFileSync(join(REPO, "extension", "mode.ts"), "utf8");
 			checkAll("contract-delivery-packages", "one exact package-policy block owns field order, conditional sections, enabled routing, single-track output, and durable accounting. One exact loading unit limits the document read to package preparation. Every literal filename reference in shipped documentation has a reviewed context and heading owner", [
 				["the complete package document and its owned contract resolve once and match the reviewed SHA-256 digest", packageContract.count === 1 && packageContract.endCount === 1 && acceptsPackageContract(deliveryPackages), { count: packageContract.count, endCount: packageContract.endCount, digest: digest(deliveryPackages) }],
-				["the structural heading and template-label rosters keep the approved order", packageHeadings.join() === "Package preparation,Track package,Track <number>: <name>,Change package,Change: <name>,Single-track combined package,Durable accounting" && JSON.stringify(packageTemplates) === JSON.stringify([["Intention", "Result", "Needs attention", "Next step"], ["Intention", "Outcome", "Goal status", "Remaining concerns", "Model-routing recommendations", "Decision"]]), { packageHeadings, packageTemplates }],
+				["track presentations define position, current level count, post-split updates, and the single-track boundary", acceptsTrackPresentation(workflow, deliveryPackages), trackPresentationRule],
+				["all sixteen independent presentation removals and boundary counterfactuals change input and fail", trackPresentationMutations.length === 16 && new Set(trackPresentationMutations.map(({ id }) => id)).size === 16 && trackPresentationMutations.every(({ changed, rejected }) => changed && rejected), trackPresentationMutations],
+				["the structural heading and template-label rosters keep the approved order", packageHeadings.join() === "Package preparation,Track package,Track <position> of <count> (<number>): <name>,Change package,Change: <name>,Single-track combined package,Durable accounting" && JSON.stringify(packageTemplates) === JSON.stringify([["Intention", "Result", "Needs attention", "Next step"], ["Intention", "Outcome", "Goal status", "Remaining concerns", "Model-routing recommendations", "Decision"]]), { packageHeadings, packageTemplates }],
 				["order, verification, attention, duplication, accounting, menu, routing, ownership, and acceptance-pointer mutations each change the source and fail", packageMutationOutcomes.every(({ changed, accepted }) => changed && !accepted), packageMutationOutcomes],
 				["missing and duplicated package boundaries and additive rules outside the owned block fail closed", !missingPackageBoundary && duplicatePackageBoundary.count === 2 && duplicatePackageBoundary.endCount === 2 && !acceptsPackageContract(additivePackageSource), { missingPackageBoundary, duplicatePackageBoundary, additiveAccepted: acceptsPackageContract(additivePackageSource) }],
 				["the package document delegates acceptance policy to the canonical workflow unit", !Object.values(ACCEPTANCE_FACTS).some((entry) => typeof entry.document === "string" && deliveryPackages.includes(entry.document)) && packageContract.text.includes("Follow\n[track-workflow.md](track-workflow.md) § Delivery and termination"), Object.values(ACCEPTANCE_FACTS).filter((entry) => typeof entry.document === "string" && deliveryPackages.includes(entry.document))],
