@@ -102,5 +102,5 @@
   // verification/required-case-*.ts checks delivery results through Node's native
   // type stripping. verification/*.mjs drivers are plain, unannotated JavaScript.
   // Checking them would need allowJs+checkJs, so they remain outside this graph.
-  "include": ["extension/**/*.ts", ".pi/extensions/require-main-worktree.ts", "test/**/*.ts", "verification/probe.ts", "verification/ci-canary.ts", "verification/worker-reminder-canary.ts", "verification/required-case-*.ts"]
+  "include": ["extension/**/*.ts", ".pi/extensions/require-main-worktree.ts", "test/**/*.ts", "verification/probe.ts", "verification/ci-canary.ts", "verification/worker-reminder-canary.ts", "verification/required-case-*.ts", "verification/markdown-hashes.ts", "verification/update-markdown-hashes.ts"]
 }
