@@ -6929,7 +6929,25 @@ The accounting covers:`),
 				["ladder shell before every child launch", "run-ladder.sh", "\nunset PI_CODEMODE_MAX_WORKERS\n"],
 				["release roster isolated-load command", "release-checks.sh", "run isolated-load bash -c 'env -u PI_CODEMODE_MAX_WORKERS HOME="],
 			].map(([boundary, file, control]) => ({ boundary, control, source: readFileSync(join(REPO, "verification", file), "utf8") }));
-			const hasPresenceControl = (source, control) => source.split(control).length === 2;
+			const hasPresenceControl = (source, control) => source.split(control).length === 2
+				&& (control !== "\nunset PI_CODEMODE_MAX_WORKERS\n" || source.startsWith(`#!/usr/bin/env bash${control}`));
+			const presenceAudit = createMutationAudit({ "harness-presence": [
+				"run-load-check.sh/removed", "run-load-check.sh/moved",
+				"run-ladder.sh/removed", "run-ladder.sh/moved", "release-checks.sh/removed",
+			] });
+			const presenceMutations = presenceControls.flatMap(({ source, control }, index) => {
+				const file = ["run-load-check.sh", "run-ladder.sh", "release-checks.sh"][index];
+				const removed = source.replace(control, "\n");
+				return [
+					{ id: `${file}/removed`, original: source, source: removed, control },
+					...(index < 2 ? [{ id: `${file}/moved`, original: source, source: removed + control, control }] : []),
+				];
+			});
+			presenceAudit.record("harness-presence", presenceMutations.map(({ id, original, source, control }) => ({
+				id, changed: source !== original, rejected: !hasPresenceControl(source, control),
+			})));
+			const presenceAuditResult = presenceAudit.inspect();
+			console.log(`NOTE harness presence mutations: ${JSON.stringify(presenceMutations.map(({ id, source, control }) => ({ id, accepted: hasPresenceControl(source, control) })))}`);
 			const parallelToolRule = "Issue all independent tool calls simultaneously in one worker turn. Use separate turns only when results depend on each other or conflict.";
 			const reasonSentences = [
 				"The harness runs calls issued in one turn at the same time.",
@@ -7072,6 +7090,7 @@ The accounting covers:`),
 					[`${boundary} explicitly selects absence`, hasPresenceControl(source, control), control],
 					[`${boundary} rejects removal of its unset`, !hasPresenceControl(source.replace(control, ""), control), control],
 				]),
+				["five independent removal and late-move mutations execute once and fail their launch rows", presenceAuditResult.ok, presenceAuditResult],
 				["both test processes select pool limit 2", hasPoolLaunches(testRunner), poolLaunches],
 				["removing either test-process limit fails the launch contract", poolLaunches.every((launch) => { const mutated = testRunner.replace(launch, launch.replace("PI_CODEMODE_MAX_WORKERS=2 ", "")); return mutated !== testRunner && !hasPoolLaunches(mutated); }), poolLaunches],
 				["recovery guidance appears exactly once in every prompt form", [false, true].every(trusted => [false, true].every(review => hasRecovery(worker.workerPreamble(trusted, review)))), recoveryRule],

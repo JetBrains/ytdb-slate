@@ -220,7 +220,8 @@ rate limits and cause failed episodes or increase provider spend.
 
 Eight supports concurrent actions but does not guarantee script capacity.
 More concurrent actions and script workers increase memory use and simultaneous
-provider requests. Existing request pacing and retry policies still apply.
+provider requests. Request pacing covers only OpenAI Responses worker requests
+per provider and model in each session.
 Projects can adjust the cap in `slate.json` for their workload and provider limits.
 
 Slate derives `PI_CODEMODE_MAX_WORKERS` from effective action concurrency while

@@ -962,8 +962,8 @@ if run_wanted T1 T2 T3; then
 	}
 
 	# TQ2 requires the trusted checkout config to emit no sanitizer warning. Any
-	# warning, malformed modelFailover, contextBudget, workerExtensions, or writing
-	# value must fail rather than hide behind an expected notice. T4 separately
+	# warning, malformed maxConcurrent, modelFailover, contextBudget, workerExtensions,
+	# or writing value must fail rather than hide behind an expected notice. T4 separately
 	# covers JSON shape.
 	want T2 && {
 		N="$(rpcq warnings "$WORK/run2.out")"
@@ -995,8 +995,8 @@ fi
 #
 # It asserts exactly two things: the file parses as JSON, and its top-level value
 # is an object. It deliberately does NOT judge the contents — unknown keys and
-# wrong-typed values are a separate concern, and the three keys that do have
-# sanitizers are T2's business.
+# wrong-typed values are a separate concern. Sanitizer warnings for maxConcurrent,
+# modelFailover, contextBudget, workerExtensions, and writing are T2's business.
 if run_wanted T4; then
 	want T4 && {
 		CFG="$REPO/.pi/slate.json"
