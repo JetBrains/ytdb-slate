@@ -12,7 +12,7 @@ import { createLogicalRuntime } from "../extension/logical-model-runtime.ts";
 import { EMPTY_WORKER_EXTENSION_SET } from "../extension/worker-extensions.ts";
 import * as paths from "../extension/paths.ts";
 // @ts-ignore Data-only JavaScript fixture.
-import { phases, lifecycle, scenarios, reads, referenceOnly, dependencies, conditionalSets, limits, occurrences, sessionEntries, resumeReads, accumulatedReads, sessionReads, startsSession } from "../verification/workflow-context-map.mjs";
+import { phases, lifecycle, scenarios, reads, referenceOnly, dependencies, conditionalSets, limits, occurrences, sessionEntries, resumeReads, accumulatedReads, sessionReads, startsSession, requiresBoundary, transferReads } from "../verification/workflow-context-map.mjs";
 
 const scratch = mkdtempSync(join(tmpdir(), "slate-phase-"));
 after(() => rmSync(scratch, { recursive: true, force: true }));
@@ -20,7 +20,11 @@ const directory = `${dirname(paths.TRACK_WORKFLOW_DOC)}/`;
 const exported = Object.fromEntries(Object.entries(paths).filter(([id]) => id.endsWith("_DOC")));
 const bytes = (text: string) => Buffer.byteLength(text, "utf8");
 const tokens = (size: number) => Math.ceil(size / 4);
-const source = (id: string) => readFileSync(exported[id]!, "utf8");
+const documentTexts = new Map<string, string>();
+function source(id: string): string {
+  if (!documentTexts.has(id)) documentTexts.set(id, readFileSync(exported[id]!, "utf8"));
+  return documentTexts.get(id)!;
+}
 type Read = [string, number, string, string, string[]];
 type Span = [number, number];
 function sections(text: string, selectors: string[]): Span[] {
@@ -176,20 +180,22 @@ function table(rows: string[], costs: string[], entries: string[]): string {
     "and resume without transfer keep the current session. Single-track work has",
     "no mandatory handoff. Reads continue accumulating inside each session.", "",
     "Each start rereads the accumulated fixed-document set for its phase and plan.",
-    "The design-track start is the only session start that adds fixed-document reads.",
-    "Its required set covers unchanged-record reconciliation without added definitions.",
-    "Its conditional maximum adds focus and coverage definitions for renewed focus judgment.",
-    "These two ranges add 29,762 bytes before the subtree starts research.",
-    "From phase 2, the whole focus document already contains both ranges.", "",
+    "Nested phase-1 resume starts include design-track entry and optional handoffs.",
+    "Their required sets cover unchanged-record reconciliation without added definitions.",
+    "Their conditional maxima add focus and coverage definitions for renewed focus judgment.",
+    "These two ranges in [blast-radius.md](blast-radius.md) add 29,762 bytes.",
+    "Root research starts add neither range, including with a nested plan.",
+    "From phase 2, the whole [blast-radius.md](blast-radius.md) already contains both ranges.", "",
     "| Session start | Entry phase | Plan | Added required reads | Added conditional reads |",
     "| --- | --- | --- | --- | --- |",
-    "| Research, including phase-1 optional handoff | 1 | ordinary or nested | none | none |",
-    "| Design track | 1 | nested | none | Focus areas and their gates, including Judged proof and risk record, plus Review coverage and the coverage register |",
+    "| Root research | 1 | ordinary or nested | none | none |",
+    "| Optional handoff | 1 | ordinary | none | none |",
+    "| Design track or optional handoff | 1 | nested | none | [Focus areas and their gates](blast-radius.md#focus-areas-and-their-gates), including Judged proof and risk record, plus [Review coverage and the coverage register](blast-radius.md#review-coverage-and-the-coverage-register) |",
     "| Code track, including the second boundary | 7 | ordinary or nested | none | none |",
     "| Parent return | continuing phase 2–9 | ordinary or nested | none | none |",
     "| Optional handoff | continuing phase 2–9 | ordinary or nested | none | none |", "",
-    "All starts use the corresponding phase limits. Only the design-track maximum",
-    "differs from the phase total. Its measured entry totals follow.", "",
+    "All starts use the corresponding phase limits. Only nested phase-1 resume maxima",
+    "differ from the phase totals. Their measured entry totals follow.", "",
     "| Publishing | Required bytes | Estimated tokens | Conditional maximum bytes | Estimated tokens | Byte limit | Token limit |",
     "| --- | ---: | ---: | ---: | ---: | ---: | ---: |", ...entries, "",
     "The doctrine requires common change records at every start. Nested planning",
@@ -219,6 +225,10 @@ function table(rows: string[], costs: string[], entries: string[]): string {
     "exceed every total. Compaction can reduce retained text but not this metric.",
     "The reference scanner checks filenames and reviewed contexts, not read semantics.",
     "A reviewer checks recipients, conditions, dependencies, and first-read phases.",
+    "After any resume, handoff, or reread duty changes, reconcile session-entry",
+    "assignments against source duties even when tests pass. Follow",
+    "[Workflow-phase context maintenance](../verification/README.md#workflow-phase-context-maintenance)",
+    "and record either the updated assignments, expectations, and publication or a no-change decision.",
     "<!-- workflow-phase:end -->"].join("\n");
 }
 
@@ -357,11 +367,14 @@ function expectedAccumulation(phase: number, scenario: string, maximum: boolean)
      maximum && !["always", "publishing", "nested"].includes(r[2])));
 }
 function assertEntry(actual: Read[], entry: Entry, scenario: string, maximum: boolean, through = entry.phase): void {
-  // track-workflow.md § Resume order and reconciliation step 4 and
-  // recursive-workflow.md § Resume and folder forks require reconciliation.
-  // Design v5 includes renewed focus judgment in the conditional maximum.
-  // Unchanged records require no new definition read. Research has no focus record.
-  const extra: Read[] = entry.id === "design-track" && maximum ? [
+  // mode.ts doctrine rules require fresh-session rereads and nested resume loading.
+  // track-workflow.md § Resume order and reconciliation steps 4 and 7 and
+  // recursive-workflow.md § Resume and folder forks reconcile inherited focus records.
+  // blast-radius.md § Focus areas and their gates and § Review coverage and the
+  // coverage register supply the definitions for renewed focus judgment.
+  // Every nested phase-1 resume can reconcile parent records, including optional handoffs.
+  // Unchanged records need no new definitions. Root research has no focus record.
+  const extra: Read[] = entry.phase === 1 && entry.id !== "research" && scenario.endsWith("nested") && maximum ? [
     ["BLAST_RADIUS_DOC", 1, "renewed focus judgment", "orchestrator",
       ["Focus areas and their gates", "Review coverage and the coverage register"]],
   ] : [];
@@ -398,7 +411,7 @@ test("session entry sets, continuation, and transfer controls", { timeout: 10000
         assert.deepEqual(readSet(continued), readSet([...actual, ...expectedAccumulation(through, scenario, maximum)]));
         checkLimit(doctrine + total(continued), limits[`${through} ${scenario}`][maximum ? 1 : 0], `continued ${entry.id}`);
       }
-      if (entry.id === "design-track" && maximum) {
+      if (entry.phase === 1 && entry.id !== "research" && scenario.endsWith("nested") && maximum) {
         for (const selector of ["Focus areas and their gates", "Review coverage and the coverage register"]) {
           const omitted = actual.map((r): Read => r[2] === "renewed focus judgment" ?
             [r[0], r[1], r[2], r[3], r[4].filter((s) => s !== selector)] : r);
@@ -415,14 +428,22 @@ test("session entry sets, continuation, and transfer controls", { timeout: 10000
   assert.throws(() => sessionReads(research, "off ordinary", false, 0), /invalid session/);
   assert.throws(() => sessionReads(sessionEntries[1], "off ordinary"), /invalid session/);
   assert.throws(() => sessionReads(research, "off ordinary", false, 10), /invalid session/);
+  const optional = (sessionEntries as Entry[]).find((e) => e.id === "optional-handoff" && e.phase === 1)!;
+  const current = sessionReads(research, "off nested", true) as Read[];
+  const successor = sessionReads(optional, "off nested", true) as Read[];
+  assert.notDeepEqual(readSet(current), readSet(successor), "resume definitions distinguish a fresh session");
   for (const outcome of ["failed", "cancelled", "resume"]) {
-    assert.equal(startsSession(outcome, true), false);
     assert.equal(startsSession(outcome), false);
-    assert.deepEqual(readSet(accumulatedReads(7, "off ordinary")), readSet(expectedAccumulation(7, "off ordinary", false)));
+    const retained = transferReads(outcome, current, optional, "off nested", true) as Read[];
+    assert.strictEqual(retained, current, `${outcome} retains the current session reads`);
+    assert.deepEqual(readSet(retained), readSet(current));
+    assert.notDeepEqual(readSet(retained), readSet(successor));
   }
-  assert.equal(startsSession("transferred", true, false), false);
-  assert.equal(startsSession("transferred", true, true), true);
-  assert.equal(startsSession("transferred", false, false), true);
+  for (const multiTrack of [false, true]) {
+    assert.equal(requiresBoundary(multiTrack), multiTrack, "only multi-track work requires a boundary");
+    assert.equal(startsSession("transferred"), true, "any completed transfer starts a session");
+    assert.deepEqual(readSet(transferReads("transferred", current, optional, "off nested", true)), readSet(successor));
+  }
   // Doctrine reuse exceptions apply only to text already in this session.
   for (const publishing of [false, true]) {
     const doctrine = doctrines[publishing ? 1 : 0]!;

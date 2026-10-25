@@ -996,17 +996,32 @@ reuse these coordinates without fixing a track count.
 
 Entry tests compare document identities, conditions and selected range unions
 against an independent accumulated-set selection plus named resume reads.
-Only renewed focus judgment at design-track entry adds definition ranges.
+Renewed focus judgment at any nested phase-1 resume adds definition ranges.
+This includes design-track entry and optional handoffs inside a design subtree.
+Root research starts add none, even with a nested plan.
 Unchanged-record reconciliation adds none. Other entries equal their accumulated
 sets. Continuation retains entry reads and accumulates later phases.
 Negative controls remove successor rereads and conditional reads, add an
-unsupported release, and reset a continuing session. Failed transfers and
-single-track controls preserve the current session.
-The publication includes fresh rendered design-track entry totals.
+unsupported release, and reset a continuing session. Outcome-dependent transfer
+controls retain current reads after failure, cancellation, or resume without transfer.
+Any completed transfer starts a session. Single-track work has no mandatory boundary.
+The publication includes fresh rendered nested phase-1 resume totals.
 Handoff savings in variable conversation content remain outside this metric.
-Re-run the native phase tests after changing any entry coordinate, resume range,
-source duty, scenario filter or publication text. Inspect with
+Re-run the native phase tests after changing mapped reads, document exports,
+doctrine, phase assignments, limits, entry coordinates, resume ranges, source
+duties, scenario filters, or publication text. Inspect with
 `SLATE_PHASE_INSPECT=1 node --test test/workflow-context-budget.test.ts`.
+
+After any resume, handoff, or reread source duty changes, reconcile session-entry
+assignments semantically even when tests pass. Check `extension/mode.ts` doctrine
+rules, `docs/track-workflow.md` § Confirmation gate and § Resume order and
+reconciliation, `docs/recursive-workflow.md` § Resume and folder forks, and
+`docs/blast-radius.md` focus and coverage definitions. Compare recipients,
+conditions, selected ranges, and inherited records at every affected start.
+Update entry assignments, independent expectations, and the publication from a
+fresh production render. If no update is needed, record an explicit no-change
+decision with the checked duties and reasons in the implementer report.
+A passing test run does not replace this reconciliation.
 
 On failure, inspect the reported scenario, phase, source ranges, total, limit,
 and excess bytes. Check for a wrong read assignment or unintended growth first.
@@ -1033,8 +1048,11 @@ A failed comparison grants no authority to replace its base.
 ## Re-run triggers
 
 Re-run phase tests after changes to mapped reads, document exports, doctrine,
-phase assignments, limits, or the published phase section. Run both independent
-package-content commands and their self-test for package evidence.
+phase assignments, limits, entry coordinates, resume ranges, source duties,
+scenario filters, or publication text. Any resume, handoff, or reread source-duty
+change also requires the semantic reconciliation under Workflow-phase context
+maintenance, even when tests pass. Run both independent package-content commands
+and their self-test for package evidence.
 
 Re-run the strict suite after changes to active logical-model modules,
 `mode.ts`, `paths.ts`, worker-extension doctrine, state sanitizers, base-model

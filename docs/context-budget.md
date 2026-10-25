@@ -582,22 +582,24 @@ and resume without transfer keep the current session. Single-track work has
 no mandatory handoff. Reads continue accumulating inside each session.
 
 Each start rereads the accumulated fixed-document set for its phase and plan.
-The design-track start is the only session start that adds fixed-document reads.
-Its required set covers unchanged-record reconciliation without added definitions.
-Its conditional maximum adds focus and coverage definitions for renewed focus judgment.
-These two ranges add 29,762 bytes before the subtree starts research.
-From phase 2, the whole focus document already contains both ranges.
+Nested phase-1 resume starts include design-track entry and optional handoffs.
+Their required sets cover unchanged-record reconciliation without added definitions.
+Their conditional maxima add focus and coverage definitions for renewed focus judgment.
+These two ranges in [blast-radius.md](blast-radius.md) add 29,762 bytes.
+Root research starts add neither range, including with a nested plan.
+From phase 2, the whole [blast-radius.md](blast-radius.md) already contains both ranges.
 
 | Session start | Entry phase | Plan | Added required reads | Added conditional reads |
 | --- | --- | --- | --- | --- |
-| Research, including phase-1 optional handoff | 1 | ordinary or nested | none | none |
-| Design track | 1 | nested | none | Focus areas and their gates, including Judged proof and risk record, plus Review coverage and the coverage register |
+| Root research | 1 | ordinary or nested | none | none |
+| Optional handoff | 1 | ordinary | none | none |
+| Design track or optional handoff | 1 | nested | none | [Focus areas and their gates](blast-radius.md#focus-areas-and-their-gates), including Judged proof and risk record, plus [Review coverage and the coverage register](blast-radius.md#review-coverage-and-the-coverage-register) |
 | Code track, including the second boundary | 7 | ordinary or nested | none | none |
 | Parent return | continuing phase 2–9 | ordinary or nested | none | none |
 | Optional handoff | continuing phase 2–9 | ordinary or nested | none | none |
 
-All starts use the corresponding phase limits. Only the design-track maximum
-differs from the phase total. Its measured entry totals follow.
+All starts use the corresponding phase limits. Only nested phase-1 resume maxima
+differ from the phase totals. Their measured entry totals follow.
 
 | Publishing | Required bytes | Estimated tokens | Conditional maximum bytes | Estimated tokens | Byte limit | Token limit |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -642,4 +644,8 @@ reads, and the incoming system prompt are excluded. These variable costs can
 exceed every total. Compaction can reduce retained text but not this metric.
 The reference scanner checks filenames and reviewed contexts, not read semantics.
 A reviewer checks recipients, conditions, dependencies, and first-read phases.
+After any resume, handoff, or reread duty changes, reconcile session-entry
+assignments against source duties even when tests pass. Follow
+[Workflow-phase context maintenance](../verification/README.md#workflow-phase-context-maintenance)
+and record either the updated assignments, expectations, and publication or a no-change decision.
 <!-- workflow-phase:end -->

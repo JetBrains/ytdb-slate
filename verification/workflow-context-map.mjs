@@ -44,12 +44,18 @@ export function accumulatedReads(phase, scenario, maximum = false) {
 export function sessionReads(entry, scenario, maximum = false, through = entry.phase) {
   if (!entry.plans.includes(scenario.split(" ")[1]) || through < entry.phase || through > 9) throw new Error("invalid session coordinates");
   return [...accumulatedReads(through, scenario, maximum),
-    ...(entry.id === "design-track" && maximum ? resumeReads : [])];
+    ...(entry.phase === 1 && entry.id !== "research" && scenario.endsWith("nested") && maximum ? resumeReads : [])];
 }
 // A transfer starts a fresh session only when it completes.
 // Single-track work has no mandatory boundary. Optional transfers remain possible.
-export function startsSession(outcome, mandatory = false, multiTrack = true) {
-  return outcome === "transferred" && (!mandatory || multiTrack);
+export function startsSession(outcome) {
+  return outcome === "transferred";
+}
+export function requiresBoundary(multiTrack) {
+  return multiTrack;
+}
+export function transferReads(outcome, currentReads, entry, scenario, maximum = false) {
+  return startsSession(outcome) ? sessionReads(entry, scenario, maximum) : currentReads;
 }
 export const referenceOnly = {
   REVIEW_IMPLEMENTATION_INPUT_DOC: "Worker-only input. Built-in implementation review loads it for the worker, not the orchestrator.",
