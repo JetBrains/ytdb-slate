@@ -547,12 +547,14 @@ test("setup writes the successor-bound entry before session_start even without a
         assert.equal((entry as any)?.data.snapshot.orchestratorMode, true);
         const successorStore = new SlateStore(pi);
         const successorHandlers = new Map<string, any>();
-        const successorPi = { on(event: string, handler: any) { successorHandlers.set(event, handler); }, appendEntry() {} } as unknown as ExtensionAPI;
+        const pauses: any[] = [];
+        const successorPi = { on(event: string, handler: any) { successorHandlers.set(event, handler); }, appendEntry() {}, sendMessage(message: any) { pauses.push(message); } } as unknown as ExtensionAPI;
         registerSlateHandoff(successorPi, successorStore, () => ({}), () => createBaseModelTracker({ warn() {} }));
         const freshCtx = { cwd: projectDir, hasUI: false, sessionManager: successor } as unknown as ExtensionContext;
         const oldWarn = console.warn; console.warn = () => {};
         try { await successorHandlers.get("session_start")({}, freshCtx); } finally { console.warn = oldWarn; }
         assert.equal(successorStore.orchestratorMode, true, "real adoption handler reads the setup entry");
+        assert.deepEqual(pauses.map((message) => message.customType), ["slate-pause"]);
         await options.withSession({ ...freshCtx, sendMessage: async (message: { content: string }) => { kickoff = message.content; } });
         return { cancelled: false };
       },
@@ -612,13 +614,15 @@ test("two parent handoffs in one project write separate successor sessions", asy
     // Use one real adoption handler per successor, not a direct snapshot copy.
     for (const [index, successor] of successors.entries()) {
       const handlers = new Map<string, any>();
-      const pi = { on(event: string, handler: any) { handlers.set(event, handler); }, appendEntry() {} } as unknown as ExtensionAPI;
+      const pauses: any[] = [];
+      const pi = { on(event: string, handler: any) { handlers.set(event, handler); }, appendEntry() {}, sendMessage(message: any) { pauses.push(message); } } as unknown as ExtensionAPI;
       const store = new SlateStore(pi);
       registerSlateHandoff(pi, store, () => ({}), () => createBaseModelTracker({ warn() {} }));
       const ctx = { cwd: projectDir, hasUI: false, sessionManager: successor } as unknown as ExtensionContext;
       const oldWarn = console.warn; console.warn = () => {};
       try { await handlers.get("session_start")({}, ctx); } finally { console.warn = oldWarn; }
       assert.equal(store.workerCostUsd, index === 0 ? 7 : 9);
+      assert.deepEqual(pauses.map((message) => message.customType), ["slate-pause"]);
     }
   });
 });

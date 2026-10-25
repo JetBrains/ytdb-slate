@@ -500,6 +500,7 @@ export function registerSlateHandoff(
 	// entry, wins over the handoff on every later restore.
 	pi.on("session_start", async (_event, ctx) => {
 		adoptedSummaryVisibility = undefined;
+		let persistedHandoff: SessionHandoff | undefined;
 		try {
 			const branch = ctx.sessionManager.getBranch();
 			if (branch.some((entry) => entry.type === "custom" && entry.customType === "slate-state")) return;
@@ -536,7 +537,7 @@ export function registerSlateHandoff(
 				);
 				return;
 			}
-			if (typeof pending.kickoff === "string") pi.sendMessage({ customType: "slate-pause", content: "Handoff model adoption is pending. While paused, do not start a turn. Choose a permitted model and effort, then run /slate resume. Disregard this pause after adoption or resume succeeds.", display: false });
+			persistedHandoff = pending;
 			if (typeof pending.summaryVisible === "boolean") adoptedSummaryVisibility = pending.summaryVisible;
 			getRuntime()?.resetPreferences();
 			if (ctx.hasUI) {
@@ -690,6 +691,10 @@ export function registerSlateHandoff(
 			}
 		} catch (error) {
 			reportFailure(ctx, `slate: could not adopt successor handoff — ${sanitizeForNotify(error instanceof Error ? error.message : String(error))}`);
+		} finally {
+			if (store.paused === true && store.pauseReason === "adoption" && typeof persistedHandoff?.kickoff === "string") {
+				pi.sendMessage({ customType: "slate-pause", content: "Handoff model adoption is pending. While paused, do not start a turn. Choose a permitted model and effort, then run /slate resume. Disregard this pause after adoption or resume succeeds.", display: false });
+			}
 		}
 	});
 
