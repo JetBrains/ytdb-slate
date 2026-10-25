@@ -43,7 +43,7 @@ class Server:
         self.environment = {"PATH": os.environ["PATH"], "HOME": str(root),
                             "LANG": "C.UTF-8", "TERM": "xterm-256color"}
         config = root / "tmux.conf"
-        config.write_text("set -g status off\nset -g allow-passthrough on\n")
+        config.write_text("set -g status off\nset -g mouse off\nset -g allow-passthrough on\n")
         self.command = [tmux, "-S", self.socket, "-f", str(config)]
         pane_program = root / "pane.py"
         pane_program.write_text("import os, pathlib, sys, tty\n"
@@ -215,14 +215,15 @@ class Server:
 
 
 def restorations(client, final=False):
-    # Exact blocks measured on tmux 3.4 and 3.7c with these 80-by-24 clients.
+    # Exact blocks measured on tmux 3.4, 3.7c and 3.8 with these 80-by-24 clients.
     base = (ESC + b"(B" + ESC + b"[m" + ESC + b"[?12l" + ESC + b"[?25h" +
             ESC + b"[?1006l" + ESC + b"[?1000l" + ESC + b"[?1002l" +
             ESC + b"[?1003l" + ESC + b"[1;1H" + ESC + b"[1;24r")
     blocks = [base + ESC + b"[1;1H"]
     if not final:
         blocks.append(base)
-    if (client["name"] or "").startswith("iTerm2"):
+    # The margin block applies to clients for which tmux enables margins.
+    if (client["name"] or "").startswith(("iTerm2", "WezTerm", "ghostty")):
         blocks.append(ESC + b"[?69h" + base + ESC + b"[1;24r" + ESC + b"[s" + ESC + b"[1;1H")
     if final:
         cursor = ESC + b"[?25l" + ESC + b"[?12l" + ESC + b"[?25h"
