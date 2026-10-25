@@ -509,7 +509,8 @@ The doctrine is the workflow guidance rendered for the orchestrator. Each row
 adds cumulative required document reads to that guidance. Earlier reads stay
 in later rows. A later whole-file read replaces section ranges. Overlapping
 ranges count once. Section ranges include headings, subsections, separators,
-and final line feeds up to the next heading of the same or higher level. These rows describe one session from research to delivery. A change with more than one track hands off before each track, and the user runs each handoff. A session after a handoff holds less context than the rows for phases 7 to 9.
+and final line feeds up to the next heading of the same or higher level.
+The phase rows preserve accumulation for single-track work without a handoff.
 
 Each fixture uses trusted shipped policy, no worker extensions, and one open
 change with a 56-character name. It has no source change. Deferred issues and
@@ -531,13 +532,16 @@ is ceil(baseline bytes * 1.05). Tests enforce total <= stored literal limit.
 The token limit is ceil(byte limit / 4). Reserve is checked at approval,
 not recalculated as text grows. A maximum includes all applicable optional
 reads. Any subset fits because removing ranges cannot increase union size.
+The user approved the two nested research maximum limits on 2026-10-25.
+They are 227,535 bytes / 56,884 estimated tokens with publishing off and
+244,379 bytes / 61,095 estimated tokens with publishing on.
 
 | Phase | Publishing | Plan | Required bytes | Estimated tokens | Byte limit | Token limit | Conditional maximum bytes | Estimated tokens | Byte limit | Token limit |
 | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | 1. Research | off | ordinary | 75392 | 18848 | 75856 | 18964 | 144384 | 36096 | 144492 | 36123 |
-| 1. Research | off | nested | 126369 | 31593 | 129137 | 32285 | 195361 | 48841 | 197773 | 49444 |
+| 1. Research | off | nested | 126369 | 31593 | 129137 | 32285 | 195361 | 48841 | 227535 | 56884 |
 | 1. Research | on | ordinary | 88817 | 22205 | 92700 | 23175 | 157809 | 39453 | 161336 | 40334 |
-| 1. Research | on | nested | 139794 | 34949 | 145981 | 36496 | 208786 | 52197 | 214617 | 53655 |
+| 1. Research | on | nested | 139794 | 34949 | 145981 | 36496 | 208786 | 52197 | 244379 | 61095 |
 | 2. Risk assessment | off | ordinary | 112193 | 28049 | 114401 | 28601 | 181185 | 45297 | 183038 | 45760 |
 | 2. Risk assessment | off | nested | 163170 | 40793 | 167682 | 41921 | 232162 | 58041 | 236319 | 59080 |
 | 2. Risk assessment | on | ordinary | 125618 | 31405 | 131245 | 32812 | 194610 | 48653 | 199882 | 49971 |
@@ -570,6 +574,48 @@ reads. Any subset fits because removing ranges cannot increase union size.
 | 9. Delivery | off | nested | 209019 | 52255 | 216665 | 54167 | 295576 | 73894 | 302924 | 75731 |
 | 9. Delivery | on | ordinary | 171467 | 42867 | 180228 | 45057 | 308572 | 77143 | 319769 | 79943 |
 | 9. Delivery | on | nested | 222444 | 55611 | 233509 | 58378 | 308572 | 77143 | 319769 | 79943 |
+
+### Session starts
+
+A session runs between actual handoff transfers. A failed or cancelled transfer
+and resume without transfer keep the current session. Single-track work has
+no mandatory handoff. Reads continue accumulating inside each session.
+
+Each start rereads the accumulated fixed-document set for its phase and plan.
+The design-track start is the only session start that adds fixed-document reads.
+Its required set covers unchanged-record reconciliation without added definitions.
+Its conditional maximum adds focus and coverage definitions for renewed focus judgment.
+These two ranges add 29,762 bytes before the subtree starts research.
+From phase 2, the whole focus document already contains both ranges.
+
+| Session start | Entry phase | Plan | Added required reads | Added conditional reads |
+| --- | --- | --- | --- | --- |
+| Research, including phase-1 optional handoff | 1 | ordinary or nested | none | none |
+| Design track | 1 | nested | none | Focus areas and their gates, including Judged proof and risk record, plus Review coverage and the coverage register |
+| Code track, including the second boundary | 7 | ordinary or nested | none | none |
+| Parent return | continuing phase 2–9 | ordinary or nested | none | none |
+| Optional handoff | continuing phase 2–9 | ordinary or nested | none | none |
+
+All starts use the corresponding phase limits. Only the design-track maximum
+differs from the phase total. Its measured entry totals follow.
+
+| Publishing | Required bytes | Estimated tokens | Conditional maximum bytes | Estimated tokens | Byte limit | Token limit |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| off | 126369 | 31593 | 225123 | 56281 | 227535 | 56884 |
+| on | 139794 | 34949 | 238548 | 59637 | 244379 | 61095 |
+
+The doctrine requires common change records at every start. Nested planning
+and resume load recursive workflow. Fresh sessions cannot reuse prior context
+to skip review rules, rationale, or unusual-prose guidance when applicable.
+Resume reconciles records, accepted history, focus, coverage, and the live difference.
+Variable records remain required evidence but are outside fixed-document bytes.
+Tests compare document identities, conditions, and selected range unions.
+Current source rules release no fixed-document read at a handoff.
+
+A handoff saves retained conversation content, including messages, episodes,
+and variable records. It does not save required fixed-document reads.
+These tables exclude that conversation content and repeated reads.
+They do not measure the total context saving from a handoff.
 
 Conditional sets have the following whole-document costs. Early notes cost
 zero extra after required notes enter phase 7. Unusual prose costs zero extra

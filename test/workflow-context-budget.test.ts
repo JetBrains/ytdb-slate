@@ -12,7 +12,7 @@ import { createLogicalRuntime } from "../extension/logical-model-runtime.ts";
 import { EMPTY_WORKER_EXTENSION_SET } from "../extension/worker-extensions.ts";
 import * as paths from "../extension/paths.ts";
 // @ts-ignore Data-only JavaScript fixture.
-import { phases, lifecycle, scenarios, reads, referenceOnly, dependencies, conditionalSets, limits, occurrences } from "../verification/workflow-context-map.mjs";
+import { phases, lifecycle, scenarios, reads, referenceOnly, dependencies, conditionalSets, limits, occurrences, sessionEntries, resumeReads, accumulatedReads, sessionReads, startsSession } from "../verification/workflow-context-map.mjs";
 
 const scratch = mkdtempSync(join(tmpdir(), "slate-phase-"));
 after(() => rmSync(scratch, { recursive: true, force: true }));
@@ -140,13 +140,14 @@ function validatePublication(text: string, expected: string): void {
   assert.equal(blocks.length, 1, "publication block count");
   assert.equal(blocks[0]![0], expected, "publication content");
 }
-function table(rows: string[], costs: string[]): string {
+function table(rows: string[], costs: string[], entries: string[]): string {
   return ["<!-- workflow-phase:start -->", "## Workflow context by phase", "",
     "The doctrine is the workflow guidance rendered for the orchestrator. Each row",
     "adds cumulative required document reads to that guidance. Earlier reads stay",
     "in later rows. A later whole-file read replaces section ranges. Overlapping",
     "ranges count once. Section ranges include headings, subsections, separators,",
-    "and final line feeds up to the next heading of the same or higher level. These rows describe one session from research to delivery. A change with more than one track hands off before each track, and the user runs each handoff. A session after a handoff holds less context than the rows for phases 7 to 9.", "",
+    "and final line feeds up to the next heading of the same or higher level.",
+    "The phase rows preserve accumulation for single-track work without a handoff.", "",
     "Each fixture uses trusted shipped policy, no worker extensions, and one open",
     "change with a 56-character name. It has no source change. Deferred issues and",
     "routing recommendations are off. Ordinary plans have no nested trigger.",
@@ -164,9 +165,44 @@ function table(rows: string[], costs: string[]): string {
     "is ceil(baseline bytes * 1.05). Tests enforce total <= stored literal limit.",
     "The token limit is ceil(byte limit / 4). Reserve is checked at approval,",
     "not recalculated as text grows. A maximum includes all applicable optional",
-    "reads. Any subset fits because removing ranges cannot increase union size.", "",
+    "reads. Any subset fits because removing ranges cannot increase union size.",
+    "The user approved the two nested research maximum limits on 2026-10-25.",
+    "They are 227,535 bytes / 56,884 estimated tokens with publishing off and",
+    "244,379 bytes / 61,095 estimated tokens with publishing on.", "",
     "| Phase | Publishing | Plan | Required bytes | Estimated tokens | Byte limit | Token limit | Conditional maximum bytes | Estimated tokens | Byte limit | Token limit |",
     "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |", ...rows, "",
+    "### Session starts", "",
+    "A session runs between actual handoff transfers. A failed or cancelled transfer",
+    "and resume without transfer keep the current session. Single-track work has",
+    "no mandatory handoff. Reads continue accumulating inside each session.", "",
+    "Each start rereads the accumulated fixed-document set for its phase and plan.",
+    "The design-track start is the only session start that adds fixed-document reads.",
+    "Its required set covers unchanged-record reconciliation without added definitions.",
+    "Its conditional maximum adds focus and coverage definitions for renewed focus judgment.",
+    "These two ranges add 29,762 bytes before the subtree starts research.",
+    "From phase 2, the whole focus document already contains both ranges.", "",
+    "| Session start | Entry phase | Plan | Added required reads | Added conditional reads |",
+    "| --- | --- | --- | --- | --- |",
+    "| Research, including phase-1 optional handoff | 1 | ordinary or nested | none | none |",
+    "| Design track | 1 | nested | none | Focus areas and their gates, including Judged proof and risk record, plus Review coverage and the coverage register |",
+    "| Code track, including the second boundary | 7 | ordinary or nested | none | none |",
+    "| Parent return | continuing phase 2–9 | ordinary or nested | none | none |",
+    "| Optional handoff | continuing phase 2–9 | ordinary or nested | none | none |", "",
+    "All starts use the corresponding phase limits. Only the design-track maximum",
+    "differs from the phase total. Its measured entry totals follow.", "",
+    "| Publishing | Required bytes | Estimated tokens | Conditional maximum bytes | Estimated tokens | Byte limit | Token limit |",
+    "| --- | ---: | ---: | ---: | ---: | ---: | ---: |", ...entries, "",
+    "The doctrine requires common change records at every start. Nested planning",
+    "and resume load recursive workflow. Fresh sessions cannot reuse prior context",
+    "to skip review rules, rationale, or unusual-prose guidance when applicable.",
+    "Resume reconciles records, accepted history, focus, coverage, and the live difference.",
+    "Variable records remain required evidence but are outside fixed-document bytes.",
+    "Tests compare document identities, conditions, and selected range unions.",
+    "Current source rules release no fixed-document read at a handoff.", "",
+    "A handoff saves retained conversation content, including messages, episodes,",
+    "and variable records. It does not save required fixed-document reads.",
+    "These tables exclude that conversation content and repeated reads.",
+    "They do not measure the total context saving from a handoff.", "",
     "Conditional sets have the following whole-document costs. Early notes cost",
     "zero extra after required notes enter phase 7. Unusual prose costs zero extra",
     "when manual review already includes writing guidance. Nested plans already",
@@ -230,7 +266,18 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
   });
   const excluded = doctrines.map((text) => bytes(text) - bytes(text.split(directory).join("")));
   assert.deepEqual(excluded, [5 * bytes(directory), 6 * bytes(directory)]);
-  const publication = table(rows, costs);
+  const entries = scenarios.filter((s: string) => s.endsWith("nested")).map((scenario: string) => {
+    const entry = sessionEntries.find((e: Entry) => e.id === "design-track");
+    const publishing = scenario.split(" ")[0];
+    const doctrine = bytes(doctrines[publishing === "on" ? 1 : 0]!.split(directory).join(""));
+    const required = doctrine + total(sessionReads(entry, scenario));
+    const maximum = doctrine + total(sessionReads(entry, scenario, true));
+    const pair = limits[`1 ${scenario}`];
+    checkLimit(required, pair[0], `design-track ${scenario}`);
+    checkLimit(maximum, pair[1], `design-track maximum ${scenario}`);
+    return `| ${publishing} | ${required} | ${tokens(required)} | ${maximum} | ${tokens(maximum)} | ${pair[1]} | ${tokens(pair[1])} |`;
+  });
+  const publication = table(rows, costs, entries);
   if (process.env.SLATE_PHASE_INSPECT === "1") console.log(JSON.stringify({ measured, references: scan(sources), publication, excluded, costs }));
   assert.equal(Object.keys(limits).length, 36);
   assert.equal(rows.length, 36);
@@ -290,6 +337,108 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
   assert.notDeepEqual(spine.slice(1), lifecycle);
   checkLimit(100, 100, "equality");
   assert.throws(() => checkLimit(101, 100, "overflow"), /excess 1/);
+});
+
+type Entry = { id: string, phase: number, plans: string[] };
+// Conditions remain part of identity even when two conditions select the same bytes.
+function readSet(entries: Read[]): unknown[] {
+  const grouped = new Map<string, Span[]>();
+  for (const [id, , condition, recipient, selectors] of entries) {
+    const key = JSON.stringify([id, condition, recipient]);
+    grouped.set(key, [...(grouped.get(key) ?? []), ...sections(source(id), selectors)]);
+  }
+  return [...grouped].sort(([a], [b]) => a.localeCompare(b)).map(([key, spans]) => [key, union(spans)]);
+}
+function expectedAccumulation(phase: number, scenario: string, maximum: boolean): Read[] {
+  const [publishing, plan] = scenario.split(" ");
+  return (reads as Read[]).filter((r) => r[1] <= phase &&
+    (r[2] === "always" || r[2] === "publishing" && publishing === "on" ||
+     r[2] === "nested" && plan === "nested" ||
+     maximum && !["always", "publishing", "nested"].includes(r[2])));
+}
+function assertEntry(actual: Read[], entry: Entry, scenario: string, maximum: boolean, through = entry.phase): void {
+  // track-workflow.md § Resume order and reconciliation step 4 and
+  // recursive-workflow.md § Resume and folder forks require reconciliation.
+  // Design v5 includes renewed focus judgment in the conditional maximum.
+  // Unchanged records require no new definition read. Research has no focus record.
+  const extra: Read[] = entry.id === "design-track" && maximum ? [
+    ["BLAST_RADIUS_DOC", 1, "renewed focus judgment", "orchestrator",
+      ["Focus areas and their gates", "Review coverage and the coverage register"]],
+  ] : [];
+  assert.deepEqual(readSet(actual), readSet([...expectedAccumulation(through, scenario, maximum), ...extra]),
+    `entry set ${entry.id} ${entry.phase} ${scenario} maximum=${maximum} through=${through}`);
+}
+
+test("session entry sets, continuation, and transfer controls", { timeout: 10000 }, async () => {
+  const expected = [
+    ["research", 1, ["ordinary", "nested"]], ["design-track", 1, ["nested"]],
+    ["code-track", 7, ["ordinary", "nested"]], ["second-code-boundary", 7, ["ordinary", "nested"]],
+    ...Array.from({ length: 8 }, (_, i) => ["parent-return", i + 2, ["ordinary", "nested"]]),
+    ...Array.from({ length: 9 }, (_, i) => ["optional-handoff", i + 1, ["ordinary", "nested"]]),
+  ];
+  assert.deepEqual(sessionEntries.map((e: Entry) => [e.id, e.phase, e.plans]), expected);
+  assert.equal(total(resumeReads), 29762);
+  const doctrines = await Promise.all([render(false), render(true)]);
+  for (const entry of sessionEntries as Entry[]) for (const scenario of scenarios as string[]) {
+    if (!entry.plans.includes(scenario.split(" ")[1]!)) continue;
+    for (const maximum of [false, true]) {
+      const actual = sessionReads(entry, scenario, maximum) as Read[];
+      assertEntry(actual, entry, scenario, maximum);
+      const doctrine = bytes(doctrines[scenario.startsWith("on") ? 1 : 0]!.split(directory).join(""));
+      checkLimit(doctrine + total(actual), limits[`${entry.phase} ${scenario}`][maximum ? 1 : 0], entry.id);
+      // Required successor reread and conditional-read omissions must fail independently of bytes.
+      assert.throws(() => assertEntry(actual.filter((r) => r[0] !== "TRACK_WORKFLOW_DOC"), entry, scenario, maximum), /entry set/);
+      if (maximum) assert.throws(() => assertEntry(actual.filter((r) => r[2] !== "rationale"), entry, scenario, maximum), /entry set/);
+      const released = actual.map((r): Read => r[0] === "CHANGE_RECORDS_DOC" ?
+        [r[0], r[1], r[2], r[3], ["Manual records and safe writes"]] : r);
+      assert.throws(() => assertEntry(released, entry, scenario, maximum), /entry set/);
+      for (let through = entry.phase; through <= 9; through++) {
+        const continued = sessionReads(entry, scenario, maximum, through) as Read[];
+        assertEntry(continued, entry, scenario, maximum, through);
+        assert.deepEqual(readSet(continued), readSet([...actual, ...expectedAccumulation(through, scenario, maximum)]));
+        checkLimit(doctrine + total(continued), limits[`${through} ${scenario}`][maximum ? 1 : 0], `continued ${entry.id}`);
+      }
+      if (entry.id === "design-track" && maximum) {
+        for (const selector of ["Focus areas and their gates", "Review coverage and the coverage register"]) {
+          const omitted = actual.map((r): Read => r[2] === "renewed focus judgment" ?
+            [r[0], r[1], r[2], r[3], r[4].filter((s) => s !== selector)] : r);
+          assert.throws(() => assertEntry(omitted, entry, scenario, maximum), /entry set/);
+        }
+        assert.throws(() => assertEntry(actual.filter((r) => r[2] !== "renewed focus judgment"), entry, scenario, maximum), /entry set/);
+      }
+    }
+  }
+  const research = sessionEntries[0] as Entry;
+  const continued = sessionReads(research, "off ordinary", true, 5) as Read[];
+  assert.ok(total(continued) > total(sessionReads(research, "off ordinary", true)));
+  assert.throws(() => assertEntry(continued.filter((r) => r[1] >= 5), research, "off ordinary", true, 5), /entry set/);
+  assert.throws(() => sessionReads(research, "off ordinary", false, 0), /invalid session/);
+  assert.throws(() => sessionReads(sessionEntries[1], "off ordinary"), /invalid session/);
+  assert.throws(() => sessionReads(research, "off ordinary", false, 10), /invalid session/);
+  for (const outcome of ["failed", "cancelled", "resume"]) {
+    assert.equal(startsSession(outcome, true), false);
+    assert.equal(startsSession(outcome), false);
+    assert.deepEqual(readSet(accumulatedReads(7, "off ordinary")), readSet(expectedAccumulation(7, "off ordinary", false)));
+  }
+  assert.equal(startsSession("transferred", true, false), false);
+  assert.equal(startsSession("transferred", true, true), true);
+  assert.equal(startsSession("transferred", false, false), true);
+  // Doctrine reuse exceptions apply only to text already in this session.
+  for (const publishing of [false, true]) {
+    const doctrine = doctrines[publishing ? 1 : 0]!;
+    assert.match(doctrine, /Read change-records\.md for every change/);
+    assert.match(doctrine, /At planning\/resume, load recursive-workflow\.md/);
+    assert.match(doctrine, /Before review dispatch[^]*Read unless in context/);
+    assert.match(doctrine, /Design rationale:[^]*Skip if in context/);
+    assert.match(doctrine, /already in context/);
+  }
+  const workflow = source("TRACK_WORKFLOW_DOC");
+  assert.match(workflow, /successor performs Resume reconciliation/);
+  assert.match(workflow, /second handoff before implementation/);
+  assert.match(workflow, /Single-track changes are exempt/);
+  assert.match(workflow, /Cancellation, failure, and .*resume.* do not satisfy the boundary/);
+  assert.match(workflow, /coverage register, proved\n   focus areas, risk record, and live diff/);
+  assert.match(source("RECURSIVE_WORKFLOW_DOC"), /Reconcile the tree, reports, ranges, review coverage, focus records, and live difference/);
 });
 
 test("both original-base Git helpers isolate German parent settings", { timeout: 10000 }, () => {

@@ -1,4 +1,5 @@
-// Reviewed source-read assignments. The user approved these limits on 2026-10-16.
+// Reviewed source-read assignments. Initial limits were approved on 2026-10-16.
+// The two nested research maximum limits were approved on 2026-10-25.
 export const phases = ["Research", "Risk assessment", "Design validation", "Focus reconfirmation", "Adversarial design review", "Final design approval", "Track loop", "Final acceptance", "Delivery"];
 export const lifecycle = ["research.", "assess and record all eleven risk lines.", "design and validate for a multi-track change, a proved DESIGN-TRIGGERING area, or a per-track estimate above 100 counted lines.", "when a design exists, reconfirm the focus list against the validated design.", "when a design exists, run one adversarial design review for each proved DESIGN-TRIGGERING area that has not reviewed the applicable design.", "when a design exists, obtain final design approval.", "run the track loop.", "obtain blocking final acceptance.", "deliver."];
 export const scenarios = ["off ordinary", "off nested", "on ordinary", "on nested"];
@@ -21,6 +22,35 @@ export const reads = [
   ["WRITING_GUIDANCE_DOC", 5, "manual review", "orchestrator", []],
   ...["RI", "CN", "DU", "SE", "PF", "TQ", "PL", "LX", "NL", "CB", "GR", "UF"].map((id) => [`REVIEW_${id}_DOC`, 5, "manual review", "orchestrator", []]),
 ];
+// Entry coordinates name the recipient session, not the sending parent's phase.
+export const sessionEntries = [
+  { id: "research", phase: 1, plans: ["ordinary", "nested"] },
+  { id: "design-track", phase: 1, plans: ["nested"] },
+  { id: "code-track", phase: 7, plans: ["ordinary", "nested"] },
+  { id: "second-code-boundary", phase: 7, plans: ["ordinary", "nested"] },
+  ...Array.from({ length: 8 }, (_, i) => ({ id: "parent-return", phase: i + 2, plans: ["ordinary", "nested"] })),
+  ...Array.from({ length: 9 }, (_, i) => ({ id: "optional-handoff", phase: i + 1, plans: ["ordinary", "nested"] })),
+];
+export const resumeReads = [
+  ["BLAST_RADIUS_DOC", 1, "renewed focus judgment", "orchestrator", ["Focus areas and their gates", "Review coverage and the coverage register"]],
+];
+export function accumulatedReads(phase, scenario, maximum = false) {
+  const [publishing, nesting] = scenario.split(" ");
+  return reads.filter((r) => r[1] <= phase &&
+    (r[2] !== "publishing" || publishing === "on") &&
+    (r[2] !== "nested" || nesting === "nested") &&
+    (maximum || r[2] === "always" || r[2] === "publishing" || r[2] === "nested"));
+}
+export function sessionReads(entry, scenario, maximum = false, through = entry.phase) {
+  if (!entry.plans.includes(scenario.split(" ")[1]) || through < entry.phase || through > 9) throw new Error("invalid session coordinates");
+  return [...accumulatedReads(through, scenario, maximum),
+    ...(entry.id === "design-track" && maximum ? resumeReads : [])];
+}
+// A transfer starts a fresh session only when it completes.
+// Single-track work has no mandatory boundary. Optional transfers remain possible.
+export function startsSession(outcome, mandatory = false, multiTrack = true) {
+  return outcome === "transferred" && (!mandatory || multiTrack);
+}
 export const referenceOnly = {
   REVIEW_IMPLEMENTATION_INPUT_DOC: "Worker-only input. Built-in implementation review loads it for the worker, not the orchestrator.",
   MODEL_ROUTING_DOC: "Reference document, no orchestrator read duty.",
@@ -45,9 +75,9 @@ export const conditionalSets = [
 ];
 export const limits = {
   "1 off ordinary": [75856, 144492],
-  "1 off nested": [129137, 197773],
+  "1 off nested": [129137, 227535],
   "1 on ordinary": [92700, 161336],
-  "1 on nested": [145981, 214617],
+  "1 on nested": [145981, 244379],
   "2 off ordinary": [114401, 183038],
   "2 off nested": [167682, 236319],
   "2 on ordinary": [131245, 199882],

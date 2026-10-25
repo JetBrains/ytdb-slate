@@ -985,7 +985,28 @@ remains 24,600 characters. The whole-doctrine ceiling is 26,300 characters.
 `test/workflow-context-budget.test.ts` owns phase measurements, read-reference
 coverage, literal-limit enforcement, mutation controls, and publication equality.
 `verification/workflow-context-map.mjs` holds the reviewed read assignments and
-literal limits approved by the user on 2026-10-16. The user must approve fresh baseline limits.
+literal limits approved by the user on 2026-10-16. The two nested research
+conditional limits were approved on 2026-10-25. The user must approve higher limits.
+
+The map also names bounded session-entry cases. Research and optional handoffs
+use their current phase. Code-track boundaries use phase 7, including the second
+boundary after a meaningful pre-track change. Design tracks enter nested phase 1.
+Parent returns use the continuing parent phase. Equivalent successive tracks
+reuse these coordinates without fixing a track count.
+
+Entry tests compare document identities, conditions and selected range unions
+against an independent accumulated-set selection plus named resume reads.
+Only renewed focus judgment at design-track entry adds definition ranges.
+Unchanged-record reconciliation adds none. Other entries equal their accumulated
+sets. Continuation retains entry reads and accumulates later phases.
+Negative controls remove successor rereads and conditional reads, add an
+unsupported release, and reset a continuing session. Failed transfers and
+single-track controls preserve the current session.
+The publication includes fresh rendered design-track entry totals.
+Handoff savings in variable conversation content remain outside this metric.
+Re-run the native phase tests after changing any entry coordinate, resume range,
+source duty, scenario filter or publication text. Inspect with
+`SLATE_PHASE_INSPECT=1 node --test test/workflow-context-budget.test.ts`.
 
 On failure, inspect the reported scenario, phase, source ranges, total, limit,
 and excess bytes. Check for a wrong read assignment or unintended growth first.
