@@ -5,6 +5,7 @@ import { registerSlateHandoff, type HandoffPurpose } from "../extension/handoff.
 import { SlateStore } from "../extension/state.ts";
 import { createBaseModelTracker } from "../extension/base-model.ts";
 import { createLogicalRuntime } from "../extension/logical-model-runtime.ts";
+import { SAVED_DEFAULT_RESOURCE_KEY } from "../extension/failover.ts";
 
 function fixture(manager = SessionManager.inMemory("/tmp"), allowed = true, shared = false, identity = true) {
   const handlers = new Map<string, any>();
@@ -29,20 +30,22 @@ function fixture(manager = SessionManager.inMemory("/tmp"), allowed = true, shar
   const base = createBaseModelTracker({ warn() {} });
   base.seed(model, "max");
   if (identity) base.adoptLogicalIdentity("luna-6");
-  const hooks = registerSlateHandoff(pi, store, () => ({ preserveGlobalModelDefault: false }), () => base, () => allowed ? runtime : undefined);
+  const routing = { runtime };
+  const hooks = registerSlateHandoff(pi, store, () => ({ preserveGlobalModelDefault: false }), () => base, () => allowed ? routing.runtime : undefined);
   const ctx: any = {
     cwd: "/tmp", model, hasUI: true, ui: { notify: (text: string) => warnings.push(text) },
     sessionManager: manager, isProjectTrusted: () => false,
     waitForIdle: async () => {}, modelRegistry: { find: () => model },
   };
-  return { pi, store, hooks, ctx, handlers, manager, messages, warnings, runtime, base };
+  return { pi, store, hooks, ctx, handlers, manager, messages, warnings, runtime, routing, base };
 }
 
-async function transfer(parent: ReturnType<typeof fixture>, options: { allowed?: boolean; reject?: boolean; failSave?: boolean; shared?: boolean } = {}, purpose?: HandoffPurpose) {
+async function transfer(parent: ReturnType<typeof fixture>, options: { allowed?: boolean; reject?: boolean; failSave?: boolean; shared?: boolean; configure?: (child: ReturnType<typeof fixture>) => void } = {}, purpose?: HandoffPurpose) {
   const child = fixture(undefined, options.allowed ?? true, options.shared);
   let turns = 0;
   parent.ctx.newSession = async (request: any) => {
     await request.setup(child.manager);
+    options.configure?.(child);
     if (options.failSave) {
       let saves = 0;
       const original = child.pi.appendEntry;
@@ -93,6 +96,8 @@ test("adoption gates the hidden kickoff and resume delivers it once across reloa
 test("successful adoption starts exactly one hidden kickoff and consumes the inherited purpose", { timeout: 2000 }, async () => {
   const { child, turns } = await transfer(fixture(), {}, "track-boundary");
   assert.equal(turns, 1);
+  assert.equal(child.messages.filter((m) => m.customType === "slate-pause").length, 0);
+  assert.equal(child.messages.filter((m) => m.customType === "slate-kickoff").length, 1);
   const first = child.messages.find((m) => m.customType === "slate-kickoff");
   assert.equal(first.display, false);
   const claims = child.messages.filter((m) => m.customType === "slate-kickoff-claimed");
@@ -104,6 +109,52 @@ test("successful adoption starts exactly one hidden kickoff and consumes the inh
   const second = next.child.messages.find((m) => m.customType === "slate-kickoff");
   assert.match(second.content, /user-request/);
   assert.doesNotMatch(second.content, /track-boundary|reached its context budget/);
+});
+
+const adoptionFailures: [string, RegExp, (child: ReturnType<typeof fixture>) => void][] = [
+  ["mapping", /not one unambiguous allowed logical choice/, (c) => { c.routing.runtime = { ...c.runtime, reverseMap: () => ({ kind: "none" }) }; }],
+  ["fixed effort", /no allowed fixed effort/, (c) => { c.routing.runtime = { ...c.runtime, effortFor: () => undefined }; }],
+  ["busy ownership", /adoption is busy/, (c) => { c.runtime.ownership.acquire("held", SAVED_DEFAULT_RESOURCE_KEY); }],
+  ["clamped effort", /clamped effort/, (c) => { c.pi.getThinkingLevel = () => "low"; c.pi.setThinkingLevel = () => {}; }],
+  ["effort throw", /could not apply fixed effort.*effort failed/, (c) => {
+    c.pi.getThinkingLevel = () => "low";
+    c.pi.setThinkingLevel = () => { throw new Error("effort failed"); };
+  }],
+  ["registry miss", /unknown or no auth/, (c) => { c.ctx.model = undefined; c.ctx.modelRegistry.find = () => undefined; }],
+  ["setter false", /unknown or no auth/, (c) => { c.ctx.model = undefined; c.pi.setModel = async () => false; }],
+  ["setter throw", /could not restore model.*setter failed/, (c) => {
+    c.ctx.model = undefined;
+    c.pi.setModel = async () => { throw new Error("setter failed"); };
+  }],
+  ["unpause save", /could not persist the unpaused handoff state/, (c) => {
+    const save = c.store.save.bind(c.store);
+    c.store.save = () => { if (!c.store.paused) throw new Error("save failed"); save(); };
+  }],
+  ["missing identity", /without a usable model identity/, (c) => {
+    const branch = c.manager.getBranch();
+    const entry = branch.find((e) => e.type === "custom" && e.customType === "slate-handoff");
+    assert.ok(entry?.type === "custom");
+    delete (entry.data as { model?: unknown }).model;
+  }],
+  ["unexpected error", /could not adopt successor handoff.*reset failed/, (c) => {
+    c.routing.runtime = { ...c.runtime, resetPreferences: () => { throw new Error("reset failed"); } };
+  }],
+  ["first save", /could not persist restored handoff state/, (c) => { c.store.save = () => { throw new Error("save failed"); }; }],
+];
+for (const [name, warning, configure] of adoptionFailures) test(`failed adoption: ${name} sends only the required pause`, { timeout: 2000 }, async () => {
+  const { child, turns } = await transfer(fixture(), { configure });
+  assert.equal(child.store.paused, true);
+  assert.equal(child.store.pauseReason, "adoption");
+  assert.match(child.warnings.join("\n"), warning);
+  assert.equal(turns, 0);
+  assert.equal(child.messages.filter((m) => m.customType === "slate-kickoff").length, 0);
+  const pauses = child.messages.filter((m) => m.customType === "slate-pause");
+  assert.equal(pauses.length, name === "first save" ? 0 : 1);
+  if (pauses.length) assert.deepEqual(pauses[0], {
+    customType: "slate-pause",
+    content: "Handoff model adoption is pending. While paused, do not start a turn. Choose a permitted model and effort, then run /slate resume. Disregard this pause after adoption or resume succeeds.",
+    display: false,
+  });
 });
 
 for (const interrupted of ["cancel", "idle-failure", "transfer-failure"] as const) test(`${interrupted} and restart retain only the same boundary purpose for retry`, { timeout: 2000 }, async () => {
