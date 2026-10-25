@@ -1,0 +1,12 @@
+{
+  "identity": "38a7db51794712ebf647bf65b8b8f3ad7496fd5bfb2cf338ccb2098813bd5fb2",
+  "version": "0.16.0",
+  "releaseSha": "3d14df85bed7a049331e9f7de50fd9d68312f163",
+  "releaseParent": "7f8478f7601a96a26439c351eb061e91b98a9ae2",
+  "execution": "40168487087:1",
+  "registryIntegrity": "sha512-VtgfH9ksslctL4kpCSfRNY9SU6UKCGc10uU3uCOUAV2ZOOf6KHLFXivPd7nkxUbw2U8FZ0J35FU6SkIktafMVQ==",
+  "proof": {
+    "command": "slate",
+    "source": "npm:ytdb-slate@0.16.0"
+  }
+}
