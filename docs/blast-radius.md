@@ -28,13 +28,11 @@ Each track must be one coherent unit that a human can review in one sitting.
 The orchestrator owns the split and records its rationale.
 A code track implements bounded approved work, including document changes.
 A level contains the sibling tracks created by one split.
-The level is the merge unit.
+Levels group planning only. The change is the merge unit.
 All checks pass at each child marker.
-Agreement across documents, prompt guidance, and the extension is required at
-the level boundary.
-Intermediate track packages and review intentions list each remaining difference
-across those surfaces and name the later child that owns it.
-Do not merge an incomplete level into the default branch.
+At change end, documents, prompt guidance, and the extension must agree.
+Intermediate packages and review intentions list each remaining difference and its later owning track.
+Do not merge an incomplete change.
 [track-workflow.md](track-workflow.md) § Recursive planning and loading owns split
 limits, the implementer-requested exception, and the recursive-document loading condition.
 

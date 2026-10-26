@@ -286,7 +286,7 @@ const PANEL = [
 	"3. Solution: Slate presents a short plan or a required design. You approve the short plan or validate the design. If adversarial design review is required, you give final design approval after it. Otherwise, design validation includes final approval.",
 	"4. Tracks: a code track implements one bounded part of approved work. Required reviewers check it. A design track plans a larger part of the work and owns child tracks. You accept each code track in a multi-track change and each design track with all its child tracks. At required boundaries, run /slate handoff --track-boundary to continue in a new main session.",
 	"5. Final acceptance: you review the whole change and accept it.",
-	"6. Delivery: Without draft publishing, accepted branch history is the delivery. With it, Slate prepares level pull requests. A level contains tracks from one split. Only you merge. A merge is not final acceptance.",
+	"6. Delivery: Without draft publishing, accepted branch history is the delivery. With it, Slate prepares one pull request for the whole change on one branch. Only you merge after final acceptance. A merge is not final acceptance.",
 	"Run /slate summary off or /slate summary on to disable or enable automatic display. On applies at the next automatic opportunity. Off also hides the panel now.",
 ];
 
@@ -297,7 +297,7 @@ const STYLED_PANEL = [
 	"<b><accent>3. Solution:</accent></b> Slate presents a short plan or a required design. <b><warning>You approve the short plan or validate the design. If adversarial design review is required, you give final design approval after it. Otherwise, design validation includes final approval</warning></b>.",
 	"<b><accent>4. Tracks:</accent></b> a code track implements one bounded part of approved work. Required reviewers check it. A design track plans a larger part of the work and owns child tracks. <b><warning>You accept each code track in a multi-track change and each design track with all its child tracks</warning></b>. At required boundaries, run <mdCode>/slate handoff --track-boundary</mdCode> to continue in a new main session.",
 	"<b><accent>5. Final acceptance:</accent></b> you review the whole change and <b><warning>accept it</warning></b>.",
-	"<b><accent>6. Delivery:</accent></b> Without draft publishing, accepted branch history is the delivery. With it, Slate prepares level pull requests. A level contains tracks from one split. <b><warning>Only you merge</warning></b>. A merge is not final acceptance.",
+	"<b><accent>6. Delivery:</accent></b> Without draft publishing, accepted branch history is the delivery. With it, Slate prepares one pull request for the whole change on one branch. <b><warning>Only you merge</warning></b> after final acceptance. A merge is not final acceptance.",
 	"<dim>Run </dim><mdCode>/slate summary off</mdCode><dim> or </dim><mdCode>/slate summary on</mdCode><dim> to disable or enable automatic display. On applies at the next automatic opportunity. Off also hides the panel now.</dim>",
 ];
 

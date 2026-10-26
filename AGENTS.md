@@ -4,7 +4,7 @@
 
 This repo is a [pi package](https://pi.dev/docs/latest/packages). It provides the **slate** extension for thread-weaving orchestration in pi. The orchestrator dispatches each bounded action to a new worker thread. Results return as compressed episodes.
 
-The shipped doctrine uses eleven risk-defined focus areas as workflow triggers. Orchestrator-judged proofs select gates and routine implementation reviewers. A track with at least one proved area gets one general Reviewer I plus its required specialists. An implementer's approximate size above 100 counted lines also adds Reviewer I, except on documentation-only tracks. Before implementation, an orchestrator estimate above 100 counted lines requires a high-level design even for documentation-only tracks. Counted lines exclude lockfiles, migration files and generated output. With neither review trigger, a track gets no routine implementation reviewer. Draft pull request publishing is optional.
+The shipped doctrine uses eleven risk-defined focus areas as workflow triggers. Orchestrator-judged proofs select gates and routine implementation reviewers. A track with at least one proved area gets one general Reviewer I plus its required specialists. An implementer's approximate size above 100 counted lines also adds Reviewer I, except on documentation-only tracks. Before implementation, an orchestrator estimate above 100 counted lines requires a high-level design even for documentation-only tracks. Counted lines exclude lockfiles, migration files and generated output. With neither review trigger, a track gets no routine implementation reviewer. Each change uses one branch and one optional draft pull request. Levels group planning only. Root final acceptance follows every required whole-subtree acceptance and precedes merge handoff. Record the accepted final head before handoff and verify the host merged that head before root closure.
 
 Dispatch uses **logical-model routing and common recovery**. `router.models` defines provider-free action choices, fixed effort, ratings, guidance, cautions, and exact physical permissions. `router.compressor.models` is an independent ordered list. Slate resolves one immutable trusted parent-session policy. Dispatch, compression, main recovery, handoff, doctrine, and effective output share it. Reference: `docs/model-routing.md`.
 
@@ -258,7 +258,7 @@ means the wrapper refused to start.
 `contract-heading-regions`. It skips unrelated imports, sections and contract
 work. The driver owns the selectable list. Unknown, empty, duplicate or repeated
 selection, `roster`, and any combination with `--exclude` refuse with exit 2.
-Heading selection audits all 882 independent `heading-policy` identities.
+Heading selection audits all 894 independent `heading-policy` identities.
 Package selection audits an empty mutation scope. Missing, duplicate, incomplete,
 outside-family or crashed mutation execution fails the scoped audit. The separate
 selected roster rejects missing, duplicate, unexpected or `NOT RUN` reports even
@@ -416,7 +416,7 @@ Release notes at `release/requests/<version>/notes.md` use `notesSha256` in thei
 
 ## Writing convention
 
-The convention governs new or changed prose in the root `README.md`, PR descriptions and delivery commit bodies. It also governs issues, comments, release notes and agent messages to users. Use short, active language. Write sentences a reader understands on one reading. Keep exact technical terms. Do not use semicolons or contractions.
+The convention governs new or changed prose in the root `README.md`, PR descriptions and commit bodies. It also governs issues, comments, release notes and agent messages to users. Use short, active language. Write sentences a reader understands on one reading. Keep exact technical terms. Do not use semicolons or contractions.
 
 These ten requirements are project-authored:
 
@@ -433,7 +433,7 @@ These ten requirements are project-authored:
 
 Research logs and worker-thread task text are excluded. A high-level design is always governed, even inside a research log. The project's own agent instruction file, `AGENTS.md`, is also excluded from these ten requirements and the style convention. Its rules need a dense, exact register. The requirements govern `docs/`, but every checker finding there remains advisory. `verification/README.md` remains a precision-first mechanism reference and is excluded.
 
-The separate current-state documentation rule governs new or changed text in the root `README.md`, `docs/`, code comments and `AGENTS.md` itself. Describe only current state, not removed features or past behavior. Existing historical sentences are pre-existing debt and need no rewrite now. Pull request descriptions, delivery commit bodies, release notes and issues may describe removals as change records. Support for a deprecated key that still exists is current state and may be documented. See `docs/writing-guidance.md` § Current-state documentation rule.
+The separate current-state documentation rule governs new or changed text in the root `README.md`, `docs/`, code comments and `AGENTS.md` itself. Describe only current state, not removed features or past behavior. Existing historical sentences are pre-existing debt and need no rewrite now. Pull request descriptions, commit bodies, release notes and issues may describe removals as change records. Support for a deprecated key that still exists is current state and may be documented. See `docs/writing-guidance.md` § Current-state documentation rule.
 
 The writing checker is diagnostic everywhere and authoritative nowhere. A match directs reviewer attention, and the reviewer decides whether the text has a defect. Changed convention-governed text should carry no fail-level findings. Findings in unchanged text are pre-existing debt, not an unrelated blocker. Every checker class is advisory in excluded files because mechanical findings can conflict with required precision. ASD-STE100 inspires only, Slate claims no conformance, and contributors must copy no standard material or examples.
 Before you edit `README.md`, read `README-GUIDELINES.md`.

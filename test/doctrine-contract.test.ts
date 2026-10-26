@@ -137,10 +137,10 @@ test("logical doctrine production renders match published portable measurements"
   assert.deepEqual(metric(runtime.promptText()!), { portable: 3596, lines: 11, paths: 0 });
   assert.deepEqual(metric(await renderDoctrine(runtime)), { portable: 8404, lines: 74, paths: 5 });
   assert.deepEqual(metric(await renderDoctrine(runtime, {}, false)), { portable: 2711, lines: 33, paths: 4 });
-  assert.deepEqual(metric(await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped)), { portable: 9942, lines: 87, paths: 6 });
+  assert.deepEqual(metric(await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped)), { portable: 9944, lines: 87, paths: 6 });
   const change = { current: `change-20260101T000000Z-${"a".repeat(32)}`, source: `change-20260101T000001Z-${"b".repeat(32)}`, legacy: true };
   const linked = await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped, change);
-  assert.deepEqual(metric(linked), { portable: 10370, lines: 90, paths: 6 });
+  assert.deepEqual(metric(linked), { portable: 10372, lines: 90, paths: 6 });
   assert.ok(metric(linked).portable * 1.05 < 26300);
   assert.match(linked, /Follow each log's first entry to read the full source chain and accounting/);
   assert.match(linked, /Read-only legacy root log: research-log.md/);
@@ -626,12 +626,12 @@ test("rule 8 renders exact feature-off and enabled publishing tails", { timeout:
   assert.doesNotMatch(local, /Publish one umbrella draft PR/);
 
   const published = (await renderDoctrine(undefined, { workflow: { draftPRs: true } })).replace(/\s+/g, " ");
-  assert.ok(published.includes("Draft PRs: one per level with code tracks. Only users merge levels, not tracks."));
+  assert.ok(published.includes("Draft PRs: one per change on one branch. Only users merge after final acceptance."));
   assert.ok(published.includes(`Mechanics: ${PR_PUBLISHING_DOC}.`));
   assert.doesNotMatch(published, /repo-root (?:workflow|research) log/);
 
   const combined = (await renderDoctrine(undefined, { workflow: { draftPRs: true, routingRecommendations: true } })).replace(/\s+/g, " ");
-  assert.ok(combined.includes("Draft PRs: one per level with code tracks. Only users merge levels, not tracks."));
+  assert.ok(combined.includes("Draft PRs: one per change on one branch. Only users merge after final acceptance."));
   assert.ok(combined.includes(`Follow ${PR_PUBLISHING_DOC}.`));
 });
 

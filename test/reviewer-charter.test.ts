@@ -71,7 +71,7 @@ test("workerPreamble keeps unchanged reviewer guidance independent of writing tr
 
   assert.equal(untrusted, WORKER_PREAMBLE);
   assert.equal(trusted, `${WORKER_PREAMBLE} ${WORKER_WRITING_GUIDANCE}`);
-  assert.ok(WORKER_WRITING_GUIDANCE.includes("Describe only the current state in the README, docs, code comments and the project's own agent instruction file, not removed features or past behavior, but allow change records such as pull request descriptions, delivery commit bodies, release notes and issues to describe removals and past behavior."));
+  assert.ok(WORKER_WRITING_GUIDANCE.includes("Describe only the current state in the README, docs, code comments and the project's own agent instruction file, not removed features or past behavior, but allow change records such as pull request descriptions, commit bodies, release notes and issues to describe removals and past behavior."));
   assert.equal(untrustedReviewer, `${WORKER_PREAMBLE}\n${REVIEWER_CHARTER}`);
   assert.equal(trustedReviewer, `${WORKER_PREAMBLE} ${WORKER_WRITING_GUIDANCE}\n${REVIEWER_CHARTER}`);
   for (const preamble of [untrusted, trusted, untrustedReviewer, trustedReviewer]) {
@@ -80,7 +80,7 @@ test("workerPreamble keeps unchanged reviewer guidance independent of writing tr
   }
   assert.deepEqual(
     [untrusted, trusted, untrustedReviewer, trustedReviewer].map((preamble) => Buffer.byteLength(preamble)),
-    [1317, 1870, 3472, 4025],
+    [1317, 1861, 3472, 4016],
   );
   assert.equal(untrustedReviewer.match(/^- /gm)?.length, 10);
   assert.equal(trustedReviewer.match(/^- /gm)?.length, 10);
