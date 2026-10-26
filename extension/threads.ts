@@ -145,8 +145,6 @@ export interface DispatchProgress {
 	displayWarning?: boolean;
 	displayFailureReason?: string;
 	displayWarningSummary?: string;
-	displayOtherWarning?: boolean;
-	displayOtherWarningSummary?: string;
 	threadId: string;
 	threadName: string;
 	lines: string[];
@@ -669,7 +667,7 @@ export class ThreadManager {
 				if (retention !== undefined) {
 					if (failure) failure.error = new Error(`${failure.error instanceof Error ? failure.error.message : String(failure.error)} ${retention}`, { cause: failure.error });
 					else if (result) {
-						display.warn(retention, 1, true);
+						display.warn(retention);
 						result = { ...result, warnings: [...result.warnings, retention], display: display.details() };
 					}
 				}
@@ -821,7 +819,7 @@ export class ThreadManager {
 		// Routing notices go to BOTH channels: the progress lines (so they are visible
 		// while the action runs) and the tool result (so the ORCHESTRATOR reads them —
 		// a cost cliff or an evidence gap is its decision to make, not the user's).
-		const routeWarn = (message: string, summary = message, priority = 1, devModeOnly = false) => {
+		const routeWarn = (message: string, summary = message, priority = 1) => {
 			const nestedSettlement = message.startsWith(NESTED_SETTLEMENT_WARNING_PREFIX);
 			const missingCodemode = message.startsWith("slate: codemode is unavailable for this worker — ");
 			if (!nestedSettlement && !missingCodemode && isStartupWarning(message)) {
@@ -830,7 +828,7 @@ export class ThreadManager {
 				observeStartupFailure();
 			}
 			if (!nestedSettlement && !missingCodemode && isLifecycleWarning(message)) lifecycleWarnings.push(message);
-			display.warn(summary, priority, devModeOnly);
+			display.warn(summary, priority);
 			warnings.push(message);
 			lines.push(`⚠ ${message}`);
 			if (captureExecutionReports && executionReport === undefined) executionReport = message;
@@ -1312,7 +1310,7 @@ export class ThreadManager {
 		const toolErrorWarning = failedTools.length > 0
 			? `slate: completed tool calls failed: ${listedTools.join(", ")}${omittedTools > 0 ? `, and ${omittedTools} more` : ""}.`
 			: undefined;
-		if (toolErrorWarning) routeWarn(toolErrorWarning, toolErrorWarning, 1, true);
+		if (toolErrorWarning) routeWarn(toolErrorWarning);
 		if (status === "ok" && admission && logicalRoute) {
 			this.logicalRuntime!.publishProvider(admission, logicalRoute.logicalModel, logicalRoute.provider);
 		}

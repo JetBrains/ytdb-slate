@@ -813,7 +813,7 @@ export interface WritingConfig {
 }
 
 export interface SlateConfig {
-	threadDevMode?: boolean; // show failed tool diagnostics in collapsed thread results (default false)
+	threadDevMode?: boolean; // show warnings and failed tool calls for all collapsed thread results (default false)
 	notifications?: unknown; // source-resolved policy is available through notificationSettings(config)
 	episodeModel?: unknown; // legacy key, ignored visibly by logical policy resolution
 	workerTools?: string[];
