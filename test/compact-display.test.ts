@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { initTheme, type ExtensionAPI, type ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import { registerSlateTools } from "../extension/tools.ts";
 import { registerSlateMode } from "../extension/mode.ts";
-import { SlateStore } from "../extension/state.ts";
+import { sanitizeThreadDevMode, SlateStore } from "../extension/state.ts";
 import type { ThreadManager } from "../extension/threads.ts";
 import { EMPTY_WORKER_EXTENSION_SET } from "../extension/worker-extensions.ts";
 import { ActionDisplayProgress, protectDisplay, renderCompactCall, renderCompactResult } from "../extension/render.ts";
@@ -72,6 +72,86 @@ for (const tool of tools) {
   });
 }
 
+
+test("threadDevMode accepts only booleans and defaults to false", () => {
+  for (const value of [undefined, false, true, null, 0, 1, "true", [], {}]) {
+    const warnings: string[] = [];
+    assert.equal(sanitizeThreadDevMode(value, (message) => warnings.push(message)), value === true);
+    const invalid = value !== undefined && typeof value !== "boolean";
+    assert.deepEqual(warnings, invalid ? ["slate: threadDevMode must be a boolean. Using false."] : []);
+  }
+});
+
+test("collapsed thread diagnostics preserve other warnings in both modes", () => {
+  for (const threadDevMode of [false, true]) for (const isPartial of [false, true]) {
+    for (const other of [undefined, "", "Check routing."]) for (const toolFirst of [false, true]) {
+      const state = new ActionDisplayProgress();
+      state.toolFailed("read");
+      const toolWarning = "slate: completed tool calls failed: read (1).";
+      const markTool = () => state.warn(toolWarning, 1, true);
+      if (toolFirst) markTool();
+      if (other !== undefined) state.warn(other);
+      if (!toolFirst) markTool();
+      const result = { content: [{ type: "text", text: toolWarning }], details: {
+        ...state.details(), done: !isPartial, lines: [toolWarning], warnings: [toolWarning],
+      } };
+      const before = JSON.stringify(result);
+      const rendered = output(renderCompactResult("thread", result, { expanded: false, isPartial, threadDevMode }, theme));
+      assert.equal(rendered.includes("Tool failed: read"), threadDevMode);
+      assert.equal(rendered.includes("⚠"), threadDevMode || other !== undefined);
+      if (!threadDevMode) {
+        assert.doesNotMatch(rendered, /completed tool calls failed/);
+        if (other !== undefined) assert.match(rendered, other ? /Check routing/ : /Action warning/);
+      } else {
+        assert.ok(rendered.includes(state.warningSummary));
+      }
+      const expanded = (mode: boolean) => output(renderCompactResult("thread", result,
+        { expanded: true, isPartial, threadDevMode: mode }, theme), 10000);
+      assert.equal(expanded(false), expanded(true));
+      assert.match(expanded(false), /completed tool calls failed/);
+      assert.equal(JSON.stringify(result), before);
+      for (const tool of ["threads", "episode"]) {
+        const view = (mode: boolean) => output(renderCompactResult(tool, result,
+          { expanded: false, isPartial, threadDevMode: mode }, theme));
+        assert.equal(view(false), view(true));
+        assert.match(view(false), /Tool failed: read/);
+      }
+    }
+  }
+});
+
+test("failed thread keeps a reason when its tool failure mark is hidden", () => {
+  for (const reason of ["", "Provider unavailable"]) {
+    const state = new ActionDisplayProgress();
+    state.toolFailed("read");
+    state.failed(reason);
+    const result = { details: { ...state.details(), status: "failed", done: true } };
+    const rendered = output(renderCompactResult("thread", result, { expanded: false }, theme));
+    assert.match(rendered, /^✗ thread failed/);
+    assert.doesNotMatch(rendered, /Tool failed/);
+    assert.ok(rendered.includes(reason || "Action failed. Expand for details."));
+  }
+});
+
+test("registered thread reads the current manager config at draw time", () => {
+  let config = {};
+  const manager = { getConfig: () => config } as ThreadManager;
+  const tool = registeredTools(manager).registered.get("thread")!;
+  const state = new ActionDisplayProgress();
+  state.toolFailed("read");
+  state.warn("failed direct tool", 1, true);
+  for (const isPartial of [true, false]) {
+    const result = { content: [{ type: "text" as const, text: "full evidence" }],
+      details: { ...state.details(), done: !isPartial } };
+    for (const mode of [undefined, true, false, true]) {
+      config = { threadDevMode: mode };
+      const text = output(tool.renderResult!(result, { expanded: false, isPartial }, theme as never, {} as never));
+      assert.equal(text.includes("Tool failed: read"), mode === true);
+      assert.equal(text.includes("⚠"), mode === true);
+    }
+  }
+});
+
 test("one-line fields normalize breaks and protection survives cuts and nested escapes", () => {
   assert.equal(protectDisplay("a\r\n\tb", true), "a   b");
   const attack = `\x1b\x1b]0;x\x07]52;x\x07${hostile}`;
@@ -92,8 +172,8 @@ test("bounded display state keeps failure after the evidence tail moves", () => 
   for (let n = 0; n < 10000; n++) { state.toolStarted("read"); state.response(); state.warn(); }
   assert.equal(state.failure, failure);
   assert.ok(state.failure.length <= 93);
-  assert.ok(JSON.stringify(state).length < 250);
-  const rendered = output(renderCompactResult("thread", { details: { lines: evidence, displayFailure: state.failure, displayActivity: state.activity, displayWarning: state.warning } }, { expanded: false, isPartial: true }, theme));
+  assert.ok(JSON.stringify(state).length < 400);
+  const rendered = output(renderCompactResult("thread", { details: { lines: evidence, displayFailure: state.failure, displayActivity: state.activity, displayWarning: state.warning } }, { expanded: false, isPartial: true, threadDevMode: true }, theme));
   assert.match(rendered, /Tool failed: read/);
   assert.match(rendered, /Action warning/);
   assert.doesNotMatch(rendered, /invalid display data/);
@@ -129,7 +209,7 @@ function registeredTools(manager?: ThreadManager) {
   const registered = new Map<string, Parameters<ExtensionAPI["registerTool"]>[0]>();
   const pi = { registerTool(tool: Parameters<ExtensionAPI["registerTool"]>[0]) { registered.set(tool.name, tool); }, registerCommand() {}, on() {}, appendEntry() {} } as unknown as ExtensionAPI;
   const store = new SlateStore(pi);
-  registerSlateTools(pi, store, () => manager ?? ({ liveFailoverModel: () => undefined }) as unknown as ThreadManager);
+  registerSlateTools(pi, store, () => manager ?? ({ liveFailoverModel: () => undefined, getConfig: () => ({}) }) as unknown as ThreadManager);
   registerSlateMode(pi, store, { startHandoff: async () => {}, effectiveContextBudget: (n: number) => n }, () => ({}), () => EMPTY_WORKER_EXTENSION_SET);
   return { registered, store };
 }
@@ -196,6 +276,7 @@ test("recognized malformed details never claim success", () => {
   for (const details of [42, "bad", [], { done: 42 }, { status: 42 }, { status: "future" }, { lines: 42 },
     { threadName: 42 }, { warnings: "bad" }, { warnings: [42] }, { displayActivity: 42 }, { displayFailure: 42 },
     { displayFailureReason: 42 }, { displayWarning: "yes" }, { displayWarningSummary: 42 },
+    { displayOtherWarning: "yes" }, { displayOtherWarningSummary: 42 },
     { count: -1 }, { count: NaN }, { failedCount: 1.5 }]) {
     for (const tool of tools) for (const expanded of [false, true]) {
       assert.equal(output(renderCompactResult(tool, { details }, { expanded }, theme)), `✗ ${tool}: invalid display data`);
@@ -226,7 +307,7 @@ test("failure and prioritized warning summaries stay bounded and separate from r
   state.warn("Review the worker transcript before you rely on the result.", 2);
   state.warn("lower priority routing warning");
   state.warn("");
-  const text = output(renderCompactResult("thread", { details: { ...state.details(), status: "failed" } }, { expanded: false }, theme));
+  const text = output(renderCompactResult("thread", { details: { ...state.details(), status: "failed" } }, { expanded: false, threadDevMode: true }, theme));
   assert.match(text, /Tool failed: read/);
   assert.match(text, /status reason/);
   assert.doesNotMatch(text, /Renew credentials/);
@@ -261,7 +342,7 @@ test("failure reasons prefer diagnostics then tool failure then meaningful episo
   state.toolFailed("read");
   state.failed(undefined, "## Open Issues\nRepair instructions.");
   assert.equal(state.failureReason, "");
-  assert.equal(output(renderCompactResult("thread", { details: { ...state.details(), status: "failed" } }, { expanded: false }, theme)),
+  assert.equal(output(renderCompactResult("thread", { details: { ...state.details(), status: "failed" } }, { expanded: false, threadDevMode: true }, theme)),
     "✗ thread failed\n  Tool failed: read");
   state.failed("Provider unavailable", "## Open Issues\nNone.");
   assert.equal(state.failureReason, "Provider unavailable");
@@ -296,8 +377,9 @@ test("episode retrieval status and singular thread count describe the operation"
 test("registered thread forwards failed terminal progress and final display metadata", { timeout: 5000 }, async () => {
   const usage = { turns: 0, input: 0, output: 0, cost: 0, contextTokens: 0 };
   const display = { displayActivity: "Tool: read", displayFailure: "Tool failed: read",
-    displayFailureReason: "Renew credentials.", displayWarning: true, displayWarningSummary: "Check results." };
-  const manager = { async dispatch(_opts: unknown, _ctx: unknown, _signal: unknown, update: (p: unknown) => void) {
+    displayFailureReason: "Renew credentials.", displayWarning: true, displayWarningSummary: "Check results.",
+    displayOtherWarning: true, displayOtherWarningSummary: "Check results." };
+  const manager = { getConfig: () => ({ threadDevMode: true }), async dispatch(_opts: unknown, _ctx: unknown, _signal: unknown, update: (p: unknown) => void) {
     update({ ...display, threadId: "t1", threadName: "probe", lines: [], usage, done: true, status: "failed" });
     return { display, usage, warnings: [], thread: { id: "t1", name: "probe", type: "reviewer" },
       episode: { id: "t1.e1", status: "failed", file: "/tmp/e" }, episodeText: "unchanged evidence" };
