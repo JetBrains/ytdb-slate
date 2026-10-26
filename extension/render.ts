@@ -24,8 +24,6 @@ export interface DisplayDetails {
 	displayFailureReason?: string;
 	displayWarning?: boolean;
 	displayWarningSummary?: string;
-	displayOtherWarning?: boolean;
-	displayOtherWarningSummary?: string;
 	count?: number;
 	failedCount?: number;
 }
@@ -34,8 +32,8 @@ function validDetails(value: unknown): boolean {
 	if (value === undefined || value === null) return true;
 	if (typeof value !== "object" || Array.isArray(value)) return false;
 	const d = object(value);
-	return ["done", "displayWarning", "displayOtherWarning"].every((key) => d[key] === undefined || typeof d[key] === "boolean")
-		&& ["threadName", "displayActivity", "displayFailure", "displayFailureReason", "displayWarningSummary", "displayOtherWarningSummary"].every((key) => d[key] === undefined || typeof d[key] === "string")
+	return ["done", "displayWarning"].every((key) => d[key] === undefined || typeof d[key] === "boolean")
+		&& ["threadName", "displayActivity", "displayFailure", "displayFailureReason", "displayWarningSummary"].every((key) => d[key] === undefined || typeof d[key] === "string")
 		&& (d.status === undefined || d.status === "ok" || d.status === "failed")
 		&& (d.lines === undefined || Array.isArray(d.lines))
 		&& (d.warnings === undefined || (Array.isArray(d.warnings) && d.warnings.every((item) => typeof item === "string")))
@@ -115,8 +113,8 @@ export function renderCompactResult(
 			text += `\n${protectDisplay(contentText(result))}\nDetails:\n${inspection(inspected)}`;
 		} else {
 			if (partial && typeof details.displayActivity === "string") text += `\n  ${short(details.displayActivity)}`;
-			const hideToolFailures = tool === "thread" && options.threadDevMode !== true;
-			const failure = hideToolFailures ? "" : short(details.displayFailure);
+			const showDiagnostics = tool !== "thread" || options.threadDevMode === true || failed;
+			const failure = showDiagnostics ? short(details.displayFailure) : "";
 			if (failure) text += `\n  ${failure}`;
 			const reason = short(details.displayFailureReason);
 			if (failed && reason) text += `\n  ${reason}`;
@@ -129,12 +127,9 @@ export function renderCompactResult(
 				text += `\n  ${details.count} ${details.count === 1 ? "thread" : "threads"}`;
 				if (typeof details.failedCount === "number" && details.failedCount > 0) text += `, ${details.failedCount} failed`;
 			}
-			const separateWarnings = hideToolFailures && typeof details.displayOtherWarning === "boolean";
-			const warning = separateWarnings ? details.displayOtherWarning
-				: details.displayWarning === true || strings(details.warnings).length > 0;
-			const warningSummary = separateWarnings ? details.displayOtherWarningSummary : details.displayWarningSummary;
-			if (warning) {
-				text += `\n  ⚠ ${short(warningSummary) || "Action warning. Expand for details."}`;
+			const warning = details.displayWarning === true || strings(details.warnings).length > 0;
+			if (showDiagnostics && warning) {
+				text += `\n  ⚠ ${short(details.displayWarningSummary) || "Action warning. Expand for details."}`;
 			}
 		}
 		return new Text(text, 0, 0);
@@ -158,9 +153,6 @@ export class ActionDisplayProgress {
 	failureReason = "";
 	warningSummary = "";
 	private warningPriority = 0;
-	private otherWarning = false;
-	private otherWarningSummary = "";
-	private otherWarningPriority = 0;
 	toolStarted(name: unknown): void { this.activity = `Tool: ${short(name, 80)}`; }
 	toolFailed(name: unknown): void { this.failure = `Tool failed: ${short(name, 80)}`; }
 	response(): void { this.activity = "Worker response received"; }
@@ -172,14 +164,7 @@ export class ActionDisplayProgress {
 			.find((line) => line && !/^(?:none\.?|n\/a|-)$/i.test(line));
 		this.failureReason = short(first);
 	}
-	warn(summary = "", priority = 1, devModeOnly = false): void {
-		if (!devModeOnly) {
-			this.otherWarning = true;
-			if (summary && priority >= this.otherWarningPriority) {
-				this.otherWarningSummary = short(summary);
-				this.otherWarningPriority = priority;
-			}
-		}
+	warn(summary = "", priority = 1): void {
 		this.warning = true;
 		if (summary && priority >= this.warningPriority) {
 			this.warningSummary = short(summary);
@@ -189,7 +174,6 @@ export class ActionDisplayProgress {
 	details(): DisplayDetails {
 		return { displayActivity: this.activity, displayFailure: this.failure,
 			displayFailureReason: this.failureReason, displayWarning: this.warning,
-			displayWarningSummary: this.warningSummary,
-			displayOtherWarning: this.otherWarning, displayOtherWarningSummary: this.otherWarningSummary };
+			displayWarningSummary: this.warningSummary };
 	}
 }

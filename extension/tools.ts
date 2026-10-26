@@ -154,8 +154,6 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 						displayWarning: p.displayWarning,
 						displayFailureReason: p.displayFailureReason,
 						displayWarningSummary: p.displayWarningSummary,
-						displayOtherWarning: p.displayOtherWarning,
-						displayOtherWarningSummary: p.displayOtherWarningSummary,
 					} satisfies DisplayDetails,
 				});
 			};

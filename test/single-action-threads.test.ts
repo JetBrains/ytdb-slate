@@ -179,10 +179,6 @@ test("display progress retains failures outside the evidence tail", { timeout: 5
     assert.equal(last.displayActivity, "Worker response received");
     assert.equal(result.display?.displayFailure, "Tool failed: read");
     assert.match(result.display?.displayWarningSummary ?? "", /completed tool calls failed/);
-    assert.equal(result.display?.displayOtherWarning, true);
-    assert.match(result.display?.displayOtherWarningSummary ?? "", /progress callback failed/);
-    assert.equal(last.displayOtherWarning, true);
-    assert.match(last.displayOtherWarningSummary ?? "", /progress callback failed/);
     assert.ok(result.warnings.some((warning) => warning.includes("completed tool calls failed")));
     assert.ok(result.warnings.some((warning) => warning.includes("progress callback failed")));
   } finally { rmSync(root, { recursive: true, force: true }); }
@@ -1446,6 +1442,11 @@ test("a missing worker reminder warns without changing a successful action", { t
   assert.equal(result.episode.status, "ok");
   assert.deepEqual(result.warnings, [warning]);
   assert.equal(result.display?.displayWarningSummary, "Review the worker transcript before you rely on the result.");
+  const theme = { fg: (_: string, text: string) => text, bold: (text: string) => text };
+  const view = (threadDevMode: boolean) => renderCompactResult("thread", { details: result.display },
+    { expanded: false, threadDevMode }, theme).render(10000).join("\n");
+  assert.doesNotMatch(view(false), /⚠/);
+  assert.match(view(true), /⚠ Review the worker transcript/);
 });
 
 test("folder retention keeps the higher-priority missing-reminder precaution", { timeout: 2000 }, async () => {
@@ -1455,8 +1456,6 @@ test("folder retention keeps the higher-priority missing-reminder precaution", {
   assert.equal(result.warnings.length, 2);
   assert.match(result.warnings[1] ?? "", /Slate kept action temporary folder .*ENOTEMPTY/);
   assert.equal(result.display?.displayWarningSummary, "Review the worker transcript before you rely on the result.");
-  assert.equal(result.display?.displayOtherWarning, true);
-  assert.equal(result.display?.displayOtherWarningSummary, "Review the worker transcript before you rely on the result.");
 });
 
 test("successful folder retention warnings appear only in developer-mode collapsed views", { timeout: 2000 }, async () => {
@@ -1467,8 +1466,6 @@ test("successful folder retention warnings appear only in developer-mode collaps
   const retention = result.warnings[0]!;
   assert.match(retention, /Slate kept action temporary folder .*ENOTEMPTY/);
   assert.equal(result.display?.displayWarning, true);
-  assert.equal(result.display?.displayOtherWarning, false);
-  assert.equal(result.display?.displayOtherWarningSummary, "");
 
   let threadTool: Parameters<ExtensionAPI["registerTool"]>[0] | undefined;
   const pi = { registerTool(tool: Parameters<ExtensionAPI["registerTool"]>[0]) {
