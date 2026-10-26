@@ -50,7 +50,7 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
             mkdirSync(dirname(path), { recursive: true });
             writeFileSync(path, source);
           }
-          const result = spawnSync("bash", [join(fixture, "verification/run-resolver-checks.sh"), "--repo", fixture, "--strict", ...(name === "clean source" ? ["--exclude", excluded.join(",")] : ["--only", contract])], {
+          const result = spawnSync("bash", [join(fixture, "verification/run-resolver-checks.sh"), "--repo", fixture, "--strict", ...(name === "clean source" || contract === "contract-escalation-routing" ? ["--exclude", excluded.join(",")] : ["--only", contract])], {
             cwd: fixture, encoding: "utf8", timeout: 60_000, maxBuffer: 2 * 1024 * 1024,
             env: { ...process.env, JITI_FS_CACHE: "true" },
           });
@@ -66,7 +66,7 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
             assert.equal(mutationCounts(output)["delivery-boundaries"], 12);
             assert.deepEqual([...output.matchAll(/^CHECK +(\S+) +EXCLUDED\b/gm)].map((match) => match[1]), excluded);
             assert.match(output, /^== summary: 207 pass, 0 fail, 0 not run, 2 excluded \(209 result lines = 208 expected checks \+ this roster audit\) ==$/m);
-          } else selectedOutput(output, contract, accepted, auditAccepted);
+          } else if (contract !== "contract-escalation-routing") selectedOutput(output, contract, accepted, auditAccepted);
         } finally {
           for (const [path, original] of originals) {
             if (original === undefined) rmSync(path);
@@ -89,10 +89,19 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
         assert.equal(output.match(verdict)?.[1], cleanOutput.match(verdict)?.[1], output);
         assert.match(output, /^CHECK +roster +PASS\b/m);
         selectedOutput(output, contract, true);
-        assert.deepEqual(mutationCounts(output), contract === "contract-heading-regions" ? { "heading-policy": 868 } : {});
-        if (contract === "contract-heading-regions") assert.equal(mutationCounts(cleanOutput)["heading-policy"], 868);
+        assert.deepEqual(mutationCounts(output), contract === "contract-heading-regions" ? { "heading-policy": 877 } : {});
+        if (contract === "contract-heading-regions") assert.equal(mutationCounts(cleanOutput)["heading-policy"], 877);
       }
     });
+    const resolverFile = "verification/resolver-checks.mjs";
+    const resolver = readFileSync(join(fixture, resolverFile), "utf8");
+    const designContent = '"High-level design\\nKeep one identity.\\n\\nLow-level design\\nPut the line first."';
+    assert.ok(resolver.includes(designContent));
+    for (const content of ['""', '"Replacement content."']) {
+      await check(`independent body expectation rejects ${content}`, {
+        [resolverFile]: resolver.replace(designContent, content),
+      }, false, "contract-escalation-routing");
+    }
     const publishingFile = "docs/pr-publishing.md";
     const publishing = readFileSync(join(fixture, publishingFile), "utf8");
     for (const rule of [
@@ -164,6 +173,14 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
       const source = readFileSync(join(fixture, file), "utf8");
       assert.ok(source.includes(rule));
       await check(`removed kept anchor: ${rule}`, { [file]: source.replace(rule, "") }, false, "contract-heading-regions", false);
+    }
+    for (const [before, after] of [
+      ["starts its body with", "ends its body with"],
+      ["Keep it fixed across pull request renames.", "Keep it updated across pull request renames."],
+      ["with the complete line `Change: <change title>`", "without a change title"],
+    ] as const) {
+      assert.ok(workflow.includes(before));
+      await check(`changed commit identity: ${before}`, { [workflowFile]: workflow.replace(before, after) }, false, "contract-heading-regions");
     }
     await check("changed owned loading rule", { [workflowFile]: workflow.replace("Immediately before preparing any track package or final change package", "At session start") });
     await check("moved owned loading unit", { [workflowFile]: workflow.replace(loading, "") + `\n## Early reads\n\n${loading}\n` });

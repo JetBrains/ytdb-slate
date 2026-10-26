@@ -12,6 +12,7 @@ That definition covers pull request descriptions, delivery commit bodies, releas
 
 Use [track-workflow.md](track-workflow.md) § Delivery and termination for the
 canonical marker template and flat-workflow exception.
+Apply that document's § Commit titles and bodies to code and design markers.
 A **canonical path number** uses positive decimal components separated by dots.
 Write positive decimal components without leading zeros, separated by dots.
 Each component is at most 9,007,199,254,740,991.

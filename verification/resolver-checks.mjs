@@ -3553,7 +3553,7 @@ Use its § Session handoff and the research log for ownership.`);
 			const protectedRepairOwners = Object.freeze({
 				"repair-rounds": "850fecdacea6768febb420af28c5e950a8d1349dac494a05699bdba823409953",
 				"repair-consultations": "86f0f04219e871881c7f99263689d848fc78772d2b034e3d359cdc6662f4d780",
-				"child-fix-title": "748f0126285376546b073320e72e044f91970294058931c7a51cafc8d6098edb",
+				"child-fix-title": "423264fe845a64f12e87dafc1740bf71ba8cbc23d8afd6344bc14bd6f98a1348",
 			});
 			const protectedRepairSummary = "c8adb35efc4eeb1e80bde9f79e82315f7cceb0834ea38f602d4f7a382fd34bfb";
 			if (!ONLY) {
@@ -3602,7 +3602,7 @@ Use its § Session handoff and the research log for ownership.`);
 			const retainedPhraseAttacks = [
 				["owner-rounds-contradiction", reviews.replace("Run at most two ordinary fix rounds.", "Run at most two ordinary fix rounds. A review-fix child gets three ordinary rounds."), workflow],
 				["owner-rounds-comment", reviews.replace("Run at most two ordinary fix rounds.", "<!-- Run at most two ordinary fix rounds. --> Run three ordinary fix rounds."), workflow],
-				["owner-title-denial", reviews, workflow.replace("An agentic-review fix commit inside a track uses", "An agentic-review fix commit inside a track must never use")],
+				["owner-title-denial", reviews, workflow.replace("for agentic-review fixes.", "for no agentic-review fixes.")],
 				["owner-consultation-contradiction", reviews.replace("The ordinary budget permits one consultation.", "The ordinary budget permits one consultation. Each child gets unlimited consultations."), workflow],
 			].map(([id, reviewSource, workflowSource]) => ({ id, changed: reviewSource !== reviews || workflowSource !== workflow, rejected: !recursiveSummariesAgree(recursive, workflowSource, reviewSource) }));
 			const recursivePrefixAttacks = [
@@ -3659,7 +3659,7 @@ Use its § Session handoff and the research log for ownership.`);
 A mismatch pauses work. Reconcile it in the log. Use marker commits and Git
 history as boundary authority. The track table is display-only.`);
 			const recursiveRecordUnits = [
-				{ id: "identifiers-ranges", source: commonRecords, start: "## Identifiers, code ranges, and design markers", extract: headingUnit("## Identifiers, code ranges, and design markers"), expected: "589179375ceade49d4f6aee8d597b88916a2839a84e5c35feb877d65bdeee338" },
+				{ id: "identifiers-ranges", source: commonRecords, start: "## Identifiers, code ranges, and design markers", extract: headingUnit("## Identifiers, code ranges, and design markers"), expected: "dbfcbfff5cc8a13ca8f4a4ac035e99ea8fd780bc099a979fa199c27d85c77bf2" },
 				{ id: "tool-records-and-recovery", source: commonRecords, start: "## Manual records and safe writes", extract: headingUnit("## Manual records and safe writes"), expected: "8ec25b74e709c2f8a72556947aecee40f0cff2f38947976e9609c0e2436b47e0" },
 				{ id: "resume-forks", source: recursive, start: "## Resume and folder forks", extract: headingUnit("## Resume and folder forks"), expected: "0bf3c8bcc7b36ee0dd8a5a6fd514b73f5e19b5514f5a3a1711034ac2b051729e" },
 				{ id: "handoff-pointer", source: recursive, start: "## Handoff boundaries", extract: headingUnit("## Handoff boundaries"), expected: "225c24f843fa607d5ebfd489e574e16641953dab064546450ea0082463bf48d0" },
@@ -3689,7 +3689,7 @@ history as boundary authority. The track table is display-only.`);
 			// review-rules.md input amendments and RG9 common-text mutations.
 			// Independent reviewed pins protect the common owner.
 			commonUnits = [
-				{ id: "identifiers", start: "## Identifiers, code ranges, and design markers", expected: "589179375ceade49d4f6aee8d597b88916a2839a84e5c35feb877d65bdeee338" },
+				{ id: "identifiers", start: "## Identifiers, code ranges, and design markers", expected: "dbfcbfff5cc8a13ca8f4a4ac035e99ea8fd780bc099a979fa199c27d85c77bf2" },
 				{ id: "records", start: "## Manual records and safe writes", expected: "8ec25b74e709c2f8a72556947aecee40f0cff2f38947976e9609c0e2436b47e0" },
 			];
 			const acceptsCommon = (source) => commonUnits.every(({ start, expected }) => {
@@ -3698,7 +3698,7 @@ history as boundary authority. The track table is display-only.`);
 			});
 			privacyHeading = "### Design authority and privacy";
 			const commonHeadings = [...commonUnits.map(({ start }) => start), privacyHeading];
-			const completeCommonDigest = "d5d6e80099b5ff9b325ad985dd6995775c079ca30022447ce906f0c119a035a0";
+			const completeCommonDigest = "4da6d16c13d1e814569281b496f8b3b22437da6a2761b5f1dff4ec3fc666ce10";
 			const acceptsCompleteCommon = (source) => createHash("sha256").update(source).digest("hex") === completeCommonDigest;
 			const completeCommonAttacks = [
 				["title", commonRecords.replace("# Common change records", "# Nested change records")],
@@ -4053,7 +4053,7 @@ Use [change-records.md](change-records.md) § Design authority and privacy.`) },
 				[recursive, publishing, deliveryPackages.replace("and authoritative `track-<number>-design.md`", "")],
 				[recursive, publishing, deliveryPackages.replace("is evidence when its complete bytes match the hash recorded in the owning log", "is never evidence")],
 			].map(([r, p, d], index) => ({ id: ["root-authority", "publishing-authority", "delivery-authority", "version-bytes"][index], changed: r !== recursive || p !== publishing || d !== deliveryPackages, rejected: !authoritativeReaders(r, p, d) })))(commonRecords);
-			const canonicalMarkerCommand = 'git commit --allow-empty -m "Track <path-number> complete: <short name>"';
+			const canonicalMarkerCommand = "git commit --allow-empty -m 'Track <path-number> complete: <short name>' -m 'Change: <change title>'";
 			const acceptsMarkerCommand = (source) => {
 				const visible = source.replace(/<!--[\s\S]*?-->/g, "");
 				const fences = [...visible.matchAll(/^```bash\n([\s\S]*?)\n```/gm)];
@@ -4068,7 +4068,10 @@ Use [change-records.md](change-records.md) § Design authority and privacy.`) },
 				workflow.replace(canonicalMarkerCommand, 'git commit --allow-empty \\\n-m "Track NN complete: <short name>"') + `\n<!-- ${canonicalMarkerCommand} -->`,
 				workflow.replace(canonicalMarkerCommand, `<!-- ${canonicalMarkerCommand} -->`),
 				`${workflow}\n${canonicalMarkerCommand}`,
-			].map((source, index) => ({ id: ["NN", "padded-integer", "padded-dotted", "multiline-hidden", "hidden", "duplicate"][index], changed: source !== workflow, rejected: !acceptsMarkerCommand(source) }));
+				workflow.replace(" -m 'Change: <change title>'", ""),
+				workflow.replace(" -m 'Change: <change title>'", " -m 'Intent: Mark completion.\\n\\nChange: <change title>'"),
+				workflow.replace(canonicalMarkerCommand, canonicalMarkerCommand.replaceAll("'", '"')),
+			].map((source, index) => ({ id: ["NN", "padded-integer", "padded-dotted", "multiline-hidden", "hidden", "duplicate", "missing-title", "misplaced-title", "double-quoted"][index], changed: source !== workflow, rejected: !acceptsMarkerCommand(source) }));
 			mutationAudit.record("readers", readerAttacks);
 			mutationAudit.record("markers", markerCommandAttacks);
 			const recipeAttacks = [["common", commonRecords], ["nested", recursive], ["lifecycle", workflow], ["dispatch", toolsSource]].map(([id, original]) => {
@@ -4291,7 +4294,7 @@ Use [track-workflow.md](track-workflow.md) for the common lifecycle.`);
 				{ id: "aggregate", source: recursive, start: "## Whole-subtree acceptance", expected: "0aa1169d045aa718d1790bf1e851fae1325373759a2216766b9a0d3cc3bdcb6e" },
 				{ id: "issues", source: recursive, start: "## Packages, attribution, and issues", end: null, expected: "d2bcb68eb3d8a5de2bb055c7f56a1141d1d3f8e4bc67ad7802d6152f5ce307b0" },
 				{ id: "sources", source: deliveryPackages, start: "## Durable accounting", expected: "810e56768025e50034a34cf79921744cbd7c754dd7791dfe6b621defe4ae56d9" },
-				{ id: "workflow-accounting", source: workflow, start: "### Delivery history and accounting", expected: "fd736e66ec29aa17f54db8b8b0c1716e8f1259a486d59cd1fe5815d33c9d7a40" },
+				{ id: "workflow-accounting", source: workflow, start: "### Delivery history and accounting", expected: "48f23dd6c56a62b3f29ec084f430be62a80c86baa6a26fd6b0d6b3253948c3a1" },
 				{ id: "notes-accounting", source: userNotes, start: "### Final accounting preparation", expected: "34a1af81ea8c9cb69a4e6dcb948ad1492bc057c0caa05213fd15364d053b253f" },
 				{ id: "publishing-sync", source: publishing, start: "## Keeping the PR in sync", expected: "c52f42b4468a859f850e1ef9ae2ec5c54a7206b3e1ff737f7f66d5b8a5cc6eef" },
 				{ id: "public-workflow", source: projectReadme, start: "A track is a bounded", end: "## ", endAtLineStart: true, expected: "93901bc1102945923a9b2d3fdd76591ed9f88ba88572ec270588f6f50e723b6d" },
@@ -5543,7 +5546,7 @@ The description is available on request.`),
 			// HTML comments count. The word layer is best-effort during refresh review.
 			// Known word-layer escapes include "retention branches" and "branches kept for retention".
 			const EXPECTED_PUBLISHING_SHA256 = "7abf52e1c6362a7dcd997cce14b0e4dc56c77018e0ec37c2aa0e098bcd025197";
-			const EXPECTED_TRACK_WORKFLOW_SHA256 = "36bcdec930a9d141c35cf15c24519b51b5feb0189d8ec73d61214a9d5539ace0";
+			const EXPECTED_TRACK_WORKFLOW_SHA256 = "3357dc6a4e6b56c7b5ffa6cb7f19e1f037dd4e400fe68e4570544d7e99f31771";
 			const peerRetentionOwners = [
 				{ id: "nested", source: recursive, units: [historyUnit] },
 				{ id: "common", source: commonRecords, units: [privateSetUnit] },
@@ -5590,6 +5593,11 @@ A later track builds on the accepted boundary before it.`),
 				for (const unit of owner.units) {
 					if (!acceptsLevelUnit(unit, source)) return "owned-unit";
 					source = source.replace(levelPattern(unit, source), "");
+				}
+				if (owner.id === "lifecycle") {
+					const identity = headingUnit("### Commit titles and bodies")(source);
+					if (identity.count !== 1 || recordDigest(identity.text) !== protectedRepairOwners["child-fix-title"]) return "identity-owner";
+					source = source.replace(identity.rawText, "");
 				}
 				source = normalizeText(source);
 				for (const [, text] of owner.contexts ?? []) source = source.replace(text, "");
@@ -5836,12 +5844,12 @@ A later track builds on the accepted boundary before it.`),
 			const deliveryBoundaryUnits = [
 				{
 					id: "review-squash", source: blast,
-					extract: regionUnit(/^(These review-range body rules[\s\S]*?)(?=^The cumulative implementation commit)/gm),
-					expected: normalizeText(`These review-range body rules do not govern the final publishing-disabled delivery squash.
-That squash follows project commit rules or the default under
+					extract: regionUnit(/^(Review-range body content rules[\s\S]*?)(?=^The cumulative commit)/gm),
+					expected: normalizeText(`Review-range body content rules exclude the final publishing-disabled delivery squash.
+Its content follows project commit rules or the default under
 [track-workflow.md](track-workflow.md) § Delivery history and accounting.`),
 					attacks: [
-						["scope-reversal", "do not govern", "do now govern"],
+						["scope-reversal", "exclude", "include"],
 						["commit-authority", "follows project commit rules or the default", "copies the review-range body rules"],
 					],
 				},
@@ -5985,7 +5993,7 @@ handoff and the research log.`),
 			]);
 			// This pin covers only the commit-discipline region. Content edits need
 			// a reviewed digest refresh. Whitespace-only reflow passes.
-			const EXPECTED_COMMIT_DISCIPLINE_SHA256 = "ad803fbc47b61f628a565b895299c6aaeeba727d0d9e4bc67117b1f37ebf3495";
+			const EXPECTED_COMMIT_DISCIPLINE_SHA256 = "9ca1d29d1e61122a01ff0543cd0588ee1409f9786b3d92bb37290a2267815573";
 			const commitDisciplinePattern = /^(## Commit discipline for drift and boundaries\r?\n[\s\S]*?)(?=^## |$(?![\s\S]))/gm;
 			const commitDisciplineRegion = regionUnit(commitDisciplinePattern);
 			const acceptsCommitDiscipline = (source) => {
@@ -6007,6 +6015,51 @@ handoff and the research log.`),
 				rejected: !acceptsCommitDiscipline(changedCommitDiscipline),
 			});
 			mutationAudit.record("delivery-boundaries", deliveryBoundaryAttacks);
+
+			const changeIdentityExpected = normalizeText(`At change start after solution approval, record one title for publication once in the root research log.
+Keep it fixed across pull request renames.
+Exclude other private bytes, secrets, credentials, and private user data.
+Every authored commit for the change on any branch starts its body with the complete line \`Change: <change title>\`.
+Metadata keeps content and adds no body part.
+It conveys intent, not acceptance proof or post-merge mapping.
+Host-generated target-branch commits are exempt.`);
+			const identityRegion = regionUnit(/^(At change start after solution approval[\s\S]*?)(?=^Use `Track)/gm);
+			const acceptsChangeIdentity = (source) => {
+				const region = identityRegion(source);
+				return region.count === 1 && region.text === changeIdentityExpected;
+			};
+			const identityAttacks = [
+				["0/missing-title-rule", workflow.replace("Every authored commit for the change on any branch starts its body with the complete line `Change: <change title>`.", "")],
+				["0/misplaced-title-rule", workflow.replace("starts its body", "ends its body")],
+				["0/mutable-title", workflow.replace("Keep it fixed", "Keep it updated")],
+				["1/delivery-exemption", blast.replace("and final delivery squash commits", "but not final delivery squash commits")],
+			].map(([id, source]) => {
+				const original = id.startsWith("0/") ? workflow : blast;
+				return { id, changed: source !== original, rejected: id.startsWith("0/") ? !acceptsChangeIdentity(source) : !acceptsCommitDiscipline(source) };
+			});
+			const identityLine = "Change: Use one pull request per change";
+			const hasFirstIdentity = (body) => body.split("\n")[0] === identityLine;
+			const bodyContents = [
+				"Intent: Add commit identity.\n\nDeviation delta:",
+				"High-level design\nKeep one identity.\n\nLow-level design\nPut the line first.",
+				"",
+			];
+			const expectedBodies = [
+				"Change: Use one pull request per change\n\nIntent: Add commit identity.\n\nDeviation delta:",
+				"Change: Use one pull request per change\n\nHigh-level design\nKeep one identity.\n\nLow-level design\nPut the line first.",
+				"Change: Use one pull request per change",
+			];
+			const validBodies = bodyContents.map((content) => content ? `${identityLine}\n\n${content}` : identityLine);
+			const keepsBodyContent = (body, index) => hasFirstIdentity(body) && body === expectedBodies[index];
+			const bodyAttacks = bodyContents.flatMap((content, index) => [
+				{ id: `body-${index}/missing`, body: content },
+				{ id: `body-${index}/misplaced`, body: `\n${content}\n${identityLine}` },
+				...(content ? [
+					{ id: `body-${index}/dropped`, body: identityLine },
+					{ id: `body-${index}/changed`, body: `${identityLine}\n\nChanged content.` },
+				] : []),
+			].map(({ id, body }) => ({ id, changed: body !== validBodies[index], rejected: !keepsBodyContent(body, index) })));
+			mutationAudit.record("change-identity", [...identityAttacks, ...bodyAttacks]);
 			const escalationRule = normalizeText("Pre-existing defects, exhausted budgets, disputed stuck-fix results, blocker lowering, and regressions route through [user-notes.md](user-notes.md) § Mandatory escalation set.");
 			const deferredRule = normalizeText("Deferred work becomes a tracked issue. A project with no issue tracker records the deferral in the owning research log. Disclose relevant concerns in the user package.");
 			const occurrencesOf = (text, fragment) => text.split(fragment).length - 1;
@@ -6017,6 +6070,10 @@ handoff and the research log.`),
 			const droppedTarget = normalizeText(reviews.replaceAll("Mandatory escalation set.", "the review log."));
 			checkAll("contract-escalation-routing", "mandatory escalation routing and deferred-work tracking hold as assertions of their own, after the terminal end marker and outside every acceptance unit, so neither protection depends on that unit", [
 				["named boundary regressions reject restored rules and accept allowed lookalikes in the same region", normalizationRejected && boundaryRegressionResults.every(({ baseline, changed, rejected, controlChanged, accepted, wrappedChanged, wrappedRejected }) => baseline && changed && rejected && controlChanged && accepted && wrappedChanged && wrappedRejected), { boundaryRegressionResults, normalizationRejected }],
+				["both common identity owners agree", acceptsChangeIdentity(workflow) && acceptsCommitDiscipline(blast), "common identity owners"],
+				["later identity mentions are allowed", hasFirstIdentity(`${identityLine}\n\nIntent: Explain ${identityLine}\n${identityLine}`), "only the first line is required"],
+				["missing or misplaced identity and dropped or changed body content fail", [...identityAttacks, ...bodyAttacks].every(({ changed, rejected }) => changed && rejected), [...identityAttacks, ...bodyAttacks]],
+				["valid two-part, design-bearing and marker bodies keep content intact", validBodies.every(keepsBodyContent), validBodies],
 				["the commit-discipline region matches its reviewed fingerprint", acceptsCommitDiscipline(blast), commitDisciplineRegion(blast)],
 				["whitespace-only region reflow and outside edits preserve the fingerprint", reflowedCommitDiscipline !== blast && acceptsCommitDiscipline(reflowedCommitDiscipline) && acceptsCommitDiscipline(`${blast}\n## Outside fingerprint control\nUnrelated text.\n`), "region reflow and outside control"],
 				["delivery boundary copies equal independent content expectations", deliveryBoundaryUnits.every((unit) => acceptsDeliveryBoundary(unit, unit.source)), deliveryBoundaryUnits.map((unit) => ({ id: unit.id, ...unit.extract(unit.source) }))],
@@ -6819,6 +6876,7 @@ These include root and design-track logs, code reports, affected-track repair
 records, and their read-only source chains.
 Show source references only when a decision needs them. Never claim a future commit exists.
 After root final acceptance, create the final squashed delivery commit using project commit rules.
+Keep § Commit titles and bodies metadata.
 Read the project's contributor instructions and their cited commit guidance.
 Explicit instructions take precedence over examples from history.
 Ask the user about unresolved conflicts.

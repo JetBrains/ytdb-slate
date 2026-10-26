@@ -532,17 +532,19 @@ This permission is not a closed changed-file allowlist.
 
 ### Commit titles and bodies
 
-Implementation commit titles use `Track <n>: <intent title>`.
-An agentic-review fix commit inside a track uses
-`Track <n> fix round <r>: <intent title>`. The original implementation commit
-uses the Intent and Deviation-delta discipline in
-[blast-radius.md](blast-radius.md) § Commit discipline for drift and boundaries.
-Each agentic-review fix commit uses the same discipline. A user-review fix
-commit uses
-`Track <n> user review fix <r>: <intent title>` and the same two-part body.
-For that title, `<r>` starts at 1 and increases by one for each user-review fix
-commit in the track. That section also defines the distinct cumulative
-implementation body.
+At change start after solution approval, record one title for publication once in the root research log.
+Keep it fixed across pull request renames.
+Exclude other private bytes, secrets, credentials, and private user data.
+Every authored commit for the change on any branch starts its body with the complete line `Change: <change title>`.
+Metadata keeps content and adds no body part.
+It conveys intent, not acceptance proof or post-merge mapping.
+Host-generated target-branch commits are exempt.
+
+Use `Track <n>: <intent title>` for implementation.
+Use `Track <n> fix round <r>: <intent title>` for agentic-review fixes.
+Use `Track <n> user review fix <r>: <intent title>` for user-review fixes.
+Number user-review fixes from 1, increasing by one per commit.
+Use [blast-radius.md](blast-radius.md) § Commit discipline for drift and boundaries for content and coverage.
 
 ### Implementer reports and execution
 
@@ -727,23 +729,19 @@ The note queue is drained before final acceptance. Every escalation has a
 disposition. The coverage
 invariant holds. The user accepts the final change.
 
-A code track contributes one cumulative implementation commit and zero or more
-user-review fix commits. It also contributes zero or more correction commits,
-as defined later in [track-workflow.md](track-workflow.md) § Delivery and
-termination. Each code track in a multi-track change also contributes one marker
-commit. For design markers, use [change-records.md](change-records.md)
-§ Identifiers, code ranges, and design markers. During machine review, the implementer commits fixes separately so a
-gate thread can inspect each fix difference. Before user review, squash the
-original implementation commit and every agentic-review fix commit into the cumulative
-implementation commit. This commit exists so the user reviews the high-level
-design, low-level design, and implementation together.
+Each code track contributes one cumulative implementation commit, any user-review
+fixes and corrections, and a marker in multi-track changes.
+For design markers, use [change-records.md](change-records.md)
+§ Identifiers, code ranges, and design markers.
+Commit machine-review fixes separately for gate inspection.
+Before user review, squash the original implementation and all agentic-review
+fixes into the cumulative implementation commit.
+The user reviews both designs and implementation together.
 
 When the track has a high-level design, the cumulative implementation commit
 body carries the track high-level design followed by the track low-level
-design. When the track has no high-level design, the ordinary two-part Intent
-and Deviation-delta shape applies. This conditional body rule is also stated in
-[blast-radius.md](blast-radius.md) § Commit discipline for drift and
-boundaries.
+design. Otherwise, use the two-part Intent and Deviation-delta body in
+[blast-radius.md](blast-radius.md) § Commit discipline for drift and boundaries.
 
 ### Closed-range corrections
 
@@ -780,17 +778,19 @@ commit range after the rewrite, including the coverage register and any range
 in a track packet. Complete the rewrite before user review, so later
 user-review fix commits do not invalidate the reviewed range.
 
+The rewrite exception applies only while the cumulative-commit rule exists.
 When draft-pull-request publishing is enabled, update its current branch with a
 lease-protected force-push. The lease must prevent discarding a commit pushed
 by another party.
 
+Markers follow § Commit titles and bodies.
 A multi-track boundary adds one empty marker commit after
 required machine gates and the track packet are complete. All blocking user
 notes are resolved before the marker. When track acceptance is mandatory, the
 marker also waits for that acceptance and every requested fix:
 
 ```bash
-git commit --allow-empty -m "Track <path-number> complete: <short name>"
+git commit --allow-empty -m 'Track <path-number> complete: <short name>' -m 'Change: <change title>'
 ```
 
 <!-- marker-identity-policy:begin -->
@@ -840,6 +840,7 @@ These include root and design-track logs, code reports, affected-track repair
 records, and their read-only source chains.
 Show source references only when a decision needs them. Never claim a future commit exists.
 After root final acceptance, create the final squashed delivery commit using project commit rules.
+Keep § Commit titles and bodies metadata.
 Read the project's contributor instructions and their cited commit guidance.
 Explicit instructions take precedence over examples from history.
 Ask the user about unresolved conflicts.
