@@ -46,6 +46,7 @@ The project must be trusted before Slate reads this file. Start a new session af
 | Key | Type | Default | Semantics |
 | --- | --- | --- | --- |
 | `orchestratorModeDefault` | boolean | `false` | Start fresh interactive sessions with orchestrator mode ON. |
+| `threadDevMode` | boolean | `false` | Show failed tool calls and their warnings in the collapsed `thread` view. Other warnings and failed action status remain visible in both modes. Expanded views and model-facing results keep all details. A non-boolean value warns and uses `false`. |
 | `notifications.terminal`, `notifications.native`, `notifications.bell` | boolean | `true` | Channel permissions. A trusted project can turn a channel off but cannot enable a home-disabled channel. Configuration validation does not send notifications. |
 | `notifications.push.enabled` | boolean | `false` | Home permission for phone push. A trusted project can disable it but cannot enable it. Configuration validation does not contact a server. |
 | `notifications.detail` | `generic` \| `project` \| `message` | `generic` | Text permission for terminal and native channels. `generic` permits event text. `project` also permits the folder name. `message` also permits the agent message. A trusted project can only lower the home permission. |

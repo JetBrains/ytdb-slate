@@ -178,6 +178,12 @@ test("display progress retains failures outside the evidence tail", { timeout: 5
     assert.equal(last.displayActivity, "Worker response received");
     assert.equal(result.display?.displayFailure, "Tool failed: read");
     assert.match(result.display?.displayWarningSummary ?? "", /completed tool calls failed/);
+    assert.equal(result.display?.displayOtherWarning, true);
+    assert.match(result.display?.displayOtherWarningSummary ?? "", /progress callback failed/);
+    assert.equal(last.displayOtherWarning, true);
+    assert.match(last.displayOtherWarningSummary ?? "", /progress callback failed/);
+    assert.ok(result.warnings.some((warning) => warning.includes("completed tool calls failed")));
+    assert.ok(result.warnings.some((warning) => warning.includes("progress callback failed")));
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
