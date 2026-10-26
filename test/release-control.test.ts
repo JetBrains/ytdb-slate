@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
-import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createRequire } from "node:module";
 import test, { type TestContext } from "node:test";
 // @ts-expect-error Unshipped JavaScript commands have no declaration files.
-import { STATUSES, TERMINAL, assertNewerVersion, compareVersions, generationRecord, publishAdmission, publishCandidate, verifyCoverageEvidence, requestTarget, assertNoEndedIdentity, preparedMergeProof, abandonPullRequests, abandon, advance, authorizeInstall, authorizeUpload, beginPromotion, beginUpload, claimRelease, classifyRegistry, closeWithoutPromotion, hashBytes, initialState, makeRequest, planFinalization, recordInstallFailure, recordInstallProof, recordPromotion, recordRegistry, releasePathsAllowed, retire, validateState, versionUsage, verifyReleaseIdentity, writeExclusive } from "../verification/release-control.mjs";
+import { STATUSES, TERMINAL, assertNewerVersion, compareVersions, generationRecord, publishAdmission, publishCandidate, releasePullRequest, verifyCoverageEvidence, requestTarget, assertNoEndedIdentity, preparedMergeProof, abandonPullRequests, abandon, advance, authorizeInstall, authorizeUpload, beginPromotion, beginUpload, claimRelease, classifyRegistry, closeWithoutPromotion, hashBytes, initialState, makeRequest, planFinalization, recordInstallFailure, recordInstallProof, recordPromotion, recordRegistry, releasePathsAllowed, retire, validateState, versionUsage, verifyReleaseIdentity, writeExclusive } from "../verification/release-control.mjs";
 // @ts-expect-error Unshipped JavaScript commands have no declaration files.
 import { executeFinalRecords, executeInstall, executePromotion, executePromotionRecovery, observeLatest, promotionErrorCode, latestReadOptions, executeUpload } from "../verification/release-job.mjs";
 
@@ -24,7 +24,7 @@ const installEnvelope=(s:any,execution="17:1")=>({identity:s.identity,version:s.
 const failureEnvelope=(s:any,execution="17:1",failure="command-proof")=>({identity:s.identity,version:s.version,releaseSha:s.releaseSha,releaseParent:s.releaseParent,execution,registryIntegrity:s.registry.integrity,result:"failed",failure});
 const failedPublished=()=>{const s=published();return recordInstallFailure(s,failureEnvelope(s),owner(s),NOW);};
 const proved=()=>{const s=published();return recordInstallProof(s,installEnvelope(s),owner(s),NOW);};
-const identity=(request=req())=>({request,durableRequest:structuredClone(request),coverageRecord:{schema:2,parentPolicy:"exact-release-parent",allowedPaths:request.coverageDisposition.allowedPaths,verdict:"WARN"},notes,releaseSha:B,parentSha:A,changedPaths:request.coverageDisposition.allowedPaths,manifestVersion:"0.10.1",associatedPullRequests:[{number:9,merged:true,mergeCommitSha:B,baseRefName:"main"}]});
+const identity=(request=req())=>({repository:"JetBrains/ytdb-slate",request,durableRequest:structuredClone(request),coverageRecord:{schema:2,parentPolicy:"exact-release-parent",allowedPaths:request.coverageDisposition.allowedPaths,verdict:"WARN"},notes,releaseSha:B,parentSha:A,changedPaths:request.coverageDisposition.allowedPaths,manifestVersion:"0.10.1",associatedPullRequests:[{number:9,merged:true,mergeCommitSha:B,baseRefName:"main",headRefName:`release/v${request.version}-${request.identity.slice(0,12)}`,headRepository:"JetBrains/ytdb-slate"}]});
 
 test("exact merge identity supports grouped pushes, correction, and fresh generations",()=>{assert.equal(verifyReleaseIdentity(identity()).pullRequest,9);const correction=req("0.10.1");assert.equal(correction.coverageDisposition.allowedPaths.length,3);assert.equal(verifyReleaseIdentity(identity(correction)).identity,correction.identity);assert.notEqual(C,verifyReleaseIdentity(identity()).releaseSha);const fresh=req("0.10.0",notes,"102");assert.notEqual(fresh.identity,req().identity);for(const mutate of[(x:any)=>x.notes="changed",(x:any)=>x.durableRequest=req("0.10.0","other\n"),(x:any)=>x.changedPaths=["extension/index.ts"],(x:any)=>x.associatedPullRequests=[]]){const x:any=identity();mutate(x);assert.throws(()=>verifyReleaseIdentity(x));}});
 
@@ -743,16 +743,147 @@ function identifyCheckout(){const lines=workflowJobBlock("identify"),checkout=li
 function candidateCondition(condition:string,releaseSha:string){if(condition==="steps.candidate.outputs.release_sha != ''")return releaseSha!=="";if(condition==="always()")return true;throw new Error(`unsupported candidate condition: ${condition}`);}
 function registryCondition(){const line=workflowJobBlock("record-registry").find(x=>x.trim().startsWith("if:"));assert.ok(line);return line.trim().slice(3).trim();}
 function registryEligible(condition:string,releaseSha:string,result:string){assert.equal(condition,"${{ always() && needs.identify.result == 'success' && needs.identify.outputs.release_sha != '' && (needs.registry-proof.result == 'success' || needs.registry-proof.result == 'failure') }}");return releaseSha!==""&&(result==="success"||result==="failure");}
-function createIdentifyFixture(t:any,kind:"ordinary"|"candidate",durable:boolean){const root=mkdtempSync(join(tmpdir(),"slate-identify-")),repo=join(root,"repo"),remote=join(root,"remote.git"),bin=join(root,"bin");t.after(()=>rmSync(root,{recursive:true,force:true}));mkdirSync(repo);mkdirSync(bin);const env={PATH:`${bin}:${dirname(process.execPath)}:/usr/bin:/bin`,HOME:root,GIT_CONFIG_NOSYSTEM:"1",GIT_CONFIG_GLOBAL:"/dev/null",GITHUB_REPOSITORY:"JetBrains/ytdb-slate"};const git=(cwd:string,...args:string[])=>{const r=spawnSync("git",args,{cwd,env,encoding:"utf8",timeout:10000});assert.equal(r.status,0,r.stderr);return r.stdout.trim();};spawnSync("git",["init","--bare",remote],{env,encoding:"utf8",timeout:10000});git(repo,"init","-b","main");git(repo,"config","user.name","Test");git(repo,"config","user.email","test@example.invalid");mkdirSync(join(repo,"verification"));cpSync(new URL("../verification/release-control.mjs",import.meta.url),join(repo,"verification/release-control.mjs"));writeFileSync(join(repo,"package.json"),'{"version":"0.10.0"}\n');writeFileSync(join(repo,"package-lock.json"),'{"version":"0.10.0","packages":{"":{"version":"0.10.0"}}}\n');git(repo,"add",".");git(repo,"commit","-m","base");const base=git(repo,"rev-parse","HEAD");let request:any=null;if(kind==="candidate"){request=makeRequest({version:"0.10.1",baseSha:base,notes,currentVersion:"0.10.0",authorization:"101"});mkdirSync(join(repo,"release/requests/0.10.1"),{recursive:true});writeFileSync(join(repo,"package.json"),'{"version":"0.10.1"}\n');writeFileSync(join(repo,"package-lock.json"),'{"version":"0.10.1","packages":{"":{"version":"0.10.1"}}}\n');writeFileSync(join(repo,"release/requests/0.10.1/request.json"),JSON.stringify(request));writeFileSync(join(repo,"release/requests/0.10.1/notes.md"),notes);writeFileSync(join(repo,"release/requests/0.10.1/coverage.json"),JSON.stringify({schema:2,parentPolicy:"exact-release-parent",allowedPaths:request.coverageDisposition.allowedPaths,verdict:"WARN"}));}else writeFileSync(join(repo,"ordinary"),"x\n");git(repo,"add",".");git(repo,"commit","-m",kind);const after=git(repo,"rev-parse","HEAD");git(repo,"remote","add","origin",remote);git(repo,"push","origin","HEAD:main");if(durable&&request){const state=join(root,"state");mkdirSync(state);git(state,"init","-b","release-state");git(state,"config","user.name","Test");git(state,"config","user.email","test@example.invalid");writeFileSync(join(state,"request.json"),JSON.stringify(request));git(state,"add",".");git(state,"commit","-m","state");git(state,"remote","add","origin",remote);git(state,"push","origin","HEAD:release-state");}writeFileSync(join(bin,"gh"),`#!/bin/sh\nprintf '[{"number":9,"merged_at":"2026-09-17T00:00:00Z","merge_commit_sha":"%s","base":{"ref":"main"}}]\\n' "$EXPECTED_SHA"\n`);chmodSync(join(bin,"gh"),0o755);return{root,repo,remote,env,base,after};}
+function createIdentifyFixture(t:any,kind:"ordinary"|"candidate",durable:boolean,target="main"){const root=mkdtempSync(join(tmpdir(),"slate-identify-")),repo=join(root,"repo"),remote=join(root,"remote.git"),bin=join(root,"bin");t.after(()=>rmSync(root,{recursive:true,force:true}));mkdirSync(repo);mkdirSync(bin);const env={PATH:`${bin}:${dirname(process.execPath)}:/usr/bin:/bin`,HOME:root,GIT_CONFIG_NOSYSTEM:"1",GIT_CONFIG_GLOBAL:"/dev/null",GITHUB_REPOSITORY:"JetBrains/ytdb-slate"};const git=(cwd:string,...args:string[])=>{const r=spawnSync("git",args,{cwd,env,encoding:"utf8",timeout:10000});assert.equal(r.status,0,r.stderr);return r.stdout.trim();};spawnSync("git",["init","--bare",remote],{env,encoding:"utf8",timeout:10000});git(repo,"init","-b","main");git(repo,"config","user.name","Test");git(repo,"config","user.email","test@example.invalid");mkdirSync(join(repo,"verification"));cpSync(new URL("../verification/release-control.mjs",import.meta.url),join(repo,"verification/release-control.mjs"));writeFileSync(join(repo,"package.json"),'{"version":"0.10.0"}\n');writeFileSync(join(repo,"package-lock.json"),'{"version":"0.10.0","packages":{"":{"version":"0.10.0"}}}\n');git(repo,"add",".");git(repo,"commit","-m","base");const base=git(repo,"rev-parse","HEAD");let request:any=null;if(kind==="candidate"){request=makeRequest({version:"0.10.1",baseSha:base,notes,currentVersion:"0.10.0",authorization:"101",target});mkdirSync(join(repo,"release/requests/0.10.1"),{recursive:true});writeFileSync(join(repo,"package.json"),'{"version":"0.10.1"}\n');writeFileSync(join(repo,"package-lock.json"),'{"version":"0.10.1","packages":{"":{"version":"0.10.1"}}}\n');writeFileSync(join(repo,"release/requests/0.10.1/request.json"),JSON.stringify(request));writeFileSync(join(repo,"release/requests/0.10.1/notes.md"),notes);writeFileSync(join(repo,"release/requests/0.10.1/coverage.json"),JSON.stringify({schema:request.schema,parentPolicy:"exact-release-parent",allowedPaths:request.coverageDisposition.allowedPaths,verdict:"WARN"}));}else writeFileSync(join(repo,"ordinary"),"x\n");git(repo,"add",".");git(repo,"commit","-m",kind);if(kind==="candidate")mergeIdentifyHead({repo,env},base);const after=git(repo,"rev-parse","HEAD");git(repo,"remote","add","origin",remote);git(repo,"push","origin",`HEAD:${target}`);if(durable&&request){const state=join(root,"state");mkdirSync(state);git(state,"init","-b","release-state");git(state,"config","user.name","Test");git(state,"config","user.email","test@example.invalid");writeFileSync(join(state,"request.json"),JSON.stringify(request));writeFileSync(join(state,"state.json"),JSON.stringify(initialState(request,NOW)));mkdirSync(join(state,"verification"));cpSync(new URL("../verification/release-control.mjs",import.meta.url),join(state,"verification/release-control.mjs"));git(state,"add",".");git(state,"commit","-m","state");git(state,"remote","add","origin",remote);git(state,"push","origin","HEAD:release-state");}writeFileSync(join(bin,"gh"),`#!/bin/sh
+request=$(git show "$EXPECTED_SHA:release/requests/0.10.1/request.json")
+branch=$(node -e 'const r=JSON.parse(process.argv[1]);console.log("release/v"+r.version+"-"+r.identity.slice(0,12))' "$request")
+printf '[{"number":9,"merged_at":"2026-09-17T00:00:00Z","merge_commit_sha":"%s","base":{"ref":"main"},"head":{"ref":"%s","repo":{"full_name":"JetBrains/ytdb-slate"}}}]\\n' "$EXPECTED_SHA" "$branch"
+`);chmodSync(join(bin,"gh"),0o755);return{root,repo,remote,env,base,after};}
+function mergeIdentifyHead(f:any,parent:string){
+  const git=(...args:string[])=>{const r=spawnSync("git",args,{cwd:f.repo,env:f.env,encoding:"utf8",timeout:10000});assert.equal(r.status,0,r.stderr);return r.stdout.trim();};
+  const side=git("rev-parse","HEAD"),tree=git("rev-parse","HEAD^{tree}"),merge=git("commit-tree",tree,"-p",parent,"-p",side,"-m","release merge");
+  git("reset","--hard",merge);return merge;
+}
+function graphAdmissionFixture(t:TestContext,target:string){
+  const f=createIdentifyFixture(t,"candidate",true,target),git=(...args:string[])=>{
+    const r=spawnSync("/usr/bin/git",args,{cwd:f.repo,env:f.env,encoding:"utf8",timeout:10000});assert.equal(r.status,0,r.stderr);return r.stdout.trim();
+  };
+  const request=JSON.parse(readFileSync(join(f.root,"state/request.json"),"utf8")),effects=join(f.root,"effects"),pages=join(f.root,"pages");
+  writeFileSync(effects,"");
+  writeFileSync(join(f.root,"bin/git"),`#!/bin/sh
+printf '%s\\n' "$*" >>"$EFFECTS"
+case "$*" in *"$FAIL_GIT"*) test -z "$FAIL_GIT" || { echo 'graph read failed' >&2; exit 1; };; esac
+exec /usr/bin/git "$@"
+`);
+  chmodSync(join(f.root,"bin/git"),0o755);
+  writeFileSync(join(f.root,"bin/gh"),`#!/bin/sh
+printf '%s\\n' "$*" >>"$EFFECTS"
+cat "$PAGES"
+test "$FAIL_GH" != 1 || { echo 'pull request read failed' >&2; exit 1; }
+`);
+  Object.assign(f.env,{EFFECTS:effects,PAGES:pages,FAIL_GIT:"",FAIL_GH:"",TMPDIR:f.root});
+  const pr=(more:any={})=>({number:9,merged_at:NOW,merge_commit_sha:f.after,base:{ref:target},head:{ref:`release/v${request.version}-${request.identity.slice(0,12)}`,repo:{full_name:"JetBrains/ytdb-slate"}},...more});
+  const setPages=(values:any[]= [pr()])=>writeFileSync(pages,JSON.stringify([])+"\n"+JSON.stringify(values)+"\n");setPages();
+  let pushHead=f.after;
+  const run=(admissionRequest=request)=>{
+    if(target==="main"){
+      const r=runIdentifyGate({...f,after:pushHead});return{status:r.candidate.status||r.checkout?.status||r.releaseCheckout?.status||r.validation?.status||0,stderr:r.candidate.stderr+(r.validation?.stderr??""),values:r.values};
+    }
+    const clone=spawnSync("/usr/bin/git",["clone","--branch","release-state",f.remote,"durable"],{cwd:f.repo,env:f.env,encoding:"utf8"});assert.equal(clone.status,0,clone.stderr);
+    const output=join(f.root,"output");writeFileSync(output,"");
+    const r=spawnSync("/bin/bash",["-c",workflowStepRunBlock("identify","publish")],{cwd:f.repo,env:{...f.env,VERSION:admissionRequest.version,IDENTITY:admissionRequest.identity,GITHUB_RUN_ID:"900",GITHUB_OUTPUT:output},encoding:"utf8",timeout:10000});
+    return{status:r.status,stderr:r.stderr,values:outputValues(output)};
+  };
+  const treeCommit=(parents:string[],tree=git("rev-parse","HEAD^{tree}"))=>git("commit-tree",tree,...parents.flatMap(p=>["-p",p]),"-m","graph endpoint");
+  const update=(sha:string,head=sha)=>{f.after=sha;pushHead=head;git("push","origin",`${head}:refs/heads/${target}`,"--force");setPages();};
+  return{f,git,request,pr,setPages,run,treeCommit,update,effects,pages};
+}
+
+for(const target of ["main","release/0.10"]){
+  test(`real ${target} graph uses the workflow repository after a rename`,{timeout:20000},t=>{
+    const g=graphAdmissionFixture(t,target),repository="JetBrains/slate";
+    Object.assign(g.f.env,{GITHUB_REPOSITORY:repository});
+    g.setPages([g.pr({head:{ref:g.pr().head.ref,repo:{full_name:repository}}})]);
+    const r=g.run();assert.equal(r.status,0,r.stderr);assert.equal(r.values.release_sha,g.f.after);
+    assert.match(readFileSync(g.effects,"utf8"),/api --paginate repos\/JetBrains\/slate\//);
+  });
+  test(`real ${target} graph admits one merge beside unrelated merges and internal request edits`,{timeout:20000},t=>{
+    const g=graphAdmissionFixture(t,target),{f,git}=g,side=git("rev-parse",`${f.after}^2`),tree=git("rev-parse",`${f.after}^{tree}`);
+    writeFileSync(join(f.repo,"release/requests/0.10.1/request.json"),JSON.stringify(g.request)+"\n");git("add",".");
+    const internal=g.treeCommit([side],git("write-tree")),edit=g.treeCommit([internal],tree),baseTree=git("rev-parse",`${f.base}^{tree}`);
+    const unrelated=g.treeCommit([f.base],baseTree),parent=g.treeCommit([f.base,unrelated],baseTree),merge=g.treeCommit([parent,edit],tree),head=g.treeCommit([merge,g.treeCommit([parent],tree)],tree);
+    g.update(merge,head);const r=g.run();assert.equal(r.status,0,r.stderr);assert.equal(r.values.release_sha,merge);assert.equal(r.values.parent_sha,parent);assert.equal(r.values.identity,g.request.identity);
+    assert.match(readFileSync(g.effects,"utf8"),/api --paginate/);
+  });
+  test(`real ${target} graph admits a same-version correction`,{timeout:20000},t=>{
+    const g=graphAdmissionFixture(t,target),{f,git}=g;
+    const r=makeRequest({version:g.request.version,baseSha:f.after,notes,currentVersion:g.request.version,authorization:"102",target});
+    writeFileSync(join(f.repo,"release/requests/0.10.1/request.json"),JSON.stringify(r));
+    writeFileSync(join(f.repo,"release/requests/0.10.1/coverage.json"),JSON.stringify({schema:r.schema,parentPolicy:"exact-release-parent",allowedPaths:r.coverageDisposition.allowedPaths,verdict:"WARN"}));
+    git("add",".");const tree=git("write-tree"),side=g.treeCommit([f.after],tree),parent=f.after,merge=g.treeCommit([parent,side],tree);
+    const state=join(f.root,"state");writeFileSync(join(state,"request.json"),JSON.stringify(r));writeFileSync(join(state,"state.json"),JSON.stringify(initialState(r,NOW)));
+    const saved=spawnSync("/usr/bin/git",["-C",state,"add","."],{env:f.env});assert.equal(saved.status,0);
+    for(const args of [["commit","-m","correction"],["push","origin","HEAD:release-state"]])assert.equal(spawnSync("/usr/bin/git",["-C",state,...args],{env:f.env}).status,0);
+    g.update(merge);f.base=parent;g.setPages([g.pr({head:{ref:`release/v${r.version}-${r.identity.slice(0,12)}`,repo:{full_name:"JetBrains/ytdb-slate"}}})]);
+    const result=g.run(r);assert.equal(result.status,0,result.stderr);assert.equal(result.values.identity,r.identity);assert.equal(result.values.release_sha,merge);assert.equal(result.values.parent_sha,parent);
+  });
+  for(const fault of ["squash","rebase","direct","root","octopus","second-parent-path","resolution-path","rename-source","several-candidates","several-identities","no-pr","many-prs","different-merge-prs","wrong-repository","wrong-branch","wrong-target","wrong-endpoint","malformed-page","malformed-endpoint","failed-pr-read","failed-graph-read","failed-path-read","outside-first-parent"]){
+    test(target==="main"&&fault==="outside-first-parent"?"real main graph ignores outside-first-parent release with valid pull request evidence":`real ${target} graph refuses ${fault} before durable writes`,{timeout:20000},t=>{
+      const g=graphAdmissionFixture(t,target),{f,git}=g,original=f.after,side=git("rev-parse",`${original}^2`),tree=git("rev-parse",`${original}^{tree}`);
+      let endpoint=original,head:string|undefined;
+      if(["squash","rebase","direct"].includes(fault))endpoint=g.treeCommit([f.base],tree);
+      if(fault==="root")endpoint=g.treeCommit([],tree);
+      if(fault==="octopus")endpoint=g.treeCommit([f.base,side,g.treeCommit([f.base])],tree);
+      if(["second-parent-path","resolution-path","several-identities"].includes(fault)){
+        const path=fault==="several-identities"?"release/requests/0.10.2/request.json":"foreign\npath";
+        mkdirSync(dirname(join(f.repo,path)),{recursive:true});writeFileSync(join(f.repo,path),"foreign content\n");git("add",".");const altered=git("write-tree");
+        endpoint=fault==="second-parent-path"?g.treeCommit([f.base,g.treeCommit([side],altered)],altered):g.treeCommit([f.base,side],altered);
+      }
+      if(fault==="rename-source"){
+        git("checkout","--detach",f.base);writeFileSync(join(f.repo,"forbidden-source"),git("show",`${original}:release/requests/0.10.1/request.json`));git("add",".");git("commit","-m","target source");
+        endpoint=g.treeCommit([git("rev-parse","HEAD"),side],tree);
+      }
+      if(fault==="several-candidates"){
+        const second=g.treeCommit([original,side],git("rev-parse",`${f.base}^{tree}`));head=second;
+      }
+      if(fault==="outside-first-parent")head=g.treeCommit([f.base,original],target==="main"?git("rev-parse",`${f.base}^{tree}`):tree);
+      g.update(endpoint,head);
+      if(target!=="main"&&fault==="several-candidates")g.setPages([g.pr(),g.pr({number:10,merge_commit_sha:head})]);
+      if(fault==="no-pr")g.setPages([]);
+      if(fault==="many-prs")g.setPages([g.pr(),g.pr({number:10})]);
+      if(fault==="different-merge-prs")g.setPages([g.pr(),g.pr({number:10,merge_commit_sha:f.base})]);
+      if(fault==="wrong-repository")g.setPages([g.pr({head:{ref:g.pr().head.ref,repo:{full_name:"fork/ytdb-slate"}}})]);
+      if(fault==="wrong-branch")g.setPages([g.pr({head:{ref:"copied-request",repo:{full_name:"JetBrains/ytdb-slate"}}})]);
+      if(fault==="wrong-target")g.setPages([g.pr({base:{ref:target==="main"?"release/0.10":"main"}})]);
+      if(fault==="wrong-endpoint")g.setPages([g.pr({merge_commit_sha:f.base})]);
+      if(fault==="malformed-endpoint")g.setPages([g.pr(),g.pr({number:10,merge_commit_sha:"invalid",head:{ref:"unrelated",repo:{full_name:"JetBrains/ytdb-slate"}}})]);
+      if(fault==="malformed-page")writeFileSync(g.pages,JSON.stringify([g.pr()])+"\n{\n");
+      if(fault==="failed-pr-read")Object.assign(f.env,{FAIL_GH:"1"});
+      if(fault==="failed-graph-read")Object.assign(f.env,{FAIL_GIT:"rev-list"});
+      if(fault==="failed-path-read")Object.assign(f.env,{FAIL_GIT:"diff --no-renames"});
+      const before=readFileSync(join(f.root,"state/state.json")),remote=git("ls-remote","origin","refs/heads/release-state");writeFileSync(g.effects,"");
+      const r=g.run();
+      if(target==="main"&&fault==="outside-first-parent"){
+        assert.equal(r.status,0,r.stderr);assert.equal(r.values.release_sha,undefined);assert.equal(r.stderr,"");
+        assert.doesNotMatch(readFileSync(g.effects,"utf8"),/api /);
+      }else{assert.notEqual(r.status,0,`${fault}: ${r.stderr}`);assert.ok(r.stderr.trim(),`${fault} needs a visible reason`);}
+      if(fault==="different-merge-prs")assert.match(r.stderr,/exactly one associated merged pull request/);
+      if(["squash","rebase","direct","root","octopus"].includes(fault))assert.match(r.stderr,/exactly two parents/);
+      if(["second-parent-path","resolution-path","rename-source"].includes(fault))assert.match(r.stderr,/reviewed request path rule/);
+      if(target!=="main"&&fault==="outside-first-parent")assert.match(r.stderr,/not on target first-parent history/);
+      assert.deepEqual(readFileSync(join(f.root,"state/state.json")),before);assert.equal(git("ls-remote","origin","refs/heads/release-state"),remote);
+      const durable=join(f.repo,"durable");if(existsSync(durable))assert.deepEqual(readFileSync(join(durable,"state.json")),before);
+      assert.doesNotMatch(readFileSync(g.effects,"utf8"),/^(?:-C \S+ )?(?:push|commit|add) /m);
+    });
+  }
+}
+
+test("publication refuses a stored control copy without merge admission support",{timeout:15000},t=>{
+  const f=publishWorkflowFixture(t),path=join(f.root,"durable/verification/release-control.mjs"),before=readFileSync(join(f.root,"durable/state.json"));
+  writeFileSync(path,readFileSync(path,"utf8").replace("export function releasePullRequest","function releasePullRequest"));
+  const r=runWorkflowBlock(f,workflowStepRunBlock("identify","publish"),{VERSION:f.r.version,IDENTITY:f.r.identity});
+  assert.notEqual(r.status,0);assert.match(r.stderr,/does not provide an export named 'releasePullRequest'/);
+  assert.deepEqual(readFileSync(join(f.root,"durable/state.json")),before);assert.doesNotMatch(readFileSync(f.effectLog,"utf8"),/push origin/);
+});
+
 function advanceIdentifyCorrection(f:any){
   const git=(cwd:string,...args:string[])=>{const r=spawnSync("git",args,{cwd,env:f.env,encoding:"utf8",timeout:10000});assert.equal(r.status,0,r.stderr);return r.stdout.trim();};
   const firstBase=f.after,dir=join(f.repo,"release/requests/0.10.1"),correctedNotes="Corrected release notes\n";
   const first=makeRequest({version:"0.10.1",baseSha:firstBase,notes:correctedNotes,currentVersion:"0.10.1",authorization:"102"});
   writeFileSync(join(dir,"request.json"),JSON.stringify(first));writeFileSync(join(dir,"notes.md"),correctedNotes);
   writeFileSync(join(dir,"coverage.json"),JSON.stringify({schema:2,parentPolicy:"exact-release-parent",allowedPaths:first.coverageDisposition.allowedPaths,verdict:"WARN"}));
-  git(f.repo,"add",".");git(f.repo,"commit","-m","first correction");const parent=git(f.repo,"rev-parse","HEAD");
+  git(f.repo,"add",".");git(f.repo,"commit","-m","first correction");mergeIdentifyHead(f,firstBase);const parent=git(f.repo,"rev-parse","HEAD");
   const second=makeRequest({version:"0.10.1",baseSha:parent,notes:correctedNotes,currentVersion:"0.10.1",authorization:"103"});
-  writeFileSync(join(dir,"request.json"),JSON.stringify(second));git(f.repo,"add",".");git(f.repo,"commit","-m","second correction");
+  writeFileSync(join(dir,"request.json"),JSON.stringify(second));git(f.repo,"add",".");git(f.repo,"commit","-m","second correction");mergeIdentifyHead(f,parent);
   git(f.repo,"push","origin","HEAD:main");const state=join(f.root,"state");writeFileSync(join(state,"request.json"),JSON.stringify(second));git(state,"add",".");git(state,"commit","-m","second owner");git(state,"push","origin","HEAD:release-state");
   return{...f,base:parent,after:git(f.repo,"rev-parse","HEAD"),request:join(dir,"request.json"),notes:correctedNotes};
 }
@@ -783,7 +914,7 @@ test("grouped pushes identify using the selected release commit's rule, not the 
     if(releaseUsesOldRule)writeFileSync(join(f.repo,"verification/release-control.mjs"),old);
     git(f.repo,"add",".");git(f.repo,"commit","-m","set up correction policy");const parent=git(f.repo,"rev-parse","HEAD");
     const request=makeRequest({version:"0.10.1",baseSha:parent,notes,currentVersion:"0.10.1",authorization:"103"});
-    writeFileSync(join(dir,"request.json"),JSON.stringify(request));git(f.repo,"add",".");git(f.repo,"commit","-m","request-only correction");const releaseSha=git(f.repo,"rev-parse","HEAD");
+    writeFileSync(join(dir,"request.json"),JSON.stringify(request));git(f.repo,"add",".");git(f.repo,"commit","-m","request-only correction");mergeIdentifyHead(f,parent);const releaseSha=git(f.repo,"rev-parse","HEAD");
     writeFileSync(join(f.repo,"verification/release-control.mjs"),releaseUsesOldRule?current:old);
     git(f.repo,"add",".");git(f.repo,"commit","-m","newer rule in same push");const after=git(f.repo,"rev-parse","HEAD");
     git(f.repo,"push","origin","HEAD:main");const state=join(f.root,"state");writeFileSync(join(state,"request.json"),JSON.stringify(request));git(state,"add",".");git(state,"commit","-m","correction owner");git(state,"push","origin","HEAD:release-state");
@@ -799,7 +930,7 @@ test("identify preserves a leading-space foreign path in the release diff",t=>{
   const request=makeRequest({version:"0.10.1",baseSha:f.after,notes,currentVersion:"0.10.1",authorization:"102"});
   writeFileSync(join(dir,"request.json"),JSON.stringify(request));writeFileSync(join(dir,"coverage.json"),JSON.stringify({schema:2,parentPolicy:"exact-release-parent",allowedPaths:request.coverageDisposition.allowedPaths,verdict:"WARN"}));
   mkdirSync(foreign,{recursive:true});writeFileSync(join(foreign,"notes.md"),notes);
-  git(f.repo,"add",".");git(f.repo,"commit","-m","correction with leading-space path");const after=git(f.repo,"rev-parse","HEAD");git(f.repo,"push","origin","HEAD:main");
+  git(f.repo,"add",".");git(f.repo,"commit","-m","correction with leading-space path");mergeIdentifyHead(f,f.after);const after=git(f.repo,"rev-parse","HEAD");git(f.repo,"push","origin","HEAD:main");
   const state=join(f.root,"state");writeFileSync(join(state,"request.json"),JSON.stringify(request));git(state,"add",".");git(state,"commit","-m","correction owner");git(state,"push","origin","HEAD:release-state");
   const result=runIdentifyGate({...f,base:f.after,after});assert.equal(result.values.release_sha,after,`${result.candidate.stderr} ${result.candidate.stdout}`);assert.notEqual(result.validation?.status,0,"foreign path must block identification before claim");assert.match(result.validation?.stderr??"",/release diff violates/);assert.equal(result.values.identity,undefined);
 });
@@ -1277,7 +1408,7 @@ test("bound target format, version line, order, and generation are independent g
   const r=branchRequest(),legacy=req(),state=initialState(r,NOW),doc={versions:["0.9.0","0.10.0"],time:{created:NOW,modified:NOW,"0.9.0":NOW,"0.10.0":NOW}};
   assert.equal(r.schema,3);assert.equal(requestTarget(r),"release/0.10");assert.equal(requestTarget(legacy),"main");assert.notEqual(r.identity,legacy.identity);
   assert.throws(()=>makeRequest({version:r.version,baseSha:A,notes,currentVersion:"0.10.0",authorization:"900",target:"release/0.11"}),/target/);
-  assert.throws(()=>verifyReleaseIdentity({...identity(r),coverageRecord:{...identity(r).coverageRecord,schema:3},associatedPullRequests:[{number:9,merged:true,mergeCommitSha:B,baseRefName:"main"}]}),/merged pull request/);
+  assert.throws(()=>verifyReleaseIdentity({...identity(r),coverageRecord:{...identity(r).coverageRecord,schema:3},associatedPullRequests:[{...identity(r).associatedPullRequests[0],baseRefName:"main"}]}),/merged pull request/);
   assert.throws(()=>verifyReleaseIdentity({...identity(),pushedBranch:"release/0.10"}),/pushed branch/);
   assert.equal(compareVersions("0.10.11","0.10.9"),1);assert.equal(compareVersions("1.0.0","0.99.999"),1);assert.equal(assertNewerVersion(doc,"0.10.1"),true);
   for(const blocked of ["0.10.0","0.9.9"])assert.throws(()=>assertNewerVersion(doc,blocked),/exceed/);
@@ -1289,13 +1420,33 @@ test("bound target format, version line, order, and generation are independent g
   assert.equal(generationRecord([{state,request:r}],"901"),null);
 });
 
+test("all release matchers reject two merged pull requests with different endpoints",()=>{
+  const repository="JetBrains/ytdb-slate";
+  for(const r of [req(),branchRequest()]){
+    const p=branchPr(r,{base:{ref:requestTarget(r)}}),pages=JSON.stringify([p,{...p,number:10,merge_commit_sha:C}]);
+    assert.throws(()=>releasePullRequest(pages,r,repository,B),/exactly one/);
+    assert.throws(()=>preparedMergeProof(pages,{repository,branch:p.head.ref,target:requestTarget(r)}),/exactly one/);
+    if(requestTarget(r)!=="main")assert.throws(()=>publishCandidate(pages,r,repository),/exactly one/);
+  }
+});
+
+test("release matchers require the supplied repository",()=>{
+  const r=branchRequest(),p=branchPr(r),repository="JetBrains/slate",pages=JSON.stringify([{...p,head:{...p.head,repo:{full_name:repository}}}]);
+  assert.equal(releasePullRequest(pages,r,repository,B).number,9);
+  assert.equal(publishCandidate(pages,r,repository).releaseSha,B);
+  const evidence=identity(),associatedPullRequests=evidence.associatedPullRequests.map(p=>({...p,headRepository:repository}));
+  assert.equal(verifyReleaseIdentity({...evidence,repository,associatedPullRequests}).pullRequest,9);
+  assert.throws(()=>verifyReleaseIdentity({...evidence,associatedPullRequests}),/exactly one/);
+  assert.throws(()=>releasePullRequest(pages,r,undefined,B),/malformed/);
+});
+
 test("release-branch pull request matching validates every page and the bound target",()=>{
   const r=branchRequest(),p=branchPr(r),pages=JSON.stringify([])+"\n"+JSON.stringify([p])+"\n",target={repository:"JetBrains/ytdb-slate",branch:p.head.ref,target:"release/0.10"};
-  assert.equal(publishCandidate(pages,r).releaseSha,B);
+  assert.equal(publishCandidate(pages,r,target.repository).releaseSha,B);
   assert.equal(preparedMergeProof(pages,target),true);
   assert.deepEqual(abandonPullRequests(JSON.stringify([{...p,merged_at:null,state:"open"}])+"\n",target),[9]);
-  for(const bad of [JSON.stringify([p])+"\n{",JSON.stringify([p])+"\n"+JSON.stringify([p]),JSON.stringify([{...p,base:{ref:"main"}}]),JSON.stringify([{...p,head:{...p.head,repo:{full_name:"fork/ytdb-slate"}}}])])assert.throws(()=>publishCandidate(bad,r));
-  const s=initialState(r,NOW),admit={state:s,request:r,version:r.version,identity:r.identity,runId:"900",pages,firstParentShas:[C,B,A],releaseSha:B,parentSha:A};
+  for(const bad of [JSON.stringify([p])+"\n{",JSON.stringify([p])+"\n"+JSON.stringify([p]),JSON.stringify([{...p,base:{ref:"main"}}]),JSON.stringify([{...p,head:{...p.head,repo:{full_name:"fork/ytdb-slate"}}}])])assert.throws(()=>publishCandidate(bad,r,target.repository));
+  const s=initialState(r,NOW),admit={repository:target.repository,state:s,request:r,version:r.version,identity:r.identity,runId:"900",pages,firstParentShas:[C,B,A],releaseSha:B,parentSha:A};
   assert.equal(publishAdmission(admit).pullRequest,9);
   for(const wrong of [{...admit,firstParentShas:[C,A]},{...admit,identity:"f".repeat(64)},{...admit,request:req()},{...admit,pages:JSON.stringify([branchPr(r,{base:{ref:"main"}})])}])assert.throws(()=>publishAdmission(wrong));
   const claimedState=claimRelease(s,{request:r,launchIdentity:r.identity,releaseSha:B,parentSha:A,pullRequest:9,runId:"900",runAttempt:"1"},NOW);
@@ -1325,12 +1476,13 @@ printf 'git\\t%s\\n' "$*" >>"$EFFECT_LOG"
 case "$*" in
   "ls-remote --exit-code --heads origin release/0.10") printf '${B}\\trefs/heads/release/0.10\\n';;
   "rev-list --first-parent ${B}") printf '${C}\\n${B}\\n${A}\\n';;
+  "rev-list --parents -n 1 ${B}") printf '${B} ${A} ${C}\\n';;
   "rev-parse ${B}^1") printf '${A}\\n';;
   "show ${B}:${path}/request.json") cat "$HOME/candidate-request.json";;
   "show ${B}:${path}/notes.md") cat "$HOME/candidate-notes.md";;
   "show ${B}:${path}/coverage.json") cat "$HOME/candidate-coverage.json";;
   "show ${B}:package.json") cat "$HOME/candidate-package.json";;
-  "diff-tree "*|"diff --no-renames --name-only -z ${A}..${B}") printf 'package.json\\0package-lock.json\\0${path}/coverage.json\\0${path}/notes.md\\0${path}/request.json\\0';;
+  "diff --no-renames --name-only -z ${A} ${B} --"|"diff --no-renames --name-only -z ${A}..${B}") printf 'package.json\\0package-lock.json\\0${path}/coverage.json\\0${path}/notes.md\\0${path}/request.json\\0';;
   "rev-parse HEAD") printf '${C}\\n';;
 esac
 exit 0
