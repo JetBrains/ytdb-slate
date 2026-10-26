@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { createAgentSession, DefaultResourceLoader, SessionManager, SettingsManager, ModelRegistry, ModelRuntime, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { createAgentSession, DefaultResourceLoader, SessionManager, SettingsManager, ModelRegistry, ModelRuntime, type ExtensionContext, type ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import { createAssistantMessageEventStream, type AssistantMessage, type TranscriptContext } from "@earendil-works/pi-ai";
 import { openWorkerSession, type WorkerSession } from "../extension/worker.ts";
 import { isWorkerReminderMessage, workerReminderDeliveryMissing } from "../extension/worker-reminder.ts";
@@ -244,6 +244,107 @@ test("active deferred worker tools remain callable beside ordinary tools", { tim
     assert.match(await script(session, `return await tools.mcp__active__read({});`), /mcp__active__read/);
     assert.equal(existsSync(join(root, "executed")), true);
   });
+});
+
+test("forwarding tools reach inactive deferred targets from the model and from codemode", { timeout: 20000 }, async () => {
+  await worker(`pi.on('before_agent_start', () => register('mcp__youtrack__get_current_user', { exposure: 'deferred' }));
+    register('mcp', { execute: async (_id, _args, _signal, _update, ctx) => {
+      const outcome = await ctx.executeTool('mcp__youtrack__get_current_user', {});
+      return { content: outcome.result.content, details: undefined };
+    }});`, async (session, root) => {
+    assert.ok(session.getActiveToolNames().includes('mcp'));
+    assert.ok(!session.getActiveToolNames().includes('mcp__youtrack__get_current_user'));
+    assert.match(await call(session, 'mcp', {}), /mcp__youtrack__get_current_user/);
+    assert.match(await script(session, 'text(await tools.mcp({}));'), /mcp__youtrack__get_current_user/);
+    const blocked = await script(session, `try { await tools.mcp__youtrack__get_current_user({}); } catch (e) { text(e.message); }`);
+    assert.match(blocked, /Slate scripts cannot call inactive tool "mcp__youtrack__get_current_user"\./);
+    assert.equal(readFileSync(join(root, 'executed'), 'utf8'), 'mcp__youtrack__get_current_user\n'.repeat(2));
+  });
+});
+
+test("forwarding tools cannot call nested Slate tools", { timeout: 20000 }, async () => {
+  await worker(`for (const name of ${JSON.stringify(SLATE_TOOL_NAMES)}) register(name, { exposure: 'deferred' });
+    register('bridge', { execute: async (_id, _args, _signal, _update, ctx) => {
+      const content = [];
+      for (const name of ${JSON.stringify(SLATE_TOOL_NAMES)}) {
+        const outcome = await ctx.executeTool(name, {});
+        content.push(...outcome.result.content);
+      }
+      return { content, details: undefined };
+    }});`, async (session, root) => {
+    for (const output of [await call(session, 'bridge', {}), await script(session, 'text(await tools.bridge({}));')]) {
+      for (const name of SLATE_TOOL_NAMES) assert.ok(output.includes(`Slate scripts cannot call the Slate tool "${name}".`), output);
+    }
+    assert.equal(existsSync(join(root, 'executed')), false);
+  }, true);
+});
+
+test("retained codemode executeTool cannot reach an inactive target after the script returns", { timeout: 20000 }, async () => {
+  await worker(`register('deferred', { exposure: 'deferred' });
+    pi.on('session_start', () => pi.setActiveTools(pi.getActiveTools().filter(name => name !== 'deferred')));`, async (session, root) => {
+    const component = session.resourceLoader.getExtensions().extensions.find(extension => extension.path === '<inline:slate-worker-codemode>');
+    assert.ok(component);
+    const definition = component.tools.get('codemode')!.definition;
+    const execute = definition.execute;
+    let retained: ExtensionToolContext['executeTool'] | undefined;
+    definition.execute = async (id, args, signal, update, ctx) => {
+      retained = ctx.executeTool.bind(ctx);
+      return execute(id, args, signal, update, ctx);
+    };
+    assert.match(await script(session, 'text("SCRIPT-RETURNED");'), /SCRIPT-RETURNED/);
+    assert.ok(retained, 'the completed owned codemode call supplied its real tool context');
+    assert.ok(!session.getActiveToolNames().includes('deferred'));
+    const outcome = await retained('deferred', {});
+    assert.equal(outcome.isError, true);
+    assert.match(JSON.stringify(outcome.result.content), /Slate scripts cannot call inactive tool/);
+    assert.equal(existsSync(join(root, 'executed')), false);
+  });
+});
+
+function checkpoint() {
+  type Event = { toolName: string; toolCallId: string; parentToolCallId?: string };
+  type Handler = (event: Event) => { block: boolean; reason: string } | undefined;
+  const handlers = new Map<string, Handler>();
+  let owned = true;
+  createWorkerCodemodeComponent(() => {})({
+    registerTool() {},
+    on(name: string, handler: Handler) { handlers.set(name, handler); },
+    getAllTools: () => [{ name: 'codemode', sourceInfo: { path: owned ? '<inline:slate-worker-codemode>' : '/other' } }],
+    getActiveTools: () => ['codemode', 'bridge'],
+  } as unknown as ExtensionAPI);
+  return {
+    call: (toolName: string, toolCallId: string, parentToolCallId?: string) =>
+      handlers.get('tool_call')!({ toolName, toolCallId, parentToolCallId }),
+    end: (toolCallId: string) => handlers.get('tool_result')?.({ toolName: 'codemode', toolCallId }),
+    replace: () => { owned = false; },
+  };
+}
+
+test("checkpoint fails closed for missing or empty parents and retains completed codemode identifiers", () => {
+  const component = checkpoint();
+  const denied = { block: true, reason: 'Slate scripts cannot call inactive tool "deferred".' };
+  assert.equal(component.call('codemode', 'script'), undefined);
+  assert.deepEqual(component.call('deferred', 'script/1', 'script'), denied);
+  component.end('script');
+  // A retained executeTool function still supplies its original immediate parent.
+  assert.deepEqual(component.call('deferred', 'script/2', 'script'), denied);
+  assert.deepEqual(component.call('deferred', '/1'), denied);
+  assert.deepEqual(component.call('deferred', '/2', ''), denied);
+  assert.equal(component.call('deferred', 'bridge/1', 'bridge'), undefined);
+  assert.equal(component.call('deferred', 'script/3/1', 'script/3'), undefined);
+  assert.equal(component.call('bridge', 'script/3', 'script'), undefined);
+  // Reused identifiers fail closed, but another component has independent state.
+  assert.deepEqual(component.call('deferred', 'script/1', 'script'), denied);
+  assert.equal(checkpoint().call('deferred', 'script/1', 'script'), undefined);
+});
+
+test("checkpoint records only owned top-level codemode calls", () => {
+  const component = checkpoint();
+  assert.match(component.call('codemode', 'nested', 'bridge')!.reason, /Slate blocks nested codemode calls/);
+  assert.equal(component.call('deferred', 'nested/1', 'nested'), undefined);
+  component.replace();
+  assert.match(component.call('codemode', 'foreign')!.reason, /not owned by the worker component/);
+  assert.equal(component.call('deferred', 'foreign/1', 'foreign'), undefined);
 });
 
 function gate() {

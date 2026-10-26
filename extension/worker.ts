@@ -99,7 +99,7 @@ export const WORKER_PREAMBLE = [
 	"When codemode is available, use one script to run independent tool calls together, chain dependent calls, or filter large output.",
 	"Keep large intermediate data, such as copied text, in script variables instead of the context.",
 	"Pi waits for script capacity. If a codemode script fails or does not start, call still-needed tools directly instead of resubmitting the script, even if an error suggests a retry. Apply the independent-call rule above to direct calls. A script that started may already have caused tool effects. Check the available execution evidence before you act. Do not blindly repeat calls that already ran.",
-	"A codemode script can call only tools you can also call directly. Slate blocks every other tool named in the codemode description or a tool search.",
+	"A script run by Slate's codemode tool can itself call only active tools. Another tool it calls, such as an MCP gateway, may forward to a deferred tool.",
 ].join(" ");
 
 export const WORKER_WRITING_GUIDANCE =

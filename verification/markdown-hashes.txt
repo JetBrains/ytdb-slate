@@ -12,7 +12,7 @@ d5d6e80099b5ff9b325ad985dd6995775c079ca30022447ce906f0c119a035a0  docs/change-re
 
 b7caab856109a49de6ff5abae3dbc565f92bf6411f0e35e66fee43273966813b  docs/configuration.md
 
-0ba8eb316070c026f5b3b7e86476ef6405397e0f14088695812237b209df4aad  docs/context-budget.md
+a37d0c0271e4449953e1d6bf150b5159613f02e846ac6e7db645b59e4be5816b  docs/context-budget.md
 
 a451002bca05d538c7a58d11a8242a2ef198008abc3097cdb1b5a95f9ddd1977  docs/delivery-packages.md
 
@@ -56,7 +56,7 @@ a527dcd58276be7808e0a284add5f1dc08036ee9a522db85a4d5aeab3dd7b2f2  docs/review-pe
 
 9db069d31df2a14f97e7007579c0a6cde00d0f6a29014160bc2b94c89f964d71  docs/roadmap.md
 
-74e4a18e78f98587280fd4aa60a20fd6cd0771325ebbd661a8f04bbae42e5cf8  docs/safety-and-trust.md
+0a5e32799a1b0dc786b32ad2b01a2b363162ce73e75c0fac86896159daa47e52  docs/safety-and-trust.md
 
 7267e1da2200b18c7edfac024508a04dd38ff0b741f11e277d5811bf1d0729a1  docs/track-workflow.md
 

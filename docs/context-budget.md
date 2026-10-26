@@ -266,10 +266,10 @@ per-turn doctrine.
 
 | Worker preamble form | UTF-8 bytes | Increase from base |
 | --- | ---: | ---: |
-| Base | 1,313 | — |
-| Base + writing guidance | 1,866 | 553 |
-| Base + reviewer charter | 3,468 | 2,155 |
-| Base + writing guidance + reviewer charter | 4,021 | 2,708 |
+| Base | 1,317 | — |
+| Base + writing guidance | 1,870 | 553 |
+| Base + reviewer charter | 3,472 | 2,155 |
+| Base + writing guidance + reviewer charter | 4,025 | 2,708 |
 
 The preamble explains that the harness runs calls issued in one turn at the
 same time. It also explains that cumulative token cost grows with the square of
@@ -299,8 +299,8 @@ Its action path adds `/tmp/action.` and six allocator characters.
 | No-change hidden action message | 0 | 0 | 0 | 0 |
 
 The message includes both final line feeds. System blocks have no final line feed.
-Open-change record-writing system totals are 2,112 or 2,665 bytes without or with writing guidance.
-Open-change review system totals are 3,781 or 4,334 bytes without or with writing guidance.
+Open-change record-writing system totals are 2,116 or 2,669 bytes without or with writing guidance.
+Open-change review system totals are 3,785 or 4,338 bytes without or with writing guidance.
 These totals exclude selected review guidance, prompt documents, base Pi text, and provider framing.
 
 The parent-session cache key stays unchanged.
@@ -329,8 +329,8 @@ The count excludes the original task and its separating newlines.
 
 | Writing guidance | System preamble bytes | Task guidance bytes, no source / source | Sum, no source / source |
 | --- | ---: | ---: | ---: |
-| Off | 1,313 | 995 / 1,377 | 2,308 / 2,690 |
-| On | 1,866 | 995 / 1,377 | 2,861 / 3,243 |
+| Off | 1,317 | 995 / 1,377 | 2,312 / 2,694 |
+| On | 1,870 | 995 / 1,377 | 2,865 / 3,247 |
 
 The sums exclude message and provider framing.
 They do not join the preamble and task as one system block.
