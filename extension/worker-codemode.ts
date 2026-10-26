@@ -7,6 +7,8 @@ const OWNED_SOURCE = `<inline:${WORKER_CODEMODE_COMPONENT_NAME}>`;
 /** Internal worker component. It uses Pi's executor and public tool hooks. */
 export function createWorkerCodemodeComponent(warn: (message: string) => void): ExtensionFactory {
 	return (pi) => {
+		// Keep call identifiers for retained script call functions throughout this session.
+		const codemodeCalls = new Set<string>();
 		createCodemodeExtension({ mode: "on", models: false })(pi);
 		pi.on("tool_call", (event) => {
 			const nested = event.parentToolCallId !== undefined || event.toolCallId.startsWith("/");
@@ -18,12 +20,14 @@ export function createWorkerCodemodeComponent(warn: (message: string) => void): 
 					warn(`slate: ${reason}`);
 					return { block: true, reason };
 				}
+				codemodeCalls.add(event.toolCallId);
 			}
 			if (!nested) return;
 			if (SLATE_TOOL_NAMES.includes(event.toolName)) {
 				return { block: true, reason: `Slate scripts cannot call the Slate tool "${event.toolName}".` };
 			}
-			if (!pi.getActiveTools().includes(event.toolName)) {
+			const scriptCall = !event.parentToolCallId || codemodeCalls.has(event.parentToolCallId);
+			if (scriptCall && !pi.getActiveTools().includes(event.toolName)) {
 				return { block: true, reason: `Slate scripts cannot call inactive tool "${event.toolName}".` };
 			}
 			return undefined;

@@ -46,6 +46,8 @@ Slate does not claim all-mode detection of a continuation that never starts.
 
 By default worker threads load no project or discovered extensions. Slate supplies three internal worker components: reminder, nested-call lifecycle, and codemode. The lifecycle component joins admitted nested tool calls before action settlement completes. Codemode is a pi tool that runs JavaScript that calls other tools. If codemode cannot load, the worker runs without it and reports a warning. A worker extension can deactivate codemode without a warning. After top-level tool results reach the reminder handler, the component tells the worker to issue independent tool calls in one turn. It sends the reminder once for each such turn. The reminder persists in the worker transcript and stays hidden from the user in the normal terminal interface. These components do not depend on project trust.
 
+A script run by Slate's `codemode` tool can itself call only active tools. Another tool it calls, such as a Model Context Protocol (MCP) gateway, may forward to a deferred tool.
+
 This key is a list of regex patterns that select extensions the **host session has already loaded** and load them into every worker too. Each pattern is matched **unanchored** (unlike `contextBudget.overrides`, which is anchored) against a load unit's recorded source spec (e.g. `npm:pi-web-search@1.3.1`), its load-unit path, or the entry path of any tool that unit contributes, so a bare package name matches:
 
 ```json
