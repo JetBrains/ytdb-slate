@@ -9,9 +9,10 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
 import * as episodeModule from "../extension/episodes.ts";
 import test from "node:test";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import { NO_SESSION_BASELINE, createLogicalRuntime } from "../extension/logical-model-runtime.ts";
 import { registerSlateTools } from "../extension/tools.ts";
+import { renderCompactResult } from "../extension/render.ts";
 import { sanitizeThreadRecord, SLATE_STATE_FORMAT, SlateStore, THREAD_TYPES, type EpisodeRecord, type ThreadRecord } from "../extension/state.ts";
 import { actionTemporaryMessage, ACTION_TEMPORARY_MESSAGE_TYPE, MAX_CONTEXT_EPISODES, messagesForCompression, ThreadManager, type DispatchOptions, type DispatchResult } from "../extension/threads.ts";
 import { changeGuidance, isJudgementThreadType, workerSystemPromptBlocks, WORKER_REQUEST_CONTRACT_ERROR, type WorkerRequestContract } from "../extension/worker.ts";
@@ -1454,6 +1455,42 @@ test("folder retention keeps the higher-priority missing-reminder precaution", {
   assert.equal(result.warnings.length, 2);
   assert.match(result.warnings[1] ?? "", /Slate kept action temporary folder .*ENOTEMPTY/);
   assert.equal(result.display?.displayWarningSummary, "Review the worker transcript before you rely on the result.");
+  assert.equal(result.display?.displayOtherWarning, true);
+  assert.equal(result.display?.displayOtherWarningSummary, "Review the worker transcript before you rely on the result.");
+});
+
+test("successful folder retention warnings appear only in developer-mode collapsed views", { timeout: 2000 }, async () => {
+  const result = await dispatchWithUnpairedToolResult(false, undefined, true);
+  assert.equal(result.thread.status, "successful", result.episodeText);
+  assert.equal(result.episode.status, "ok");
+  assert.equal(result.warnings.length, 1);
+  const retention = result.warnings[0]!;
+  assert.match(retention, /Slate kept action temporary folder .*ENOTEMPTY/);
+  assert.equal(result.display?.displayWarning, true);
+  assert.equal(result.display?.displayOtherWarning, false);
+  assert.equal(result.display?.displayOtherWarningSummary, "");
+
+  let threadTool: Parameters<ExtensionAPI["registerTool"]>[0] | undefined;
+  const pi = { registerTool(tool: Parameters<ExtensionAPI["registerTool"]>[0]) {
+    if (tool.name === "thread") threadTool = tool;
+  } } as unknown as ExtensionAPI;
+  const store = new SlateStore(pi);
+  const manager = new ThreadManager(store, {}, undefined, fixtureRuntime());
+  manager.dispatch = async () => result;
+  registerSlateTools(pi, store, () => manager);
+  assert.ok(threadTool);
+  const toolResult = await threadTool.execute("call", { ...TEST_ROUTE, type: "general", task: "retain evidence" },
+    undefined, undefined, { cwd: process.cwd() } as ExtensionToolContext);
+  assert.ok(toolResult.content.some((block) => block.type === "text" && block.text.includes(retention)));
+  const before = JSON.stringify(toolResult);
+  const theme = { fg: (_: string, text: string) => text, bold: (text: string) => text };
+  const render = (expanded: boolean, threadDevMode: boolean) => renderCompactResult("thread", toolResult,
+    { expanded, threadDevMode }, theme).render(10000).join("\n");
+  assert.doesNotMatch(render(false, false), /⚠|kept action temporary folder/);
+  assert.match(render(false, true), /⚠ Slate kept action temporary folder/);
+  assert.equal(render(true, false), render(true, true));
+  assert.ok(render(true, false).includes(retention));
+  assert.equal(JSON.stringify(toolResult), before);
 });
 
 test("a short-path tool result does not produce a false reminder warning", { timeout: 1000 }, async () => {

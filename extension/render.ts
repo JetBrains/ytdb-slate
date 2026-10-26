@@ -172,8 +172,8 @@ export class ActionDisplayProgress {
 			.find((line) => line && !/^(?:none\.?|n\/a|-)$/i.test(line));
 		this.failureReason = short(first);
 	}
-	warn(summary = "", priority = 1, failedTool = false): void {
-		if (!failedTool) {
+	warn(summary = "", priority = 1, devModeOnly = false): void {
+		if (!devModeOnly) {
 			this.otherWarning = true;
 			if (summary && priority >= this.otherWarningPriority) {
 				this.otherWarningSummary = short(summary);
