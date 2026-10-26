@@ -25,19 +25,19 @@ The current workflow supports nested planning through design tracks.
 A **design track** plans a nested change with child tracks.
 A **code track** implements bounded approved work.
 A **level** contains sibling tracks created by one split.
-Each level with code tracks has one optional draft pull request.
+Levels group planning only. The whole change uses one branch and one optional draft pull request.
 A **subtree** contains a track and its descendants.
 
 Tracks finish in dependency order.
 Design tracks finish first only when tracks do not depend on each other.
 Complete an entered subtree before continuing its siblings, except for a permitted dependency pause.
-A subtree may pause for an unfinished sibling dependency only when none of its open level slices has commits.
-Otherwise change the split before the subtree's first commit.
-A late dependency discovery after commits exist stops work for a user-approved replan.
+A subtree may pause for an unfinished sibling dependency only between code-track ranges.
+No code track may leave an open owned range while another track commits.
+A late dependency inside an open range stops work for a user-approved replan.
 
 Each design track needs explicit acceptance of its whole subtree.
 Root final acceptance covers the whole change.
-Only the user merges pull requests.
+Only the user merges the change pull request after root final acceptance.
 A **review-fix child track** repairs outstanding work under a user-approved split.
 It stays in the affected code track's delivery.
 Each new child starts at round zero with two ordinary rounds and one stuck-fix consultation.

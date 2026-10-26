@@ -99,11 +99,11 @@ export const WORKER_PREAMBLE = [
 	"When codemode is available, use one script to run independent tool calls together, chain dependent calls, or filter large output.",
 	"Keep large intermediate data, such as copied text, in script variables instead of the context.",
 	"Pi waits for script capacity. If a codemode script fails or does not start, call still-needed tools directly instead of resubmitting the script, even if an error suggests a retry. Apply the independent-call rule above to direct calls. A script that started may already have caused tool effects. Check the available execution evidence before you act. Do not blindly repeat calls that already ran.",
-	"A codemode script can call only tools you can also call directly. Slate blocks every other tool named in the codemode description or a tool search.",
+	"A script run by Slate's codemode tool can itself call only active tools. Another tool it calls, such as an MCP gateway, may forward to a deferred tool.",
 ].join(" ");
 
 export const WORKER_WRITING_GUIDANCE =
-	"Use short, active sentences. Write sentences a non-native reader understands on one reading. Do not use semicolons or contractions. Apply these rules to your prose. Exclude research logs, worker task text, and the project's own agent instruction file. Describe only the current state in the README, docs, code comments and the project's own agent instruction file, not removed features or past behavior, but allow change records such as pull request descriptions, delivery commit bodies, release notes and issues to describe removals and past behavior.";
+	"Use short, active sentences. Write sentences a non-native reader understands on one reading. Do not use semicolons or contractions. Apply these rules to your prose. Exclude research logs, worker task text, and the project's own agent instruction file. Describe only the current state in the README, docs, code comments and the project's own agent instruction file, not removed features or past behavior, but allow change records such as pull request descriptions, commit bodies, release notes and issues to describe removals and past behavior.";
 
 export const REVIEWER_CHARTER = `- Trace, don't guess: cite evidence from code actually read (file:line
   or diff hunk) for every claim about behavior. Read third-party /

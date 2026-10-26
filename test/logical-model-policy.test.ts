@@ -653,7 +653,7 @@ test("resolver exclusions are explicit and preserve the complete default roster"
       const selected = run(wrapper, ["--only", selection.join(",")], false);
       assert.equal(selected.status, 0, selected.output);
       assert.deepEqual([...selected.output.matchAll(/^CHECK +(\S+) /gm)].map((match) => match[1]), [...selectedIds, "selected-mutation-audit", "roster"]);
-      assert.match(selected.output, /^NOTE executed mutation counts: {"heading-policy":868}$/m);
+      assert.match(selected.output, /^NOTE executed mutation counts: {"heading-policy":894}$/m);
       assert.match(selected.output, /^== summary: 4 pass, 0 fail, 0 not run \(4 result lines = 2 selected checks \+ scoped mutation audit \+ this roster audit\) ==$/m);
     }
     for (const args of [
@@ -672,6 +672,22 @@ test("resolver exclusions are explicit and preserve the complete default roster"
     cpSync(join(repo, "verification"), join(root, "verification"), { recursive: true });
     const driver = join(root, "verification/resolver-checks.mjs");
     const source = readFileSync(driver, "utf8");
+    // Each focused predicate must detect its own violations. Complete document
+    // pins cannot hide a vacuous predicate or missing focused mutation execution.
+    for (const [name, before, after, failed] of [
+      ["surviving predicate", "=> survivingSafeguards.every(", "=> true || survivingSafeguards.every(", "contract-level-publishing"],
+      ["policy-unit predicate", "const acceptsLevelUnit = (unit, source) => {\n const result = unit.extract(source);\n return result.count === 1 && result.text === unit.expected;", "const acceptsLevelUnit = (unit, source) => {\n const result = unit.extract(source);\n return true || result.count === 1 && result.text === unit.expected;", "contract-level-publishing"],
+      ["missing surviving mutations", 'mutationAudit.record("surviving-safeguards", survivingSafeguardMutations);', "", "contract-mutation-members"],
+      ["missing one-branch mutations", 'mutationAudit.record("one-branch-rules", oneBranchMutations);', "", "contract-mutation-members"],
+      ["mixed heading ownership", '"workflow-accounting", "resume-order", "public-roadmap", "publishing-sync", "sources"', '"unknown-heading", "resume-order", "public-roadmap", "publishing-sync", "sources"', "contract-heading-regions"],
+    ] as const) {
+      assert.ok(source.includes(before), name);
+      writeFileSync(driver, source.replace(before, after));
+      const result = run(join(root, "verification/run-resolver-checks.sh"), args);
+      assert.equal(result.status, 1, name + "\n" + result.output);
+      assert.match(result.output, new RegExp(`^CHECK +${failed} +FAIL\\b`, "m"));
+      assert.match(result.output, /^CHECK +roster +PASS\b/m);
+    }
     const target = 'checkAll("contract-delivery-packages",';
     const controls: [string, string, string, string, string][] = [
       ["missing", target, "void (", selectedIds[1]!, "roster"],

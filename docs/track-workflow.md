@@ -90,7 +90,7 @@ adversarial review is required, validation and final approval form one gate.
 <!-- design-review-policy:end -->
 
 Publishing depends on `workflow.draftPRs` in `slate.json`. When enabled, use
-[pr-publishing.md](pr-publishing.md) § One draft pull request for level publishing.
+[pr-publishing.md](pr-publishing.md) § One draft pull request.
 Its § Creation sets the draft timing. When publishing is disabled, create no pull request.
 The retained research log is the durable workflow record.
 
@@ -114,13 +114,11 @@ size to estimate remaining tracks.
 Plan each code track as one coherent review unit inside a level.
 A code track implements bounded approved work, including document changes.
 A level contains the sibling tracks created by one split.
-The level is the merge unit.
+Levels group planning only. The change is the merge unit.
 All checks pass at each child marker.
-Agreement across documents, prompt guidance, and the extension is required at
-the level boundary.
-Intermediate track packages and review intentions list each remaining difference
-across those surfaces and name the later child that owns it.
-Do not merge an incomplete level into the default branch.
+At change end, documents, prompt guidance, and the extension must agree.
+Intermediate packages and review intentions list each remaining difference and its later owning track.
+Do not merge an incomplete change.
 Aim for a coherent boundary close to 400 counted changed lines.
 If the nearest coherent unit needs a small overrun,
 finish that unit and report the reason. Size never permits dropping an approved
@@ -170,9 +168,7 @@ Read the applicable sections before relying on their rules.
 A lazy plan needs no total descendant count to apply the condition.
 A small tree with a design track still loads the whole document.
 A change with neither triggering track type reads only the named common sections.
-Only changes that load the nested sections have retention-reference duties.
-An ordinary change has no such duty, with publishing enabled or disabled.
-For nested work, use [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for dependency order, pauses, split changes, and branch bases.
+For nested work, use [recursive-workflow.md](recursive-workflow.md) § Dependency order and pauses.
 
 The approved plan supplies specific evidence for proportional process.
 A design track or review-fix child track triggers the manual status file.
@@ -231,10 +227,12 @@ copy of this table.
 
 ## Confirmation gate
 
-For each track presentation in a multi-track change (pre-track check, plan, track package, or acceptance request), state "Track n of m".
-Here n is the track position and m is the current planned track count at that level.
-After a split, use the new count in the next presentation.
-Position does not replace the track identifier (canonical path number). Present a review-fix child with the affected track's identifier and position.
+In multi-track changes, use "Track <number> <title> (<position> of <count>)" for pre-track checks, plans, track packages, and acceptance requests.
+Number is the identifier (canonical path number).
+Position is execution order at that level, not the identifier.
+Count is the current planned track count there.
+After a split, reorder, or drop, update both next time.
+Review-fix children use the affected track's identifier and position.
 
 Follow [review-rules.md](review-rules.md) § Findings and output for severity, required fixes,
 minor dispositions, and moot or rejected findings in both review phases.
@@ -418,7 +416,7 @@ When no subtree log exists, save the summary in the root log alone.
 
 Complete the prior ordinary track package and required acceptance before the next ordinary track boundary, except for a recorded permitted dependency pause.
 A subtree under that pause does not block the named unfinished sibling dependency's boundary until the recorded resume condition holds.
-Use [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for the pause conditions.
+Use [recursive-workflow.md](recursive-workflow.md) § Dependency order and pauses for the pause conditions.
 The paused subtree's package and acceptance stay pending and still block its own completion.
 Complete requested fixes and blocking acceptance before the marker, state save, and handoff.
 Save the prior package's assessment of effects on upcoming tracks.
@@ -532,17 +530,19 @@ This permission is not a closed changed-file allowlist.
 
 ### Commit titles and bodies
 
-Implementation commit titles use `Track <n>: <intent title>`.
-An agentic-review fix commit inside a track uses
-`Track <n> fix round <r>: <intent title>`. The original implementation commit
-uses the Intent and Deviation-delta discipline in
-[blast-radius.md](blast-radius.md) § Commit discipline for drift and boundaries.
-Each agentic-review fix commit uses the same discipline. A user-review fix
-commit uses
-`Track <n> user review fix <r>: <intent title>` and the same two-part body.
-For that title, `<r>` starts at 1 and increases by one for each user-review fix
-commit in the track. That section also defines the distinct cumulative
-implementation body.
+At change start after solution approval, record one title for publication once in the root research log.
+Keep it fixed across pull request renames.
+Exclude other private bytes, secrets, credentials, and private user data.
+Every authored commit for the change on any branch starts its body with the complete line `Change: <change title>`.
+Metadata keeps content and adds no body part.
+It conveys intent, not acceptance proof or post-merge mapping.
+Host-generated target-branch commits are exempt.
+
+Use `Track <n>: <intent title>` for implementation.
+Use `Track <n> fix round <r>: <intent title>` for agentic-review fixes.
+Use `Track <n> user review fix <r>: <intent title>` for user-review fixes.
+Number user-review fixes from 1, increasing by one per commit.
+Use [blast-radius.md](blast-radius.md) § Commit discipline for drift and boundaries for content and coverage.
 
 ### Implementer reports and execution
 
@@ -571,7 +571,6 @@ session identifier in saved state. Each code track creates its implementer repor
 there at track start. Append a retained entry immediately when any trigger
 below fires. `slate_change close` clears the current change after delivery or
 abandonment. It deletes no files.
-For changes that load the nested sections, follow [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for retention inventory and cleanup before close.
 
 - a second non-obvious decision.
 - a surprise about repository behaviour.
@@ -640,7 +639,7 @@ Resume in this fixed order:
    for tree reconciliation and read-only source boundaries.
    Before resuming a paused subtree, read its typed `decision` entry in the owning parent research log.
    Check that its unfinished sibling dependency has completed and its recorded resume condition holds.
-   Confirm the decision records no commits in any open level slice of the paused subtree.
+   Confirm the decision records a boundary between code-track ranges, with no open range.
    A status entry alone authorizes neither pause nor resume.
 3. Inspect marker commits and the current branch state.
 4. Reconcile the declared file list, track table, coverage register, proved
@@ -727,23 +726,19 @@ The note queue is drained before final acceptance. Every escalation has a
 disposition. The coverage
 invariant holds. The user accepts the final change.
 
-A code track contributes one cumulative implementation commit and zero or more
-user-review fix commits. It also contributes zero or more correction commits,
-as defined later in [track-workflow.md](track-workflow.md) § Delivery and
-termination. Each code track in a multi-track change also contributes one marker
-commit. For design markers, use [change-records.md](change-records.md)
-§ Identifiers, code ranges, and design markers. During machine review, the implementer commits fixes separately so a
-gate thread can inspect each fix difference. Before user review, squash the
-original implementation commit and every agentic-review fix commit into the cumulative
-implementation commit. This commit exists so the user reviews the high-level
-design, low-level design, and implementation together.
+Each code track contributes one cumulative implementation commit, any user-review
+fixes and corrections, and a marker in multi-track changes.
+For design markers, use [change-records.md](change-records.md)
+§ Identifiers, code ranges, and design markers.
+Commit machine-review fixes separately for gate inspection.
+Before user review, squash the original implementation and all agentic-review
+fixes into the cumulative implementation commit.
+The user reviews both designs and implementation together.
 
 When the track has a high-level design, the cumulative implementation commit
 body carries the track high-level design followed by the track low-level
-design. When the track has no high-level design, the ordinary two-part Intent
-and Deviation-delta shape applies. This conditional body rule is also stated in
-[blast-radius.md](blast-radius.md) § Commit discipline for drift and
-boundaries.
+design. Otherwise, use the two-part Intent and Deviation-delta body in
+[blast-radius.md](blast-radius.md) § Commit discipline for drift and boundaries.
 
 ### Closed-range corrections
 
@@ -780,17 +775,20 @@ commit range after the rewrite, including the coverage register and any range
 in a track packet. Complete the rewrite before user review, so later
 user-review fix commits do not invalidate the reviewed range.
 
+Use ordinary branch updates by default. Do not routinely force-push.
+The pre-user-review cumulative-commit rule is the only routine rewrite exception while that rule exists.
 When draft-pull-request publishing is enabled, update its current branch with a
 lease-protected force-push. The lease must prevent discarding a commit pushed
 by another party.
 
+Markers follow § Commit titles and bodies.
 A multi-track boundary adds one empty marker commit after
 required machine gates and the track packet are complete. All blocking user
 notes are resolved before the marker. When track acceptance is mandatory, the
 marker also waits for that acceptance and every requested fix:
 
 ```bash
-git commit --allow-empty -m "Track <path-number> complete: <short name>"
+git commit --allow-empty -m 'Track <path-number> complete: <short name>' -m 'Change: <change title>'
 ```
 
 <!-- marker-identity-policy:begin -->
@@ -808,60 +806,59 @@ A single-track change has no marker.
 <!-- marker-identity-policy:end -->
 
 <!-- accepted-history-policy:begin -->
-Before a permitted rewrite, preserve accepted source history in a reachable
-branch or reference.
-Reconcile changed references before further work relies on them.
-A rebased marker counts only when the owning research log maps it to the
-preserved accepted source marker.
-Without that mapping, the original accepted marker remains evidence.
-Re-pin affected ranges after a permitted rewrite.
 Never destroy the exact state the user reviewed.
-A later aggregate package does not authorize rewriting earlier user-reviewed ranges.
+A later aggregate package cannot authorize rewriting earlier user-reviewed ranges.
+Keep the local change branch and accepted-marker branches until root closure.
+Use the local branch for delivery verification and resume.
+Do not rebase after user review except for a user-chosen privacy rewrite under the duties below.
+Use an ordinary merge of a moved base only for conflicts or required checks, between code-track ranges.
+That merge belongs to no track and carries the change title under § Commit titles and bodies.
 
-For changes that load the nested sections, route a missing or wrong-commit retention reference to
-[recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history for the user's choice.
-For other unavailable marker history, pause affected work.
-Try to recover the exact recorded history from retained branches, references, or source records.
+Before a privacy rewrite, keep reviewed and accepted heads reachable on a local branch.
+Keep it unchanged until root closure, even on rewrite conflicts.
+Log each preserved head and branch in its owning log.
+After rewriting, reconcile markers and recorded ranges against preserved evidence.
+Keep original marker evidence, not just rewritten titles.
+Log the rewritten head separately. Keep the earlier review binding unchanged.
+Renew acceptance of the rewritten head before delivery verification.
+Pause if those bindings cannot be established.
+
+Missing or contradictory history evidence pauses affected work.
+Recover the exact recorded evidence from branches or source records before relying on it.
 A status entry, merge result, or copied marker title cannot replace missing history.
-Never recreate a marker to claim an earlier boundary was proved.
+Never recreate a marker to claim an unproved boundary.
 If recovery fails, ask the user to choose recovery work, abandonment, or an explicit evidence waiver.
-The waiver records its limit and does not claim recovered marker evidence.
+The waiver states its limit and claims no recovered evidence.
 <!-- accepted-history-policy:end -->
 
-The research-log track table lists names, one-line scopes, and status. It contains no commit
-identifier. Track numbers are append-only. Abandoned tracks are struck through.
-Numbers are never reused.
+The research-log track table lists names, one-line scopes, and status, not commit identifiers.
+Track numbers are append-only and never reused. Strike through abandoned tracks.
 
 With draft publishing, [pr-publishing.md](pr-publishing.md) § After the merge
-owns per-level delivery accounting and root closure.
+owns change delivery accounting and root closure.
 Without publishing, use all owning accounting sources defined in
 [delivery-packages.md](delivery-packages.md) § Durable accounting.
-These include root and design-track logs, code reports, affected-track repair
-records, and their read-only source chains.
-Show source references only when a decision needs them. Never claim a future commit exists.
-After root final acceptance, create the final squashed delivery commit using project commit rules.
-Read the project's contributor instructions and their cited commit guidance.
-Explicit instructions take precedence over examples from history.
-Ask the user about unresolved conflicts.
-When no applicable commit rule exists, read and use
-[pr-publishing.md](pr-publishing.md) § Default template for the body.
-Keep the project's subject convention when one exists.
-This final delivery format does not replace the track review-commit design rules.
-Preserve accepted source history before rewriting under this section's safeguards.
-Verify the delivery result and owning-log accounting separately before root closure.
-This sequence applies to single-track and multi-track changes.
-Explicit abandonment is the other delivery outcome.
+Show references only for decisions. Never claim a future commit exists.
+After root final acceptance, finish markers after their required acceptance.
+Accepted history is delivery. Acceptance adds no commit or rewrite.
+Keep accepted boundary evidence through verification.
+Never use target or host references for verification or resume.
+Before every change push and delivery in either setting, inspect history, not just the tree, for the private set in [change-records.md](change-records.md) § Design authority and privacy.
+Inspect every pushed branch or reference, including recorded workflows.
+Newly reachable history is unreachable from any reference on the destination remote.
+For local delivery, inspect all history reachable from the delivered branch.
+Name every pushed branch or reference explicitly. Forbid untargeted, all-branch, mirror, and matching pushes.
+On a match, pause. The user chooses rewrite before publication, explicit waiver, or abandonment.
+A waiver states the accepted exposure or evidence limit and grants no unstated publication permission.
+Apply the rewrite duties above before delivery verification.
+Verify the completed history and owning-log accounting separately before root closure.
+This sequence applies to any track count.
 Resolve or hand every open question to the user.
-Follow [user-notes.md](user-notes.md) for feedback and note accounting. Follow
-[delivery-packages.md](delivery-packages.md) for the final user-facing package
-and the complete accounting sequence. Close the change only after the whole
-change reaches delivery and the required accounting is verified in the owning
-research logs. Abandonment at any stage ends with `slate_change close`, even when no
-delivery artifact exists. Closing deletes nothing. The untracked-retention rule
-in § Session handoff and the research log keeps the local files out of the pull
-request.
-On abandonment, offer their content for archival first. Only the user deletes
-an old change folder.
+Follow [user-notes.md](user-notes.md) for feedback and note accounting.
+Close with `slate_change close` after delivery and verified owning-log accounting.
+Abandonment at any stage requires `slate_change close`, even without delivery.
+Closing deletes nothing. Keep local records untracked under § Session handoff and the research log.
+On abandonment, first offer their content for archival. Only the user deletes an old change folder.
 
 No release occurs in this workflow. Packaging, publication, version changes,
 tags, and registry release require a separate explicit user request and the
@@ -871,7 +868,11 @@ project release runbook.
 
 An existing change finishes under its recorded workflow unless the user
 explicitly authorizes migration. Keep its recorded marker spelling and publishing
-arrangement. Do not rename markers or rewrite history to resemble a tree.
+arrangement. Keep existing level pull requests and retained references as evidence.
+Never move or delete those references automatically.
+A needed stacked rewrite pauses for a user decision.
+At closure, report leftover references for the user to delete.
+Do not rename markers or rewrite history to resemble a tree.
 Every new change uses the current workflow.
 A new change without design tracks or review-fix children has one level.
 It needs no manual status file or design-track research log.

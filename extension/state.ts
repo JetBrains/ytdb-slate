@@ -338,6 +338,14 @@ export function describeConfusables(value: string): string | undefined {
 }
 
 
+/** Validate the collapsed thread diagnostic display switch. */
+export function sanitizeThreadDevMode(raw: unknown, warn: (msg: string) => void): boolean {
+	if (raw === undefined) return false;
+	if (typeof raw === "boolean") return raw;
+	warn("slate: threadDevMode must be a boolean. Using false.");
+	return false;
+}
+
 /** Validate the explicit prompt-cache-key feature switch. */
 export function sanitizeCacheKeyEnabled(raw: unknown, warn: (msg: string) => void): boolean {
 	if (raw === undefined) return true;
@@ -805,6 +813,7 @@ export interface WritingConfig {
 }
 
 export interface SlateConfig {
+	threadDevMode?: boolean; // show warnings and failed tool calls for all collapsed thread results (default false)
 	notifications?: unknown; // source-resolved policy is available through notificationSettings(config)
 	episodeModel?: unknown; // legacy key, ignored visibly by logical policy resolution
 	workerTools?: string[];

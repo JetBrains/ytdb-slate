@@ -43,7 +43,7 @@ check results and review verdicts.
 Use this order. `<number>` is the track identifier (canonical path number).
 
 ```markdown
-## Track <position> of <count> (<number>): <name>
+## Track <number> <name> (<position> of <count>)
 
 **Intention**
 <The approved behavior and scope.>
@@ -67,7 +67,7 @@ Keep the cumulative implementation commit or exact range in the owning research 
 For code ranges and design markers, use [change-records.md](change-records.md)
 § Identifiers, code ranges, and design markers.
 The owning research log names a design track's approved design, accepted child ranges,
-and every subtree level delivery. A design track has no implementation range or extra cumulative commit.
+and its contribution to the change delivery. A design track has no implementation range or extra cumulative commit.
 Do not count accepted child work as new implementation.
 With publishing, state the delivery result when it affects acceptance.
 Disclose merge state and unmerged dependencies when acceptance needs them.
@@ -78,7 +78,7 @@ The **Next step** states the applicable acceptance action. Follow
 code-track acceptance and boundary rules.
 For a design track, use [recursive-workflow.md](recursive-workflow.md) § Whole-subtree acceptance.
 The package states deviations and their effects on later sibling tracks.
-Inside an incomplete level, list each remaining document, prompt, or extension difference and its later owner.
+Before change completion, list each remaining document, prompt, or extension difference and its later owning track.
 The package asks for blocking track acceptance for every code track in a multi-track
 change, regardless of proved areas. Final change acceptance remains separate.
 
@@ -114,9 +114,9 @@ and consequences.>
 The **Decision** field asks explicitly for the final acceptance required by
 [track-workflow.md](track-workflow.md) § Delivery and termination. Do not treat
 silence as acceptance.
-The owning research log lists every level delivery once.
-Disclose an unmerged dependency when it affects acceptance.
-A change without nested tracks has one level and at most one pull request.
+The owning research log records the change's delivery state.
+Disclose an unfinished dependency when it affects acceptance.
+The whole change uses one branch and at most one pull request.
 
 When trusted configuration enables `workflow.routingRecommendations` and records
 support advice, include **Model-routing recommendations** immediately before **Decision**. Use
@@ -170,53 +170,54 @@ The research log is the accounting authority on both delivery paths.
 Attribute design-track and review-fix conclusions to their level in the owning log.
 Keep root-wide and whole-subtree conclusions in the log that closes them.
 Reference other levels without counting their implementation again.
-Keep accounting out of the pull request description and final delivery commit body.
+Keep accounting out of the pull request description and its squash-merge commit body.
 Packages disclose relevant concerns and decisions.
 Show accounting references only when a decision needs them.
-After merge, verify the observed commit identity and parents against the accepted history and pull request.
-Record that merge-result binding in the owning log before root closure.
+After merge, verify that the host merged the recorded accepted final head.
+Use [pr-publishing.md](pr-publishing.md) § After the merge for every merge method.
+Record that result in the owning log before root closure.
 Report delivery state only when a decision needs it.
 
-For each required whole-subtree or root final acceptance, use this order even after the ready flip:
+Use this order even when the pull request is already ready:
 
-1. Obtain and record the explicit acceptance decision after its package and prerequisites.
-2. Record that decision and its aggregate evidence references in the owning research log.
-3. Add a marker only for each design track newly accepted by this decision. Reuse retained marker references for tracks accepted earlier. Record each track's history references in the owning research log.
-4. For changes that load the nested sections with publishing enabled, complete the retention protocol in [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history.
-5. Verify the owning log against all accounting sources, including the step 4 results, after these updates and before handoff for merge.
-6. Hand the pull request to the user for merge. Only the user merges.
+1. Obtain every required code-track and whole-subtree acceptance after its package and prerequisites.
+2. Record each decision and its aggregate evidence in the owning research log. Add design markers only after their whole-subtree acceptance. Reuse earlier accepted boundary evidence.
+3. After all whole-subtree acceptances, obtain root final acceptance of the whole change.
+4. Finish required markers and branch updates under [pr-publishing.md](pr-publishing.md) § After the flip. Obtain renewed acceptance when that rule requires it. Verify all owning logs against every accounting source.
+5. Then record the accepted final head of the change branch in the owning research log before merge handoff.
+6. Only then hand the pull request to the user for merge. Only the user merges.
 
 A missing acceptance or required conclusion blocks handoff for merge.
-Verify every level's accounting and all root-wide accounting in the owning logs before root closure.
+Verify the change's delivery accounting and all root-wide accounting before root closure.
 
 <!-- publishing-disabled-accounting:begin -->
-When draft publishing is disabled, the final Git record does not exist before
-final acceptance. Use this sequence:
+With draft publishing disabled, deliver accepted branch history in this sequence:
 
 1. Before each intermediate code or design package, reconcile all accounting
    sources for that track and its subtree. Show record and range references only
-   when a decision needs them. Do not claim that a future delivery commit exists.
-2. Before the change package, reconcile every
-   accounting source across the whole change. Complete each design-track
-   acceptance before its marker. Retain all records and accepted histories
-   through root final acceptance.
-3. After root final acceptance, create the final squashed delivery commit.
-   Follow project commit rules or the default in
-   [pr-publishing.md](pr-publishing.md) § Default template.
-   Before rewriting, preserve accepted source history under
-   [track-workflow.md](track-workflow.md) § Delivery and termination.
-4. Verify the delivery result and owning-log accounting separately against the
-   accepted history and every required conclusion.
-   Only then close the root change with `slate_change close`.
+   when a decision needs them.
+2. Before the change package, reconcile every accounting source across the whole
+   change. Complete each design-track acceptance before its marker.
+   Retain all records and accepted histories through root final acceptance.
+3. After root final acceptance, finish required markers after their acceptance
+   decisions. Acceptance adds no commit or rewrite.
+   Keep the local branch and accepted-marker branches until root closure.
+   Use the local branch for delivery verification and resume.
+   Follow [track-workflow.md](track-workflow.md) § Delivery and termination.
+4. Before local delivery, check all history reachable from the delivered branch for
+   private change records and private bytes, not only the final tree. On a match, pause.
+   The user chooses rewrite before publication, explicit waiver, or abandonment.
+   Preserve reviewed state under [track-workflow.md](track-workflow.md)
+   § Delivery history and accounting. Renew acceptance of the rewritten head before delivery verification.
+   Verify the completed history and owning-log accounting separately against the
+   accepted history and every required conclusion before closing with `slate_change close`.
    Keep all manual records and source chains. Only the user deletes the change folder.
 
 Abandonment at any stage ends with `slate_change close`. No delivery artifact is
 needed for abandonment, and the close deletes nothing.
 
-A publishing-disabled single-track change starts at step 2. A
-publishing-disabled multi-track change repeats step 1 for each track, then runs
-steps 2 through 4. No package requires a future commit body before that commit
-exists.
+A publishing-disabled single-track change starts at step 2.
+A multi-track change repeats step 1 for each track, then runs steps 2 through 4.
 <!-- publishing-disabled-accounting:end -->
 
 Retain conclusions and evidence needed for the listed accounting. Do not

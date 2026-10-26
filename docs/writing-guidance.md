@@ -20,7 +20,7 @@ Support for a deprecated key that still exists is current state and may be
 documented.
 
 Change records may describe removals and past behavior. Pull request
-descriptions, delivery commit bodies, release notes and issues are change
+descriptions, commit bodies, release notes and issues are change
 records. The other writing requirements still apply to change records.
 
 This rule is separate from the ten writing requirements and seven design

@@ -10,7 +10,7 @@ type ThemeLike = {
 	bold: (text: string) => string;
 };
 type DisplayContext = { expanded?: boolean; isPartial?: boolean; isError?: boolean };
-type DisplayOptions = { expanded: boolean; isPartial?: boolean };
+type DisplayOptions = { expanded: boolean; isPartial?: boolean; threadDevMode?: boolean };
 
 // These helpers and presentation fields are internal display metadata, not a supported consumer contract.
 export interface DisplayDetails {
@@ -113,7 +113,8 @@ export function renderCompactResult(
 			text += `\n${protectDisplay(contentText(result))}\nDetails:\n${inspection(inspected)}`;
 		} else {
 			if (partial && typeof details.displayActivity === "string") text += `\n  ${short(details.displayActivity)}`;
-			const failure = short(details.displayFailure);
+			const showDiagnostics = tool !== "thread" || options.threadDevMode === true || failed;
+			const failure = showDiagnostics ? short(details.displayFailure) : "";
 			if (failure) text += `\n  ${failure}`;
 			const reason = short(details.displayFailureReason);
 			if (failed && reason) text += `\n  ${reason}`;
@@ -126,7 +127,8 @@ export function renderCompactResult(
 				text += `\n  ${details.count} ${details.count === 1 ? "thread" : "threads"}`;
 				if (typeof details.failedCount === "number" && details.failedCount > 0) text += `, ${details.failedCount} failed`;
 			}
-			if (details.displayWarning === true || strings(details.warnings).length > 0) {
+			const warning = details.displayWarning === true || strings(details.warnings).length > 0;
+			if (showDiagnostics && warning) {
 				text += `\n  ⚠ ${short(details.displayWarningSummary) || "Action warning. Expand for details."}`;
 			}
 		}

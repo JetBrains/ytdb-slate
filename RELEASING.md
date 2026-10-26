@@ -41,9 +41,9 @@ git tag --merged origin/<target> -l 'v*' --sort=-v:refname | head -n 1
 git log --first-parent --format='%h %s' v<last>..origin/<target>
 ```
 
-The `git tag` command prints the latest version tag on the target branch. Replace `v<last>` with that tag. Each squash-merge title ends with a pull request number in the form `(#NNN)`. A title can contain more than one number. Use `gh pr view <number>` to check which pull request describes the change. Read the pull request when its title does not explain the effect for users.
+The `git tag` command prints the latest version tag on the target branch. Replace `v<last>` with that tag. For each commit on first-parent history, read all linked pull requests with `gh api --paginate repos/JetBrains/ytdb-slate/commits/<commit>/pulls?per_page=100`. Verify that each merged pull request targets the selected branch and names that exact commit in `merge_commit_sha`. Read its description to find the effect on users. Do not infer a pull request number from the commit title.
 
-If a commit title has no pull request number, read the change with `git show <commit>`. Include that commit when it changes behavior for users.
+Read commits without a matching linked pull request directly. For a merge, inspect its complete result with `git diff --no-renames <commit>^1 <commit> --`. For a root commit, use `git show <commit>`. Include changes that affect users.
 
 Find configuration changes in the same range:
 
@@ -119,7 +119,11 @@ Preparation reads the single release lane on `release-state`. It checks npm vers
 
 Review the exact metadata-only diff. A first request normally changes `package.json`, `package-lock.json`, and three files under `release/requests/<version>/`. A corrected request may change a subset of the three request files when the bound target branch already names the same unused version. It must change `request.json`. The other request files must still match the reviewed request content. A request that changes the version must change both manifests and `request.json`. No executable-code path receives a coverage exception.
 
-Use the repository's enabled squash merge or merge queue. For a `main` target, the workflow examines every commit in the resulting push. It selects the exact release commit, its own parent and diff, and its associated merged pull request. An unrelated commit in the same grouped push does not become the release identity. For a release-branch target, check that its check roster offers report mode before merge. The report mode runs checks without receiving a request record.
+Merge the request with a two-parent merge commit. Squash merges, rebase merges and direct single-parent commits are refused. For a `main` target, the workflow follows first-parent history in the pushed range. It selects one release merge even when unrelated merges appear beside it. Several request edits inside that merge produce one candidate. The release identity binds the exact merge commit and its actual first parent.
+
+Both target types require exactly one matching merged pull request from this repository and the identity-bound request branch into the bound target. Its merge endpoint must be on the target's first-parent history. Admission reads every result page and refuses failed or malformed reads. It compares the complete merge result with its actual first parent, with rename detection disabled. Foreign paths, multiple candidates and ambiguous pull requests stop publication before claim. The preparation base remains an ancestry check, not a path-comparison base. Release checks and the coverage-warning decision use that same merge and parent pair.
+
+For a release-branch target, check that its check roster offers report mode before merge. The report mode runs checks without receiving a request record.
 
 A `main` merge authorizes publication. A release-branch merge also needs a `publish` dispatch on `main`. Enter the exact version and request identity from `release-state`. A forgotten dispatch leaves the lane prepared. Dispatch `publish` later or retire the merged request. A release does not depend on branch continuous integration (CI) runs. Do not edit the durable request or notes after preparation. Do not change npm `latest` manually while release automation is active.
 

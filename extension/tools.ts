@@ -236,7 +236,7 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 			return renderThreadCall(args, theme, context);
 		},
 		renderResult(result, options, theme, context) {
-			return renderThreadResult(result, options, theme, context);
+			return renderThreadResult(result, { ...options, threadDevMode: getManager().getConfig().threadDevMode === true }, theme, context);
 		},
 	});
 

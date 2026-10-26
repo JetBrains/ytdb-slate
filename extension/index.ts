@@ -52,6 +52,7 @@ import { createTerminalNotificationChannels } from "./notification-terminal.ts";
 import { createPushNotificationChannel } from "./notification-push.ts";
 import {
 	sanitizeCacheKeyEnabled,
+	sanitizeThreadDevMode,
 	sanitizeWorkflowConfig,
 	SlateStore,
 	warnRemovedCacheKeyShards,
@@ -151,6 +152,7 @@ export default function (pi: ExtensionAPI) {
 		config.contextBudget = sanitizeContextBudget(config.contextBudget, warn);
 		config.workerExtensions = sanitizeWorkerExtensions(config.workerExtensions, warn);
 		config.cacheKeyEnabled = sanitizeCacheKeyEnabled(config.cacheKeyEnabled, warn);
+		config.threadDevMode = sanitizeThreadDevMode(config.threadDevMode, warn);
 		// Cache-key partitioning is removed. Keep request pacing independent of key injection.
 		warnRemovedCacheKeyShards(config.cacheKeyShards, warn);
 		const requestThrottleSettings = sanitizeRequestThrottle(config.requestThrottle, warn);

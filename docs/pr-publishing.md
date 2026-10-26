@@ -3,94 +3,61 @@
 A pull request proposes a branch's changes for review and merge.
 A draft pull request is not yet ready for that review.
 Use [track-workflow.md](track-workflow.md) for the common lifecycle.
-Except for the Default template section, this document applies only when
-`workflow.draftPRs` is enabled in home or trusted project `slate.json`
-(default: false). When it is disabled, the workflow creates no pull request.
-The Default template section also applies to the final delivery commit when publishing is disabled.
-That use adds no publishing duty.
-The research-log lifecycle in that case is owned by track-workflow.md § Session
-handoff and the research log.
+This document applies when `workflow.draftPRs` is enabled in home or trusted project `slate.json`.
+The default is false. When disabled, create no pull request.
+The research-log lifecycle is owned by track-workflow.md § Session handoff and the research log.
 
 ## One draft pull request
 
 <!-- level-publishing-policy:begin -->
-Apply this section only when `workflow.draftPRs` is enabled.
-A level contains the sibling tracks created by one split.
+Create one draft pull request for the whole change on one branch.
+A change is the whole user request.
+A level contains sibling tracks created by one split and groups planning only.
 A code track implements bounded approved work.
-A design track plans and completes a nested change.
-Create one draft level pull request for each level with code tracks.
-A level containing only design tracks has no pull request of its own.
-A mixed level's pull request contains only its code tracks.
-Design tracks produce the pull requests of their descendant levels.
-A change without design tracks keeps exactly one pull request.
-Do not create separate pull requests for code tracks or review-fix children.
-For nested work, use [recursive-workflow.md](recursive-workflow.md) § Level publishing
-and retained history for subtree ordering, branch bases, and history slices.
+A design track plans a nested change.
+Nested work and review-fix children use the same change branch and pull request.
+Use [recursive-workflow.md](recursive-workflow.md) § Dependency order and pauses for nested work.
 
-The level is the merge unit.
+The change is the merge unit.
 All checks pass at each child marker.
-Agreement across documents, prompt guidance, and the extension is required at
-the level boundary.
-Do not merge an incomplete level into the default branch.
-Intermediate track packages and review intentions list each remaining difference
-across those surfaces and name the later child that owns it.
-Only the user merges the pull request.
-Each multi-track boundary uses a marker commit after its required gates,
-as defined in track-workflow.md § Delivery and termination.
+Intermediate track packages and review intentions list every remaining difference across documents, prompt guidance, and extension behavior.
+Name the later owning track for each difference.
+Full agreement is required at change end.
+Do not merge an incomplete change.
+Only the user merges after root final acceptance.
+Code and design markers follow track-workflow.md § Delivery and termination.
 
-Draft publishing does not remove or move planning, design, focus assessment,
-review, track-packet, user-note, blocking track-acceptance, final-acceptance,
-or finding-disposition requirements. Retain the current change folder's
-research log and every implementer report through and after delivery. Only
-the user may delete the change folder.
+Draft publishing moves no planning, design, focus assessment, review, package, user-note, acceptance, or finding-disposition requirement.
+Keep the research log and every implementer report through and after delivery.
+Only the user may delete the change folder.
 Every path under `slate-changes/` stays outside pull requests, including `tmp/` and leftover action files.
 <!-- level-publishing-policy:end -->
 
 ## Creation
 
-Create the level's draft after all applicable pre-implementation gates.
-Create it before the level's first code track implementation.
-
-For a change with a high-level design and a level pull request, author the
-template-shaped description from established facts, as defined in § Description rules.
+Create the change's draft after all applicable pre-implementation gates and before implementation.
+With a high-level design, create it after final design approval.
+Author the template-shaped description from established facts under § Description rules.
 Author and maintain it without presenting it for approval.
-Create the pull request after final design approval.
 
-For a change without a high-level design, create the pull request after the
-confirmation gate and before implementation. If the change later requires a
-high-level design, keep the existing draft.
+Without a high-level design, create the draft after the confirmation gate and before implementation.
+If a design becomes required later, keep the existing draft.
 Follow the size or late-area design route in track-workflow.md.
 Record changed intent in the research log, not as a draft progress update.
-Do not recreate the pull request or apply its creation timing retrospectively.
+Do not recreate the pull request or apply creation timing retrospectively.
 
 Every creation path keeps these safeguards:
 
-- Create the pull request as a DRAFT.
-  A one-level change starts from the repository's default development branch.
-  For nested work, choose its base under [recursive-workflow.md](recursive-workflow.md)
-  § Level publishing and retained history.
-  Use dependency order for bases, including code before a dependent design subtree.
-  Base that subtree's first level branch on the completed code-containing branch.
-  Base later dependent levels on the latest completed preceding level branch.
-
-  The user merges the code-containing level pull request only after its level is complete.
-  Every track of that level, including the dependent design subtree, must have its required acceptance.
-  The user then merges the dependent pull requests in dependency order.
-- If the working branch has no diff against the base yet, land a
-  bootstrap empty commit so the PR can be created.
-- At creation, if a high-level design exists, read the current authoritative design file for the change root or design track.
+- Create the pull request as a DRAFT from the project's development branch.
+  Nested work creates no other branch base or pull request.
+- If the working branch has no difference against the base, create a bootstrap empty commit to open the pull request.
+- When a high-level design exists, read the current authoritative root design at creation.
   Use its approved plan only for fields requested by the selected template.
-  The files are `root-design.md` and `track-<number>-design.md` in the current change folder.
-  Here `<number>` is the canonical path number defined in [change-records.md](change-records.md).
   Read the owning log for approval hashes, decisions, and review evidence.
   A copied design in a log is not the authoritative plan.
-  Create the pull request only after final design approval, as stated above.
-
-- For a change without a high-level design, use established request facts and
-  the intended fix only for fields requested by the selected template.
-- The research log is retained until delivery, and its Decision Log
-  keeps appending during implementation. track-workflow.md § Session handoff
-  and the research log owns the full lifecycle.
+- Without a high-level design, use established request facts and intended results only for fields requested by the template.
+- Retain the research log and append decisions throughout implementation.
+  track-workflow.md § Session handoff and the research log owns its full lifecycle.
 
 ## Description rules
 
@@ -99,29 +66,23 @@ Slate adds no required sections, accounting fields, or progress table.
 At creation, inspect the project's contributor instructions and available pull request templates.
 Follow the project's documented choice when several templates exist.
 Ask the user before creation if the choice remains ambiguous.
-An unavailable template is not evidence that no applicable project template exists.
+An unavailable template does not prove that none applies.
 Resolve access or selection uncertainty rather than silently using the default.
 Use § Default template only when no applicable project template exists.
 
-Fill only fields supported by facts established by the request, approved design, or completed evidence at that time.
-Describe intended changes as intent, not as completed work.
+Fill only fields supported by established request facts, approved design, or completed evidence.
+Describe intended changes as intent, not completed work.
 Do not mark tests or checklist items complete before their evidence exists.
 Leave unsupported fields unfilled in the form the project permits.
 Do not invent results to complete a template.
-
-Describe only this level's scope within the fields the template requests.
-Link related level deliveries only when the template requests that information.
-Do not claim related levels' changes as new work.
-These scope and attribution rules add no template field.
-
-A squash merge combines a pull request's commits into one delivery commit.
-The host's merge behavior does not make the description a workflow accounting record.
+Describe the whole change within the fields the template requests.
+The description is not a workflow accounting record.
 
 ## Default template
 
 Use this short form when no applicable project template or commit rule exists.
 At creation, describe why the change is needed and the planned change.
-For the final description at level completion or a final delivery commit, describe delivered results.
+For the final description at change completion, describe delivered results.
 
 ```markdown
 ## Why
@@ -136,97 +97,106 @@ This form adds no workflow accounting or progress table.
 ## Keeping the PR in sync
 
 Create the draft description from established facts using the selected template.
-During implementation, keep progress, decisions, and plan differences in the research log.
+Keep progress, decisions, and plan differences in the research log during implementation.
 Do not refresh the draft description after each track or marker.
-At level completion, update the final title and description under § Ready-for-review flip.
+At change completion, update the final title and description under § Ready-for-review flip.
 The final title names the delivered result and preserves project title conventions.
-Before renewed handoff for merge after fixes, refresh final-result text if the result or template changed.
+Before renewed merge handoff after fixes, refresh final-result text if the result or template changed.
 An unchanged result and template need no rewrite.
 
 ## Ready-for-review flip
 
-Apply this section separately to each level pull request.
-All its code tracks and required machine reviews, track packages, requested fixes,
-and blocking user notes must be complete.
+Complete every code track, required machine review, track package, requested fix, and blocking user note.
 Code-track acceptance follows [track-workflow.md](track-workflow.md) § Delivery and termination.
-Keep the last pull request of a subtree unmerged until every design track it
-closes has explicit whole-subtree acceptance and its design marker.
 A subtree contains a track and all its descendants.
-Ready status supplies neither acceptance nor permission for an agent merge.
-Root final acceptance precedes the last level merge.
-It waits for the note queue, final accounting, and every other final gate.
-After each required acceptance, reconcile the owning log and verify retained history through the ordered sequence in
-[delivery-packages.md](delivery-packages.md) § Durable accounting before handoff for merge.
-Apply that sequence even when the pull request is already ready.
+Obtain every design track's explicit whole-subtree acceptance and add its design marker.
+Then obtain root final acceptance after the note queue, final accounting, and every other final gate.
+Follow [delivery-packages.md](delivery-packages.md) § Durable accounting in order.
+Ready status supplies no acceptance or permission for an agent merge.
+Apply this sequence even when the pull request is already ready.
 
-Flipping the current pull request to ready-for-review is the agent's last act
-before handing that pull request to the user. The user performs every merge.
-The agent never merges a pull request. Post-flip fix work and post-merge cleanup
-stay agent duties below. The flip is gated by this checklist, executed in order:
+The flip to ready-for-review is the agent's last act before merge handoff.
+The user performs the merge. The agent never merges a pull request.
+Post-flip fixes and post-merge verification remain agent duties.
+Execute this checklist in order:
 
-- Any layered peer-review process (see track-workflow.md § Layering richer
-  workflows on top) is completed or explicitly user-waived — flipping never
-  discards a pending review.
-- Summarize behavior changes since the last user-approved gate, including
-  for a change without a design gate. Apply the presentation comparison rule.
-  Ask for ready-for-review permission. Keep commits and accounting in the log.
-  Keep the ignored-finding index only in the owning research log.
-- A squash merge does not preserve marker commits in the default-branch history.
-  For changes that load the nested sections, complete the retention protocol in
-  [recursive-workflow.md](recursive-workflow.md) § Level publishing and retained history before the final ready flip and each merge handoff, and for the comparisons after each merge.
-- Update the pull request title to name the delivered result and preserve project title conventions.
-  Reread the selected project template, or § Default template when no applicable project template exists.
-  Fill the final description with only this level's final results that the template requests.
-- Resolve every remaining open question, or record its explicit user-approved disposition in the owning research log and relevant package.
+- Complete every layered peer review or obtain an explicit user waiver.
+  A flip discards no pending review.
+- Summarize behavior changes since the last user-approved gate, including without a design gate.
+  Apply the presentation comparison rule.
+  Ask for ready-for-review permission.
+  Keep commits, accounting, and the ignored-finding index in the owning research log.
+- Update the title to name the delivered result under project conventions.
+  Reread the selected project template, or § Default template when none applies.
+  Fill the final description with only the change's final results that the template requests.
+- Resolve every open question or record its explicit user-approved disposition in the owning log and relevant package.
   A mention without the user's disposition is not enough.
-- Last, reread the whole description from start to end against the selected template and final result.
+- Reread the whole description against the selected template and final result.
   Confirm that the text is consistent.
   The behavior summary replaces presentation of the final description.
-  The description is available on request.
+  The description remains available on request.
+- Complete the private-history check under track-workflow.md § Delivery history and accounting before each push and before delivery.
+  Finish required markers and branch updates under § After the flip, including renewed acceptance when required.
+  Record the accepted final head in the owning research log before merge handoff.
+  The head is the branch's final commit.
 
 ## After the flip
 
-The user may wait for passing continuous integration checks or peer-review completion and ask the agent to fix failures or review observations.
-The agent lands one commit per requested fix and reports behavior and fix status
-when acceptance is needed. Ask one batch acceptance question with each fix separately selectable.
-Keep progress in the owning research log, not in the description.
-At renewed handoff for merge after fixes, reread the selected template.
-Refresh final-result text only if the result or template changed.
-Reconcile reviewer-pushed changes at that handoff.
+The user may wait for passing continuous integration checks or peer review and request fixes.
+Commit each requested fix separately and report behavior and fix status when acceptance is needed.
+Ask one batch acceptance question with each fix separately selectable.
+Keep progress in the owning research log, not the description.
+Reconcile reviewer-pushed changes at renewed merge handoff.
+Reread the selected template and refresh final-result text only if the result or template changed.
 Before merge, summarize behavior changes since the previous summary.
 Use one no-change sentence when unchanged. The summary grants no approval.
-The behavior summary replaces presentation of the final description.
-The description is available on request.
+The description remains available on request.
 
-The user's merge act approves the current pull request.
-A merge does not supply whole-subtree or root final acceptance.
-Obtain each required explicit decision before the merge.
-After the decision, record the acceptance and its evidence references only in the owning research log.
-Verify that log accounting, then give the behavior summary and merge handoff.
+After root final acceptance, only required empty markers may be added without renewed acceptance.
+Any other commit, including a base merge or fix, needs renewed acceptance before recording the accepted final head.
+Record that head before merge handoff.
+A commit pushed after acceptance needs renewed acceptance and a new recorded head before merge handoff.
+Record each decision and its evidence only in the owning research log.
+Verify log accounting before the behavior summary and merge handoff.
 Keep the skipped late-area design-gate record visible at final acceptance.
-Ready status does not bypass this order.
+Ready status and the merge act supply no missing whole-subtree or root final acceptance.
+
+## Merge method advice
+
+Recommend merge commits or rebase merges because they preserve separate implementation commits.
+A merge commit keeps source history as ancestry.
+A rebase merge reapplies commits and can drop empty markers.
+A squash merge combines the change into one commit.
+Its separate commit list and markers do not reach the target branch.
+Slate accepts those losses.
+The user chooses a method the project permits.
+Slate requires no method and configures no repository merge setting.
+
+Do not require target-branch marker survival or a source-to-target commit mapping.
+GitHub keeps original pull request commits under a host-managed reference.
+That host behavior is not a portable retention service supplied by Slate.
+Unverified merge-queue behavior supplies no workflow precondition.
 
 ## After the merge
 
-After the user merges a level pull request, verify that level's delivery accounting.
-Verify the observed merge commit's identity and parents against its accepted history and pull request.
-Record the observed merge-result binding only in the owning research log.
+For every merge method, verify that the source head the host merged equals the recorded accepted final head.
+Compare the source head, not the resulting target commit or its parents.
+If the host cannot report the merged head, pause and ask the user.
+A mismatch pauses delivery verification.
+Record the observed delivery result and accepted-head comparison only in the owning research log.
+Verify completed history and change accounting before root closure.
+Use the local change branch for delivery verification and resume, not the target branch or a host reference.
+Keep the local change branch and every branch holding accepted markers until root closure.
+Host branch deletion does not permit local deletion before closure.
 Report delivery state only when a decision needs it.
-The merge commit itself supplies that binding, including for the last level.
-The owning research log lists every level delivery and its merge state.
-Disclose unmerged dependencies when they affect acceptance.
-Close the root change only after all delivery accounting is verified.
-Use track-workflow.md § Session handoff and the research log for closure.
-Abandonment at any stage also ends with
-`slate_change close`, even if no delivery artifact exists. Closing deletes
-nothing. Keep its folder and reports.
+Close only after delivery verification and owning-log reconciliation under track-workflow.md § Session handoff and the research log.
 
-Any cleanup a layered peer-review process requires is an agent duty.
-Examples include closing its review pull requests and deleting its pinned branches.
-Execute cleanup when the user reports the applicable merge or a later session detects it.
-Follow that process's own rules, subject to this retention exception:
+Abandonment also ends with `slate_change close`, even without a delivery artifact.
+Closing deletes nothing. Keep the folder and reports.
+Only the user deletes the change folder.
+
+Any cleanup required by layered peer review remains an agent duty under that process's rules.
 <!-- accepted-history-cleanup:begin -->
-Cleanup that deletes a branch or reference holding accepted marker history waits
-until the root change closes.
-A change without design tracks is unaffected because its root closes at its merge.
+Cleanup that deletes the local change branch or a branch holding accepted markers waits until root closure.
+A reported merge alone is not root closure.
 <!-- accepted-history-cleanup:end -->
