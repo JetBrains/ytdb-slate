@@ -38,7 +38,7 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
       const failures = Number(!accepted) + Number(!auditAccepted);
       assert.match(output, new RegExp(`^== summary: ${3 - failures} pass, ${failures} fail, 0 not run \\(3 result lines = 1 selected checks \\+ scoped mutation audit \\+ this roster audit\\) ==$`, "m"));
     }
-    async function check(name: string, changes: Record<string, string>, accepted = false, contract = "contract-delivery-packages", auditAccepted = true): Promise<void> {
+    async function check(name: string, changes: Record<string, string>, accepted = false, contract = "contract-delivery-packages", auditAccepted = true, focusedGroup?: "surviving" | "protocol"): Promise<void> {
       await t.test(name, { timeout: 65_000 }, () => {
         const originals = new Map<string, string | undefined>();
         try {
@@ -50,7 +50,7 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
             mkdirSync(dirname(path), { recursive: true });
             writeFileSync(path, source);
           }
-          const result = spawnSync("bash", [join(fixture, "verification/run-resolver-checks.sh"), "--repo", fixture, "--strict", ...(name === "clean source" || contract === "contract-escalation-routing" ? ["--exclude", excluded.join(",")] : ["--only", contract])], {
+          const result = spawnSync("bash", [join(fixture, "verification/run-resolver-checks.sh"), "--repo", fixture, "--strict", ...(name === "clean source" || ["contract-escalation-routing", "contract-level-publishing"].includes(contract) ? ["--exclude", excluded.join(",")] : ["--only", contract])], {
             cwd: fixture, encoding: "utf8", timeout: 60_000, maxBuffer: 2 * 1024 * 1024,
             env: { ...process.env, JITI_FS_CACHE: "true" },
           });
@@ -60,13 +60,21 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
           assert.equal(result.status, accepted ? 0 : 1, output);
           assert.match(output, new RegExp(`^CHECK +${contract} +${accepted ? "PASS" : "FAIL"}\\b`, "m"));
           assert.match(output, /^CHECK +roster +PASS\b/m);
+          if (focusedGroup) {
+            const label = focusedGroup === "surviving"
+              ? "surviving safeguards match current owned rules"
+              : "retained-reference protocol matches current owned rules";
+            assert.ok(output.includes(label + " →"), output);
+          }
           if (name === "clean source") {
             cleanOutput = output;
             assert.equal(mutationCounts(output)["boundary-regression"], 31);
             assert.equal(mutationCounts(output)["delivery-boundaries"], 12);
+            assert.equal(mutationCounts(output)["surviving-safeguards"], 53);
+            assert.equal(mutationCounts(output)["retained-protocol"], 8);
             assert.deepEqual([...output.matchAll(/^CHECK +(\S+) +EXCLUDED\b/gm)].map((match) => match[1]), excluded);
             assert.match(output, /^== summary: 207 pass, 0 fail, 0 not run, 2 excluded \(209 result lines = 208 expected checks \+ this roster audit\) ==$/m);
-          } else if (contract !== "contract-escalation-routing") selectedOutput(output, contract, accepted, auditAccepted);
+          } else if (!["contract-escalation-routing", "contract-level-publishing"].includes(contract)) selectedOutput(output, contract, accepted, auditAccepted);
         } finally {
           for (const [path, original] of originals) {
             if (original === undefined) rmSync(path);
@@ -95,6 +103,26 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
     });
     const resolverFile = "verification/resolver-checks.mjs";
     const resolver = readFileSync(join(fixture, resolverFile), "utf8");
+    const recursiveFile = "docs/recursive-workflow.md";
+    const recursive = readFileSync(join(fixture, recursiveFile), "utf8");
+    for (const [group, before, after] of [
+      ["surviving", "Never destroy the exact state the user reviewed.", "Reviewed state may be discarded."],
+      ["surviving", "Without that mapping, the original accepted marker remains evidence.", "Discard the original marker."],
+      ["surviving", "Never move an existing reviewed binding, even by fast-forward.", "Move reviewed bindings freely."],
+      ["surviving", "If any exception condition is unmet, pause and ask the user under the collision rule above.", "Continue when a condition is unmet."],
+      ["surviving", "Do not move the old reference merely to solve that conflict.", "Move the old reference to solve the conflict."],
+      ["surviving", "Intermediate track packages and review intentions list each remaining difference\nacross those surfaces and name the later child that owns it.", "Intermediate packages need no remaining differences."],
+      ["surviving", "Agreement across documents, prompt guidance, and the extension is required at\nthe level boundary.", "Agreement is optional."],
+      ["surviving", "A pause creates no permission to interleave commits in an open slice.", "A pause permits interleaving."],
+      ["surviving", "If the host cannot supply the merged head, pause rather than infer it from a squash commit.", "Infer the merged head from the squash commit."],
+      ["protocol", "Use `slate-retained/<change>/<name>`.", "Use any reference namespace."],
+      ["protocol", "A reviewed reference is create-only, locally and remotely.", "Move reviewed references freely."],
+    ] as const) {
+      const file = /^(Never destroy|Without that mapping|Intermediate track packages|Agreement across)/.test(before) ? workflowFile : recursiveFile;
+      const original = file === workflowFile ? workflow : recursive;
+      assert.ok(original.includes(before), before);
+      await check(`${group} group rejects: ${before}`, { [file]: original.replace(before, after) }, false, "contract-level-publishing", true, group);
+    }
     const designContent = '"High-level design\\nKeep one identity.\\n\\nLow-level design\\nPut the line first."';
     assert.ok(resolver.includes(designContent));
     for (const content of ['""', '"Replacement content."']) {
@@ -142,6 +170,11 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
       assert.ok(publishing.includes(rule));
       await check(`changed description boundary: ${rule}`, { [publishingFile]: publishing.replace(rule, "Refresh the description after every commit.") }, false, "contract-heading-regions");
     }
+    const rewriteLimit = "The rewrite exception applies only while the cumulative-commit rule exists.";
+    assert.ok(workflow.includes(rewriteLimit));
+    await check("surviving rewrite scope in mixed accounting", {
+      [workflowFile]: workflow.replace(rewriteLimit, "The rewrite exception always applies."),
+    }, false, "contract-heading-regions");
     const handoffRule = "After each required acceptance, reconcile the owning log and verify retained history through the ordered sequence in";
     assert.ok(publishing.includes(handoffRule));
     await check("redirected ready-handoff accounting", {

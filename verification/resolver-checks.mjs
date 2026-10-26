@@ -5763,8 +5763,127 @@ Renew acceptance of its head before delivery verification.`),
 			});
 			mutationAudit.record("nested-destinations", nestedDestinationAttacks);
 
+			// Focused safeguards do not depend on complete protocol fingerprints.
+			// The local-head rules retain the current level-reference pairing.
+			// Privacy inspection here has its current retention-push scope.
+			// The untargeted-push ban names retention references only. Its explicit
+			// and untargeted controls stay in retention, not a general push rule.
+			const focusedPolicyUnits = [...levelPolicyUnits, { ...trackSizePublishingUnits[0], source: workflow }];
+			const survivingSafeguards = [
+				["reviewed-state", "accepted-history", "Never destroy the exact state the user reviewed."],
+				["aggregate-no-authority", "accepted-history", "A later aggregate package does not authorize rewriting earlier user-reviewed ranges."],
+				["preserve-before-rewrite", "accepted-history", "Before a permitted rewrite, preserve accepted source history in a reachable branch or reference."],
+				["reconcile-references", "accepted-history", "Reconcile changed references before further work relies on them."],
+				["original-marker-evidence", "accepted-history", "Without that mapping, the original accepted marker remains evidence."],
+				["missing-history-pause", "accepted-history", "For other unavailable marker history, pause affected work."],
+				["exact-recovery", "accepted-history", "Try to recover the exact recorded history from retained branches, references, or source records."],
+				["no-substitute", "accepted-history", "A status entry, merge result, or copied marker title cannot replace missing history."],
+				["no-invented-marker", "accepted-history", "Never recreate a marker to claim an earlier boundary was proved."],
+				["recovery-choice", "accepted-history", "If recovery fails, ask the user to choose recovery work, abandonment, or an explicit evidence waiver."],
+				["waiver-limit", "accepted-history", "The waiver records its limit and does not claim recovered marker evidence."],
+				["linear-history", "history", "All work forms one linear history."],
+				["contiguous-owner", "history", "An existing level slice cannot be reopened around an intervening subtree."],
+				["pause-no-commits", "history", "A subtree may pause for an unfinished sibling dependency only when none of its open level slices has commits."],
+				["no-interleaving", "history", "A pause creates no permission to interleave commits in an open slice."],
+				["pause-preserves-evidence", "history", "The paused subtree keeps its records, pending gates, and accepted evidence."],
+				["branch-lifetime", "history", "Keep branches and accepted marker history available until the root change closes."],
+				["exact-reviewed-head", "history", "Keep every reviewed or accepted head reachable before any later rewrite."],
+				["reviewed-binding-immutable", "history", "Never move an existing reviewed binding, even by fast-forward."],
+				["rewrite-condition-pause", "history", "If any exception condition is unmet, pause and ask the user under the collision rule above."],
+				["conflict-keeps-reference", "history", "Do not move the old reference merely to solve that conflict."],
+				["privacy-history", "history", "Inspect reachable history, not only the pushed tree."],
+				["privacy-untracked", "history", "A current untracked file does not prove that ancestor commits contain no private bytes."],
+				["privacy-pause", "history", "If inspection finds private bytes, do not push and pause."],
+				["privacy-choice", "history", "Ask the user to choose a permitted rewrite, a limited explicit waiver, or abandonment."],
+				["privacy-preservation", "history", "History preservation before a rewrite must not push a commit that holds private bytes."],
+				["waiver-no-permission", "history", "It grants no unstated publication permission and claims no recovered evidence."],
+				["explicit-branch", "history", "A pull request branch push must name its branch explicitly."],
+				["private-accounting", "history", "The pull request description is not an accounting transfer destination."],
+				["local-own-head", "history", "With publishing disabled, before local delivery, compare each delivered local branch's level reference and latest recorded binding with that branch's head."],
+				["local-all-markers", "history", "Both must equal the complete head, including every marker commit."],
+				["local-not-earlier", "history", "An earlier binding does not satisfy this equality even when the reference still matches it."],
+				["accept-before-merge", "merge-acceptance", "Obtain each required explicit decision before the merge."],
+				["accept-owning-log", "merge-acceptance", "After the decision, record the acceptance and its evidence references only in the owning research log."],
+				["accept-order", "merge-acceptance", "Verify that log accounting, then give the behavior summary and merge handoff."],
+				["ready-no-bypass", "merge-acceptance", "Ready status does not bypass this order."],
+				["local-keep-branches", "disabled-preservation", "Keep the local branch and accepted-marker branches until root closure."],
+				["local-verification-resume", "disabled-preservation", "Use the local branch for delivery verification and resume."],
+				["local-history-privacy", "disabled-preservation", "Before local delivery, check newly reachable history for private change records and private bytes, not only the final tree."],
+				["local-match-pause", "disabled-preservation", "On a match, pause."],
+				["local-user-choice", "disabled-preservation", "The user chooses rewrite before publication, explicit waiver, or abandonment."],
+				["local-renew-acceptance", "disabled-preservation", "Renew acceptance of its head before delivery verification."],
+				["local-marker-order", "disabled-preservation", "After root final acceptance, finish required markers after their acceptance decisions."],
+				["local-no-rewrite", "disabled-preservation", "Acceptance creates no delivery commit or rewrite."],
+				["local-records", "disabled-preservation", "Keep all manual records and source chains."],
+				["local-user-deletes", "disabled-preservation", "Only the user deletes the change folder."],
+				["handoff-exact-head", "history", "At handoff, that reference and its latest recorded binding must equal the actual pull request head."],
+				["handoff-fresh-check", "history", "Any new commit after a check requires a fresh handoff check."],
+				["host-merged-head", "history", "After merge, compare the host's recorded merged pull request head with the latest level binding used at final handoff."],
+				["host-no-inference", "history", "If the host cannot supply the merged head, pause rather than infer it from a squash commit."],
+				["merge-record-evidence", "history", "Record these comparisons with the merge-result evidence before root closure."],
+				["remaining-differences", "track-size", "Intermediate track packages and review intentions list each remaining difference across those surfaces and name the later child that owns it."],
+				["final-agreement", "track-size", "Agreement across documents, prompt guidance, and the extension is required at the level boundary."],
+			];
+			const retainedReferenceProtocol = [
+				["reference-namespace", "history", "Use `slate-retained/<change>/<name>`."],
+				["reference-create-only", "history", "A reviewed reference is create-only, locally and remotely."],
+				["reference-push", "history", "With publishing enabled, then push the event's named references under their creation or update safeguards."],
+				["reference-read-back", "history", "With publishing enabled, read back each remote reference and check its exact binding."],
+				["rebased-marker", "accepted-history", "A rebased marker counts only when the owning research log maps it to the preserved accepted source marker."],
+				["cleanup-inventory", "history", "A cleanup inventory lists recorded retention references and their latest recorded bindings."],
+				["level-pull-request", "history", "Each level pull request contains one contiguous slice of that history."],
+				["stacked-base", "history", "A stacked pull request uses another pull request's branch as its base."],
+			];
+			const acceptsSurvivingSafeguards = (sources = {}) => survivingSafeguards.every(([, id, rule]) => {
+				const unit = focusedPolicyUnits.find((unit) => unit.id === id);
+				const result = unit.extract(sources[id] ?? unit.source);
+				return result.count === 1 && literalPattern(rule).test(result.text);
+			});
+			const acceptsRetainedReferenceProtocol = (sources = {}) => retainedReferenceProtocol.every(([, id, rule]) => {
+				const unit = focusedPolicyUnits.find((unit) => unit.id === id);
+				const result = unit.extract(sources[id] ?? unit.source);
+				return result.count === 1 && literalPattern(rule).test(result.text);
+			});
+			const survivingSafeguardMutations = survivingSafeguards.map(([id, owner, rule]) => {
+				const unit = focusedPolicyUnits.find((unit) => unit.id === owner);
+				const source = unit.source.replace(levelPattern(unit, unit.source), (text) => text.replace(literalPattern(rule), "Contradictory safeguard."));
+				return { id, changed: source !== unit.source, rejected: !acceptsSurvivingSafeguards({ [owner]: source }) };
+			});
+			const retainedProtocolMutations = retainedReferenceProtocol.map(([id, owner, rule]) => {
+				const unit = focusedPolicyUnits.find((unit) => unit.id === owner);
+				const source = unit.source.replace(levelPattern(unit, unit.source), (text) => text.replace(literalPattern(rule), "Contradictory protocol."));
+				return { id, changed: source !== unit.source, rejected: !acceptsRetainedReferenceProtocol({ [owner]: source }) };
+			});
+			// Whole-unit pins remain complete. Mixed pins are not protocol-only.
+			const survivingUnitIds = ["cleanup-retention", "private-set", "merge-acceptance", "disabled-preservation"];
+			const protocolUnitIds = ["ready-history", "cleanup-pointer", "configuration"];
+			const mixedLevelUnits = levelPolicyUnits.filter(({ id }) => ![...survivingUnitIds, ...protocolUnitIds].includes(id));
+			const splitUnitControls = [
+				...survivingSafeguards.map(([, owner, rule]) => [owner, rule, acceptsSurvivingSafeguards, acceptsRetainedReferenceProtocol]),
+				...retainedReferenceProtocol.map(([, owner, rule]) => [owner, rule, acceptsRetainedReferenceProtocol, acceptsSurvivingSafeguards]),
+			].map(([owner, rule, acceptsOwn, acceptsOther]) => {
+				const unit = focusedPolicyUnits.find((unit) => unit.id === owner);
+				const pattern = levelPattern(unit, unit.source);
+				const removed = unit.source.replace(pattern, (text) => text.replace(literalPattern(rule), ""));
+				const moved = removed + "\n" + rule + "\n";
+				const wrapped = unit.source.replace(pattern, (text) => text.replace(literalPattern(rule), rule.replace(/ /g, "\n  ")));
+				return {
+					owner, rule, changed: removed !== unit.source && wrapped !== unit.source,
+					rejected: !acceptsOwn({ [owner]: removed }) && !acceptsOwn({ [owner]: moved }),
+					independent: acceptsOther({ [owner]: removed }),
+					wrapped: acceptsOwn({ [owner]: wrapped }),
+				};
+			});
+			mutationAudit.record("surviving-safeguards", survivingSafeguardMutations);
+			mutationAudit.record("retained-protocol", retainedProtocolMutations);
 			const benignOrderingDocuments = Object.fromEntries(Object.entries(orderingDocuments).map(([id, source]) => [id, `${source}\n<!-- Outside ordering control. -->\n`]));
 			checkAll("contract-level-publishing", "level membership, dependency order, pauses, local retention, approval, delivery, cleanup, rebase mappings, unavailable evidence, and publishing defaults have owned rules and reviewed peer-document pins", [
+				["surviving safeguards match current owned rules", acceptsSurvivingSafeguards(), "focused surviving predicate"],
+				["surviving safeguards reject their own violations independently of protocol assertions", survivingSafeguardMutations.length === 53 && survivingSafeguardMutations.every(({ changed, rejected }) => changed && rejected), survivingSafeguardMutations],
+				["retained-reference protocol matches current owned rules", acceptsRetainedReferenceProtocol(), "focused protocol predicate"],
+				["retained-reference protocol rejects its own violations independently of safeguard assertions", retainedProtocolMutations.length === 8 && retainedProtocolMutations.every(({ changed, rejected }) => changed && rejected), retainedProtocolMutations],
+				["both groups reject removals and moves, accept wrapping, and ignore the other group's removal", splitUnitControls.length === 61 && splitUnitControls.every(({ changed, rejected, independent, wrapped }) => changed && rejected && independent && wrapped), splitUnitControls],
+				["whole-unit groups cover every current unit without duplicate ownership", survivingUnitIds.length + protocolUnitIds.length + mixedLevelUnits.length === levelPolicyUnits.length && new Set([...survivingUnitIds, ...protocolUnitIds, ...mixedLevelUnits.map(({ id }) => id)]).size === levelPolicyUnits.length && [...survivingUnitIds, ...protocolUnitIds].every((id) => levelPolicyUnits.some((unit) => unit.id === id)), mixedLevelUnits.map(({ id }) => id)],
 				["reviewed peer-document pins reject unreviewed additions while scoped pointers and the word layer discriminate known copies", peerRetentionOwners.every((owner) => !peerPinFailure(owner, owner.source) && acceptsPeerRetention(owner, owner.source)) && pinnedPeerOwners.length === 3 && peerPinRules.length === 6 && peerPinAttacks.length === 264 && peerPinAttacks.every(({ changed, rejected }) => changed && rejected) && reviewedBranchControls.length === 5 && reviewedBranchControls.every(({ changed, accepted }) => changed && accepted) && wordLayerControls.length === 3 && wordLayerControls.every(({ rejected }) => rejected) && peerOutsideControls.every(({ accepted }) => accepted) && peerPlacementNames.length === 7 && peerPlacementVerbs.length === 14 && peerEscapeAttacks.length === 687 && ownerSentenceCopies.length === 1374 && [...peerRetentionAttacks, ...peerEscapeAttacks, ...ownerSentenceCopies, ...pointerAttacks].every(({ changed, rejected }) => changed && rejected), { baseline: peerRetentionOwners.map((owner) => [owner.id, peerPinFailure(owner, owner.source), peerRetentionFailure(owner, owner.source)]), peerPinAttacks: peerPinAttacks.filter(({ changed, rejected }) => !changed || !rejected), reviewedBranchControls, wordLayerControls, peerOutsideControls, peerRetentionAttacks, peerEscapeAttacks, ownerSentenceCopies: ownerSentenceCopies.filter(({ changed, rejected }) => !changed || !rejected), pointerAttacks }],
 				["nested public transfer, description accounting, and delivery-record deferrals fail", nestedDestinationAttacks.length === 3 && nestedDestinationAttacks.every(({ changed, rejected }) => changed && rejected), nestedDestinationAttacks],
 				["restored description accounting, size exceptions, and reachable-description merge bindings fail", handoffDestinationAttacks.every(({ changed, rejected }) => changed && rejected), handoffDestinationAttacks],
@@ -6347,6 +6466,26 @@ verbatim retention of every tool result.`);
 					return { id: unit.id, kind: `sentence-${index}`, changed: source !== fixture, rejected: !acceptsRecordUnit(unit, source), intended: unit.extract(source).reason === "content" };
 				})];
 			});
+			// No complete heading region is protocol-only. The mixed regions contain
+			// level or reference operations alongside surviving accounting duties.
+			const survivingAccountingRules = [
+				"The rewrite exception applies only while the cumulative-commit rule exists.",
+				"Complete the rewrite before user review, so later user-review fix commits do not invalidate the reviewed range.",
+				"Re-pin every recorded commit range after the rewrite, including the coverage register and any range in a track packet.",
+			];
+			const accountingOwner = headingOwnedUnits.find(({ id }) => id === "workflow-accounting");
+			const acceptsSurvivingAccounting = (source) => {
+				const result = accountingOwner.extract(source);
+				return result.count === 1 && survivingAccountingRules.every((rule) => literalPattern(rule).test(result.text));
+			};
+			const survivingAccountingControls = survivingAccountingRules.map((rule) => {
+				const source = accountingOwner.source.replace(literalPattern(rule), "Contradictory accounting.");
+				return { rule, changed: source !== accountingOwner.source, rejected: !acceptsSurvivingAccounting(source) };
+			});
+			const mixedHeadingIds = ["workflow-accounting", "resume-order", "public-roadmap", "publishing-sync", "sources"];
+			const survivingHeadingIds = ["identifiers-ranges", "manual-records", "resume-forks", "handoff-pointer", "general-handoff", "closed-range-feedback", "repairs", "aggregate", "child-fix-title-owner", "notes-accounting", "repair-escalation", "repair-rounds-owner", "repair-consultations-owner", "P13-authoring"];
+			const survivingHeadingAttacks = headingPolicyAttacks.filter(({ id }) => survivingHeadingIds.includes(id));
+			const mixedHeadingAttacks = headingPolicyAttacks.filter(({ id }) => mixedHeadingIds.includes(id));
 			const headingOutsideControls = headingOwnedUnits.flatMap((unit) => {
 				const raw = unit.extract(unit.source).rawText;
 				const peer = /^#+/.exec(unit.start)[0];
@@ -6415,6 +6554,10 @@ verbatim retention of every tool result.`);
 			const privacyRule = "Pi saves session files with default permissions, which can expose record text to other local users.";
 			const privacyMutation = commonRecords.replace(privacyRule, "Session permissions need no attention.");
 			checkAll("contract-heading-regions", "all 19 heading-owned regions retain complete independent content protection and fence-aware same-level or higher boundaries", [
+				["surviving rewrite limits reject weakening without relying on the mixed accounting fingerprint", acceptsSurvivingAccounting(accountingOwner.source) && survivingAccountingControls.length === 3 && survivingAccountingControls.every(({ changed, rejected }) => changed && rejected), survivingAccountingControls],
+				["surviving and mixed heading groups exhaust the unchanged independent mutation roster", new Set([...survivingHeadingIds, ...mixedHeadingIds]).size === 19 && survivingHeadingIds.length + mixedHeadingIds.length === 19 && headingOwnedUnits.every(({ id }) => [...survivingHeadingIds, ...mixedHeadingIds].includes(id)) && survivingHeadingAttacks.length + mixedHeadingAttacks.length === 882, { surviving: survivingHeadingAttacks.length, mixed: mixedHeadingAttacks.length }],
+				["surviving heading safeguards reject every existing violation", survivingHeadingAttacks.length > 0 && survivingHeadingAttacks.every(({ changed, rejected, intended }) => changed && rejected && intended), survivingHeadingAttacks],
+				["mixed heading regions keep every safeguard and protocol violation active", mixedHeadingAttacks.length > 0 && mixedHeadingAttacks.every(({ changed, rejected, intended }) => changed && rejected && intended), mixedHeadingAttacks],
 				["the exact region roster resolves once and matches independent expectations", JSON.stringify(headingOwnedUnits.map((unit) => unit.id)) === JSON.stringify(expectedHeadingRegionIds) && headingOwnedUnits.every((unit) => acceptsRecordUnit(unit, unit.source)), headingOwnedUnits.map((unit) => ({ id: unit.id, result: unit.extract(unit.source).reason }))],
 				["missing, duplicate, empty, empty duplicate, truncation, and every sentence mutation fail for their intended reason", headingPolicyAttacks.every(({ changed, rejected, intended }) => changed && rejected && intended), headingPolicyAttacks],
 				["following-section insertions preserve every preceding pin and document-end controls pass", headingOutsideControls.every(({ changed, accepted }) => changed && accepted), headingOutsideControls],
