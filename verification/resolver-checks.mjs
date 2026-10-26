@@ -4073,7 +4073,7 @@ The split bypasses no stuck-fix consultation or required fix gate.`) },
 				}
 				: unit.id === "public-workflow" ? policyRegion(unit.start, unit.end, unit.endAtLineStart) : headingUnit(unit.start) }));
 			const repairEscalationDigest = "9f61738c4c77d9e59406480fdaa58485ce66fb2a921e634ed26c45c4cc1ee99b";
-			const EXPECTED_DELIVERY_PACKAGES_SHA256 = "bd02cda12555352ac42090764a509930b9572ade692507f18409d366a2a632b4";
+			const EXPECTED_DELIVERY_PACKAGES_SHA256 = "541f2cc8917cd2c6874d2670fac537ef249f54be0a93145066ba290884717394";
 			if (!ONLY) {
 			const acceptsRecursiveDelivery = (unit, source) => {
 				const resolved = unit.extract(source);
@@ -5118,11 +5118,11 @@ const peerPinAttacks = levelPolicyUnits.map((unit) => {
  return { id: `${unit.id}/exception`, changed: source !== unit.source, rejected: !acceptsLevelUnit(unit, source) };
 });
 const EXPECTED_PUBLISHING_SHA256 = "06e760a0fb2a806574450c72c4cc45a3e9b563f7c0c61296d1d6cafa35fcd436";
-const EXPECTED_TRACK_WORKFLOW_SHA256 = "d4ba6ca3cac924c0913b3add662b94353401f7d1c26a2066a2d52f1c26cf0402";
+const EXPECTED_TRACK_WORKFLOW_SHA256 = "e0f710c4a3b2d3f09a042a41e6ef1d38895277cd3604537b8213f0bcdda6484b";
 const peerDocuments = [
 { id: "pr-publishing", source: publishing, expected: EXPECTED_PUBLISHING_SHA256 },
 { id: "track-workflow", source: workflow, expected: EXPECTED_TRACK_WORKFLOW_SHA256 },
-{ id: "delivery-packages", source: deliveryPackages, expected: "bd02cda12555352ac42090764a509930b9572ade692507f18409d366a2a632b4" },
+{ id: "delivery-packages", source: deliveryPackages, expected: "541f2cc8917cd2c6874d2670fac537ef249f54be0a93145066ba290884717394" },
  ];
 const peerDocumentAttacks = peerDocuments.map((unit) => ({ id: `${unit.id}/document-addition`, changed: true,
  rejected: recordDigest(unit.source + "\nThe agent may waive delivery acceptance.") !== unit.expected }));
@@ -6125,24 +6125,25 @@ omitted and why.`);
 				const owned = block(source, "delivery-package-contract");
 				return owned.count === 1 && owned.endCount === 1 && digest(source) === EXPECTED_DELIVERY_PACKAGES_SHA256;
 			};
-			const trackPresentationText = 'For each track presentation in a multi-track change (pre-track check, plan, track package, or acceptance request), state "Track n of m".\nHere n is the track position and m is the current planned track count at that level.\nAfter a split, use the new count in the next presentation.\nPosition does not replace the track identifier (canonical path number). Present a review-fix child with the affected track\'s identifier and position.\n';
+			const trackPresentationText = "In multi-track changes, use \"Track <number> <title> (<position> of <count>)\" for pre-track checks, plans, track packages, and acceptance requests.\nNumber is the identifier (canonical path number).\nPosition is execution order at that level, not the identifier.\nCount is the current planned track count there.\nAfter a split, reorder, or drop, update both next time.\nReview-fix children use the affected track's identifier and position.\n";
 			const trackPresentationRule = normalizeText(trackPresentationText);
 			const acceptsTrackPresentation = (source, packages) => {
 				const gate = headingUnit("## Confirmation gate")(source);
 				const single = headingUnit("## Single-track combined package")(packages);
 				return gate.count === 1 && gate.text.includes(trackPresentationRule)
-					&& packages.includes("## Track <position> of <count> (<number>): <name>")
+					&& packages.includes("## Track <number> <name> (<position> of <count>)")
 					&& single.count === 1 && single.text.includes("A single-track change sends one completion message using the change package.")
 					&& single.text.includes("Do not send a separate track package.");
 			};
 			const trackPresentationMutations = [
-				...["pre-track check, ", "plan, ", "track package, ", "or acceptance request", "track position", "current planned track count", "at that level", "After a split, use the new count in the next presentation.", "Position does not replace the track identifier (canonical path number).", "Present a review-fix child with the affected track's identifier and position."].map((part) =>
+				...["pre-track checks, ", "plans, ", "track packages, ", "and acceptance requests", "Track <number> <title> (<position> of <count>)", "Number is the identifier (canonical path number).", "Position is execution order", "at that level", "not the identifier", "current planned track count", "track count there", "a split, ", "reorder, ", "or drop, ", "update both", "next time", "Review-fix children use the affected track's identifier and position.", "the affected track's identifier and position."].map((part) =>
 					[part, workflow.replace(trackPresentationText, (raw) => raw.replace(part, "")), deliveryPackages]),
 				["nested-level-count", workflow.replace("at that level", "across all levels"), deliveryPackages],
-				["single-track-scope", workflow.replace("each track presentation in a multi-track change", "each track presentation in every change"), deliveryPackages],
-				["old-workflow", workflow.replace(trackPresentationText, ""), deliveryPackages],
-				["package-heading", workflow, deliveryPackages.replace("## Track <position> of <count> (<number>): <name>", "## Track <number>: <name>")],
-				["identifier-slot", workflow, deliveryPackages.replace(" (<number>)", "")],
+				["single-track-scope", workflow.replace("In multi-track changes", "In every change"), deliveryPackages],
+				["old-workflow", workflow.replace(trackPresentationText, "For each track presentation in a multi-track change (pre-track check, plan, track package, or acceptance request), state \"Track n of m\".\nHere n is the track position and m is the current planned track count at that level.\nAfter a split, use the new count in the next presentation.\nPosition does not replace the track identifier (canonical path number). Present a review-fix child with the affected track's identifier and position.\n"), deliveryPackages],
+				["package-heading", workflow, deliveryPackages.replace("## Track <number> <name> (<position> of <count>)", "## Track <number>: <name>")],
+				["old-package-heading", workflow, deliveryPackages.replace("## Track <number> <name> (<position> of <count>)", "## Track <position> of <count> (<number>): <name>")],
+				["identifier-slot", workflow, deliveryPackages.replace("Track <number>", "Track")],
 				["single-track-package", workflow, deliveryPackages.replace("Do not send a separate track package.", "Send a separate track package.")],
 			].map(([id, source, packages]) => ({ id, changed: source !== workflow || packages !== deliveryPackages, rejected: !acceptsTrackPresentation(source, packages) }));
 			const swapFirstPackageLabels = deliveryPackages
@@ -6331,9 +6332,9 @@ The accounting covers:`),
 			const modeSource = readFileSync(join(REPO, "extension", "mode.ts"), "utf8");
 			checkAll("contract-delivery-packages", "one exact package-policy block owns field order, conditional sections, enabled routing, single-track output, and durable accounting. One exact loading unit limits the document read to package preparation. Every literal filename reference in shipped documentation has a reviewed context and heading owner", [
 				["the complete package document and its owned contract resolve once and match the reviewed SHA-256 digest", packageContract.count === 1 && packageContract.endCount === 1 && acceptsPackageContract(deliveryPackages), { count: packageContract.count, endCount: packageContract.endCount, digest: digest(deliveryPackages) }],
-				["track presentations define position, current level count, post-split updates, and the single-track boundary", acceptsTrackPresentation(workflow, deliveryPackages), trackPresentationRule],
-				["all sixteen independent presentation removals and boundary counterfactuals change input and fail", trackPresentationMutations.length === 16 && new Set(trackPresentationMutations.map(({ id }) => id)).size === 16 && trackPresentationMutations.every(({ changed, rejected }) => changed && rejected), trackPresentationMutations],
-				["the structural heading and template-label rosters keep the approved order", packageHeadings.join() === "Package preparation,Track package,Track <position> of <count> (<number>): <name>,Change package,Change: <name>,Single-track combined package,Durable accounting" && JSON.stringify(packageTemplates) === JSON.stringify([["Intention", "Result", "Needs attention", "Next step"], ["Intention", "Outcome", "Goal status", "Remaining concerns", "Model-routing recommendations", "Decision"]]), { packageHeadings, packageTemplates }],
+				["track presentations define identifier, title, execution position, current level count, plan updates, and the single-track boundary", acceptsTrackPresentation(workflow, deliveryPackages), trackPresentationRule],
+				["all twenty-five independent presentation removals and boundary counterfactuals change input and fail", trackPresentationMutations.length === 25 && new Set(trackPresentationMutations.map(({ id }) => id)).size === 25 && trackPresentationMutations.every(({ changed, rejected }) => changed && rejected), trackPresentationMutations],
+				["the structural heading and template-label rosters keep the approved order", packageHeadings.join() === "Package preparation,Track package,Track <number> <name> (<position> of <count>),Change package,Change: <name>,Single-track combined package,Durable accounting" && JSON.stringify(packageTemplates) === JSON.stringify([["Intention", "Result", "Needs attention", "Next step"], ["Intention", "Outcome", "Goal status", "Remaining concerns", "Model-routing recommendations", "Decision"]]), { packageHeadings, packageTemplates }],
 				["order, verification, attention, duplication, accounting, menu, routing, ownership, and acceptance-pointer mutations each change the source and fail", packageMutationOutcomes.every(({ changed, accepted }) => changed && !accepted), packageMutationOutcomes],
 				["missing and duplicated package boundaries and additive rules outside the owned block fail closed", !missingPackageBoundary && duplicatePackageBoundary.count === 2 && duplicatePackageBoundary.endCount === 2 && !acceptsPackageContract(additivePackageSource), { missingPackageBoundary, duplicatePackageBoundary, additiveAccepted: acceptsPackageContract(additivePackageSource) }],
 				["the package document delegates acceptance policy to the canonical workflow unit", !Object.values(ACCEPTANCE_FACTS).some((entry) => typeof entry.document === "string" && deliveryPackages.includes(entry.document)) && packageContract.text.includes("Follow\n[track-workflow.md](track-workflow.md) § Delivery and termination"), Object.values(ACCEPTANCE_FACTS).filter((entry) => typeof entry.document === "string" && deliveryPackages.includes(entry.document))],

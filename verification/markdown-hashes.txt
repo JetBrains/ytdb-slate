@@ -12,9 +12,9 @@ aad42d98ec655236f5bfb6d440a9f1d8b197021b7a359ecdad02eda057af5670  README.md
 
 9e610485471383ce71317ce4d84bdbfad62a3f0c43eb0c49353ceead485131ad  docs/configuration.md
 
-48fa083113bec042cba66757233d3df21544d4e77fc24599eb84b9387101239a  docs/context-budget.md
+704db059abf2fd3ee6dba021014eec556c77f9f02e157ef8cea520611bf0337c  docs/context-budget.md
 
-e098a7426e0489bce4c94392ff47b2661ef655926d68b826dd6448f3c6d3d223  docs/delivery-packages.md
+0fa1dc5b979304aae079c6bdfaa8b772be9e6401ac82bd1958ca77255e390a96  docs/delivery-packages.md
 
 69e5205073cf9a835a8e02d8a22c0cac1650439d824c8af9cfd2756aeb664c01  docs/design-principles.md
 
@@ -58,7 +58,7 @@ a527dcd58276be7808e0a284add5f1dc08036ee9a522db85a4d5aeab3dd7b2f2  docs/review-pe
 
 0a5e32799a1b0dc786b32ad2b01a2b363162ce73e75c0fac86896159daa47e52  docs/safety-and-trust.md
 
-b8b675fefe6f955af90f760d43add3a64ec544ecc304fd64435a707da1af88fa  docs/track-workflow.md
+577d412d8a7e9b994948dc07e45df9ac4caa909ea352fc6851ac305432abe0f5  docs/track-workflow.md
 
 f18298e3a2b41c6c77fb92e7410618df557e494374e4392b5085a626d00f01c8  docs/user-notes.md
 

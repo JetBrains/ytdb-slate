@@ -43,7 +43,7 @@ check results and review verdicts.
 Use this order. `<number>` is the track identifier (canonical path number).
 
 ```markdown
-## Track <position> of <count> (<number>): <name>
+## Track <number> <name> (<position> of <count>)
 
 **Intention**
 <The approved behavior and scope.>
