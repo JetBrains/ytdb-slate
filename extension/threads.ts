@@ -669,7 +669,7 @@ export class ThreadManager {
 				if (retention !== undefined) {
 					if (failure) failure.error = new Error(`${failure.error instanceof Error ? failure.error.message : String(failure.error)} ${retention}`, { cause: failure.error });
 					else if (result) {
-						display.warn(retention);
+						display.warn(retention, 1, true);
 						result = { ...result, warnings: [...result.warnings, retention], display: display.details() };
 					}
 				}
@@ -821,7 +821,7 @@ export class ThreadManager {
 		// Routing notices go to BOTH channels: the progress lines (so they are visible
 		// while the action runs) and the tool result (so the ORCHESTRATOR reads them —
 		// a cost cliff or an evidence gap is its decision to make, not the user's).
-		const routeWarn = (message: string, summary = message, priority = 1, failedTool = false) => {
+		const routeWarn = (message: string, summary = message, priority = 1, devModeOnly = false) => {
 			const nestedSettlement = message.startsWith(NESTED_SETTLEMENT_WARNING_PREFIX);
 			const missingCodemode = message.startsWith("slate: codemode is unavailable for this worker — ");
 			if (!nestedSettlement && !missingCodemode && isStartupWarning(message)) {
@@ -830,7 +830,7 @@ export class ThreadManager {
 				observeStartupFailure();
 			}
 			if (!nestedSettlement && !missingCodemode && isLifecycleWarning(message)) lifecycleWarnings.push(message);
-			display.warn(summary, priority, failedTool);
+			display.warn(summary, priority, devModeOnly);
 			warnings.push(message);
 			lines.push(`⚠ ${message}`);
 			if (captureExecutionReports && executionReport === undefined) executionReport = message;
