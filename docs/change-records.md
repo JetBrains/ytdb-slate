@@ -6,12 +6,13 @@ For record writing, a **change record** is a research log, status file, implemen
 Use [track-workflow.md](track-workflow.md) § Recursive planning and loading for document loading.
 
 [writing-guidance.md](writing-guidance.md) separately defines change records for the writing convention.
-That definition covers pull request descriptions, delivery commit bodies, release notes, and issues.
+That definition covers pull request descriptions, commit bodies, release notes, and issues.
 
 ## Identifiers, code ranges, and design markers
 
 Use [track-workflow.md](track-workflow.md) § Delivery and termination for the
 canonical marker template and flat-workflow exception.
+Apply that document's § Commit titles and bodies to code and design markers.
 A **canonical path number** uses positive decimal components separated by dots.
 Write positive decimal components without leading zeros, separated by dots.
 Each component is at most 9,007,199,254,740,991.
@@ -23,9 +24,9 @@ A **code range** contains one code track's owned commits through its completion 
 For a single-track change without a marker, it ends at the last owned commit accepted at final acceptance.
 Keep that endpoint in the owning research log.
 Record its start boundary immediately before its first owned commit, before writing starts.
-Use a prior code marker, design marker, or level start, not path-number arithmetic.
-Exclude a publishing bootstrap.
-Every non-marker commit in the range belongs to that code track.
+Use the current change-branch head, not path-number arithmetic.
+Exclude bootstrap commits and base merges. Base merges occur only between ranges.
+Every non-marker commit inside the range belongs to that code track.
 Keep the start stable through permitted pre-user-review rewrites.
 Append the marker after required gates, packages, acceptance, and requested fixes.
 Later feedback follows [user-notes.md](user-notes.md), not an extension of a closed range.
@@ -34,10 +35,8 @@ A **design marker** records acceptance of a whole design subtree.
 It creates no implementation range or repeated child contribution.
 Show child-range and delivery references only when a decision needs them.
 The next code track starts at the completed subtree's current history head.
-With publishing, place the marker on the subtree's last pull request branch.
-Add it after whole-subtree acceptance and before merge.
+Add it to the change branch after whole-subtree acceptance and before delivery.
 Use [pr-publishing.md](pr-publishing.md) § Ready-for-review flip for enclosing design acceptance.
-Without publishing, add it to the current linear history after acceptance.
 The change root uses final acceptance, not another track marker.
 
 Use [track-workflow.md](track-workflow.md) § Track intention block and implementer response

@@ -106,7 +106,7 @@ export function renderStartupSummary(style?: SummaryStyle): string[] {
 		[["3. Solution:", "heading"], [" Slate presents a short plan or a required design. "], ["You approve the short plan or validate the design. If adversarial design review is required, you give final design approval after it. Otherwise, design validation includes final approval", "action"], ["."]],
 		[["4. Tracks:", "heading"], [" a code track implements one bounded part of approved work. Required reviewers check it. A design track plans a larger part of the work and owns child tracks. "], ["You accept each code track in a multi-track change and each design track with all its child tracks", "action"], [". At required boundaries, run "], ["/slate handoff --track-boundary", "command"], [" to continue in a new main session."]],
 		[["5. Final acceptance:", "heading"], [" you review the whole change and "], ["accept it", "action"], ["."]],
-		[["6. Delivery:", "heading"], [" Slate prepares a final commit or optional level pull requests. A level contains tracks from one split. "], ["Only you merge", "action"], [". A merge is not final acceptance."]],
+		[["6. Delivery:", "heading"], [" Without draft publishing, accepted branch history is the delivery. With it, Slate prepares one pull request for the whole change on one branch. "], ["Only you merge", "action"], [" after final acceptance. A merge is not final acceptance."]],
 		[["Run ", "dim"], ["/slate summary off", "command"], [" or ", "dim"], ["/slate summary on", "command"], [" to disable or enable automatic display. On applies at the next automatic opportunity. Off also hides the panel now.", "dim"]],
 	];
 	return lines.map((parts) => parts.map(([text, kind]) => kind && style ? style(kind, text) : text).join(""));

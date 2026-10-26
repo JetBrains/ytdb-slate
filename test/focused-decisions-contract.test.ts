@@ -27,7 +27,7 @@ const duties: Record<string, string[]> = {
     "List the other allowed outcomes and their consequences.",
     "Let the user accept or reject each fix separately. Keep one commit per fix.",
     "A single-track change sends one change package without a track name and asks only final acceptance.",
-    "Show source references only when a decision needs them.",
+    "Show references only for decisions.",
     "Follow [review-rules.md](review-rules.md) § Findings and output for severity, required fixes, minor dispositions, and moot or rejected findings in both review phases.",
   ],
   "delivery-packages.md": [
@@ -58,17 +58,17 @@ const duties: Record<string, string[]> = {
   ],
   "pr-publishing.md": [
     "Author and maintain it without presenting it for approval.",
-    "Create the pull request after final design approval.",
+    "With a high-level design, create it after final design approval.",
     "Ask for ready-for-review permission.",
-    "Keep the ignored-finding index only in the owning research log.",
+    "Keep commits, accounting, and the ignored-finding index in the owning research log.",
     "The behavior summary replaces presentation of the final description.",
-    "The description is available on request.",
+    "The description remains available on request.",
     "Before merge, summarize behavior changes since the previous summary.",
     "Keep the skipped late-area design-gate record visible at final acceptance.",
     "Ask one batch acceptance question with each fix separately selectable.",
     "Report delivery state only when a decision needs it.",
-    "The owning research log lists every level delivery and its merge state.",
-    "Disclose unmerged dependencies when they affect acceptance.",
+    "Record the observed delivery result and accepted-head comparison only in the owning research log.",
+    "Ready status and the merge act supply no missing whole-subtree or root final acceptance.",
   ],
   "configuration.md": [
     "Show the field only when records support advice.",
@@ -80,7 +80,7 @@ const duties: Record<string, string[]> = {
     "Keep a no-advice result only in the research log. Do not invent a recommendation.",
   ],
   "context-budget.md": [
-    "Its 28,044 portable characters exceed the whole-doctrine ceiling by 1,744.",
+    "Its 28,046 portable characters exceed the whole-doctrine ceiling by 1,746.",
   ],
   "change-records.md": [
     "Keep that endpoint in the owning research log.",
@@ -88,7 +88,7 @@ const duties: Record<string, string[]> = {
   ],
   "recursive-workflow.md": [
     "Show design, child-evidence, and delivery references only when the decision needs them.",
-    "Keep the complete level-delivery list in the owning research log.",
+    "Keep the change delivery state in the owning research log.",
   ],
   "design-principles.md": [
     "**P15 — Hide workflow details unless needed.**",

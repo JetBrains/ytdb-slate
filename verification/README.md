@@ -807,7 +807,17 @@ bash verification/run-resolver-checks.sh --repo . --strict
 The wrapper reports one `CHECK` line per identifier, one roster audit, and one
 summary. Exit 0 means every non-excluded check passed. Exit 1 means a failure, missing check,
 or strict `NOT RUN`. Exit 2 means the wrapper refused to start. The roster and
-summary output own the live count.
+summary output own the live count. The full suite has 208 checks plus the roster
+audit, for 209 result lines. Its independent mutation roster has 35 families and
+2,377 identities. The 53 surviving-safeguards identities preserve reviewed-state,
+privacy, acceptance and delivery rules. The one-branch-rules family covers 32
+named violations. The audit-repairs family covers ten configuration, recursive
+pointer, delivery verification and README merge-advice cases. Each case accepts
+original and wrapped text and rejects removal and contradiction. History-moves
+relocates a rule outside its owner. Ordering-wrapped attacks a wrapped rule.
+Pause controls pass valid wrapped policy through the complete history-unit
+check and require that the same check reject permission for open-range
+interleaving. These checks prove document policy, not live workflow execution.
 
 `--exclude <id,id>` accepts only `doctrine-original-base` and
 `doctrine-original-controls`, together or individually. The driver accepts the
@@ -829,7 +839,7 @@ combination with `--exclude` refuse startup with exit 2. The wrapper reports
 Selection loads only required modules and runs only the requested checks and
 their prerequisites. Checks retain their full-run implementations. The independent
 mutation roster supplies identities for selected families. Heading selection
-requires all 858 `heading-policy` identities. Package selection has an empty
+requires all 894 `heading-policy` identities, including commit identity rules. Package selection has an empty
 mutation scope. Missing, duplicate, incomplete, outside-family or crashed mutation
 execution fails `selected-mutation-audit`. Crash and driver failure lines always
 report. A separate `roster` audit requires each requested check and scoped audit
@@ -918,35 +928,35 @@ exact current production renders are:
 | shipped logical section | 0 | 3,596 | 11 |
 | trusted shipped-default doctrine | 5 | 8404 | 74 |
 | untrusted doctrine | 4 | 2711 | 33 |
-| draft pull requests, shipped policy | 6 | 8472 | 75 |
+| draft pull requests, shipped policy | 6 | 8474 | 75 |
 | capped workers, shipped policy | 5 | 9751 | 84 |
-| draft plus capped workers | 6 | 9819 | 85 |
+| draft plus capped workers | 6 | 9821 | 85 |
 | deferred issues plus capped workers | 5 | 9825 | 85 |
 | routing recommendations plus capped workers | 5 | 9804 | 85 |
-| draft plus deferred issues and capped workers | 6 | 9893 | 86 |
-| draft plus routing recommendations and capped workers | 6 | 9868 | 86 |
+| draft plus deferred issues and capped workers | 6 | 9895 | 86 |
+| draft plus routing recommendations and capped workers | 6 | 9870 | 86 |
 | deferred issues plus routing recommendations and capped workers | 5 | 9878 | 86 |
-| canonical maximal baseline with all workflow options | 6 | 9942 | 87 |
-| maximal baseline with an open change | 6 | 10140 | 88 |
-| maximal baseline with source and legacy root log | 6 | 10370 | 90 |
-| dogfood config and extension roster | 6 | 9067 | 86 |
-| 19,400-character policy plus draft, source and legacy log | 6 | 26051 | 88 |
-| same policy plus draft and deferred issues, source and legacy log | 6 | 26125 | 89 |
+| canonical maximal baseline with all workflow options | 6 | 9944 | 87 |
+| maximal baseline with an open change | 6 | 10142 | 88 |
+| maximal baseline with source and legacy root log | 6 | 10372 | 90 |
+| dogfood config and extension roster | 6 | 9069 | 86 |
+| 19,400-character policy plus draft, source and legacy log | 6 | 26053 | 88 |
+| same policy plus draft and deferred issues, source and legacy log | 6 | 26127 | 89 |
 | same policy plus routing recommendations, source and legacy log | 5 | 26036 | 88 |
 | same policy plus deferred issues and routing recommendations, source and legacy log | 5 | 26110 | 89 |
-| same policy plus draft and routing recommendations, source and legacy log | 6 | 26100 | 89 |
-| same boundary composition plus deferred issues | 6 | 26174 | 90 |
-| valid shipped policy plus 88 capped tools, source and legacy log | 6 | 28044 | 173 |
+| same policy plus draft and routing recommendations, source and legacy log | 6 | 26102 | 89 |
+| same boundary composition plus deferred issues | 6 | 26176 | 90 |
+| valid shipped policy plus 88 capped tools, source and legacy log | 6 | 28046 | 173 |
 
 The capped worker baseline has two units and four tools. Each unit label has 128
 characters. Each tool name has 64 characters. Each description has 140
 characters. The dogfood fixture reads `.pi/slate.json` and represents its two
 configured extension units.
 
-The canonical 9,942-character baseline uses all six shipped logical models,
+The canonical 9,944-character baseline uses all six shipped logical models,
 all three workflow options, and the capped worker roster. With an open change,
-a direct source folder, and a legacy root log, it measures 10,370 characters.
-Its required five-percent value is 10,889. The 26,300 whole-doctrine ceiling
+a direct source folder, and a legacy root log, it measures 10,372 characters.
+Its required five-percent value is 10,891. The 26,300 whole-doctrine ceiling
 keeps that reserve. The exact fixtures cover all eight workflow-option
 combinations.
 
@@ -957,17 +967,17 @@ characters and 12 lines. An adoption pause adds neither version.
 Runtime rejection controls are separate. A logical section at exactly 19,400
 portable characters or 105 lines is valid. A section at 19,401 characters or
 106 lines is rejected before work. The four routing-enabled boundary
-compositions and the 26,051-character and 26,125-character feature-off
+compositions and the 26,053-character and 26,127-character feature-off
 compatibility controls include the current change, direct source, and legacy
 root log. They prove that an exact-boundary policy fits the 26,300-character
-whole-doctrine ceiling. The 26,174-character control has 126 characters of headroom.
-A valid third worker unit with a 120-character label and all three workflow
-options measures 26,300. A 121-character label measures 26,301 and fails. These controls are
+whole-doctrine ceiling. The 26,176-character control has 124 characters of headroom.
+A valid third worker unit with a 118-character label and all three workflow
+options measures 26,300. A 119-character label measures 26,301 and fails. These controls are
 not reserve-bearing canonical baselines.
 
 The over-cap counterfactual keeps the shipped logical policy valid and adds 88
 supported capped worker tools. With an open change, source, and legacy log, its
-28,044 portable characters exceed the ceiling by 1,744 characters.
+28,046 portable characters exceed the ceiling by 1,746 characters.
 This transformed fixture replaces the retired six-copy physical model-row shape.
 It does not assume an old per-row or per-tool increment. Removing the whole-
 doctrine comparison makes the counterfactual pass and therefore breaks the
@@ -985,7 +995,13 @@ remains 24,600 characters. The whole-doctrine ceiling is 26,300 characters.
 `test/workflow-context-budget.test.ts` owns phase measurements, read-reference
 coverage, literal-limit enforcement, mutation controls, and publication equality.
 `verification/workflow-context-map.mjs` holds the reviewed read assignments and
-literal limits approved by the user on 2026-10-16. The user must approve fresh baseline limits.
+literal limits approved by the user on 2026-10-16.
+Publishing-disabled delivery uses accepted local branch history. Its checks cover
+marker completion, branch preservation, local verification and resume, private
+history inspection, and owning-log verification before closure. The default
+publishing template has no disabled-delivery read assignment. The delivery
+reference tests reject a final squash and deleted preservation duties. They also
+accept the current history rule with harmless line wrapping. The user must approve fresh baseline limits.
 
 On failure, inspect the reported scenario, phase, source ranges, total, limit,
 and excess bytes. Check for a wrong read assignment or unintended growth first.

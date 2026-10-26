@@ -28,13 +28,11 @@ Each track must be one coherent unit that a human can review in one sitting.
 The orchestrator owns the split and records its rationale.
 A code track implements bounded approved work, including document changes.
 A level contains the sibling tracks created by one split.
-The level is the merge unit.
+Levels group planning only. The change is the merge unit.
 All checks pass at each child marker.
-Agreement across documents, prompt guidance, and the extension is required at
-the level boundary.
-Intermediate track packages and review intentions list each remaining difference
-across those surfaces and name the later child that owns it.
-Do not merge an incomplete level into the default branch.
+At change end, documents, prompt guidance, and the extension must agree.
+Intermediate packages and review intentions list each remaining difference and its later owning track.
+Do not merge an incomplete change.
 [track-workflow.md](track-workflow.md) § Recursive planning and loading owns split
 limits, the implementer-requested exception, and the recursive-document loading condition.
 
@@ -431,42 +429,31 @@ log.
 
 ## Commit discipline for drift and boundaries
 
-[track-workflow.md](track-workflow.md) owns marker commits, track-title
-prefixes and the source of truth for track boundaries. This section owns the
-remaining commit discipline.
+[track-workflow.md](track-workflow.md) § Commit titles and bodies owns change-title metadata, markers, title prefixes, and boundaries.
+Its first-line identity rule covers bootstrap, implementation, agentic-review fix, cumulative implementation, user-review fix, gate correction, code and design marker, post-ready fix, and base merge commits.
+It adds no content part.
 
-These review-range body rules do not govern the final publishing-disabled delivery squash.
-That squash follows project commit rules or the default under
-[track-workflow.md](track-workflow.md) § Delivery history and accounting.
+With publishing disabled, accepted branch history is the delivery.
+Follow [track-workflow.md](track-workflow.md) § Delivery history and accounting.
 
-The cumulative implementation commit is defined in
-[track-workflow.md](track-workflow.md) § Lifecycle and phases. When the track
-has a high-level design, the cumulative implementation commit body carries the
-track high-level design followed by the track low-level design. When the track
-has no high-level design, the ordinary two-part Intent and Deviation-delta shape
-applies. This conditional body rule is also stated in
-[track-workflow.md](track-workflow.md) § Delivery and termination.
+The cumulative commit follows [track-workflow.md](track-workflow.md) § Lifecycle and phases.
+When the track has a high-level design, the cumulative implementation commit body carries the track high-level design followed by the track low-level design.
+Otherwise, use the two-part body.
+See also its § Delivery and termination.
 
-The original implementation commit, each agentic-review fix commit, and each
-user-review fix commit body has exactly two parts:
+Original implementation, agentic-review fix, and user-review fix bodies have exactly two content parts after the identity line:
 
-1. **Intent:** what the commit accomplishes, not how it accomplishes it.
-2. **Deviation delta:** only what differs from the original track task. Leave
-   this part empty when nothing differs.
+1. **Intent:** what the commit accomplishes, not how.
+2. **Deviation delta:** only differences from the original track task. Leave it empty when none differ.
 
-The deviation delta may contain only a deviation already sanctioned by a halt
-and re-confirmation, a design-delta approval, or an immaterial design change.
-A material deviation discovered at commit time fires a halt. The commit body
-must never become a side channel for unapproved drift.
+Allow only deviations sanctioned by halt and re-confirmation, design-delta approval, or immaterial design change.
+Material deviations at commit time fire a halt.
+Bodies never authorize drift.
+Two-part bodies exclude implementation rationale, self-assessment, and verification claims such as `tested`, `verified thread-safe`, and `reviewed edge cases`.
+Fresh reviewers receive state and intent, not implementer confidence.
 
-In those two-part bodies, do not put implementation rationale, self-assessment
-or verification claims. Examples of forbidden claims include
-`tested`, `verified thread-safe` and `reviewed edge cases`. Fresh reviewers
-receive repository state and declared intent, not implementer confidence.
-
-For a multi-track change, every commit in a track's review range must belong to
-that track. A reviewer checks the range against the track brief, marker commits
-as boundary authority, and the title prefixes. A commit from another track is
-cross-track contamination. Correct a wrong boundary or title before the next writer starts.
-An undeclared material deviation found during this check fires the halt and
-re-derivation route above.
+Every commit in a multi-track review range belongs to that track.
+Check against the brief, marker boundaries, and title prefixes.
+Another track's commit is cross-track contamination.
+Correct wrong boundaries or titles before the next writer starts.
+Undeclared material deviations fire the halt and re-derivation route above.
