@@ -432,12 +432,11 @@ log.
 ## Commit discipline for drift and boundaries
 
 [track-workflow.md](track-workflow.md) § Commit titles and bodies owns change-title metadata, markers, title prefixes, and boundaries.
-Its first-line identity rule covers bootstrap, implementation, agentic-review fix, cumulative implementation, user-review fix, gate correction, code and design marker, post-ready fix, base merge, and final delivery squash commits.
+Its first-line identity rule covers bootstrap, implementation, agentic-review fix, cumulative implementation, user-review fix, gate correction, code and design marker, post-ready fix, and base merge commits.
 It adds no content part.
 
-Review-range body content rules exclude the final publishing-disabled delivery squash.
-Its content follows project commit rules or the default under
-[track-workflow.md](track-workflow.md) § Delivery history and accounting.
+With publishing disabled, accepted branch history is the delivery.
+Follow [track-workflow.md](track-workflow.md) § Delivery history and accounting.
 
 The cumulative commit follows [track-workflow.md](track-workflow.md) § Lifecycle and phases.
 When the track has a high-level design, the cumulative implementation commit body carries the track high-level design followed by the track low-level design.

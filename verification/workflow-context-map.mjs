@@ -8,7 +8,6 @@ export const reads = [
   ["CHANGE_RECORDS_DOC", 1, "always", "orchestrator", ["Identifiers, code ranges, and design markers", "Manual records and safe writes"]],
   ["RECURSIVE_WORKFLOW_DOC", 1, "nested", "orchestrator", []],
   ["PR_PUBLISHING_DOC", 1, "publishing", "orchestrator", []],
-  ["PR_PUBLISHING_DOC", 9, "default commit format", "orchestrator", ["Default template"]],
   ["BLAST_RADIUS_DOC", 2, "always", "orchestrator", []],
   ["REVIEW_RULES_DOC", 5, "always", "orchestrator", []],
   ["DELIVERY_PACKAGES_DOC", 7, "always", "orchestrator", []],
@@ -33,12 +32,11 @@ export const dependencies = [
   ["TRACK_WORKFLOW_DOC", "CHANGE_RECORDS_DOC"], ["TRACK_WORKFLOW_DOC", "BLAST_RADIUS_DOC"],
   ["TRACK_WORKFLOW_DOC", "REVIEW_RULES_DOC"], ["TRACK_WORKFLOW_DOC", "DELIVERY_PACKAGES_DOC"],
   ["TRACK_WORKFLOW_DOC", "USER_NOTES_DOC"], ["DELIVERY_PACKAGES_DOC", "USER_NOTES_DOC"],
-  ["TRACK_WORKFLOW_DOC", "PR_PUBLISHING_DOC"], ["DELIVERY_PACKAGES_DOC", "PR_PUBLISHING_DOC"],
+  ["TRACK_WORKFLOW_DOC", "PR_PUBLISHING_DOC"],
   ["REVIEW_RULES_DOC", "REVIEW_COMMON_POLICY_DOC"], ["REVIEW_RULES_DOC", "WRITING_GUIDANCE_DOC"],
   ...["RI", "CN", "DU", "SE", "PF", "TQ", "PL", "LX", "NL", "CB", "GR", "UF"].map((id) => ["REVIEW_RULES_DOC", `REVIEW_${id}_DOC`]),
 ];
 export const conditionalSets = [
-  ["Default commit format", ["PR_PUBLISHING_DOC"], ["Default template"]],
   ["Rationale", ["DESIGN_PRINCIPLES_DOC"]], ["Unusual prose", ["WRITING_GUIDANCE_DOC"]],
   ["Early notes", ["USER_NOTES_DOC"]], ["Ordinary split", ["RECURSIVE_WORKFLOW_DOC"]],
   ["Manual review", ["REVIEW_COMMON_POLICY_DOC", "WRITING_GUIDANCE_DOC", ...["RI", "CN", "DU", "SE", "PF", "TQ", "PL", "LX", "NL", "CB", "GR", "UF"].map((id) => `REVIEW_${id}_DOC`)]],
@@ -83,6 +81,7 @@ export const limits = {
 };
 // Exact line-context SHA-256 and occurrence counts. Each entry classifies one reviewed context.
 export const occurrences = [
+  {"source":"delivery-packages.md","target":"track-workflow.md","context":"6988a31475f03b036d9acca2c92af69bc927c68947dd1ab09cedd21fc250df11","count":1,"reason":"Permitted-rewrite pointer to the already required workflow document."},
   {"source":"track-workflow.md","target":"blast-radius.md","context":"df113123e95b50a0473c8ab0a8634672a9c6a76e4ed0da0c656d6051cb1cbd5b","count":1,"recipient":"orchestrator","phase":2,"condition":"always"},
   {"source":"track-workflow.md","target":"review-rules.md","context":"6ef01ec4562b42c918502c459115953a8b317baa7c9b171b7c2f23b8c842c763","count":1,"recipient":"orchestrator","phase":5,"condition":"always"},
   {"source":"track-workflow.md","target":"delivery-packages.md","context":"3d8ceb4457d78077d8556e70d5436f66f65d6b6f7e3bd88b216ec0100b64c246","count":1,"recipient":"orchestrator","phase":7,"condition":"always"},
@@ -127,7 +126,6 @@ export const occurrences = [
   {"source":"track-workflow.md","target":"recursive-workflow.md","context":"70ce9c1653143cd6f195edc2817e874441c563c116cfc14b1ab54a9b34d73d0f","count":1,"recipient":"orchestrator","phase":1,"condition":"nested"},
   {"source":"track-workflow.md","target":"pr-publishing.md","context":"5516cc3d2c51033e9aa9f010128daec3dc152d080cea4ae18335802b1816e82b","count":1,"recipient":"orchestrator","phase":1,"condition":"publishing"},
   {"source":"track-workflow.md","target":"delivery-packages.md","context":"be6ef6d8a2755175a76b04068473e677b68ca70c565737d5bae0d8c665e0b07d","count":1,"recipient":"orchestrator","phase":7,"condition":"always"},
-  {"source":"track-workflow.md","target":"pr-publishing.md","context":"8b0cb750e4f5c4d0b94349f870fc094e3e26ce1f98b7d1f2af9454d94c7e42b1","count":1,"recipient":"orchestrator","phase":9,"condition":"default commit format"},
   {"source":"track-workflow.md","target":"user-notes.md","context":"db651d5a853798f3bf9d3a6c30f4d228f5df20a220473435e9cfd22f96ab54af","count":1,"recipient":"orchestrator","phase":7,"condition":"always"},
   {"source":"track-workflow.md","target":"delivery-packages.md","context":"31114a6d8300e956d79cba8789f019350b406016d0e41327a764bd2a9e20f56b","count":1,"recipient":"orchestrator","phase":7,"condition":"always"},
   {"source":"change-records.md","target":"track-workflow.md","context":"84a9c677f53fdcdcb6d51cb34dd7e339dfe52b79d07ef14ed02b0755b2dc6c57","count":1,"recipient":"orchestrator","phase":1,"condition":"always"},
@@ -215,7 +213,7 @@ export const occurrences = [
   {"source":"blast-radius.md","target":"track-workflow.md","context":"d2273443ec2e1e627ec6a43b4230743e3b83cabe59f61280ab6cbb1837c26873","count":1,"recipient":"orchestrator","phase":1,"condition":"always"},
   {"source":"blast-radius.md","target":"track-workflow.md","context":"ea2b96022cb31a1af1ccc3266e2c8e997641ad2e689801718e7fc7fabbd21d75","count":1,"recipient":"orchestrator","phase":1,"condition":"always"},
   {"source":"blast-radius.md","target":"track-workflow.md","context":"b136cea31d174993c5a0bc3da58ad20ce90d117439bb153e97a8962d05e67d8f","count":1,"recipient":"orchestrator","phase":1,"condition":"always"},
-  {"source":"blast-radius.md","target":"track-workflow.md","context":"706e02b35fef2bbc716aba7375bfdf783a9832db9aa570c0938a7588c0b19320","count":1,"recipient":"orchestrator","phase":1,"condition":"always"},
+  {"source":"blast-radius.md","target":"track-workflow.md","context":"b2448c8965ad963a4a223d03f4a698d7fbd8e7a53e7abe741d7847293efcf43a","count":1,"recipient":"orchestrator","phase":1,"condition":"always"},
   {"source":"blast-radius.md","target":"track-workflow.md","context":"048e337fadf12de9815c071acb030bcd70870c9b528da393c9cea0c43fc011dc","count":1,"recipient":"orchestrator","phase":1,"condition":"always"},
   {"source":"review-rules.md","target":"review-common-policy.md","context":"432813aee3332b7e91b0648bc96aa5fe7a5138c5c37c261e51a292cb0805ffa0","count":1,"recipient":"orchestrator","phase":5,"condition":"manual review"},
   {"source":"review-rules.md","target":"writing-guidance.md","context":"432813aee3332b7e91b0648bc96aa5fe7a5138c5c37c261e51a292cb0805ffa0","count":1,"recipient":"orchestrator","phase":5,"condition":"manual review"},
@@ -258,8 +256,7 @@ export const occurrences = [
   {"source":"delivery-packages.md","target":"status.md","context":"d015c61eca802b3bbd20e2aa644399aab7087bb49084c18b67995d21633d8590","count":1,"reason":"Variable private record or evidence path, excluded from fixed shipped context."},
   {"source":"delivery-packages.md","target":"variable:vN.md","context":"56db9207d1cef743cf699268038bbb04ca85c33f4f7817cd910c7deefdaec2e3","count":1,"reason":"Variable private record or evidence path, excluded from fixed shipped context."},
   {"source":"delivery-packages.md","target":"recursive-workflow.md","context":"9c89bba463c38805aa696d15a6f9cbfc1a603b7effa3e7fd44aaf455a11efd2d","count":1,"recipient":"orchestrator","phase":1,"condition":"nested"},
-  {"source":"delivery-packages.md","target":"pr-publishing.md","context":"08e18350577619add31216d6af5fe50842f3a4b864cd20f2b95fe81389753064","count":1,"recipient":"orchestrator","phase":9,"condition":"default commit format"},
-  {"source":"delivery-packages.md","target":"track-workflow.md","context":"9ae1a8b026c5fc0bcc405915d1470812efa204ddf1347abc772d9cc777f75fa6","count":1,"recipient":"orchestrator","phase":1,"condition":"always"},
+  {"source":"delivery-packages.md","target":"track-workflow.md","context":"5b95ffc810e0ad4832e168fb5880ff1fbbcbed2204bac169266e7af5b839d064","count":1,"recipient":"orchestrator","phase":1,"condition":"always"},
   {"source":"user-notes.md","target":"delivery-packages.md","context":"c847583bdeac60a520ee5291040dc718f0840647da90ee8835236ef4fab67ce5","count":1,"recipient":"orchestrator","phase":7,"condition":"always"},
   {"source":"user-notes.md","target":"delivery-packages.md","context":"4d0f5aaa5b6c9bbe807be7e0079d992c1a7a5bd730f84629156e8930917bfb7a","count":1,"recipient":"orchestrator","phase":7,"condition":"always"},
   {"reason":"Reference pointer, no additional read duty.","source":"user-notes.md","target":"track-workflow.md","context":"b9b3a8e88458939516cd894ae720f77ccaba7efbc767d4162e92cabaf2e1a362","count":1},

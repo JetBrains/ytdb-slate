@@ -3698,7 +3698,7 @@ history as boundary authority. The track table is display-only.`);
 			});
 			privacyHeading = "### Design authority and privacy";
 			const commonHeadings = [...commonUnits.map(({ start }) => start), privacyHeading];
-			const completeCommonDigest = "4da6d16c13d1e814569281b496f8b3b22437da6a2761b5f1dff4ec3fc666ce10";
+			const completeCommonDigest = "fca259cdea833974ef4fc973eb989fa274fc4f20cac02aabab1e45721f4b38bc";
 			const acceptsCompleteCommon = (source) => createHash("sha256").update(source).digest("hex") === completeCommonDigest;
 			const completeCommonAttacks = [
 				["title", commonRecords.replace("# Common change records", "# Nested change records")],
@@ -3754,7 +3754,7 @@ Use [change-records.md](change-records.md) § Design authority and privacy.`) },
 				["each comparison rejects its changed input and disabling it accepts that violation", pointerComparisonControls.every(({ changed, rejected, disabledAccepts }) => changed && rejected && disabledAccepts), pointerComparisonControls],
 				["outside-region edits preserve the pointer expectations", acceptsNestedPointers(`${recursive}\n## Outside pointer control\nUnrelated text.\n`), "outside control"],
 			]);
-			const completeNestedDigest = "a4f69001b13968b8a0dd54da7ab3c18f4177e7dd52ca971da4b7d1b3d6d2b85c";
+			const completeNestedDigest = "efdb97a88fc849a1d45454b3b3a8a32cc04a8aed2f5f4e7c19ed64a7794a9b6c";
 			const acceptsCompleteNested = (source) => createHash("sha256").update(source).digest("hex") === completeNestedDigest;
 			const completeNestedAttacks = [
 				["weaker-record-rule", `${recursive}\n## Additional record guidance\nWorkers may replace earlier log entries.\n`],
@@ -4293,8 +4293,8 @@ Use [track-workflow.md](track-workflow.md) for the common lifecycle.`);
 				{ id: "repairs", source: recursive, start: "## Review-fix subtrees and repair limits", expected: protectedRepairSummary },
 				{ id: "aggregate", source: recursive, start: "## Whole-subtree acceptance", expected: "0aa1169d045aa718d1790bf1e851fae1325373759a2216766b9a0d3cc3bdcb6e" },
 				{ id: "issues", source: recursive, start: "## Packages, attribution, and issues", end: null, expected: "d2bcb68eb3d8a5de2bb055c7f56a1141d1d3f8e4bc67ad7802d6152f5ce307b0" },
-				{ id: "sources", source: deliveryPackages, start: "## Durable accounting", expected: "810e56768025e50034a34cf79921744cbd7c754dd7791dfe6b621defe4ae56d9" },
-				{ id: "workflow-accounting", source: workflow, start: "### Delivery history and accounting", expected: "48f23dd6c56a62b3f29ec084f430be62a80c86baa6a26fd6b0d6b3253948c3a1" },
+				{ id: "sources", source: deliveryPackages, start: "## Durable accounting", expected: "17d67f4581f75517872b97bd28987eac2a004b4c211420c3354c240218991e40" },
+				{ id: "workflow-accounting", source: workflow, start: "### Delivery history and accounting", expected: "e19c2036712f8af385d7ed1d46873ed43fa37c51a9947613a6ab7dc760851edc" },
 				{ id: "notes-accounting", source: userNotes, start: "### Final accounting preparation", expected: "34a1af81ea8c9cb69a4e6dcb948ad1492bc057c0caa05213fd15364d053b253f" },
 				{ id: "publishing-sync", source: publishing, start: "## Keeping the PR in sync", expected: "c52f42b4468a859f850e1ef9ae2ec5c54a7206b3e1ff737f7f66d5b8a5cc6eef" },
 				{ id: "public-workflow", source: projectReadme, start: "A track is a bounded", end: "## ", endAtLineStart: true, expected: "93901bc1102945923a9b2d3fdd76591ed9f88ba88572ec270588f6f50e723b6d" },
@@ -4310,7 +4310,7 @@ Use [track-workflow.md](track-workflow.md) for the common lifecycle.`);
 				}
 				: unit.id === "public-workflow" ? policyRegion(unit.start, unit.end, unit.endAtLineStart) : headingUnit(unit.start) }));
 			const repairEscalationDigest = "9f61738c4c77d9e59406480fdaa58485ce66fb2a921e634ed26c45c4cc1ee99b";
-			const EXPECTED_DELIVERY_PACKAGES_SHA256 = "d754bcde9c3d082f88653a8ce2b05ab5c199d090a91a4097feaa43a59518e38a";
+			const EXPECTED_DELIVERY_PACKAGES_SHA256 = "305a73c65257d1388319e071133eed39dd002fa5d775351bad0896ec2b718186";
 			if (!ONLY) {
 			const acceptsRecursiveDelivery = (unit, source) => {
 				const resolved = unit.extract(source);
@@ -4471,11 +4471,9 @@ delivery and is never created as an empty register.`);
 					expected: normalizeText(`A pull request proposes a branch's changes for review and merge.
 A draft pull request is not yet ready for that review.
 Use [track-workflow.md](track-workflow.md) for the common lifecycle.
-Except for the Default template section, this document applies only when
+This document applies only when
 \`workflow.draftPRs\` is enabled in home or trusted project \`slate.json\`
 (default: false). When it is disabled, the workflow creates no pull request.
-The Default template section also applies to the final delivery commit when publishing is disabled.
-That use adds no publishing duty.
 The research-log lifecycle in that case is owned by track-workflow.md § Session
 handoff and the research log.`),
 				},
@@ -4753,11 +4751,11 @@ An evidence waiver records its limit and claims no recovered evidence.
 A status entry, merge result, or copied marker title cannot replace lost history.
 Never create a marker to claim an earlier boundary that was not proved.
 
-With publishing disabled, before the final squash, compare the local level reference for the branch being squashed and its latest recorded binding with that branch head.
+With publishing disabled, before local delivery, compare each delivered local branch's level reference and latest recorded binding with that branch's head.
 Both must equal the complete head, including every marker commit.
 An earlier binding does not satisfy this equality even when the reference still matches it.
 Use the authorized local level-update rules above.
-With publishing disabled, keep these local references until root closure, including through the final squash.
+With publishing disabled, keep these local references until root closure.
 Check every kept local reference against its latest recorded binding before closure.
 Retention requires no remote operation in this setting.
 Do not push any retention reference to any remote when publishing is disabled.
@@ -5048,7 +5046,7 @@ The host's merge behavior does not make the description a workflow accounting re
 					extract: headingUnit("## Default template"),
 					expected: normalizeText(`Use this short form when no applicable project template or commit rule exists.
 At creation, describe why the change is needed and the planned change.
-For the final description at level completion or a final delivery commit, describe delivered results.
+For the final description at level completion, describe delivered results.
 
 \`\`\`markdown
 ## Why
@@ -5104,12 +5102,34 @@ The description is available on request.`),
 				{ id: "transfer", source: deliveryPackages, extract: transferUnit, expected: acceptanceTransferExpected },
 				{
 					id: "disabled-preservation", source: deliveryPackages,
-					extract: regionUnit(/^(3\. After root final acceptance,[\s\S]*?)(?=^4\. Verify the delivery result)/gm),
-					expected: normalizeText(`3. After root final acceptance, create the final squashed delivery commit.
-   Follow project commit rules or the default in
-   [pr-publishing.md](pr-publishing.md) § Default template.
-   Before rewriting, preserve accepted source history under
-   [track-workflow.md](track-workflow.md) § Delivery and termination.`),
+					extract: markedUnit("publishing-disabled-accounting"),
+					expected: normalizeText(`With draft publishing disabled, deliver accepted branch history in this sequence:
+
+1. Before each intermediate code or design package, reconcile all accounting
+   sources for that track and its subtree. Show record and range references only
+   when a decision needs them.
+2. Before the change package, reconcile every accounting source across the whole
+   change. Complete each design-track acceptance before its marker.
+   Retain all records and accepted histories through root final acceptance.
+3. After root final acceptance, finish required markers after their acceptance
+   decisions. Acceptance creates no delivery commit or rewrite.
+   Keep the local branch and accepted-marker branches until root closure.
+   Use the local branch for delivery verification and resume.
+   Follow [track-workflow.md](track-workflow.md) § Delivery and termination.
+4. Before local delivery, check newly reachable history for private change records
+   and private bytes, not only the final tree. On a match, pause.
+   The user chooses rewrite before publication, explicit waiver, or abandonment.
+   Apply [track-workflow.md](track-workflow.md) § Delivery history and accounting
+   to this permitted rewrite. Renew acceptance of its head before delivery verification.
+   Verify the completed history and owning-log accounting separately against the
+   accepted history and every required conclusion before closing with \`slate_change close\`.
+   Keep all manual records and source chains. Only the user deletes the change folder.
+
+Abandonment at any stage ends with \`slate_change close\`. No delivery artifact is
+needed for abandonment, and the close deletes nothing.
+
+A publishing-disabled single-track change starts at step 2.
+A multi-track change repeats step 1 for each track, then runs steps 2 through 4.`),
 				},
 				{
 					id: "configuration", source: configuration,
@@ -5207,7 +5227,7 @@ The description is available on request.`),
 				["proposed-scope", "recursive", "a current or proposed design track or review-fix child track", "a current design track or review-fix child track"],
 				["design-scope", "recursive", "Such a change has a current or proposed design track or review-fix child track.", "Such a change has a current or proposed review-fix child track."],
 				["review-fix-scope", "recursive", "Such a change has a current or proposed design track or review-fix child track.", "Such a change has a current or proposed design track."],
-				["local-lifetime", "recursive", "including through the final squash", "only before the final squash"],
+				["local-lifetime", "recursive", "keep these local references until root closure", "delete these local references before root closure"],
 				["disabled-remote-duty", "recursive", "Retention requires no remote operation in this setting.", "Disabled publishing still requires remote retention operations."],
 				["ordering-retention-copy", "publishing", "for subtree ordering, branch bases, and history slices.", "for subtree ordering, branch bases, history slices, and retention."],
 				...["enabled", "disabled"].flatMap((setting) => [
@@ -5282,7 +5302,7 @@ The description is available on request.`),
 				["recovery-force", "No choice authorizes a forced update or replacement of an existing reviewed reference.", "Recovery authorizes replacing a reviewed reference."],
 				["final-inspection", "This includes final-marker and recovery-reference pushes, which require the reachable-history inspection above.", "Final-marker and recovery-reference pushes need no inspection."],
 				["handoff-earlier", "that reference and its latest recorded binding must equal the actual pull request head", "that reference and an earlier binding must equal the actual pull request head"],
-				["disabled-target", "the local level reference for the branch being squashed", "every local level reference"],
+				["disabled-target", "each delivered local branch's level reference and latest recorded binding with that branch's head", "each delivered local branch's level reference and latest recorded binding with another branch's head"],
 				["disabled-markers", "Both must equal the complete head, including every marker commit.", "Both may equal the head before the final marker."],
 				["disabled-earlier", "An earlier binding does not satisfy this equality even when the reference still matches it.", "An earlier binding satisfies this equality when the reference matches it."],
 				["merge-earlier", "with the latest level binding used at final handoff", "with an earlier reviewed binding"],
@@ -5545,8 +5565,8 @@ The description is available on request.`),
 			// Whitespace-only reflow passes because normalizeText collapses whitespace.
 			// HTML comments count. The word layer is best-effort during refresh review.
 			// Known word-layer escapes include "retention branches" and "branches kept for retention".
-			const EXPECTED_PUBLISHING_SHA256 = "7abf52e1c6362a7dcd997cce14b0e4dc56c77018e0ec37c2aa0e098bcd025197";
-			const EXPECTED_TRACK_WORKFLOW_SHA256 = "3357dc6a4e6b56c7b5ffa6cb7f19e1f037dd4e400fe68e4570544d7e99f31771";
+			const EXPECTED_PUBLISHING_SHA256 = "e763768fcc2b36a9532f8e302c12514993a0029831f845d7ffca5f5f1e87d86e";
+			const EXPECTED_TRACK_WORKFLOW_SHA256 = "084c7b3d53c2f998df71e9a158353254b502c30e9e1bf409e83acb3fb13a0697";
 			const peerRetentionOwners = [
 				{ id: "nested", source: recursive, units: [historyUnit] },
 				{ id: "common", source: commonRecords, units: [privateSetUnit] },
@@ -5564,8 +5584,16 @@ The description is available on request.`),
 research and reviews may run in parallel. File-writing implementation does not.
 A later track builds on the accepted boundary before it.`),
 				}, {
-					id: "shared-disabled-preservation", extract: regionUnit(/^(Preserve accepted source history[\s\S]*?)(?=^Verify the delivery result and owning-log accounting separately before root closure\.)/gm),
-					expected: "Preserve accepted source history before rewriting under this section's safeguards.",
+					id: "shared-disabled-preservation", extract: regionUnit(/^(After root final acceptance, finish markers[\s\S]*?)(?=^Verify the completed history and owning-log accounting separately before root closure\.)/gm),
+					expected: normalizeText(`After root final acceptance, finish markers after their required acceptance.
+Accepted history is delivery. Acceptance creates no delivery commit or rewrite.
+Keep the local branch and accepted-marker branches until root closure.
+Keep accepted boundary evidence through verification.
+Use the local branch for verification and resume, never target or host references.
+Before delivery, check newly reachable history for private change records and bytes, not just the tree.
+On a match, pause. The user chooses rewrite before publication, explicit waiver, or abandonment.
+Apply § Delivery history and accounting to this permitted rewrite.
+Renew acceptance of its head before delivery verification.`),
 				}], count: 4, contexts: lifecycleRetentionContexts },
 			];
 			const peerPinFailure = (owner, source) => owner.pin && recordDigest(source) !== owner.pin ? "document-content" : "";
@@ -5755,8 +5783,8 @@ A later track builds on the accepted boundary before it.`),
 				["wrapped inspection passes and keeps all named mutations discriminating", wrappedRetention !== recursive && acceptsLevelUnit(historyUnit, wrappedRetention) && wrappedRetentionMutations.every(({ changed, rejected, retained }) => changed && rejected && retained), wrappedRetentionMutations],
 				["the inspection pointer reaches the unique common privacy subsection", acceptsInspectionDestination(recursive, commonRecords), inspectionDestination(recursive, commonRecords).count],
 				["every unit matches its independent expectation", levelPolicyUnits.every((unit) => acceptsLevelUnit(unit, unit.source)), levelPolicyUnits.filter((unit) => !acceptsLevelUnit(unit, unit.source)).map(({ id }) => id)],
-				["every rule mutation changes input and fails", levelRuleMutations.length === 643 && levelRuleMutations.every(({ changed, rejected }) => changed && rejected), levelRuleMutations],
-				["every safety sentence removal changes its owned input and fails", safetySentenceRemovals.length === 720 && safetySentenceRemovals.filter(({ id }) => id === "history").length === 444 && !safetySentenceRemovals.some(({ id }) => id === "cleanup-writes") && safetySentenceRemovals.every(({ changed, rejected }) => changed && rejected), safetySentenceRemovals],
+				["every rule mutation changes input and fails", levelRuleMutations.length === 661 && levelRuleMutations.every(({ changed, rejected }) => changed && rejected), levelRuleMutations],
+				["every safety sentence removal changes its owned input and fails", safetySentenceRemovals.length === 738 && safetySentenceRemovals.filter(({ id }) => id === "history").length === 444 && !safetySentenceRemovals.some(({ id }) => id === "cleanup-writes") && safetySentenceRemovals.every(({ changed, rejected }) => changed && rejected), safetySentenceRemovals],
 				["ordering, pause reconciliation, and local retention agree across all four documents", agreesOnOrderAndLocalRetention(), "complete independent history, planning, resume, roadmap, and publishing expectations"],
 				["unsafe pauses, conflicting bases, missing scope or events, and ordinary duties in either publishing setting fail", orderAndRetentionMutations.every(({ changed, rejected }) => changed && rejected), orderAndRetentionMutations],
 				["moving an intact event sentence outside the marker fails", eventMoveRejected(orderingDocuments), "event remains present beyond the protected marker"],
@@ -5843,14 +5871,14 @@ A later track builds on the accepted boundary before it.`),
 			// Independent content checks protect each accounting boundary and deferral copy.
 			const deliveryBoundaryUnits = [
 				{
-					id: "review-squash", source: blast,
-					extract: regionUnit(/^(Review-range body content rules[\s\S]*?)(?=^The cumulative commit)/gm),
-					expected: normalizeText(`Review-range body content rules exclude the final publishing-disabled delivery squash.
-Its content follows project commit rules or the default under
+					id: "local-delivery", source: blast,
+					extract: regionUnit(/^(With publishing disabled, accepted branch history[\s\S]*?)(?=^The cumulative commit)/gm),
+					expected: normalizeText(`With publishing disabled, accepted branch history is the delivery.
+Follow
 [track-workflow.md](track-workflow.md) § Delivery history and accounting.`),
 					attacks: [
-						["scope-reversal", "exclude", "include"],
-						["commit-authority", "follows project commit rules or the default", "copies the review-range body rules"],
+						["final-squash", "accepted branch history is the delivery", "create a final squashed delivery commit"],
+						["delivery-authority", "Follow", "Ignore"],
 					],
 				},
 				{
@@ -5892,17 +5920,15 @@ When the project has no issue tracker, record the deferral in the owning researc
 					expected: normalizeText(`A pull request proposes a branch's changes for review and merge.
 A draft pull request is not yet ready for that review.
 Use [track-workflow.md](track-workflow.md) for the common lifecycle.
-Except for the Default template section, this document applies only when
+This document applies only when
 \`workflow.draftPRs\` is enabled in home or trusted project \`slate.json\`
 (default: false). When it is disabled, the workflow creates no pull request.
-The Default template section also applies to the final delivery commit when publishing is disabled.
-That use adds no publishing duty.
 The research-log lifecycle in that case is owned by track-workflow.md § Session
 handoff and the research log.`),
 					attacks: [
-						["disabled-exemption", "Except for the Default template section, ", ""],
-						["disabled-template", "when publishing is disabled.", "when publishing is enabled."],
-						["publishing-duty", "adds no publishing duty.", "adds a publishing duty."],
+						["disabled-exemption", "This document applies only when", "Except for the Default template, this document applies only when"],
+						["disabled-template", "When it is disabled, the workflow creates no pull request.", "When it is disabled, use the Default template for a final commit."],
+						["publishing-duty", "The research-log lifecycle in that case", "The publishing duty in that case"],
 					],
 				},
 			];
@@ -5993,7 +6019,7 @@ handoff and the research log.`),
 			]);
 			// This pin covers only the commit-discipline region. Content edits need
 			// a reviewed digest refresh. Whitespace-only reflow passes.
-			const EXPECTED_COMMIT_DISCIPLINE_SHA256 = "9ca1d29d1e61122a01ff0543cd0588ee1409f9786b3d92bb37290a2267815573";
+			const EXPECTED_COMMIT_DISCIPLINE_SHA256 = "c6f0aedef50085711c91cab51d11ea3a4bc27d500b3359c2b20ddf214d104daf";
 			const commitDisciplinePattern = /^(## Commit discipline for drift and boundaries\r?\n[\s\S]*?)(?=^## |$(?![\s\S]))/gm;
 			const commitDisciplineRegion = regionUnit(commitDisciplinePattern);
 			const acceptsCommitDiscipline = (source) => {
@@ -6032,7 +6058,7 @@ Host-generated target-branch commits are exempt.`);
 				["0/missing-title-rule", workflow.replace("Every authored commit for the change on any branch starts its body with the complete line `Change: <change title>`.", "")],
 				["0/misplaced-title-rule", workflow.replace("starts its body", "ends its body")],
 				["0/mutable-title", workflow.replace("Keep it fixed", "Keep it updated")],
-				["1/delivery-exemption", blast.replace("and final delivery squash commits", "but not final delivery squash commits")],
+				["1/base-merge-exemption", blast.replace("and base merge commits", "but not base merge commits")],
 			].map(([id, source]) => {
 				const original = id.startsWith("0/") ? workflow : blast;
 				return { id, changed: source !== original, rejected: id.startsWith("0/") ? !acceptsChangeIdentity(source) : !acceptsCommitDiscipline(source) };
@@ -6377,7 +6403,7 @@ verbatim retention of every tool result.`);
 			});
 			const keptAnchorRemovals = [
 				["notes-accounting", "- every finding and its disposition."],
-				["workflow-accounting", "This final delivery format does not replace the track review-commit design rules."],
+				["workflow-accounting", "Accepted history is delivery. Acceptance creates no delivery commit or rewrite."],
 				["workflow-accounting", "A bootstrap commit created to open a draft pull request uses\n`Bootstrap: <intent title>`."],
 			].map(([id, rule]) => {
 				const unit = headingOwnedUnits.find((unit) => unit.id === id);
@@ -6759,7 +6785,7 @@ omitted and why.`);
 			const packageHeadings = [...packageContract.text.matchAll(/^## (.+)$/gm)].map((match) => match[1]);
 			const packageTemplates = [...packageContract.text.matchAll(/```markdown\n([\s\S]*?)```/g)].map((match) => [...match[1].matchAll(/^\*\*(.+)\*\*$/gm)].map((label) => label[1]));
 
-			const expectedDefaultTemplate = normalizeText("Use this short form when no applicable project template or commit rule exists. At creation, describe why the change is needed and the planned change. For the final description at level completion or a final delivery commit, describe delivered results.\n\n```markdown\n## Why\n<Why the change is needed.>\n\n## What changed\n<What the change delivers.>\n```\n\nThis form adds no workflow accounting or progress table.");
+			const expectedDefaultTemplate = normalizeText("Use this short form when no applicable project template or commit rule exists. At creation, describe why the change is needed and the planned change. For the final description at level completion, describe delivered results.\n\n```markdown\n## Why\n<Why the change is needed.>\n\n## What changed\n<What the change delivers.>\n```\n\nThis form adds no workflow accounting or progress table.");
 			const resolveDefaultTemplate = headingUnit("## Default template");
 			const acceptsDefaultTemplate = (source) => {
 				const unit = resolveDefaultTemplate(source);
@@ -6769,33 +6795,33 @@ omitted and why.`);
 				publishing.replace(heading, ""),
 				publishing.replace(heading, "## Progress"),
 			]);
-			const expectedDisabledAccounting = normalizeText(`When draft publishing is disabled, the final Git record does not exist before
-final acceptance. Use this sequence:
+			const expectedDisabledAccounting = normalizeText(`With draft publishing disabled, deliver accepted branch history in this sequence:
 
 1. Before each intermediate code or design package, reconcile all accounting
    sources for that track and its subtree. Show record and range references only
-   when a decision needs them. Do not claim that a future delivery commit exists.
-2. Before the change package, reconcile every
-   accounting source across the whole change. Complete each design-track
-   acceptance before its marker. Retain all records and accepted histories
-   through root final acceptance.
-3. After root final acceptance, create the final squashed delivery commit.
-   Follow project commit rules or the default in
-   [pr-publishing.md](pr-publishing.md) § Default template.
-   Before rewriting, preserve accepted source history under
-   [track-workflow.md](track-workflow.md) § Delivery and termination.
-4. Verify the delivery result and owning-log accounting separately against the
-   accepted history and every required conclusion.
-   Only then close the root change with \`slate_change close\`.
+   when a decision needs them.
+2. Before the change package, reconcile every accounting source across the whole
+   change. Complete each design-track acceptance before its marker.
+   Retain all records and accepted histories through root final acceptance.
+3. After root final acceptance, finish required markers after their acceptance
+   decisions. Acceptance creates no delivery commit or rewrite.
+   Keep the local branch and accepted-marker branches until root closure.
+   Use the local branch for delivery verification and resume.
+   Follow [track-workflow.md](track-workflow.md) § Delivery and termination.
+4. Before local delivery, check newly reachable history for private change records
+   and private bytes, not only the final tree. On a match, pause.
+   The user chooses rewrite before publication, explicit waiver, or abandonment.
+   Apply [track-workflow.md](track-workflow.md) § Delivery history and accounting
+   to this permitted rewrite. Renew acceptance of its head before delivery verification.
+   Verify the completed history and owning-log accounting separately against the
+   accepted history and every required conclusion before closing with \`slate_change close\`.
    Keep all manual records and source chains. Only the user deletes the change folder.
 
 Abandonment at any stage ends with \`slate_change close\`. No delivery artifact is
 needed for abandonment, and the close deletes nothing.
 
-A publishing-disabled single-track change starts at step 2. A
-publishing-disabled multi-track change repeats step 1 for each track, then runs
-steps 2 through 4. No package requires a future commit body before that commit
-exists.`);
+A publishing-disabled single-track change starts at step 2.
+A multi-track change repeats step 1 for each track, then runs steps 2 through 4.`);
 			const resolveDisabledAccounting = (source) => markedUnit("publishing-disabled-accounting")(source);
 			const acceptsDisabledAccounting = (source) => {
 				const resolved = resolveDisabledAccounting(source);
@@ -6803,9 +6829,9 @@ exists.`);
 			};
 			const disabledAccountingMutations = [
 				["future-intermediate-record", deliveryPackages.replace("Show record and range references only\n   when a decision needs them.", "Reference the future final commit body.")],
-				["missing-commit-authority", deliveryPackages.replace(literalPattern("Follow project commit rules or the default in [pr-publishing.md](pr-publishing.md) § Default template."), "Copy accounting instead of following commit rules.")],
-				["disabled-source-preservation", deliveryPackages.replace(literalPattern("Before rewriting, preserve accepted source history under [track-workflow.md](track-workflow.md) § Delivery and termination."), "")],
-				["cleanup-before-verification", deliveryPackages.replace(literalPattern("Verify the delivery result and owning-log accounting separately against the accepted history and every required conclusion. Only then close"), "Close before verifying the accounting. Then restore")],
+				["returned-final-squash", deliveryPackages.replace(literalPattern("Acceptance creates no delivery commit or rewrite."), "Create the final squashed delivery commit.")],
+				["disabled-source-preservation", deliveryPackages.replace("Keep the local branch and accepted-marker branches until root closure.", "")],
+				["cleanup-before-verification", deliveryPackages.replace(literalPattern("Verify the completed history and owning-log accounting separately against the accepted history and every required conclusion before closing"), "Close before verifying the accounting. Then restore")],
 				["missing-single-track-route", deliveryPackages.replace("A publishing-disabled single-track change starts at step 2.", "A publishing-disabled single-track change has no accounting route.")],
 			];
 			const disabledAccountingMutationOutcomes = disabledAccountingMutations.map(([id, source]) => ({ id, changed: source !== deliveryPackages, accepted: acceptsDisabledAccounting(source) }));
@@ -6874,18 +6900,17 @@ Without publishing, use all owning accounting sources defined in
 [delivery-packages.md](delivery-packages.md) § Durable accounting.
 These include root and design-track logs, code reports, affected-track repair
 records, and their read-only source chains.
-Show source references only when a decision needs them. Never claim a future commit exists.
-After root final acceptance, create the final squashed delivery commit using project commit rules.
-Keep § Commit titles and bodies metadata.
-Read the project's contributor instructions and their cited commit guidance.
-Explicit instructions take precedence over examples from history.
-Ask the user about unresolved conflicts.
-When no applicable commit rule exists, read and use
-[pr-publishing.md](pr-publishing.md) § Default template for the body.
-Keep the project's subject convention when one exists.
-This final delivery format does not replace the track review-commit design rules.
-Preserve accepted source history before rewriting under this section's safeguards.
-Verify the delivery result and owning-log accounting separately before root closure.
+Show references only for decisions. Never claim a future commit exists.
+After root final acceptance, finish markers after their required acceptance.
+Accepted history is delivery. Acceptance creates no delivery commit or rewrite.
+Keep the local branch and accepted-marker branches until root closure.
+Keep accepted boundary evidence through verification.
+Use the local branch for verification and resume, never target or host references.
+Before delivery, check newly reachable history for private change records and bytes, not just the tree.
+On a match, pause. The user chooses rewrite before publication, explicit waiver, or abandonment.
+Apply § Delivery history and accounting to this permitted rewrite.
+Renew acceptance of its head before delivery verification.
+Verify the completed history and owning-log accounting separately before root closure.
 This sequence applies to single-track and multi-track changes.
 Explicit abandonment is the other delivery outcome.
 Resolve or hand every open question to the user.
@@ -6990,9 +7015,9 @@ The accounting covers:`),
 				["the package document delegates acceptance policy to the canonical workflow unit", !Object.values(ACCEPTANCE_FACTS).some((entry) => typeof entry.document === "string" && deliveryPackages.includes(entry.document)) && packageContract.text.includes("Follow\n[track-workflow.md](track-workflow.md) § Delivery and termination"), Object.values(ACCEPTANCE_FACTS).filter((entry) => typeof entry.document === "string" && deliveryPackages.includes(entry.document))],
 				["the default template resolves exactly once and rejects removal or replacement of either section", acceptsDefaultTemplate(publishing) && defaultTemplateMutations.every((source) => source !== publishing && !acceptsDefaultTemplate(source)) && !acceptsDefaultTemplate(publishing.replace("## Default template", "## Missing default")) && !acceptsDefaultTemplate(`${publishing}\n## Default template\nDuplicate.`) && acceptsDefaultTemplate(`${publishing}\n<!-- Outside default control. -->`), defaultTemplateMutations.map((source) => ({ changed: source !== publishing, accepted: acceptsDefaultTemplate(source) }))],
 				["the publishing-disabled accounting unit gives single-track and multi-track packages reachable sources, then verifies delivery and owning-log accounting before cleanup", acceptsDisabledAccounting(deliveryPackages), resolveDisabledAccounting(deliveryPackages)],
-				["future-record, missing-commit-authority, early-cleanup, and missing-single-track counterfactuals each change the accounting sequence and fail", disabledAccountingMutationOutcomes.every(({ changed, accepted }) => changed && !accepted), disabledAccountingMutationOutcomes],
+				["future-record, final-squash, preservation, early-cleanup, and missing-single-track counterfactuals each change the accounting sequence and fail", disabledAccountingMutationOutcomes.every(({ changed, accepted }) => changed && !accepted), disabledAccountingMutationOutcomes],
 				["missing and duplicated publishing-disabled accounting boundaries fail closed", missingDisabledAccountingBoundary.count === 0 && missingDisabledAccountingBoundary.text === "" && duplicateDisabledAccountingBoundary.count === 2 && duplicateDisabledAccountingBoundary.text === "", { missingDisabledAccountingBoundary, duplicateDisabledAccountingBoundary }],
-				["publishing, workflow, and note rules match the reachable accounting lifecycle", publishingFlat.includes("Slate adds no required sections, accounting fields, or progress table.") && publishingFlat.includes("During implementation, keep progress, decisions, and plan differences in the research log.") && workflowFlat.includes("After root final acceptance, create the final squashed delivery commit using project commit rules.") && workflowFlat.includes("[pr-publishing.md](pr-publishing.md) § Default template for the body.") && workflowFlat.includes("Verify the delivery result and owning-log accounting separately before root closure.") && userNotesFlat.includes("On both delivery paths, reconcile required conclusions into the owning research log before each package.") && userNotesFlat.includes("Root closure waits for verification of the owning logs against all accounting sources."), { workflow: workflow.match(/With draft publishing,[\s\S]*?(?=\n\nNo release occurs)/)?.[0], publishing: headingUnit("## Keeping the PR in sync")(publishing), userNotes: userNotes.match(/Before final acceptance[\s\S]*?(?=\n\n- every finding)/)?.[0] }],
+				["publishing, workflow, and note rules match the reachable accounting lifecycle", publishingFlat.includes("Slate adds no required sections, accounting fields, or progress table.") && publishingFlat.includes("During implementation, keep progress, decisions, and plan differences in the research log.") && workflowFlat.includes("Accepted history is delivery. Acceptance creates no delivery commit or rewrite.") && workflowFlat.includes("Before delivery, check newly reachable history for private change records and bytes, not just the tree.") && workflowFlat.includes("Verify the completed history and owning-log accounting separately before root closure.") && userNotesFlat.includes("On both delivery paths, reconcile required conclusions into the owning research log before each package.") && userNotesFlat.includes("Root closure waits for verification of the owning logs against all accounting sources."), { workflow: workflow.match(/With draft publishing,[\s\S]*?(?=\n\nNo release occurs)/)?.[0], publishing: headingUnit("## Keeping the PR in sync")(publishing), userNotes: userNotes.match(/Before final acceptance[\s\S]*?(?=\n\n- every finding)/)?.[0] }],
 				["the workflow loading unit and every literal filename context across README and recursive docs equal independent expectations", acceptsPackageLoading(workflow), { loading: resolvePackageLoading(workflow), contexts: packageReferenceContexts(packageDocuments) }],
 				["owned-unit, appended, and count-preserving actor-table eager-load mutations each change the source and fail", packageLoadingMutationOutcomes.every(({ changed, accepted }) => changed && !accepted), packageLoadingMutationOutcomes],
 				["missing and duplicated loading boundaries fail closed", missingLoadingBoundary.count === 0 && missingLoadingBoundary.text === "" && duplicateLoadingBoundary.count === 2 && duplicateLoadingBoundary.text === "", { missingLoadingBoundary, duplicateLoadingBoundary }],

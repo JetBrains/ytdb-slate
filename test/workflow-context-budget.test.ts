@@ -174,8 +174,6 @@ function table(rows: string[], costs: string[]): string {
     "phase 7 before a split proposal. Manual review includes common policy, writing",
     "guidance, and all twelve charters from phase 5. Built-in review loads its",
     "implementation input for workers only. It adds no orchestrator read.",
-    "The default commit format adds only the Default template section at delivery",
-    "when no applicable project commit rule exists. It does not enable publishing.", "",
     "| Conditional set | Bytes | Estimated tokens |", "| --- | ---: | ---: |", ...costs, "",
     "Private evidence, designs, reports, source chains, project additions, configured",
     "prompt documents, provider framing, tools, results, message wrappers, repeated",
@@ -280,7 +278,7 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
   assert.ok(fallbackText.includes("## Why\n") && fallbackText.includes("## What changed\n"));
   assert.ok(!fallbackText.includes("## Tracks table"));
   assert.ok(fallbackText.includes("At creation, describe why the change is needed and the planned change."));
-  assert.ok(fallbackText.includes("For the final description at level completion or a final delivery commit, describe delivered results."));
+  assert.ok(fallbackText.includes("For the final description at level completion, describe delivered results."));
   assert.ok(fallbackText.includes("This form adds no workflow accounting or progress table."));
   assert.throws(() => coverage(scan(sources), occurrences.map((r: any, i: number) => i === 0 ? { ...r, recipient: "worker", reason: undefined } : r)), /missing classification/);
   assert.deepEqual(union([[0, 5], [3, 9], [1, 2]]), [[0, 9]]);

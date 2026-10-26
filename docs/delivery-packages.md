@@ -170,7 +170,7 @@ The research log is the accounting authority on both delivery paths.
 Attribute design-track and review-fix conclusions to their level in the owning log.
 Keep root-wide and whole-subtree conclusions in the log that closes them.
 Reference other levels without counting their implementation again.
-Keep accounting out of the pull request description and final delivery commit body.
+Keep accounting out of the pull request description and its squash-merge commit body.
 Packages disclose relevant concerns and decisions.
 Show accounting references only when a decision needs them.
 After merge, verify the observed commit identity and parents against the accepted history and pull request.
@@ -190,33 +190,33 @@ A missing acceptance or required conclusion blocks handoff for merge.
 Verify every level's accounting and all root-wide accounting in the owning logs before root closure.
 
 <!-- publishing-disabled-accounting:begin -->
-When draft publishing is disabled, the final Git record does not exist before
-final acceptance. Use this sequence:
+With draft publishing disabled, deliver accepted branch history in this sequence:
 
 1. Before each intermediate code or design package, reconcile all accounting
    sources for that track and its subtree. Show record and range references only
-   when a decision needs them. Do not claim that a future delivery commit exists.
-2. Before the change package, reconcile every
-   accounting source across the whole change. Complete each design-track
-   acceptance before its marker. Retain all records and accepted histories
-   through root final acceptance.
-3. After root final acceptance, create the final squashed delivery commit.
-   Follow project commit rules or the default in
-   [pr-publishing.md](pr-publishing.md) § Default template.
-   Before rewriting, preserve accepted source history under
-   [track-workflow.md](track-workflow.md) § Delivery and termination.
-4. Verify the delivery result and owning-log accounting separately against the
-   accepted history and every required conclusion.
-   Only then close the root change with `slate_change close`.
+   when a decision needs them.
+2. Before the change package, reconcile every accounting source across the whole
+   change. Complete each design-track acceptance before its marker.
+   Retain all records and accepted histories through root final acceptance.
+3. After root final acceptance, finish required markers after their acceptance
+   decisions. Acceptance creates no delivery commit or rewrite.
+   Keep the local branch and accepted-marker branches until root closure.
+   Use the local branch for delivery verification and resume.
+   Follow [track-workflow.md](track-workflow.md) § Delivery and termination.
+4. Before local delivery, check newly reachable history for private change records
+   and private bytes, not only the final tree. On a match, pause.
+   The user chooses rewrite before publication, explicit waiver, or abandonment.
+   Apply [track-workflow.md](track-workflow.md) § Delivery history and accounting
+   to this permitted rewrite. Renew acceptance of its head before delivery verification.
+   Verify the completed history and owning-log accounting separately against the
+   accepted history and every required conclusion before closing with `slate_change close`.
    Keep all manual records and source chains. Only the user deletes the change folder.
 
 Abandonment at any stage ends with `slate_change close`. No delivery artifact is
 needed for abandonment, and the close deletes nothing.
 
-A publishing-disabled single-track change starts at step 2. A
-publishing-disabled multi-track change repeats step 1 for each track, then runs
-steps 2 through 4. No package requires a future commit body before that commit
-exists.
+A publishing-disabled single-track change starts at step 2.
+A multi-track change repeats step 1 for each track, then runs steps 2 through 4.
 <!-- publishing-disabled-accounting:end -->
 
 Retain conclusions and evidence needed for the listed accounting. Do not

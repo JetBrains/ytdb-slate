@@ -829,7 +829,7 @@ combination with `--exclude` refuse startup with exit 2. The wrapper reports
 Selection loads only required modules and runs only the requested checks and
 their prerequisites. Checks retain their full-run implementations. The independent
 mutation roster supplies identities for selected families. Heading selection
-requires all 877 `heading-policy` identities, including commit identity rules. Package selection has an empty
+requires all 882 `heading-policy` identities, including commit identity rules. Package selection has an empty
 mutation scope. Missing, duplicate, incomplete, outside-family or crashed mutation
 execution fails `selected-mutation-audit`. Crash and driver failure lines always
 report. A separate `roster` audit requires each requested check and scoped audit
@@ -985,7 +985,13 @@ remains 24,600 characters. The whole-doctrine ceiling is 26,300 characters.
 `test/workflow-context-budget.test.ts` owns phase measurements, read-reference
 coverage, literal-limit enforcement, mutation controls, and publication equality.
 `verification/workflow-context-map.mjs` holds the reviewed read assignments and
-literal limits approved by the user on 2026-10-16. The user must approve fresh baseline limits.
+literal limits approved by the user on 2026-10-16.
+Publishing-disabled delivery uses accepted local branch history. Its checks cover
+marker completion, branch preservation, local verification and resume, private
+history inspection, and owning-log verification before closure. The default
+publishing template has no disabled-delivery read assignment. The delivery
+reference tests reject a final squash and deleted preservation duties. They also
+accept the current history rule with harmless line wrapping. The user must approve fresh baseline limits.
 
 On failure, inspect the reported scenario, phase, source ranges, total, limit,
 and excess bytes. Check for a wrong read assignment or unintended growth first.

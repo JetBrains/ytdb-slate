@@ -329,11 +329,11 @@ An evidence waiver records its limit and claims no recovered evidence.
 A status entry, merge result, or copied marker title cannot replace lost history.
 Never create a marker to claim an earlier boundary that was not proved.
 
-With publishing disabled, before the final squash, compare the local level reference for the branch being squashed and its latest recorded binding with that branch head.
+With publishing disabled, before local delivery, compare each delivered local branch's level reference and latest recorded binding with that branch's head.
 Both must equal the complete head, including every marker commit.
 An earlier binding does not satisfy this equality even when the reference still matches it.
 Use the authorized local level-update rules above.
-With publishing disabled, keep these local references until root closure, including through the final squash.
+With publishing disabled, keep these local references until root closure.
 Check every kept local reference against its latest recorded binding before closure.
 Retention requires no remote operation in this setting.
 Do not push any retention reference to any remote when publishing is disabled.

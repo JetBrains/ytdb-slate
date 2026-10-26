@@ -3,11 +3,9 @@
 A pull request proposes a branch's changes for review and merge.
 A draft pull request is not yet ready for that review.
 Use [track-workflow.md](track-workflow.md) for the common lifecycle.
-Except for the Default template section, this document applies only when
+This document applies only when
 `workflow.draftPRs` is enabled in home or trusted project `slate.json`
 (default: false). When it is disabled, the workflow creates no pull request.
-The Default template section also applies to the final delivery commit when publishing is disabled.
-That use adds no publishing duty.
 The research-log lifecycle in that case is owned by track-workflow.md § Session
 handoff and the research log.
 
@@ -121,7 +119,7 @@ The host's merge behavior does not make the description a workflow accounting re
 
 Use this short form when no applicable project template or commit rule exists.
 At creation, describe why the change is needed and the planned change.
-For the final description at level completion or a final delivery commit, describe delivered results.
+For the final description at level completion, describe delivered results.
 
 ```markdown
 ## Why

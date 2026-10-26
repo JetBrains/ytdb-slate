@@ -89,8 +89,8 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
         assert.equal(output.match(verdict)?.[1], cleanOutput.match(verdict)?.[1], output);
         assert.match(output, /^CHECK +roster +PASS\b/m);
         selectedOutput(output, contract, true);
-        assert.deepEqual(mutationCounts(output), contract === "contract-heading-regions" ? { "heading-policy": 877 } : {});
-        if (contract === "contract-heading-regions") assert.equal(mutationCounts(cleanOutput)["heading-policy"], 877);
+        assert.deepEqual(mutationCounts(output), contract === "contract-heading-regions" ? { "heading-policy": 882 } : {});
+        if (contract === "contract-heading-regions") assert.equal(mutationCounts(cleanOutput)["heading-policy"], 882);
       }
     });
     const resolverFile = "verification/resolver-checks.mjs";
@@ -102,11 +102,33 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
         [resolverFile]: resolver.replace(designContent, content),
       }, false, "contract-escalation-routing");
     }
+    const deliveryFile = "docs/delivery-packages.md";
+    const delivery = readFileSync(join(fixture, deliveryFile), "utf8");
+    for (const [before, after] of [
+      ["Acceptance creates no delivery commit or rewrite.", "Create a final squashed delivery commit."],
+      ["Keep the local branch and accepted-marker branches until root closure.", ""],
+      ["Use the local branch for delivery verification and resume.", "Use the target branch for delivery verification."],
+      ["check newly reachable history for private change records", "check only the final tree for private change records"],
+      ["and private bytes, not only the final tree.", "and public filenames in the final tree."],
+      ["On a match, pause.", "On a match, continue."],
+      ["explicit waiver, or abandonment", "abandonment"],
+      ["explicit waiver, or abandonment", "explicit waiver"],
+      ["The user chooses", "The agent chooses"],
+      ["to this permitted rewrite.", "to no rewrite."],
+      ["Renew acceptance of its head before delivery verification.", ""],
+      ["Keep all manual records and source chains.", ""],
+    ] as const) {
+      assert.ok(delivery.includes(before));
+      await check(`local delivery rejects: ${before}`, { [deliveryFile]: delivery.replace(before, after) });
+    }
+    await check("valid accepted history with reflowed no-rewrite rule", {
+      [deliveryFile]: delivery.replace("Acceptance creates no delivery commit or rewrite.", "Acceptance creates no delivery commit\n   or rewrite."),
+    }, true);
     const publishingFile = "docs/pr-publishing.md";
     const publishing = readFileSync(join(fixture, publishingFile), "utf8");
     for (const rule of [
       "At creation, describe why the change is needed and the planned change.",
-      "For the final description at level completion or a final delivery commit, describe delivered results.",
+      "For the final description at level completion, describe delivered results.",
       "This form adds no workflow accounting or progress table.",
     ]) {
       assert.ok(publishing.includes(rule));
@@ -167,7 +189,7 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
     }
     for (const [file, rule] of [
       ["docs/user-notes.md", "- every finding and its disposition."],
-      [workflowFile, "This final delivery format does not replace the track review-commit design rules."],
+      [workflowFile, "Accepted history is delivery. Acceptance creates no delivery commit or rewrite."],
       [workflowFile, "A bootstrap commit created to open a draft pull request uses\n`Bootstrap: <intent title>`."],
     ] as const) {
       const source = readFileSync(join(fixture, file), "utf8");

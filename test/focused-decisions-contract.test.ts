@@ -27,7 +27,7 @@ const duties: Record<string, string[]> = {
     "List the other allowed outcomes and their consequences.",
     "Let the user accept or reject each fix separately. Keep one commit per fix.",
     "A single-track change sends one change package without a track name and asks only final acceptance.",
-    "Show source references only when a decision needs them.",
+    "Show references only for decisions.",
     "Follow [review-rules.md](review-rules.md) § Findings and output for severity, required fixes, minor dispositions, and moot or rejected findings in both review phases.",
   ],
   "delivery-packages.md": [

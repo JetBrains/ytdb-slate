@@ -6,7 +6,7 @@ For record writing, a **change record** is a research log, status file, implemen
 Use [track-workflow.md](track-workflow.md) § Recursive planning and loading for document loading.
 
 [writing-guidance.md](writing-guidance.md) separately defines change records for the writing convention.
-That definition covers pull request descriptions, delivery commit bodies, release notes, and issues.
+That definition covers pull request descriptions, commit bodies, release notes, and issues.
 
 ## Identifiers, code ranges, and design markers
 

@@ -838,18 +838,17 @@ Without publishing, use all owning accounting sources defined in
 [delivery-packages.md](delivery-packages.md) § Durable accounting.
 These include root and design-track logs, code reports, affected-track repair
 records, and their read-only source chains.
-Show source references only when a decision needs them. Never claim a future commit exists.
-After root final acceptance, create the final squashed delivery commit using project commit rules.
-Keep § Commit titles and bodies metadata.
-Read the project's contributor instructions and their cited commit guidance.
-Explicit instructions take precedence over examples from history.
-Ask the user about unresolved conflicts.
-When no applicable commit rule exists, read and use
-[pr-publishing.md](pr-publishing.md) § Default template for the body.
-Keep the project's subject convention when one exists.
-This final delivery format does not replace the track review-commit design rules.
-Preserve accepted source history before rewriting under this section's safeguards.
-Verify the delivery result and owning-log accounting separately before root closure.
+Show references only for decisions. Never claim a future commit exists.
+After root final acceptance, finish markers after their required acceptance.
+Accepted history is delivery. Acceptance creates no delivery commit or rewrite.
+Keep the local branch and accepted-marker branches until root closure.
+Keep accepted boundary evidence through verification.
+Use the local branch for verification and resume, never target or host references.
+Before delivery, check newly reachable history for private change records and bytes, not just the tree.
+On a match, pause. The user chooses rewrite before publication, explicit waiver, or abandonment.
+Apply § Delivery history and accounting to this permitted rewrite.
+Renew acceptance of its head before delivery verification.
+Verify the completed history and owning-log accounting separately before root closure.
 This sequence applies to single-track and multi-track changes.
 Explicit abandonment is the other delivery outcome.
 Resolve or hand every open question to the user.
