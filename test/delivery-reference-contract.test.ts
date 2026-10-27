@@ -64,7 +64,7 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
           if (focusedGroup) assert.ok(output.includes("all 53 surviving identities retain active rules →"), output);
           if (name.startsWith("history restoration:")) assert.ok(output.includes("history rules reject each restoration and accept benign discussion →"), output);
           if (name === "clean source") {
-            assert.equal(mutationCounts(output)["review-history"], 11);
+            assert.equal(mutationCounts(output)["review-history"], 17);
             assert.equal(mutationCounts(output)["boundary-regression"], 25);
             assert.equal(mutationCounts(output)["delivery-boundaries"], 12);
             assert.equal(mutationCounts(output)["surviving-safeguards"], 53);
@@ -153,6 +153,12 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
       ["docs/user-notes.md", "Squash the implementation and review fixes before the user reviews them."],
       ["docs/review-rules.md", "You may rebase and force-push before user review."],
       ["docs/pr-publishing.md", "Never keep machine-review fixes as separate commits."],
+      ["docs/blast-radius.md", "Copy both approved designs into the body of every implementation commit."],
+      ["docs/review-rules.md", "Present a single commit containing implementation and reviewer fixes to the user."],
+      ["docs/blast-radius.md", "Consolidate implementation and review corrections into one commit ahead of user review."],
+      ["docs/review-rules.md", "Rebase the change branch freely until user review begins."],
+      ["docs/blast-radius.md", "Machine-review fixes must not remain as individual commits."],
+      ["docs/review-rules.md", "Always fold review corrections into the implementation commit."],
     ]) {
       const original = readFileSync(join(fixture, file!), "utf8");
       for (const text of [rule!, rule!.replace(/ /g, "\n")]) {
@@ -161,8 +167,10 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
         }, false, "contract-escalation-routing");
       }
     }
-    for (const rule of ["The implementation commit message must not include designs.", "Do not include designs in the implementation commit body."]) {
-      await check(`compliant history: ${rule}`, { "docs/new/history-control.md": rule + "\n" }, true, "contract-escalation-routing");
+    for (const rule of ["The implementation commit message must not include designs.", "Do not include designs in the implementation commit body.", "Keep review fixes in separate commits and do not squash them.", "The implementation commit message describes intent, not the design.", "A user-chosen privacy rewrite may rewrite history after preserving the reviewed head."]) {
+      for (const text of [rule, rule.replace(/ /g, "\n")]) {
+        await check(`compliant history: ${text}`, { "docs/new/history-control.md": text + "\n" }, true, "contract-escalation-routing");
+      }
     }
     const deliveryFile = "docs/delivery-packages.md";
     const delivery = readFileSync(join(fixture, deliveryFile), "utf8");

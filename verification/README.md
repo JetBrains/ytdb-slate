@@ -809,7 +809,7 @@ summary. Exit 0 means every non-excluded check passed. Exit 1 means a failure, m
 or strict `NOT RUN`. Exit 2 means the wrapper refused to start. The roster and
 summary output own the live count. The full suite has 208 checks plus the roster
 audit, for 209 result lines. Its independent mutation roster has 36 families and
-2,360 identities. The 53 surviving-safeguards identities preserve reviewed-state,
+2,366 identities. The 53 surviving-safeguards identities preserve reviewed-state,
 privacy, acceptance and delivery rules. The one-branch-rules family covers 32
 named violations. The audit-repairs family covers ten configuration, recursive
 pointer, delivery verification and README merge-advice cases. Each case accepts
@@ -817,7 +817,10 @@ original and wrapped text and rejects removal and contradiction. History-moves
 relocates a rule outside its owner. Ordering-wrapped attacks a wrapped rule.
 Pause controls pass valid wrapped policy through the complete history-unit
 check and require that the same check reject permission for open-range
-interleaving. These checks prove document policy, not live workflow execution.
+interleaving. The 17 review-history cases reject the listed restored and reworded
+rules. Correct-sentence controls accept the listed valid guidance. Both use plain
+and reflowed text. This check does not prove a removed rule is absent in other
+words. These checks prove document policy, not live workflow execution.
 
 `--exclude <id,id>` accepts only `doctrine-original-base` and
 `doctrine-original-controls`, together or individually. The driver accepts the

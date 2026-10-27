@@ -5442,21 +5442,25 @@ Host-generated target-branch commits are exempt.`);
 				] : []),
 			].map(({ id, body }) => ({ id, changed: body !== validBodies[index], rejected: !keepsBodyContent(body, index) })));
 			mutationAudit.record("change-identity", [...identityAttacks, ...bodyAttacks]);
-			// Check history obligations independently of fingerprints and identity.
-			const historyFault = (source) => normalizeText(source).split(/(?<=[.!?]) /).some((line) => {
+			// Reject the listed history forms and accept the listed correct sentences.
+			// This does not prove a removed rule is absent in other words.
+			const historyFault = (source) => normalizeText(source).split(/(?<=[.!?]) |\band (?=do not\b)/).some((line) => {
 				// Match concept combinations, with negation scoped to the described duty.
 				const prohibited = /\b(?:do not|never|must not|shall not|cannot|may not|no longer|not required|not permitted|not allowed|forbid\w*|prohibit\w*)\b/i.test(line);
 				const designs = /\b(?:designs?|architecture)\b/i.test(line);
-				const body = /\bcommit\b.*\b(?:body|message)\b|\bimplementation message\b/i.test(line);
-				const separateFixes = /\bfix(?:es)?\b/i.test(line) && /\b(?:separate|distinct)\b/i.test(line);
-				if (separateFixes && prohibited && /\b(?:keep|retain|preserve|leave)\b/i.test(line)) return true;
+				const body = /\bcommit\b/i.test(line) && /\b(?:body|message)\b/i.test(line) || /\bimplementation message\b/i.test(line);
+				const fixes = /\b(?:fix(?:es)?|corrections)\b/i.test(line);
+				const separateFixes = fixes && /\b(?:separate|distinct|individual)\b/i.test(line);
+				if (separateFixes && prohibited && /\b(?:keep|retain|preserve|leave|remain)\b/i.test(line)) return true;
 				if (prohibited) return false;
-				if (designs && body) return true;
-				const beforeReview = /\b(?:before|prior to|ahead of)\b.*\buser\b.*\breview|\bbefore presenting\b.*\buser\b|\bpre-(?:user-)?review\b/i.test(line);
+				if (designs && body && !/\bnot the design\b/i.test(line)) return true;
+				const beforeReview = /\b(?:before|prior to|ahead of|until)\b.*\buser\b.*\breview|\bbefore presenting\b.*\buser\b|\bpre-(?:user-)?review\b/i.test(line);
 				const combined = /\b(?:one|single) commit\b|\bsquash\w*\b|\bconsolidat\w*\b/i.test(line);
-				if (beforeReview && combined && /\bimplementation\b/i.test(line) && /\bfix(?:es)?\b/i.test(line)) return true;
+				const presentToUser = /\bpresent\b.*\bto the user\b/i.test(line);
+				const foldCorrections = /\bfold review corrections into the implementation commit\b/i.test(line);
+				if ((beforeReview || presentToUser) && combined && /\bimplementation\b/i.test(line) && fixes || foldCorrections) return true;
 				const rewrite = /\brebas\w*\b|\bforce[- ]push\w*\b|\brewrit\w*\b.*\b(?:history|commits?)\b|\b(?:history|commits?)\b.*\brewrit\w*\b/i.test(line);
-				const privacyOnly = /\bonly\b.*\buser-chosen privacy rewrite\b/i.test(line);
+				const privacyOnly = /\bonly\b.*\buser-chosen privacy rewrite\b|\buser-chosen privacy rewrite\b.*\bafter preserving the reviewed head\b/i.test(line);
 				const hostMerge = /\b(?:squash|rebase) merge\b/i.test(line);
 				return rewrite && !privacyOnly && !hostMerge && (/\b(?:routine|ordinary|exception|allow\w*|permit\w*|may|can)\b/i.test(line) || beforeReview);
 			});
@@ -5472,6 +5476,12 @@ Host-generated target-branch commits are exempt.`);
 				["review-before-user", "Squash the implementation and review fixes before the user reviews them."],
 				["permitted-rebase", "You may rebase and force-push before user review."],
 				["forbidden-separate-fixes", "Never keep machine-review fixes as separate commits."],
+				["body-before-commit", "Copy both approved designs into the body of every implementation commit."],
+				["present-single-commit", "Present a single commit containing implementation and reviewer fixes to the user."],
+				["consolidate-corrections", "Consolidate implementation and review corrections into one commit ahead of user review."],
+				["rebase-until-review", "Rebase the change branch freely until user review begins."],
+				["forbidden-individual-fixes", "Machine-review fixes must not remain as individual commits."],
+				["fold-corrections", "Always fold review corrections into the implementation commit."],
 			];
 			const historySources = readdirSync(join(REPO, "docs"), { recursive: true }).filter((file) => file.endsWith(".md")).map((file) => readFileSync(join(REPO, "docs", file), "utf8"));
 			const historyAttacks = historyCases.map(([id, rule]) => ({
@@ -5479,7 +5489,7 @@ Host-generated target-branch commits are exempt.`);
 				rejected: historySources.every((source) => !historyFault(source) && historyFault(source + "\n" + rule) && historyFault(source + "\n" + rule.replace(/ /g, "\n"))),
 			}));
 			mutationAudit.record("review-history", historyAttacks);
-			const historyControls = ["Discuss the design with its reviewers.", "Intent: Preserve implementation history. Deviation delta:", "Only a user-chosen privacy rewrite permits rewriting history.", "The implementation commit message must not include designs.", "Do not include designs in the implementation commit body.", "Never squash implementation and review fixes before user review.", "Do not permit routine rebases or force-pushes."];
+			const historyControls = ["Discuss the design with its reviewers.", "Intent: Preserve implementation history. Deviation delta:", "Only a user-chosen privacy rewrite permits rewriting history.", "The implementation commit message must not include designs.", "Do not include designs in the implementation commit body.", "Never squash implementation and review fixes before user review.", "Do not permit routine rebases or force-pushes.", "Keep review fixes in separate commits and do not squash them.", "The implementation commit message describes intent, not the design.", "A user-chosen privacy rewrite may rewrite history after preserving the reviewed head."];
 			const escalationRule = normalizeText("Pre-existing defects, exhausted budgets, disputed stuck-fix results, blocker lowering, and regressions route through [user-notes.md](user-notes.md) § Mandatory escalation set.");
 			const deferredRule = normalizeText("Deferred work becomes a tracked issue. A project with no issue tracker records the deferral in the owning research log. Disclose relevant concerns in the user package.");
 			const occurrencesOf = (text, fragment) => text.split(fragment).length - 1;

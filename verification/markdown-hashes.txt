@@ -88,4 +88,4 @@ ff583b7578b55fa21887fde2ca828eb55a6d9efa0851112d830802eae1cc86e4  research/opena
 
 266812b566da8edc5d90936b39bfc7d13e160cd42291aba56b6e00eac3cf5077  research/writing-threshold-provenance.md
 
-ae5496d9d044f9b3843e925ad2be44cfbf0e8c232da4172a314e1e171c8cdf17  verification/README.md
+02385104e8d7ade6845c188d6a9f8bacf576a9dc1d681620c37e234b2c86d0da  verification/README.md
