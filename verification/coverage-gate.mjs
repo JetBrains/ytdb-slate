@@ -19,6 +19,8 @@ function usage(message) {
   console.error("usage: coverage-gate.mjs --base <ref> --lcov <file> [--head <ref>] [--repo <dir>] [--threshold-lines N] [--threshold-branches N] [--include <glob>]");
   process.exit(2);
 }
+const SMALL_BRANCH_FLOOR = 70;
+const BRANCH_FLOOR_BOUNDARY = 20;
 const options = { repo: ".", head: "HEAD", line: 85, branch: 85, includes: [] };
 for (let i = 2; i < process.argv.length; i++) {
   const flag = process.argv[i];
@@ -311,7 +313,8 @@ for (const [name, added] of scoped) {
 const linePct = lineTotal ? 100 * lineHit / lineTotal : undefined;
 const branchPct = branchTotal ? 100 * branchHit / branchTotal : undefined;
 const pct = (value) => value === undefined ? "n/a" : `${value.toFixed(2)}%`;
-console.log(`OVERALL: lines ${lineHit}/${lineTotal}=${pct(linePct)} (floor ${options.line.toFixed(2)}%) | branches ${branchHit}/${branchTotal}=${pct(branchPct)} (floor ${options.branch.toFixed(2)}%)`);
+const branchFloor = branchTotal < BRANCH_FLOOR_BOUNDARY ? SMALL_BRANCH_FLOOR : options.branch;
+console.log(`OVERALL: lines ${lineHit}/${lineTotal}=${pct(linePct)} (floor ${options.line.toFixed(2)}%) | branches ${branchHit}/${branchTotal}=${pct(branchPct)} (floor ${SMALL_BRANCH_FLOOR.toFixed(2)}% for 1-${BRANCH_FLOOR_BOUNDARY - 1} branches; ${options.branch.toFixed(2)}% for >=${BRANCH_FLOOR_BOUNDARY} branches)`);
 
 const failures = [...classifierFailures];
 const warnings = [];
@@ -319,8 +322,7 @@ if (uncommitted.size) warnings.push(`${uncommitted.size} uncommitted in-scope fi
 if (lineTotal === 0) warnings.push("no changed executable line had an LCOV DA record; manual review is required");
 else if (linePct + Number.EPSILON < options.line) failures.push(`line patch coverage ${linePct.toFixed(2)}% is below ${options.line.toFixed(2)}%`);
 if (branchTotal === 0) warnings.push("zero changed branches; branch coverage is not auto-passed and needs manual review");
-else if (branchTotal < 20) warnings.push(`only ${branchTotal} changed branches (<20); branch threshold is advisory and needs manual review`);
-else if (branchPct + Number.EPSILON < options.branch) failures.push(`branch patch coverage ${branchPct.toFixed(2)}% is below ${options.branch.toFixed(2)}%`);
+else if (branchPct + Number.EPSILON < branchFloor) failures.push(`branch patch coverage ${branchPct.toFixed(2)}% is below ${branchFloor.toFixed(2)}%`);
 if (directiveFailures.length) failures.push(`coverage directives without a diff-recorded reason: ${directiveFailures.join(", ")}`);
 for (const warning of warnings) console.log(`WARN: ${warning}`);
 for (const failure of failures) console.log(`FAIL: ${failure}`);

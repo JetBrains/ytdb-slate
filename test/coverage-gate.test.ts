@@ -251,9 +251,10 @@ test("an uncovered addition in an LCOV-recorded file gets a synthetic branch (WH
   write(repo, "extension/sample.ts", "export const before = 1;\nexport function fresh(value: number) {\n  if (value > 0) return value;\n  return 0;\n}\n");
   commit(repo);
   const result = runGate(repo, base, sourceLcov(["2,1", "3,1", "4,0", "5,1"]), ["--threshold-lines", "0"]);
-  assert.equal(result.status, 0);
+  assert.equal(result.status, 1, result.stdout);
   assert.match(result.stdout, /branches 0\/1=0\.00%.*synthetic branch/i);
   assert.match(result.stdout, /branch denominator 1/);
+  assert.match(result.stdout, /FAIL: branch patch coverage 0\.00% is below 70\.00%/);
 });
 
 test("coverage directives require a substantive reason after the directive (WH26, RG24, RG25)", (t) => {
@@ -483,8 +484,8 @@ test("a covered regex after a long non-braced if condition stays executable (RG3
   const result = runGate(repo, base, readFileSync(lcovPath, "utf8"));
   assert.equal(result.status, 0, result.stdout);
   assert.match(result.stdout, /lines 9\/9=100\.00%/);
-  assert.match(result.stdout, /VERDICT: WARN/);
-  assert.doesNotMatch(result.stdout, /CLASSIFIER VOID|FAIL:/);
+  assert.match(result.stdout, /VERDICT: PASS/);
+  assert.doesNotMatch(result.stdout, /CLASSIFIER VOID|FAIL:|WARN:/);
 });
 
 test("fixture Git execution ignores real redirect poison and preserves complete decoy state", { timeout: 20_000 }, (t) => {
@@ -1228,21 +1229,47 @@ test("CRLF additions and duplicate, malformed, truncated, and foreign LCOV recor
   }
 });
 
-test("branch minimum-denominator boundary is 19 WARN, 20 enforced, 21 enforced", (t) => {
-  function branchCase(count: number, hits: number) {
-    const { repo, base } = fixture(t);
-    write(repo, "extension/sample.ts", "export const before = 1;\nexport const branchy = 2;\n");
-    commit(repo, `branches-${count}`);
-    const branches = Array.from({ length: count }, (_, index) => `2,0,${index},${index < hits ? 1 : 0}`);
-    return runGate(repo, base, sourceLcov(["2,1"], branches));
+test("branch floors enforce 70% below 20 branches and the configured floor at 20 or more", async (t) => {
+  for (const [count, hits, threshold, verdict] of [
+    [19, 0, 85, "FAIL"],
+    [19, 13, 85, "FAIL"],
+    [19, 14, 85, "PASS"],
+    [10, 7, 85, "PASS"],
+    [3, 2, 85, "FAIL"],
+    [1, 1, 85, "PASS"],
+    [1, 0, 85, "FAIL"],
+    [20, 16, 85, "FAIL"],
+    [20, 17, 85, "PASS"],
+    [21, 18, 85, "PASS"],
+    [0, 0, 85, "WARN"],
+    [19, 14, 95, "PASS"],
+    [19, 13, 0, "FAIL"],
+    [20, 16, 75, "PASS"],
+  ] as const) {
+    await t.test(`${hits}/${count}, configured floor ${threshold}%: ${verdict}`, (t) => {
+      const { repo, base } = fixture(t);
+      write(repo, "extension/sample.ts", "export const before = 1;\nexport const branchy = 2;\n");
+      commit(repo, `branches-${count}`);
+      const branches = Array.from({ length: count }, (_, index) => `2,0,${index},${index < hits ? 1 : 0}`);
+      const result = runGate(repo, base, sourceLcov(["2,1"], branches),
+        ["--threshold-branches", String(threshold)]);
+      assert.equal(result.status, verdict === "FAIL" ? 1 : 0, result.stdout);
+      assert.match(result.stdout, new RegExp(`VERDICT: ${verdict} —`));
+      assert.match(result.stdout, /floor 70\.00% for 1-19 branches;/);
+      assert.ok(result.stdout.includes(`${threshold.toFixed(2)}% for >=20 branches`), result.stdout);
+      assert.ok(result.stdout.includes(`branches ${hits}/${count}=`), result.stdout);
+      if (verdict === "FAIL") {
+        const floor = count < 20 ? 70 : threshold;
+        const percentage = (100 * hits / count).toFixed(2);
+        assert.ok(result.stdout.includes(`FAIL: branch patch coverage ${percentage}% is below ${floor.toFixed(2)}%`), result.stdout);
+      } else {
+        assert.doesNotMatch(result.stdout, /FAIL:/);
+      }
+      if (count === 0) {
+        assert.match(result.stdout, /WARN: zero changed branches; branch coverage is not auto-passed and needs manual review/);
+      } else {
+        assert.doesNotMatch(result.stdout, /WARN:/);
+      }
+    });
   }
-  const nineteen = branchCase(19, 0);
-  assert.equal(nineteen.status, 0);
-  assert.match(nineteen.stdout, /only 19 changed branches \(<20\)/);
-  const twenty = branchCase(20, 0);
-  assert.equal(twenty.status, 1);
-  assert.match(twenty.stdout, /branch patch coverage 0\.00% is below/);
-  const twentyOne = branchCase(21, 18);
-  assert.equal(twentyOne.status, 0);
-  assert.match(twentyOne.stdout, /branches 18\/21=85\.71%/);
 });
