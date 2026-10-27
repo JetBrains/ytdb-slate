@@ -499,7 +499,7 @@ These are settled decisions. Read them as scope, not as a backlog.
 - **Not a gate.** The checker hook is diagnostic. It cannot fail a turn. The
   reminder carries selected findings as guidance, not as a checker verdict.
 - **Not universal.** The ten writing requirements cover prose written for
-  people: documents, README text, pull request and commit text, issues,
+  people: documents, maps, designs, package drafts, README text, pull request and commit text, issues,
   review comments, release notes and messages to the user. Research
   logs, worker task text and this repository's own agent instruction
   file are excluded from those requirements, because a dense exact register

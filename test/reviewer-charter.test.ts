@@ -84,7 +84,7 @@ test("workerPreamble keeps unchanged reviewer guidance independent of writing tr
   }
   assert.deepEqual(
     [untrusted, trusted, untrustedReviewer, trustedReviewer].map((preamble) => Buffer.byteLength(preamble)),
-    [1317, 2414, 3472, 4016],
+    [1317, 2479, 3472, 4016],
   );
   assert.equal(untrustedReviewer.match(/^- /gm)?.length, 10);
   assert.equal(trustedReviewer.match(/^- /gm)?.length, 10);
@@ -165,8 +165,9 @@ test("real worker assembly delivers the charter only to review thread types", as
           assert.equal(text.split(item).length - 1, expected, `${permission}/${type ?? "untyped"}: ${item}`);
         }
         assert.equal(text.split(WRITING_SCOPE_EXCLUSION).length - 1, permitted ? 1 : 0);
+        assert.equal(text.split("A high-level design remains governed even inside a research log.").length - 1, count);
         for (const { text: item } of DESIGN_REQUIREMENTS) assert.equal(text.includes(item), false);
-        assert.equal(Buffer.byteLength(text), permitted ? (hasCharter ? 4016 : 2414) : (hasCharter ? 3472 : 1317));
+        assert.equal(Buffer.byteLength(text), permitted ? (hasCharter ? 4016 : 2479) : (hasCharter ? 3472 : 1317));
       }
     }
     assert.equal(opened.length, cases.length * 4);

@@ -87,8 +87,8 @@ export function isJudgementThreadType(type: unknown): type is (typeof JUDGEMENT_
 // import that deep subpath. The node test pins this copy to pi-ai's declaration.
 export const OPENAI_PROMPT_CACHE_KEY_MAX_LENGTH = 64;
 
-// Common writing guidance reaches every trusted worker configuration.
-// Reviewer guidance is added only for judgement thread types.
+// Configuration permission gates writing guidance in both role forms.
+// Judgement thread types receive the short form and reviewer charter.
 export const WORKER_PREAMBLE = [
 	"You are a worker thread executing ONE bounded action for an orchestrator.",
 	"Do the action fully, then stop.",
@@ -108,12 +108,15 @@ const WORKER_CURRENT_STATE_GUIDANCE = "Describe only the current state in the RE
 export const REVIEWER_WRITING_GUIDANCE =
 	`Use short, active sentences. Write sentences a non-native reader understands on one reading. Do not use semicolons or contractions. Apply these rules to your prose. ${WRITING_SCOPE_EXCLUSION} ${WORKER_CURRENT_STATE_GUIDANCE}`;
 
+export const WORKER_DESIGN_SCOPE_EXCEPTION = "A high-level design remains governed even inside a research log.";
+
 export const WORKER_WRITING_GUIDANCE = [
 	`${WRITING_REQUIREMENTS_TITLE}:`,
 	WRITING_STYLE_RULES.map(({ text }) => text).join(" "),
 	renderWritingDoctrineRequirements(),
 	"",
 	WRITING_SCOPE_EXCLUSION,
+	WORKER_DESIGN_SCOPE_EXCEPTION,
 	WORKER_CURRENT_STATE_GUIDANCE,
 ].join("\n");
 

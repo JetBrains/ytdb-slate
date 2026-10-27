@@ -953,6 +953,11 @@ exact current production renders are:
 | same boundary composition plus deferred issues | 6 | 26169 | 90 |
 | valid shipped policy plus 88 capped tools, source and legacy log | 6 | 28039 | 173 |
 
+Complete worker writing guidance measures 1161 UTF-8 bytes, including the design-scope exception.
+The permitted non-review preamble measures 2479 bytes.
+Its open-change record-writing system measures 3278 bytes.
+The short reviewer writing form remains 543 bytes, with a 4016-byte permitted review preamble.
+
 The capped worker baseline has two units and four tools. Each unit label has 128
 characters. Each tool name has 64 characters. Each description has 140
 characters. The dogfood fixture reads `.pi/slate.json` and represents its two
