@@ -10,7 +10,7 @@ aad42d98ec655236f5bfb6d440a9f1d8b197021b7a359ecdad02eda057af5670  README.md
 
 33eed092de61cd847813460d9d454ec84e6b507358168da61c939bf42b00ccc9  docs/change-records.md
 
-9e610485471383ce71317ce4d84bdbfad62a3f0c43eb0c49353ceead485131ad  docs/configuration.md
+84dcfbeb2f215665c7562f6d7fe37857ceb8438cfc4f7dc80eb9a94296eae517  docs/configuration.md
 
 704db059abf2fd3ee6dba021014eec556c77f9f02e157ef8cea520611bf0337c  docs/context-budget.md
 

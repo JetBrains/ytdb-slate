@@ -239,7 +239,7 @@ test("retirement at shutdown and replacement stops a background query before ter
 		const config = {};
 		// The dispatcher receives zero-delay settings through this bounded fixture.
 		const start = t.mock.method(NotificationDispatcher.prototype, "dialog");
-		const settings = resolveNotificationSettings({ minimumDelayMs: 0, cooldownMs: 0 }, undefined, assert.fail);
+		const settings = resolveNotificationSettings({ minimumDelayMs: 0 }, undefined, assert.fail);
 		bindNotificationSettings(config, settings, undefined, assert.fail);
 		events.start(config, ctx);
 		try {
@@ -472,7 +472,7 @@ test("bell waits for bounded tmux preparation before the common admission", { ti
 		if (args[1] === TMUX_QUERY_TIMEOUT_MS) expire = args[0] as () => void;
 		return original(...args);
 	});
-	const dispatcher = new NotificationDispatcher({ mode: "tui", cwd: "/folder", settings: resolveNotificationSettings({ minimumDelayMs: 0, cooldownMs: 0 }, undefined, assert.fail),
+	const dispatcher = new NotificationDispatcher({ mode: "tui", cwd: "/folder", settings: resolveNotificationSettings({ minimumDelayMs: 0 }, undefined, assert.fail),
 		channels: createTerminalNotificationChannels({ mode: "tui", settings: { sequences: "auto" }, environment: f.environment, output: out.stream, warn: assert.fail }),
 		current: () => true, idle: () => true, queued: () => false, recovering: () => false,
 		schedule: (_delay, callback) => { callbacks.add(callback); return () => { callbacks.delete(callback); }; },
@@ -486,14 +486,14 @@ test("bell waits for bounded tmux preparation before the common admission", { ti
 	} finally { dispatcher.retire(); await flush(); }
 });
 
-test("activity, dialog close and new run cancel a real pending query without consuming cooldown", { timeout: 3000 }, async (t) => {
+test("activity, dialog close and new run cancel a real pending query before delivery", { timeout: 3000 }, async (t) => {
 	const f = scratch(t);
 	for (const boundary of ["activity", "close", "new-run", "unchanged"] as const) {
 		const query = fakeQuery(t, "pending"), out = output();
 		let now = 0;
 		const timers = new Set<{ at: number; callback: () => void }>();
 		const dispatcher = new NotificationDispatcher({ mode: "tui", cwd: "/folder",
-			settings: resolveNotificationSettings({ minimumDelayMs: 100, cooldownMs: 1000 }, undefined, assert.fail),
+			settings: resolveNotificationSettings({ minimumDelayMs: 100 }, undefined, assert.fail),
 			channels: createTerminalNotificationChannels({ mode: "tui", settings: { sequences: "auto" }, environment: f.environment, output: out.stream, warn: assert.fail }),
 			current: () => true, idle: () => true, queued: () => false, recovering: () => false, now: () => now,
 			schedule: (delay, callback) => { const timer = { at: now + delay, callback }; timers.add(timer); return () => { timers.delete(timer); }; },
@@ -511,8 +511,8 @@ test("activity, dialog close and new run cancel a real pending query without con
 			query.execute.mock.restore();
 			const successor = fakeQuery(t, framed("Konsole"));
 			runWait(); await advance(100); await advance(0);
-			if (boundary !== "unchanged") { await successor.started; await flush(); }
-			assert.equal(out.writes.length, 2, "cancelled query consumed no cooldown, but admitted control did");
+			await successor.started; await flush();
+			assert.equal(out.writes.length, boundary === "unchanged" ? 4 : 2, "the successor delivers after the previous query finishes");
 			successor.execute.mock.restore();
 		} finally { dispatcher.retire(); await flush(); query.execute.mock.restore(); }
 	}

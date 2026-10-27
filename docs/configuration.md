@@ -51,8 +51,8 @@ The project must be trusted before Slate reads this file. Start a new session af
 | `notifications.push.enabled` | boolean | `false` | Home permission for phone push. A trusted project can disable it but cannot enable it. Configuration validation does not contact a server. |
 | `notifications.detail` | `generic` \| `project` \| `message` | `generic` | Text permission for terminal and native channels. `generic` permits event text. `project` also permits the folder name. `message` also permits the agent message. A trusted project can only lower the home permission. |
 | `notifications.pushDetail` | `generic` \| `project` \| `message` | `generic` | Independent text permission for push, with the same levels. Only home can raise it. A trusted project can lower it. General detail does not raise push detail. |
-| `notifications.minimumDelayMs` | number | `30000` | Minimum interval since input, in milliseconds. Accept a nonnegative safe integer. A trusted project value wins. |
-| `notifications.cooldownMs` | number | `60000` | Minimum interval between events of the same type, in milliseconds. Accept a nonnegative safe integer. A trusted project value wins. |
+| `notifications.minimumDelayMs` | number | `120000` | Minimum interval since input, in milliseconds. Accept a nonnegative safe integer. A trusted project value wins. |
+| `notifications.cooldownMs` | number | ignored | This removed setting has no effect. Slate reports it at session start for each source that contains it. Remove it from `slate.json`. |
 | `notifications.sequences` | `auto` \| string[] | `auto` | An explicit list must contain distinct values from `osc9`, `osc777`, and `osc99`. The list must not be empty. List order is preserved. A trusted project value wins. |
 | `notifications.push.server` | string | — | Accept HTTPS (Hypertext Transfer Protocol Secure) addresses from home configuration for encrypted web traffic. Accept HTTP (Hypertext Transfer Protocol) only for loopback addresses, which refer to this computer. Allow `localhost`, IPv4 (Internet Protocol version 4) addresses starting with `127.`, or `::1`. HTTP connections also require a resolved loopback address. Reject embedded credentials, query strings, and fragments. The request path ends with `/`. An invalid address disables push with a generic warning. Slate ignores project destination and credential fields with one generic warning. |
 | `notifications.push.topic` | string | — | Home-only topic name of 1 to 64 characters. Accept ASCII (American Standard Code for Information Interchange) letters `A-Z` and `a-z`, digits `0-9`, `_`, or `-`. Enabled push requires both server and topic. An invalid or missing destination disables push. |
@@ -89,7 +89,7 @@ The project must be trusted before Slate reads this file. Start a new session af
 
 Notification settings define permissions and text policy. Slate validates these settings at session start. Slate registers terminal, bell, native and push delivery channels. A channel is one delivery route. Slate registers no notification tool. See [Notifications](#notifications) for automatic delivery and setup.
 
-Invalid values produce generic warnings that name the setting and its home or project source without showing supplied values. Invalid channel values use the channel defaults, combined with home permission for project values. Invalid detail falls back to `generic`. Invalid intervals use their defaults. Invalid sequence selection uses `auto`. Invalid or incomplete push destinations disable push.
+Invalid values produce generic warnings that name the setting and its home or project source without showing supplied values. Invalid channel values use the channel defaults, combined with home permission for project values. Invalid detail falls back to `generic`. An invalid minimum delay uses its default. Invalid sequence selection uses `auto`. Invalid or incomplete push destinations disable push.
 
 ## Action concurrency and script workers
 
@@ -154,13 +154,13 @@ Closing the dialog cancels its pending wait.
 These events can also describe nonblocking overlays.
 An event proves an outstanding interaction, not that the agent has stopped.
 
-The default minimum delay is 30,000 milliseconds, or 30 seconds.
+The default minimum delay is 120,000 milliseconds, or two minutes.
+The same delay applies to run waits and dialog waits.
 The delay starts at settlement or dialog opening, whichever wait applies.
 Observed activity restarts the delay for a pending wait.
 
-The default cooldown is 60,000 milliseconds, or 60 seconds, between attempts of the same event type.
-Input-needed and error events have separate cooldowns.
-A wait that fails the cooldown check sends nothing.
+Each wait can notify after its delay if the other delivery checks pass.
+No cooldown limits delivery between waits.
 Slate does not repeatedly notify about the same wait.
 
 Before delivery, Slate checks that the wait still belongs to the current session.
@@ -169,13 +169,12 @@ A dialog wait requires an open observed dialog.
 Each channel permits at most one attempt at a time.
 A busy channel does not block the other channels.
 
-Change the delay and cooldown in home or trusted project configuration:
+Change the delay in home or trusted project configuration:
 
 ```json
 {
   "notifications": {
-    "minimumDelayMs": 30000,
-    "cooldownMs": 60000
+    "minimumDelayMs": 120000
   }
 }
 ```
@@ -436,7 +435,7 @@ Follow [Check delivery by hand](#check-delivery-by-hand) to isolate push and che
 The effective settings are the values Slate uses after resolving home and trusted project configuration.
 Send a short prompt.
 After the response settles, leave the session untouched for the effective `notifications.minimumDelayMs`, then allow time for delivery.
-The default delay is 30 seconds.
+The default delay is two minutes.
 Check actual phone receipt, not just a successful subscription.
 
 A public topic is not private storage.
@@ -521,24 +520,24 @@ Slate resolves these values from home and trusted project configuration.
    Use `notifications.terminal`, `notifications.native`, `notifications.bell` and `notifications.push.enabled` to select channels.
    For push, also supply the home destination described in [Phone push through ntfy](#phone-push-through-ntfy).
 2. Check trusted project configuration for settings that disable the selected channel.
-   Check `notifications.minimumDelayMs` and `notifications.cooldownMs` for timing overrides.
+   Check `notifications.minimumDelayMs` for a timing override.
+   Remove `notifications.cooldownMs` if present.
+   Slate ignores that key and warns at session start for each source that contains it.
 3. On Linux, check that `notify-send --help` lists `--app-name` before a native check.
    A helper without that option cannot deliver Slate's native notification.
 4. Start a new interactive session in a terminal with the required permissions.
    Send a short prompt, such as `Reply with OK`.
 5. After the response settles, leave the session untouched for the effective `notifications.minimumDelayMs`, then allow time for delivery.
-   The default delay is 30 seconds.
+   The default delay is two minutes.
    Check the intended desktop or phone for **Input needed**.
    For a bell-only check, check the terminal's audible or visual bell instead.
-6. Before checking a blocking extension dialog, wait for the effective `notifications.cooldownMs` to end after the previous input-needed attempt.
-   The default cooldown is 60 seconds.
-   If the attempt time is unknown, wait the full cooldown after step 5.
-   Open the dialog if one is available.
+6. Open a blocking extension dialog if one is available.
+   No cooldown requires a pause after the previous notification.
    Leave it untouched for the effective `notifications.minimumDelayMs`, then allow time for delivery.
    Check the selected channel, then answer the dialog.
 
-A dialog wait that expires during the cooldown sends nothing.
-Slate does not deliver that expired wait after the cooldown ends.
+Repeat the run check without an extra pause between waits.
+Each wait can notify after its minimum delay if the other delivery checks pass.
 Timing or channel settings can cause silence even when delivery works.
 
 Check operating system and terminal notification permissions if nothing appears.

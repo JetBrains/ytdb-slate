@@ -7,7 +7,6 @@ export interface NotificationSettings {
 	readonly detail: NotificationDetail;
 	readonly pushDetail: NotificationDetail;
 	readonly minimumDelayMs: number;
-	readonly cooldownMs: number;
 	readonly sequences: "auto" | readonly NotificationProtocol[];
 	readonly push: Readonly<{ enabled: boolean; server?: string; topic?: string; token?: string; username?: string; password?: string }>;
 }
@@ -16,7 +15,7 @@ const protocols: readonly NotificationProtocol[] = ["osc9", "osc777", "osc99"];
 const policies = new WeakMap<object, NotificationSettings>();
 export const NOTIFICATION_DEFAULTS: NotificationSettings = Object.freeze({
 	terminal: true, native: true, bell: true, detail: "generic", pushDetail: "generic",
-	minimumDelayMs: 30000, cooldownMs: 60000, sequences: "auto", push: Object.freeze({ enabled: false }),
+	minimumDelayMs: 120000, sequences: "auto", push: Object.freeze({ enabled: false }),
 });
 function object(value: unknown): Record<string, unknown> {
 	return value !== null && typeof value === "object" && !Array.isArray(value) ? Object.fromEntries(Object.entries(value)) : {};
@@ -31,6 +30,11 @@ export function resolveNotificationSettings(home: unknown, project: unknown, war
 		return object(value);
 	};
 	const h = group(home, "", "home"), p = group(project, "", "project");
+	for (const [source, settings] of [["home", h], ["project", p]] as const) {
+		if (Object.hasOwn(settings, "cooldownMs")) {
+			warn(`slate: notifications.cooldownMs in ${source} configuration is a removed setting and has no effect. Remove it from slate.json.`);
+		}
+	}
 	const bool = (value: unknown, fallback: boolean, key: string, source: "home" | "project"): boolean => {
 		if (value === undefined) return fallback;
 		if (typeof value === "boolean") return value;
@@ -52,7 +56,7 @@ export function resolveNotificationSettings(home: unknown, project: unknown, war
 		const permitted = detail(h[key], key, "home");
 		return p[key] === undefined ? permitted : details[Math.min(details.indexOf(permitted), details.indexOf(detail(p[key], key, "project")))]!;
 	};
-	const interval = (key: "minimumDelayMs" | "cooldownMs") => {
+	const interval = (key: "minimumDelayMs") => {
 		const value = Object.hasOwn(p, key) ? p[key] : h[key];
 		if (value === undefined) return NOTIFICATION_DEFAULTS[key];
 		if (Number.isSafeInteger(value) && (value as number) >= 0) return value as number;
@@ -100,7 +104,7 @@ export function resolveNotificationSettings(home: unknown, project: unknown, war
 		native: lowerChannel(h.native, p.native, true, "native"),
 		bell: lowerChannel(h.bell, p.bell, true, "bell"),
 		detail: lowerDetail("detail"), pushDetail: lowerDetail("pushDetail"),
-		minimumDelayMs: interval("minimumDelayMs"), cooldownMs: interval("cooldownMs"), sequences,
+		minimumDelayMs: interval("minimumDelayMs"), sequences,
 		push: Object.freeze(destination),
 	});
 }
