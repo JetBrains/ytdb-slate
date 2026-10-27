@@ -27,7 +27,7 @@ Record its start boundary immediately before its first owned commit, before writ
 Use the current change-branch head, not path-number arithmetic.
 Exclude bootstrap commits and base merges. Base merges occur only between ranges.
 Every non-marker commit inside the range belongs to that code track.
-Keep the recorded start unchanged.
+Keep the recorded start unchanged except during a user-chosen privacy rewrite.
 Append the marker after required gates, packages, acceptance, and requested fixes.
 Later feedback follows [user-notes.md](user-notes.md), not an extension of a closed range.
 

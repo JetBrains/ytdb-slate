@@ -64,6 +64,7 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
           if (focusedGroup) assert.ok(output.includes("all 53 surviving identities retain active rules →"), output);
           if (name.startsWith("history restoration:")) assert.ok(output.includes("history rules reject each restoration and accept benign discussion →"), output);
           if (name === "clean source") {
+            assert.equal(mutationCounts(output)["review-history"], 11);
             assert.equal(mutationCounts(output)["boundary-regression"], 25);
             assert.equal(mutationCounts(output)["delivery-boundaries"], 12);
             assert.equal(mutationCounts(output)["surviving-safeguards"], 53);
@@ -108,7 +109,7 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
       ["surviving", "A later aggregate package cannot authorize rewriting earlier user-reviewed ranges.", "An aggregate package authorizes every rewrite."],
       ["surviving", "Keep the local change branch and accepted-marker branches until root closure.", "Delete accepted branches before closure."],
       ["surviving", "Missing or contradictory history evidence pauses affected work.", "Continue without history evidence."],
-      ["surviving", "Do not rebase after user review except for a user-chosen privacy rewrite under the duties below.", "Rebase after user review."],
+      ["surviving", "Do not rebase except for a user-chosen privacy rewrite under the duties below.", "Rebase after user review."],
       ["surviving", "Before a privacy rewrite, keep reviewed and accepted heads reachable on a local branch.", "Rewrite before preserving reviewed heads."],
       ["surviving", "Keep it unchanged until root closure, even on rewrite conflicts.", "Move the preserved branch during rewrite conflicts."],
       ["surviving", "Log each preserved head and branch in its owning log.", "Do not record preserved heads."],
@@ -147,11 +148,21 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
       ["docs/recursive-workflow.md", "Before presenting work to the user, combine the implementation and fixes into a single commit."],
       ["docs/delivery-packages.md", "The pre-user-review cumulative-commit rule is the only routine rewrite exception while that rule exists."],
       ["docs/track-workflow.md", "Allow ordinary pre-review rebases and force-push updates."],
+      ["docs/review-rules.md", "Include the approved high-level and low-level designs in each implementation commit body."],
+      ["docs/pr-publishing.md", "Prior to user review, combine implementation and machine-review fixes into one commit."],
+      ["docs/user-notes.md", "Squash the implementation and review fixes before the user reviews them."],
+      ["docs/review-rules.md", "You may rebase and force-push before user review."],
+      ["docs/pr-publishing.md", "Never keep machine-review fixes as separate commits."],
     ]) {
       const original = readFileSync(join(fixture, file!), "utf8");
-      await check(`history restoration: ${rule}`, {
-        [file!]: original + "\n" + rule + "\n",
-      }, false, "contract-escalation-routing");
+      for (const text of [rule!, rule!.replace(/ /g, "\n")]) {
+        await check(`history restoration: ${text}`, {
+          [file!]: original + "\n" + text + "\n",
+        }, false, "contract-escalation-routing");
+      }
+    }
+    for (const rule of ["The implementation commit message must not include designs.", "Do not include designs in the implementation commit body."]) {
+      await check(`compliant history: ${rule}`, { "docs/new/history-control.md": rule + "\n" }, true, "contract-escalation-routing");
     }
     const deliveryFile = "docs/delivery-packages.md";
     const delivery = readFileSync(join(fixture, deliveryFile), "utf8");

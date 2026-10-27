@@ -808,8 +808,8 @@ The wrapper reports one `CHECK` line per identifier, one roster audit, and one
 summary. Exit 0 means every non-excluded check passed. Exit 1 means a failure, missing check,
 or strict `NOT RUN`. Exit 2 means the wrapper refused to start. The roster and
 summary output own the live count. The full suite has 208 checks plus the roster
-audit, for 209 result lines. Its independent mutation roster has 35 families and
-2,377 identities. The 53 surviving-safeguards identities preserve reviewed-state,
+audit, for 209 result lines. Its independent mutation roster has 36 families and
+2,360 identities. The 53 surviving-safeguards identities preserve reviewed-state,
 privacy, acceptance and delivery rules. The one-branch-rules family covers 32
 named violations. The audit-repairs family covers ten configuration, recursive
 pointer, delivery verification and README merge-advice cases. Each case accepts

@@ -730,7 +730,7 @@ For design markers, use [change-records.md](change-records.md)
 § Identifiers, code ranges, and design markers.
 Keep the original implementation and each machine-review fix as separate commits.
 Gates inspect each fix difference and the combined behavior.
-The user reviews both designs and implementation together.
+The user reviews the approved high-level design and the implementation together.
 Use the two-part Intent and Deviation-delta body in
 [blast-radius.md](blast-radius.md) § Commit discipline for drift and boundaries.
 
@@ -797,7 +797,7 @@ Never destroy the exact state the user reviewed.
 A later aggregate package cannot authorize rewriting earlier user-reviewed ranges.
 Keep the local change branch and accepted-marker branches until root closure.
 Use the local branch for delivery verification and resume.
-Do not rebase after user review except for a user-chosen privacy rewrite under the duties below.
+Do not rebase except for a user-chosen privacy rewrite under the duties below.
 Use an ordinary merge of a moved base only for conflicts or required checks, between code-track ranges.
 That merge belongs to no track and carries the change title under § Commit titles and bodies.
 

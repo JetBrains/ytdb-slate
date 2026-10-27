@@ -1,4 +1,4 @@
-82be1d05700330afb32026d1fa992bbf3ad034a46a27443dd4bd9e2d3ec6811d  AGENTS.md
+fc3796159e7a0b877a5189511a8c15654ef985ef77b8f8416c9f74d7bf853249  AGENTS.md
 
 ec4ee6e307ddae903eada2af0465e6f57926da1c4e85e4265ff434ae42ff92ef  README-GUIDELINES.md
 
@@ -8,11 +8,11 @@ aad42d98ec655236f5bfb6d440a9f1d8b197021b7a359ecdad02eda057af5670  README.md
 
 c3ec46232ae59a874141e6528bebf5a079f492e72048f86474166fde53d58d20  docs/blast-radius.md
 
-7a26d6898c86ee361259589bbce58bd1738faf62462ca0eb0bc466f1cc32acd6  docs/change-records.md
+8fe297b0468ad1529ac9f46f151d94a37270f172216d018948a1461062936e9d  docs/change-records.md
 
 9e610485471383ce71317ce4d84bdbfad62a3f0c43eb0c49353ceead485131ad  docs/configuration.md
 
-b73e8a6fdc88013c6463a73284d5c83749e0420facc3147777502f466c3a60d3  docs/context-budget.md
+bf1f7021a84103ad0eed77182e84205e2080aa3a109c6a3d33375e27ff9deb77  docs/context-budget.md
 
 8d65be127e9cf384eb6d12f4089a813d472046357ea0b4c1abc0dbe179b846ce  docs/delivery-packages.md
 
@@ -58,7 +58,7 @@ a527dcd58276be7808e0a284add5f1dc08036ee9a522db85a4d5aeab3dd7b2f2  docs/review-pe
 
 0a5e32799a1b0dc786b32ad2b01a2b363162ce73e75c0fac86896159daa47e52  docs/safety-and-trust.md
 
-8aab0043662db39bad95d88248ccb54115bd87c287b048aba788d64d2701e746  docs/track-workflow.md
+ad8885c1fdde099fbbbf3ff45234d30eee50d85aa71f2e1ba900204b837c0e72  docs/track-workflow.md
 
 f18298e3a2b41c6c77fb92e7410618df557e494374e4392b5085a626d00f01c8  docs/user-notes.md
 
@@ -88,4 +88,4 @@ ff583b7578b55fa21887fde2ca828eb55a6d9efa0851112d830802eae1cc86e4  research/opena
 
 266812b566da8edc5d90936b39bfc7d13e160cd42291aba56b6e00eac3cf5077  research/writing-threshold-provenance.md
 
-8d452885cd1fc42fd10d97ee2e8c1f952c1f965569675b0c83a2a4a29ccc7828  verification/README.md
+ae5496d9d044f9b3843e925ad2be44cfbf0e8c232da4172a314e1e171c8cdf17  verification/README.md
