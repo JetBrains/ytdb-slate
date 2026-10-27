@@ -52,7 +52,7 @@ function messageTail(message: NotificationMessage | undefined, error: boolean): 
 	return text || (error ? message?.errorMessage?.slice(-400) ?? "" : "");
 }
 
-/** One dispatcher owns waits, cooldowns, message references and channel attempts for one session. */
+/** One dispatcher owns waits, message references and channel attempts for one session. */
 export class NotificationDispatcher {
 	readonly #options: NotificationDispatcherOptions;
 	readonly #now: () => number;
@@ -69,7 +69,6 @@ export class NotificationDispatcher {
 	#runMessage?: NotificationMessage;
 	#lastMessage?: NotificationMessage;
 	readonly #signals = new Set<AbortSignal>();
-	readonly #cooldowns = new Map<NotificationEvent, number>();
 	readonly #preparing = new Map<NotificationEvent, Wait>();
 	readonly #attempts = new Map<NotificationChannel["name"], Attempt>();
 
@@ -179,7 +178,6 @@ export class NotificationDispatcher {
 		try {
 			return (wait.kind === "run" ? this.#run : this.#dialog) === wait && this.#current() &&
 				now - Math.max(wait.since, this.#activity) >= options.settings.minimumDelayMs &&
-				now - (this.#cooldowns.get(wait.event) ?? -Infinity) >= options.settings.cooldownMs &&
 				(wait.kind === "run" ? options.idle() && !options.queued() && !this.#recovering() : this.#starts > this.#ends);
 		} catch { return false; }
 	}
@@ -231,7 +229,7 @@ export class NotificationDispatcher {
 					} catch { return undefined; }
 					finally { ready = true; if (signal.aborted) this.#release(channel.name, attempt); }
 				}));
-				// No await separates the final common checks, cooldown and channel starts.
+				// No await separates the final common checks and channel starts.
 				if (!this.#eligible(wait)) {
 					if ((wait.kind === "run" ? this.#run : this.#dialog) === wait) this.#cancel(wait.kind);
 					cancel();
@@ -240,7 +238,6 @@ export class NotificationDispatcher {
 					return;
 				}
 				if (wait.kind === "run") this.#run = undefined; else this.#dialog = undefined;
-				this.#cooldowns.set(wait.event, this.#now());
 				for (const [index, { channel, attempt }] of reserved.entries()) {
 					attempt.accepted = true;
 					void (async () => {

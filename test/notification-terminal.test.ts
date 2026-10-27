@@ -179,7 +179,7 @@ test("terminal preparation snapshots identity and multiplexer hints before selec
 function dispatcherFixture(f: ReturnType<typeof channels>, config: object = {}) {
 	const timers = new Set<() => void>();
 	const dispatcher = new NotificationDispatcher({ mode: "tui", cwd: "/folder",
-		settings: resolveNotificationSettings({ minimumDelayMs: 0, cooldownMs: 0, ...config }, undefined, assert.fail),
+		settings: resolveNotificationSettings({ minimumDelayMs: 0, ...config }, undefined, assert.fail),
 		channels: f.channels, current: () => true, idle: () => true, queued: () => false, recovering: () => false,
 		schedule: (_delay, callback) => { timers.add(callback); return () => { timers.delete(callback); }; },
 	});

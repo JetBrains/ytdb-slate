@@ -12,7 +12,7 @@ import {
 import { bindNotificationSettings } from "../extension/notification-config.ts";
 import { registerNotificationEvents } from "../extension/notification-events.ts";
 
-const minimumDelayMs = 30, cooldownMs = 60, deadlineMs = 3000;
+const minimumDelayMs = 30, deadlineMs = 3000;
 function deferred<T>() {
 	let resolve!: (value: T) => void;
 	const promise = new Promise<T>((done) => { resolve = done; });
@@ -71,7 +71,7 @@ async function live(t: TestContext, realTimers = false) {
 		},
 	});
 	const config = {};
-	bindNotificationSettings(config, { minimumDelayMs, cooldownMs, native: true, terminal: false, bell: false }, undefined, assert.fail);
+	bindNotificationSettings(config, { minimumDelayMs, native: true, terminal: false, bell: false }, undefined, assert.fail);
 	const extension: ExtensionFactory = (pi) => {
 		const events = registerNotificationEvents(pi, {
 			currentLifecycle: () => true, recovering: () => false,
@@ -189,7 +189,7 @@ async function live(t: TestContext, realTimers = false) {
 	};
 }
 
-test("real settlement restarts the full delay on input and admits exact delay and cooldown boundaries", { timeout: 10_000 }, async (t) => {
+test("real settlement restarts the full delay on input and delivers each later wait", { timeout: 10_000 }, async (t) => {
 	const f = await live(t); await f.run();
 	assert.equal(f.calls, 1); assert.equal(f.timers.size, 1);
 	assert.equal(f.trace.filter((item) => item.event === "input").length, 1, "the session routes the submitted user prompt");
@@ -197,13 +197,13 @@ test("real settlement restarts the full delay on input and admits exact delay an
 	f.key("x"); await f.advance(minimumDelayMs - 1);
 	assert.equal(f.deliveries.length, 0, "a key restarts the full delay");
 	await f.advance(1); assert.deepEqual(f.deliveries, [{ title: "Input needed", body: "", at: 59 }]);
-	await f.advance(cooldownMs * 2); assert.equal(f.deliveries.length, 1, "one settlement sends only once");
+	await f.advance(minimumDelayMs * 4); assert.equal(f.deliveries.length, 1, "one settlement sends only once");
 	await f.run(); await f.advance(minimumDelayMs); assert.equal(f.deliveries.length, 2);
 	const accepted = f.time;
-	await f.run(); await f.advance(minimumDelayMs); assert.equal(f.deliveries.length, 2, "a repeat inside cooldown is dropped");
-	assert.equal(f.timers.size, 0, "a cooldown drop does not retry later");
-	await f.run(); await f.advance(minimumDelayMs - 1); assert.equal(f.deliveries.length, 2);
-	await f.advance(1); assert.equal(f.time, accepted + cooldownMs); assert.equal(f.deliveries.length, 3);
+	await f.run(); await f.advance(minimumDelayMs); assert.equal(f.deliveries.length, 3, "a repeat delivers after its own delay");
+	assert.equal(f.timers.size, 0, "a completed wait leaves no timer");
+	await f.run(); await f.advance(minimumDelayMs - 1); assert.equal(f.deliveries.length, 3);
+	await f.advance(1); assert.equal(f.time, accepted + minimumDelayMs * 2); assert.equal(f.deliveries.length, 4);
 });
 
 test("a held real pre-settlement handler starts the full run delay only after settlement", { timeout: 10_000 }, async (t) => {
@@ -227,31 +227,32 @@ test("a held real pre-settlement handler starts the full run delay only after se
 	} finally { settlement.release(); await within(running); }
 });
 
-test("a real settled wait that matures one millisecond before cooldown is dropped without retry", { timeout: 10_000 }, async (t) => {
+test("a second real settled wait delivers shortly after the first", { timeout: 10_000 }, async (t) => {
 	const f = await live(t); await f.run(); await f.advance(minimumDelayMs);
 	assert.deepEqual(f.deliveries, [{ title: "Input needed", body: "", at: 30 }]);
-	await f.advance(cooldownMs - minimumDelayMs - 1); await f.run();
-	assert.equal(f.time, 59); assert.equal(f.timers.size, 1);
-	await f.advance(minimumDelayMs);
-	assert.equal(f.time, 89); assert.equal(f.time - f.deliveries[0]!.at, cooldownMs - 1);
-	assert.equal(f.deliveries.length, 1, "the mature wait must not admit before the cooldown boundary");
-	assert.equal(f.timers.size, 0, "a cooldown drop must not leave a retry timer");
-	await f.advance(1); await f.advance(cooldownMs); assert.equal(f.deliveries.length, 1);
+	await f.advance(1); await f.run();
+	await f.advance(minimumDelayMs - 1); assert.equal(f.deliveries.length, 1);
+	await f.advance(1);
+	assert.deepEqual(f.deliveries, [
+		{ title: "Input needed", body: "", at: 30 },
+		{ title: "Input needed", body: "", at: 61 },
+	]);
+	assert.equal(f.timers.size, 0);
+	await f.advance(minimumDelayMs * 4); assert.equal(f.deliveries.length, 2);
 });
 
-test("real open dialog permits run admission and shares its waiting-for-input cooldown", { timeout: 10_000 }, async (t) => {
+test("real open dialog permits run admission and each wait delivers", { timeout: 10_000 }, async (t) => {
 	const f = await live(t); await f.run(); await f.advance(5);
 	const dialog = await f.open();
 	await f.advance(minimumDelayMs - 5);
 	assert.equal(f.dialogs.size, 1); assert.equal(f.deliveries.length, 1, "the run admits while the dialog is open");
 	assert.equal(f.deliveries[0]!.at, minimumDelayMs);
-	await f.advance(5); assert.equal(f.deliveries.length, 1, "the dialog cannot bypass the run cooldown");
+	await f.advance(5); assert.equal(f.deliveries.length, 2, "the dialog delivers after its own delay");
 	assert.equal(f.timers.size, 0); await dialog.close();
-	await f.advance(cooldownMs);
-	const next = await f.open(); await f.advance(minimumDelayMs); assert.equal(f.deliveries.length, 2);
+	const next = await f.open(); await f.advance(minimumDelayMs); assert.equal(f.deliveries.length, 3);
 	await next.close(); await f.run(); await f.advance(minimumDelayMs);
-	assert.equal(f.deliveries.length, 2, "the run cannot bypass the dialog cooldown");
-	await f.advance(cooldownMs); assert.equal(f.deliveries.length, 2, "dropped waits stay cancelled");
+	assert.equal(f.deliveries.length, 4, "a run delivers shortly after the dialog");
+	await f.advance(minimumDelayMs * 2); assert.equal(f.deliveries.length, 4, "completed waits do not repeat");
 });
 
 test("closing a real extension confirmation cancels its pending wait before the boundary", { timeout: 10_000 }, async (t) => {
@@ -259,7 +260,7 @@ test("closing a real extension confirmation cancels its pending wait before the 
 	assert.equal(f.calls, 0, "an extension command makes no model request");
 	await f.advance(minimumDelayMs - 1); await dialog.close();
 	assert.equal(f.timers.size, 0, "the close event cancels the pending timer");
-	await f.advance(1); await f.advance(cooldownMs); assert.deepEqual(f.deliveries, []);
+	await f.advance(1); await f.advance(minimumDelayMs * 2); assert.deepEqual(f.deliveries, []);
 	const next = await f.open(); await f.advance(minimumDelayMs); assert.equal(f.deliveries.length, 1);
 	await next.close();
 });
@@ -280,7 +281,7 @@ test("a real retry at a later clock time preserves the original open dialog dead
 		await f.advance(1);
 		assert.deepEqual(f.deliveries, [{ title: "Input needed", body: "", at: 30 }]);
 		assert.equal(f.runtime.session.isIdle, false); assert.equal(f.timers.size, 0);
-		await f.advance(cooldownMs); assert.equal(f.deliveries.length, 1);
+		await f.advance(minimumDelayMs * 2); assert.equal(f.deliveries.length, 1);
 		await dialog.close(); retry.release(); await within(running); await flush();
 		assert.equal(f.trace.filter((item) => item.event === "agent_settled").length, 1);
 	} finally { retry.releaseFailure(); retry.release(); await within(running); }
@@ -299,7 +300,7 @@ test("dialog input restarts the delay across a real retry and can notify while t
 		await f.advance(minimumDelayMs - 1); assert.equal(f.deliveries.length, 0);
 		await f.advance(1); assert.equal(f.deliveries.length, 1);
 		assert.equal(f.deliveries[0]!.title, "Input needed"); assert.equal(f.runtime.session.isIdle, false);
-		await f.advance(cooldownMs * 2); assert.equal(f.deliveries.length, 1, "an open dialog sends only once");
+		await f.advance(minimumDelayMs * 4); assert.equal(f.deliveries.length, 1, "an open dialog sends only once");
 		await dialog.close(); retry.release(); await within(running); await flush();
 		assert.equal(f.trace.filter((item) => item.event === "agent_settled").length, 1);
 		await f.advance(minimumDelayMs); assert.equal(f.deliveries.length, 2);

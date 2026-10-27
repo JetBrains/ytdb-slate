@@ -14,11 +14,13 @@ function resolve(home: unknown = undefined, project: unknown = undefined) {
 }
 test("defaults are immutable and every invalid notification setting warns without echoing values", () => {
 	assert.deepEqual(resolve().settings, NOTIFICATION_DEFAULTS);
-	assert.equal(resolve().settings.minimumDelayMs, 30000);
-	assert.equal(resolve().settings.cooldownMs, 60000);
+	assert.equal(NOTIFICATION_DEFAULTS.minimumDelayMs, 120000);
+	assert.equal(resolve().settings.minimumDelayMs, 120000);
+	assert.equal(Object.hasOwn(NOTIFICATION_DEFAULTS, "cooldownMs"), false);
+	assert.equal(Object.hasOwn(resolve().settings, "cooldownMs"), false);
 	assert.deepEqual(resolve().warnings, []);
 	for (const group of [null, [], 4, "secret"]) assert.equal(resolve(group).warnings.length, 1);
-	for (const key of ["terminal", "native", "bell", "detail", "pushDetail", "minimumDelayMs", "cooldownMs", "sequences"]) {
+	for (const key of ["terminal", "native", "bell", "detail", "pushDetail", "minimumDelayMs", "sequences"]) {
 		const result = resolve({ [key]: "private-value" });
 		assert.equal(result.warnings.length, 1, key);
 		assert.equal(result.settings[key as keyof typeof result.settings], NOTIFICATION_DEFAULTS[key as keyof typeof NOTIFICATION_DEFAULTS]);
@@ -36,7 +38,7 @@ test("warnings name the invalid notification group or setting and its source", (
 		for (const value of [null, [], 4, "private-value"]) {
 			assert.deepEqual(fromSource(value).warnings, [`slate: invalid notifications in ${source} configuration. Using a safe default.`]);
 		}
-		for (const key of ["terminal", "native", "bell", "detail", "pushDetail", "minimumDelayMs", "cooldownMs", "sequences", "push"]) {
+		for (const key of ["terminal", "native", "bell", "detail", "pushDetail", "minimumDelayMs", "sequences", "push"]) {
 			assert.deepEqual(fromSource({ [key]: "private-value" }).warnings,
 				[`slate: invalid notifications.${key} in ${source} configuration. Using a safe default.`]);
 		}
@@ -45,6 +47,24 @@ test("warnings name the invalid notification group or setting and its source", (
 	}
 	assert.deepEqual(resolve({ push: { ...destination, topic: "private/value" } }).warnings,
 		["slate: invalid notifications.push.topic in home configuration. Using a safe default."]);
+});
+test("removed cooldown keys warn once per source regardless of value and do not affect settings", () => {
+	const homeWarning = "slate: notifications.cooldownMs in home configuration is a removed setting and has no effect. Remove it from slate.json.";
+	const projectWarning = "slate: notifications.cooldownMs in project configuration is a removed setting and has no effect. Remove it from slate.json.";
+	for (const cooldownMs of [60000, 0, -1, "private-value", null, undefined, false, {}]) {
+		assert.deepEqual(resolve({ cooldownMs }).warnings, [homeWarning]);
+		assert.deepEqual(resolve(undefined, { cooldownMs }).warnings, [projectWarning]);
+		const result = resolve({ cooldownMs, minimumDelayMs: 15, native: false, detail: "message" },
+			{ cooldownMs, minimumDelayMs: 5, bell: false, detail: "project" });
+		assert.deepEqual(result.warnings, [homeWarning, projectWarning]);
+		assert.equal(result.settings.minimumDelayMs, 5);
+		assert.equal(result.settings.native, false);
+		assert.equal(result.settings.bell, false);
+		assert.equal(result.settings.detail, "project");
+		assert.equal(Object.hasOwn(result.settings, "cooldownMs"), false);
+		assert.equal(resolve({ cooldownMs, minimumDelayMs: 15 }).settings.minimumDelayMs, 15);
+	}
+	assert.deepEqual(resolve(Object.create({ cooldownMs: 1 })).warnings, []);
 });
 test("invalid project channel values combine documented defaults with home permission", () => {
 	for (const invalid of ["false", null, 0, [], {}]) {
@@ -100,10 +120,9 @@ test("separate detail permissions compose monotonically for every home and proje
 	}
 });
 test("trusted project timing and sequence values replace home settings with exact validation", () => {
-	assert.deepEqual(resolve({ minimumDelayMs: 10, cooldownMs: 20, sequences: ["osc9"] }, { minimumDelayMs: 0, cooldownMs: 1, sequences: ["osc99", "osc777"] }).settings.sequences, ["osc99", "osc777"]);
+	assert.deepEqual(resolve({ minimumDelayMs: 10, sequences: ["osc9"] }, { minimumDelayMs: 0, sequences: ["osc99", "osc777"] }).settings.sequences, ["osc99", "osc777"]);
 	assert.equal(resolve({ minimumDelayMs: 10 }, { minimumDelayMs: 0 }).settings.minimumDelayMs, 0);
-	assert.equal(resolve({ cooldownMs: 20 }, { cooldownMs: 1 }).settings.cooldownMs, 1);
-	for (const key of ["minimumDelayMs", "cooldownMs"] as const) {
+	for (const key of ["minimumDelayMs"] as const) {
 		for (const value of [-1, 0.5, Infinity, NaN, Number.MAX_SAFE_INTEGER + 1, null, false]) {
 			const result = resolve({}, { [key]: value });
 			assert.equal(result.settings[key], NOTIFICATION_DEFAULTS[key]);
@@ -190,13 +209,19 @@ test("loader ignores untrusted projects and replacement cannot manufacture home-
 	assert.equal(notificationSettings(Object.create(config)).push.enabled, false);
 	assert.equal(notificationSettings(undefined), NOTIFICATION_DEFAULTS);
 	rmSync(project);
-	writeFileSync(project, JSON.stringify({ notifications: { push: { enabled: true, server: "https://attacker.example" }, minimumDelayMs: 1 } }));
+	writeFileSync(project, JSON.stringify({ notifications: { cooldownMs: "ignored", push: { enabled: true, server: "https://attacker.example" }, minimumDelayMs: 1 } }));
+	loadConfig(cwd, false, warn);
+	assert.deepEqual(warnings, [], "an untrusted project containing the removed key is not read");
 	const reloaded = loadConfig(cwd, true, warn);
 	assert.deepEqual(notificationSettings(reloaded).push, destination);
 	assert.equal(notificationSettings(reloaded).minimumDelayMs, 1);
 	assert.deepEqual(reloaded.notifications, { ...notificationSettings(reloaded), push: { enabled: true } });
 	assert.doesNotMatch(JSON.stringify(reloaded), /private\.example|private-topic|secret-token/);
-	assert.deepEqual(warnings, ["slate: ignoring home-only notification push fields in project configuration."]);
+	assert.equal(Object.hasOwn(reloaded.notifications!, "cooldownMs"), false);
+	assert.deepEqual(warnings, [
+		"slate: notifications.cooldownMs in project configuration is a removed setting and has no effect. Remove it from slate.json.",
+		"slate: ignoring home-only notification push fields in project configuration.",
+	]);
 });
 const hostile = String.fromCodePoint(...Array.from({ length: 32 }, (_, i) => i), ...Array.from({ length: 33 }, (_, i) => 127 + i), 0x61c, 0x200e, 0x200f, 0x2028, 0x2029, 0x202a, 0x202b, 0x202c, 0x202d, 0x202e, 0x2066, 0x2067, 0x2068, 0x2069);
 test("all text detail levels remove controls, limit bytes and expose only permitted information", () => {
