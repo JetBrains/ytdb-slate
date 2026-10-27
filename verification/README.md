@@ -25,8 +25,10 @@ discovery and contains no overlap or duplicate. Host coverage is not merged,
 concatenated, filtered, or credited.
 Jiti-loaded code gets no patch-coverage credit because its byte offsets do not match the TypeScript source. In the native test process, each launch site that loads extension code through jiti must disable coverage collection. Set an own `NODE_V8_COVERAGE` child-environment key to `undefined`, or unset the variable in the shell. Otherwise, jiti records overwrite native line counts. The host process collects jiti coverage in its separate host LCOV, which gets no patch-coverage credit.
 Native child processes keep coverage unless a test excludes it.
-The existing source-authoritative denominator, 85 percent line and branch floors, and
-small-branch-denominator warning policy remain unchanged.
+The gate uses source-authoritative denominators and enforces an 85 percent line floor.
+For 1–19 changed branches, it enforces a fixed 70 percent branch floor.
+At 20 or more changed branches, it enforces the configured branch floor, which defaults to 85 percent.
+Zero changed branches, zero line records, and uncommitted in-scope files produce WARN with exit 0 and require manual disposition.
 
 ## Continuous integration
 
