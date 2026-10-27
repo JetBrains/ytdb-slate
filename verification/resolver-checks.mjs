@@ -1461,14 +1461,14 @@ try {
 			dogfood: metrics(await doctrine(dogExtensions, () => dogRuntime, true, dogConfig)),
 		};
 		const exact = {
-			prompt: { portable: 3596, lines: 11, paths: 0 }, trusted: { portable: 8404, lines: 74, paths: 5 },
-			untrusted: { portable: 2711, lines: 33, paths: 4 }, draft: { portable: 8474, lines: 75, paths: 6 },
-			extensions: { portable: 9751, lines: 84, paths: 5 }, allTails: { portable: 9821, lines: 85, paths: 6 },
-			followUp: { portable: 9825, lines: 85, paths: 5 }, routing: { portable: 9804, lines: 85, paths: 5 },
-			draftFollowUp: { portable: 9895, lines: 86, paths: 6 }, draftRouting: { portable: 9870, lines: 86, paths: 6 },
-			followUpRouting: { portable: 9878, lines: 86, paths: 5 }, maximal: { portable: 9944, lines: 87, paths: 6 },
-			maximalOpen: { portable: 10142, lines: 88, paths: 6 }, maximalLinked: { portable: 10372, lines: 90, paths: 6 },
-			dogfood: { portable: 9069, lines: 86, paths: 6 },
+			prompt: { portable: 3596, lines: 11, paths: 0 }, trusted: { portable: 8397, lines: 74, paths: 5 },
+			untrusted: { portable: 2711, lines: 33, paths: 4 }, draft: { portable: 8467, lines: 75, paths: 6 },
+			extensions: { portable: 9744, lines: 84, paths: 5 }, allTails: { portable: 9814, lines: 85, paths: 6 },
+			followUp: { portable: 9818, lines: 85, paths: 5 }, routing: { portable: 9797, lines: 85, paths: 5 },
+			draftFollowUp: { portable: 9888, lines: 86, paths: 6 }, draftRouting: { portable: 9863, lines: 86, paths: 6 },
+			followUpRouting: { portable: 9871, lines: 86, paths: 5 }, maximal: { portable: 9937, lines: 87, paths: 6 },
+			maximalOpen: { portable: 10135, lines: 88, paths: 6 }, maximalLinked: { portable: 10365, lines: 90, paths: 6 },
+			dogfood: { portable: 9062, lines: 86, paths: 6 },
 		};
 		const doctrineBaselines = Object.values(rendered);
 		checkAll("doctrine-budget", "exact production renders match published portable baselines and every current baseline keeps five-percent reserve", [
@@ -1524,11 +1524,11 @@ try {
 			["19,401 rejected", aboveChars.promptText() === undefined && aboveChars.criticalErrors.some((x) => /19401 portable characters/.test(x)), aboveChars.criticalErrors],
 			["105 lines accepted", atLines.promptText()?.split("\n").length === 105, atLines.criticalErrors],
 			["106 lines rejected", aboveLines.promptText() === undefined && aboveLines.criticalErrors.some((x) => /106 lines/.test(x)), aboveLines.criticalErrors],
-			["whole-doctrine padding stays inside the supported label cap", labelAt === 118 && labelAt + 1 <= 128, { at: labelAt, above: labelAt + 1 }],
+			["whole-doctrine padding stays inside the supported label cap", labelAt === 125 && labelAt + 1 <= 128, { at: labelAt, above: labelAt + 1 }],
 			["whole-doctrine equality is accepted and first-over-limit is rejected", portable(wholeAt) === 26300 && portable(wholeAbove) === 26301 && portable(wholeAt) <= DOCTRINE_LIMITS.maximalChars && !(portable(wholeAbove) <= DOCTRINE_LIMITS.maximalChars), { at: portable(wholeAt), above: portable(wholeAbove), ceiling: DOCTRINE_LIMITS.maximalChars }],
-			["boundary compositions stay exact and below whole-doctrine cap", portable(featureOffDraft) === 26053 && portable(featureOffTight) === 26127 && portable(routingWithoutDrafts) === 26036 && portable(routingWithFollowUp) === 26110 && portable(routing) === 26102 && portable(deferred) === 26176 && [featureOffDraft, featureOffTight, routingWithoutDrafts, routingWithFollowUp, routing, deferred].every((text) => portable(text) <= DOCTRINE_LIMITS.maximalChars), { featureOffDraft: portable(featureOffDraft), featureOffTight: portable(featureOffTight), routingWithoutDrafts: portable(routingWithoutDrafts), routingWithFollowUp: portable(routingWithFollowUp), routing: portable(routing), deferred: portable(deferred) }],
+			["boundary compositions stay exact and below whole-doctrine cap", portable(featureOffDraft) === 26046 && portable(featureOffTight) === 26120 && portable(routingWithoutDrafts) === 26029 && portable(routingWithFollowUp) === 26103 && portable(routing) === 26095 && portable(deferred) === 26169 && [featureOffDraft, featureOffTight, routingWithoutDrafts, routingWithFollowUp, routing, deferred].every((text) => portable(text) <= DOCTRINE_LIMITS.maximalChars), { featureOffDraft: portable(featureOffDraft), featureOffTight: portable(featureOffTight), routingWithoutDrafts: portable(routingWithoutDrafts), routingWithFollowUp: portable(routingWithFollowUp), routing: portable(routing), deferred: portable(deferred) }],
 			["boundary composition line counts match the published tables", featureOffDraft.split("\n").length === 88 && featureOffTight.split("\n").length === 89 && routingWithoutDrafts.split("\n").length === 88 && routingWithFollowUp.split("\n").length === 89 && routing.split("\n").length === 89 && deferred.split("\n").length === 90, { featureOffDraft: featureOffDraft.split("\n").length, featureOffTight: featureOffTight.split("\n").length, routingWithoutDrafts: routingWithoutDrafts.split("\n").length, routingWithFollowUp: routingWithFollowUp.split("\n").length, routing: routing.split("\n").length, deferred: deferred.split("\n").length }],
-			["fresh valid-router over-cap control reaches whole-doctrine guard", portable(over) === 28046 && portable(over) > DOCTRINE_LIMITS.maximalChars, portable(over)],
+			["fresh valid-router over-cap control reaches whole-doctrine guard", portable(over) === 28039 && portable(over) > DOCTRINE_LIMITS.maximalChars, portable(over)],
 		]);
 	});
 
@@ -6563,7 +6563,8 @@ The accounting covers:`),
 				"The harness runs calls issued in one turn at the same time.",
 				"Cumulative token cost grows with the square of the number of turns because each turn resends the conversation history.",
 			];
-			const currentGuidance = "Use short, active sentences. Write sentences a non-native reader understands on one reading. Do not use semicolons or contractions. Apply these rules to your prose. Exclude research logs, worker task text, and the project's own agent instruction file. Describe only the current state in the README, docs, code comments and the project's own agent instruction file, not removed features or past behavior, but allow change records such as pull request descriptions, commit bodies, release notes and issues to describe removals and past behavior.";
+			const reviewGuidance = "Use short, active sentences. Write sentences a non-native reader understands on one reading. Do not use semicolons or contractions. Apply these rules to your prose. Exclude research logs, worker task text, and the project's own agent instruction file. Describe only the current state in the README, docs, code comments and the project's own agent instruction file, not removed features or past behavior, but allow change records such as pull request descriptions, commit bodies, release notes and issues to describe removals and past behavior.";
+			const currentGuidance = [`${reminder.WRITING_REQUIREMENTS_TITLE}:`, reminder.WRITING_STYLE_RULES.map(({ text }) => text).join(" "), reminder.renderWritingDoctrineRequirements(), "", reminder.WRITING_SCOPE_EXCLUSION, "Describe only the current state in the README, docs, code comments and the project's own agent instruction file, not removed features or past behavior, but allow change records such as pull request descriptions, commit bodies, release notes and issues to describe removals and past behavior."].join("\n");
 			const workerRawSource = readFileSync(join(REPO, "extension", "worker.ts"), "utf8");
 			const workerSource = workerRawSource
 				.replace(/\/\*[\s\S]*?\*\//g, " ")
@@ -6717,7 +6718,8 @@ The accounting covers:`),
 				["parallel tool guidance appears exactly once across every worker configuration", [worker.workerPreamble(false, false), worker.workerPreamble(true, false), worker.workerPreamble(false, true), worker.workerPreamble(true, true)].every((preamble) => preamble.split(parallelToolRule).length === 2), { base: worker.workerPreamble(false, false), writing: worker.workerPreamble(true, false), reviewer: worker.workerPreamble(false, true), both: worker.workerPreamble(true, true) }],
 				["the two cost-reason sentences appear exactly once across every worker configuration", [worker.workerPreamble(false, false), worker.workerPreamble(true, false), worker.workerPreamble(false, true), worker.workerPreamble(true, true)].every((preamble) => reasonSentences.every((sentence) => preamble.split(sentence).length === 2)), { sentences: reasonSentences, base: worker.workerPreamble(false, false) }],
 				["false trust omits writing guidance with or without the reviewer charter", worker.workerPreamble(false, false) === commonPreamble && !worker.workerPreamble(false, true).includes(currentGuidance), { plain: worker.workerPreamble(false, false), reviewer: worker.workerPreamble(false, true) }],
-				["true trust enables the current 1861-byte preamble with writing guidance", worker.WORKER_WRITING_GUIDANCE === currentGuidance && worker.workerPreamble(true, false) === `${commonPreamble} ${currentGuidance}` && Buffer.byteLength(worker.workerPreamble(true, false)) === 1861, worker.workerPreamble(true, false)],
+				["permitted non-review configuration enables the 2414-byte preamble with writing guidance", worker.WORKER_WRITING_GUIDANCE === currentGuidance && worker.workerPreamble(true, false) === `${commonPreamble} ${currentGuidance}` && Buffer.byteLength(worker.workerPreamble(true, false)) === 2414, worker.workerPreamble(true, false)],
+				["reviewer variants keep exact writing bytes", worker.REVIEWER_WRITING_GUIDANCE === reviewGuidance && worker.workerPreamble(true, true) === `${commonPreamble} ${reviewGuidance}\n${worker.REVIEWER_CHARTER}`, worker.REVIEWER_WRITING_GUIDANCE],
 				["reviewer variants match the current measured byte boundaries", Buffer.byteLength(worker.workerPreamble(false, true)) === 3472 && Buffer.byteLength(worker.workerPreamble(true, true)) === 4016, { reviewer: Buffer.byteLength(worker.workerPreamble(false, true)), both: Buffer.byteLength(worker.workerPreamble(true, true)) }],
 				["worker prompt uses permitted Slate configuration and passes charter and selected guidance to the system blocks", /const configPermitted = permitsSlateConfig\(opts\.config, trusted\)/.test(workerSource) && /appendSystemPrompt\s*:\s*workerSystemPromptBlocks\(configPermitted\s*,\s*opts\.reviewerCharter\s*===\s*true\s*,\s*opts\.reviewGuidance\s*,\s*promptDocs\s*,\s*opts\.changeGuidance\)\s*,/.test(workerSource), workerSource.match(/appendSystemPrompt\s*:[^\n]*/)?.[0] ?? "not found"],
 				["the removed writingCheck parameter and dispatch field are absent", !/writingCheck/.test(workerSource) && !/writingCheck/.test(threadsSource), { worker: workerSource.match(/writingCheck/)?.[0] ?? "absent", threads: threadsSource.match(/writingCheck/)?.[0] ?? "absent" }],

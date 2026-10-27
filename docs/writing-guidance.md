@@ -4,11 +4,8 @@ Slate ships an always-active writing convention and a command that measures
 prose against a mechanical proxy. Trusted projects receive the guidance in
 orchestrator mode. The command remains available.
 
-This document is reference documentation, not workflow doctrine. It
-is the definition of record for the rule set, the severity classes,
-the command line and the caps. The doctrine rule states the convention
-in a few lines and cites this file for everything else.
-A session pays for the detail only when it reads this file.
+This reference defines the rules, severity classes, command line and caps.
+The doctrine cites it for detail.
 
 ## Current-state documentation rule
 
@@ -118,8 +115,12 @@ design surfaces. The fourth surface needs `writing.showStatus: true`:
 2. **The design doctrine rule.** A final numbered rule requires the
    simplest-solution requirement, outcome-focused user-approved scope, and
    self-contained design updates.
-3. **The worker preamble guidance.** Every worker with permitted settings receives
-   writing guidance and a separate current-state documentation rule in its preamble.
+3. **The worker preamble guidance.** With permitted settings, researcher,
+   implementer, general and untyped workers receive the ten requirements.
+   Reviewers and adversaries receive short writing guidance.
+   Both forms include the scope exclusion and current-state rule.
+   Maps, designs and package drafts are governed prose.
+   A high-level design stays governed inside a research log.
 4. **The turn status line.** When `writing.showStatus` is `true`, the Slate status
    line gains `writing <n> fail, <m> style / <w> turns`. The default window is ten
    measured prose turns. The configured range is 3 through 100. Both counts
@@ -251,17 +252,17 @@ The title and retained style rules have five manual check copies. They are the
 and the full message in `verification/writing-reminder-canary.mjs`. This guide
 holds the document copy.
 
-The scope exclusion has three exact copies: this guide, resolver exact
-fixtures, and the integration canary. `AGENTS.md` carries equivalent
-scope prose, not an exact copy. All applicable copies must update in
-one commit.
+The scope exclusion has manual copies in this guide, resolver fixtures,
+`test/doctrine-contract.test.ts`, and the integration canary.
+`extension/worker.ts` derives both worker forms from the shared export.
+`AGENTS.md` carries equivalent scope prose. Update applicable copies together.
 
 The check counts literal occurrences and cannot detect a generated copy, while
 issue 317 tracks the general solution.
 
-`extension/mode.ts` renders the authoritative writing, style, title and design
-exports directly. The shell harness reads expected text from canary evidence.
-Neither file holds a manual roster copy.
+`extension/mode.ts` renders the shared exports directly.
+`extension/worker.ts` uses the writing title, style and roster exports.
+Neither holds a manual roster. The shell harness uses canary evidence.
 
 ## What it costs when it is on
 

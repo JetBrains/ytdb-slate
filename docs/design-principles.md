@@ -389,8 +389,7 @@ must supply their own worker support.
 
 ## 6. Runtime knowledge: what the orchestrator knows, and when
 
-Slate separates guidance that the orchestrator always receives from
-rationale that it reads on demand:
+Slate supplies doctrine each turn and rationale on demand:
 
 - **Tier 1 — always loaded.** The doctrine is the operational guidance
   assembled in `mode.ts`. Slate appends it to the system prompt each turn
@@ -403,22 +402,21 @@ rationale that it reads on demand:
   trusted projects or when the loader supplies home-only configuration.
   An untrusted project cannot supply these settings.
 
-  [context-budget.md](context-budget.md) records the doctrine measurements
-  and configuration table. The logical-model rule has one row for each
-  ordinary logical model. Its raw character count depends on the installed
-  documentation path. The budget document publishes portable character
-  counts that omit the installed directory prefix. It distinguishes runtime
-  rejection limits from regression baselines used by verification checks.
+  [context-budget.md](context-budget.md) records sizes and configuration.
+  The logical-model rule lists each ordinary model.
+  Portable character counts omit the installed document directory.
+  The document distinguishes runtime limits from test baselines.
 - **Tier 2 — on demand.** Doctrine rule 10 points to this document.
   The rule instructs the orchestrator to read it when explaining or changing
   Slate, or when making an unusual routing or compaction decision.
   The rule says to skip the read if the document is already in context.
   The rule is an instruction, not an enforced restriction on file reads.
 
-Worker guidance follows the same separation. `worker.ts` supplies the
-built-in worker preamble. Slate adds the reviewer evidence charter only to
-reviewer and adversarial thread types. Workers with permitted Slate
-configuration also receive writing guidance.
+`worker.ts` supplies the worker preamble.
+With permitted configuration, researcher, implementer, general and untyped workers
+receive the ten shared writing requirements. Reviewer and adversarial workers
+receive short writing guidance and the evidence charter.
+Both writing forms include the shared scope exclusion and current-state rule.
 
 The `prompt-docs.ts` loader reads optional role documents. Both document
 lists default to empty. `mode.ts` adds orchestrator documents through

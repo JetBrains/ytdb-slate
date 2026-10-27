@@ -12,11 +12,11 @@ c3ec46232ae59a874141e6528bebf5a079f492e72048f86474166fde53d58d20  docs/blast-rad
 
 9e610485471383ce71317ce4d84bdbfad62a3f0c43eb0c49353ceead485131ad  docs/configuration.md
 
-bf1f7021a84103ad0eed77182e84205e2080aa3a109c6a3d33375e27ff9deb77  docs/context-budget.md
+4e5e8781ceabb9411486e585f49d0ab9fba12680508fb86ad559bfdeae5959dd  docs/context-budget.md
 
 8d65be127e9cf384eb6d12f4089a813d472046357ea0b4c1abc0dbe179b846ce  docs/delivery-packages.md
 
-69e5205073cf9a835a8e02d8a22c0cac1650439d824c8af9cfd2756aeb664c01  docs/design-principles.md
+78fc992b74386581438522d9e51bb90cd100cd2d5c42103757b971e7edc02255  docs/design-principles.md
 
 5e2395fcc77c07d89326faaae1a2be687b3a8e8a95fe3bc36703f6776f3ce11f  docs/model-routing.md
 
@@ -62,7 +62,7 @@ ad8885c1fdde099fbbbf3ff45234d30eee50d85aa71f2e1ba900204b837c0e72  docs/track-wor
 
 f18298e3a2b41c6c77fb92e7410618df557e494374e4392b5085a626d00f01c8  docs/user-notes.md
 
-fb01fe5bf8b62a345287175f8b676442712661e7827c0c0fb8d5eb6c77d9928a  docs/writing-guidance.md
+ea45c0ca1c6df978b2ab7cb64eb50b15a8f02858153b7343ba4c4a557d83b6bd  docs/writing-guidance.md
 
 66bc810df6425aafe09fbfaea92ef4eaa14a9259c174cddcd05802ef3d66cd54  issues/001-user-supplied-model-profiles.md
 
@@ -88,4 +88,4 @@ ff583b7578b55fa21887fde2ca828eb55a6d9efa0851112d830802eae1cc86e4  research/opena
 
 266812b566da8edc5d90936b39bfc7d13e160cd42291aba56b6e00eac3cf5077  research/writing-threshold-provenance.md
 
-52e80529085a5a0d2ba9589285b0d4f013807a6fbcc5541b524ecbfb805599be  verification/README.md
+e2fb4ebf4ad9f7a20c487d14b7d690ab744020bb865210265b014163b2c58dfe  verification/README.md

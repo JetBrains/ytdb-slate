@@ -135,12 +135,12 @@ test("logical doctrine production renders match published portable measurements"
   ], paths: [], toolNames: [] };
   const metric = (text: string) => ({ portable: text.split(docsDirectory).join("").length, lines: text.split("\n").length, paths: text.split(docsDirectory).length - 1 });
   assert.deepEqual(metric(runtime.promptText()!), { portable: 3596, lines: 11, paths: 0 });
-  assert.deepEqual(metric(await renderDoctrine(runtime)), { portable: 8404, lines: 74, paths: 5 });
+  assert.deepEqual(metric(await renderDoctrine(runtime)), { portable: 8397, lines: 74, paths: 5 });
   assert.deepEqual(metric(await renderDoctrine(runtime, {}, false)), { portable: 2711, lines: 33, paths: 4 });
-  assert.deepEqual(metric(await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped)), { portable: 9944, lines: 87, paths: 6 });
+  assert.deepEqual(metric(await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped)), { portable: 9937, lines: 87, paths: 6 });
   const change = { current: `change-20260101T000000Z-${"a".repeat(32)}`, source: `change-20260101T000001Z-${"b".repeat(32)}`, legacy: true };
   const linked = await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped, change);
-  assert.deepEqual(metric(linked), { portable: 10372, lines: 90, paths: 6 });
+  assert.deepEqual(metric(linked), { portable: 10365, lines: 90, paths: 6 });
   assert.ok(metric(linked).portable * 1.05 < 26300);
   assert.match(linked, /Follow each log's first entry to read the full source chain and accounting/);
   assert.match(linked, /Read-only legacy root log: research-log.md/);
@@ -698,8 +698,7 @@ test("writing doctrine is active for trusted projects regardless of ignored writ
     "Propose a repeated regression as a non-goal candidate.",
     "Present what changed when you update a design.",
     "Assume the user knows software but not this project.",
-    "Apply these requirements to README and documentation text, code comments and pull request text.",
-    "Apply these requirements also to commit bodies, issues, review comments, release notes and user messages.",
+    "Apply these requirements to user-facing prose: README, docs, code comments, pull requests, commit bodies, issues, review comments, release notes, user messages, maps, designs and package drafts.",
     "Exclude research logs, worker task text, and the project's own agent instruction file.",
     "Read it only for an unusual prose decision.",
     "Skip it if already in context.",
