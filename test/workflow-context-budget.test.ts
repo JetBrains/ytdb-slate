@@ -103,11 +103,12 @@ function references(text: string, origin: string, installedPrefix = directory): 
         const target = definitions.get(label(alias || text));
         return target ? `(${target})` : use;
       });
-    const found = [...candidates.matchAll(/(?:[\w./<>`*{}-]+\/)?[\w*{}-]+\.md\b/g)];
+    const found = [...candidates.matchAll(/(?:[\w./<>`*{}-]+\/)?[\w*{}<>.-]+\.md\b/g)];
     for (const match of found) {
       const raw = match[0].replace(/^[<`]+/, "");
       let target: string;
       if (raw.startsWith(directory)) target = relative(directory, raw);
+      else if (/^(?:root-baseline-map|track-(?:<number>|[1-9]\d*(?:\.[1-9]\d*)*)-(?:baseline|implementation)-map)\.md$/.test(raw)) target = `variable:${raw}`;
       else if (raw.startsWith("/") || /[*{}]|slate-changes\//.test(raw) || /(?:research-log|implementer-report|design|vN|observation)\.md$/.test(raw)) target = `variable:${raw}`;
       else target = relative(directory, resolve(origin.startsWith("doctrine") ? directory : dirname(join(directory, origin)), raw));
       result.push({ source: origin, target, context: createHash("sha256").update(line).digest("hex") });
@@ -285,7 +286,10 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
     checkLimit(maximum, pair[1], `design-track maximum ${scenario}`);
     return `| ${publishing} | ${required} | ${tokens(required)} | ${maximum} | ${tokens(maximum)} | ${pair[1]} | ${tokens(pair[1])} |`;
   });
-  assert.deepEqual(measured[0], { key: "1 off ordinary", requiredBytes: 74483, maximumBytes: 143425, proposed: [78208, 150597] });
+  assert.deepEqual(measured[0], { key: "1 off ordinary", requiredBytes: 74885, maximumBytes: 143849, proposed: [78630, 151042] });
+  checkLimit(measured[0].maximumBytes, 143875, "child 1.2 reservation");
+  checkLimit(143425 + 700, 144492, "wider-limit control");
+  assert.throws(() => checkLimit(143425 + 700, 143875, "child reservation"), /child reservation/);
   const publication = table(rows, costs, entries);
   if (process.env.SLATE_PHASE_INSPECT === "1") console.log(JSON.stringify({ measured, references: scan(sources), publication, excluded, costs }));
   assert.equal(Object.keys(limits).length, 36);
@@ -295,6 +299,19 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
   const renamed = { ...limits, "unknown scenario": limits[expectedKeys[0]!] };
   delete renamed[expectedKeys[0]!];
   assert.throws(() => validateLimitKeys(renamed), /limit key set/);
+  const pending = occurrences.filter((r: any) => r.source === "track-workflow.md" && r.target === "maps.md");
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].reason, "Pending worker-only reference. Child 1.3 publishes the document.");
+  assert.equal(pending[0].recipient, undefined);
+  for (const name of ["root-baseline-map.md", "track-1-baseline-map.md", "track-1.2-implementation-map.md", "track-<number>-baseline-map.md", "track-<number>-implementation-map.md"]) {
+    for (const spelling of [name, `\`${name}\``, `[map](${name})`]) {
+      assert.equal(references(spelling, "track-workflow.md")[0]?.target, `variable:${name}`, spelling);
+    }
+  }
+  for (const name of ["maps.md", "roadmap.md", "baselinemap.md", "track-map.md", "root-implementation-map.md", "track-1-baseline-maps.md", "track-0-baseline-map.md", "track-01-implementation-map.md", "track-1.0-baseline-map.md", "track-1-implementation-maps.md"]) {
+    assert.equal(references(name, "track-workflow.md")[0]?.target, name, name);
+    assert.throws(() => coverage(scan({ ...sources, "track-workflow.md": sources["track-workflow.md"] + "\nRead " + name })), /unknown reference/);
+  }
   coverage(scan(sources));
   const published = source("CONTEXT_BUDGET_DOC");
   validatePublication(published, publication);
@@ -317,6 +334,8 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
     const withoutBacking = occurrences.map((r: any) => r.condition === condition ? { ...r, reason: "Control exclusion." } : r);
     assert.throws(() => coverage(scan(sources), withoutBacking), /unbacked read/);
   }
+  const staleMapContext = occurrences.map((r: any) => r.source === "track-workflow.md" && r.target === "maps.md" ? { ...r, context: "0".repeat(64) } : r);
+  assert.throws(() => coverage(scan(sources), staleMapContext), /unknown reference|stale/);
   assert.throws(() => coverage(scan(sources), [...occurrences, occurrences[0]]), /duplicate classification/);
   assert.throws(() => coverage(scan(sources), occurrences.slice(1)), /unknown reference/);
   const missing = { ...exported }; delete missing.TRACK_WORKFLOW_DOC;

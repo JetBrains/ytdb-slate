@@ -145,16 +145,15 @@ The **accounting sources** are the owning records behind each package.
 Read the root `research-log.md` and current authoritative `root-design.md` when a root design exists.
 Read every entered design track's `track-<number>-research-log.md` and authoritative `track-<number>-design.md`.
 Here `<number>` is the canonical path number defined in [change-records.md](change-records.md).
-Read every code track's implementer report and review-fix evidence in the affected track's records.
+Read standalone code-track designs, baseline and implementation maps, code-track reports and review-fix evidence.
+Discovery grants no design authority to a retained earlier node kind.
+Maps supply facts, not approval, acceptance or completion evidence.
 Follow each record's read-only source chain within its recorded read boundary.
 Include required conclusions held in any of those records, not only the active log.
 Use `status.md` to find records, never as gate or completion evidence.
 Temporary files and incomplete retained copies are not accounting sources.
 An action folder under `tmp/` supplies no accounting evidence.
-A design copy under `versions/` is evidence only when its complete bytes match the hash in its name.
-A `<name>.vN.md` design copy is evidence when its complete bytes match the hash recorded in the owning log.
-Here `<name>` is the design filename without `.md`, and `N` is its version number.
-The current design file remains authoritative.
+Use [change-records.md](change-records.md) § Manual records and safe writes for evidence identity and recorded-workflow compatibility.
 Keep all manual records and their source chains through and after root closure.
 Only the user deletes the change folder.
 Reconcile required conclusions from every accounting source into the owning research log before each package and before root closure.

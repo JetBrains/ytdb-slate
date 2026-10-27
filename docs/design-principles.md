@@ -135,7 +135,7 @@ some problems but leaves others unresolved.
   See [context-budget.md](context-budget.md).
 
 - **P11 — Proportional process.** *(Repo-local note, not from the report.)*
-  The current change folder's research log is the sole permitted unconditional-artifact exception for
+  The current change folder's research log, standalone designs and maps are permitted unconditional-artifact exceptions for
   authors of future rules. Every other future rule that adds process cost names
   the condition that engages it. The condition is a proved focus area, an
   artifact whose own existence a proved focus area decides, or specific

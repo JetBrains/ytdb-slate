@@ -172,7 +172,7 @@ The approved plan supplies specific evidence for proportional process.
 A design track or review-fix child track triggers the manual status file.
 Entering a design track triggers its research log and nested gates.
 An ordinary code track or a high-level design alone triggers neither extra record.
-These conditions add no unconditional-artifact exception.
+Standalone designs and maps use the artifact exceptions in [design-principles.md](design-principles.md) P11.
 Questions follow unresolved decisions rather than record or track counts.
 [recursive-workflow.md](recursive-workflow.md) owns the nested planning relations.
 <!-- recursive-planning-policy:end -->
@@ -505,16 +505,16 @@ Every implementation and review dispatch carries these fields:
 
 Every implementation dispatch carries this focused current-context block:
 
-> Research log: the current `slate-changes/<change>/research-log.md` remains the retained full record. The dispatch names its exact path and the implementer's `slate-changes/<change>/track-<number>-implementer-report.md` path. Use the references and excerpts supplied for this action. Read more history only when a relevant question remains unresolved.
+> Name the exact retained research-log path `slate-changes/<change>/research-log.md` and implementer-report path `slate-changes/<change>/track-<number>-implementer-report.md`. Use supplied references and excerpts. Read further history only for unresolved relevant questions.
 
-The block states the current approved design when one exists, the current task
-and acceptance condition, assigned findings and compact evidence when fixing,
-affected code or documents, relevant decisions, and unresolved relevant
-questions. The orchestrator supplies these inputs through specific section
-references or bounded excerpts. Implementers and fixers use the supplied
-current context. The full log remains available for unresolved relevant
-questions and retention. No implementation dispatch requires reading the entire
-historical log. This rule does not change reviewer input restrictions.
+Name the current standalone approved design, if any, task, acceptance condition, assigned findings with compact fix evidence, affected files, relevant decisions and unresolved questions.
+Give implementers and fixers section references or bounded excerpts, never a required whole-log read.
+Identify assigned maps as factual context, not requirements.
+When a stored baseline exists, obtain its path and source commit from the log and name both.
+Use the root baseline for single-track work.
+Recorded changes without baselines gain no retrospective requirement.
+For map reading depth, use [maps.md](maps.md).
+Reviewer input restrictions remain unchanged.
 Every implementation dispatch either carries each focus-area trigger with its boundary
 sentences or directs the implementer to the risk definitions in
 [blast-radius.md](blast-radius.md) § Focus areas and their gates. The implementer
@@ -580,7 +580,8 @@ abandonment. It deletes no files.
 - an unresolved question needed later.
 
 Open these sections: Initial request, Decision Log, Surprises and Discoveries,
-and Open Questions. Add Planned changes, Track table, risk record, coverage
+and Open Questions. Planned changes links standalone designs under [change-records.md](change-records.md).
+Add Track table, risk record, coverage
 register, override log, and escalation records when needed. Do not use an
 observations section. Worker observation files are review evidence, not user
 feedback. Naming an area opens the log even when the orchestrator later judges
@@ -592,11 +593,7 @@ Do not copy secrets, credentials, private user data, or unnecessary personal
 data into the log. Record a privacy exception as a typed ruling. State what was
 omitted and why.
 
-Use a safe write method. Follow the direct-write and retry rules for change records, including implementer reports.
-Use [change-records.md](change-records.md) § Manual records and safe writes
-for write methods, record checks, and inspection before retries.
-Research logs and implementer reports are append-only.
-A correction is a new entry.
+Use [change-records.md](change-records.md) § Manual records and safe writes for append-only logs and reports, correction entries, checks and retry inspection.
 Slate checks the folder chain when it creates the change.
 Keep all manual records and leftover temporary files untracked and visible in repository status.
 Do not add them to an ignore file or a pull request.
@@ -861,6 +858,10 @@ A needed stacked rewrite pauses for a user decision.
 At closure, report leftover references for the user to delete.
 Do not rename markers or rewrite history to resemble a tree.
 Every new change uses the current workflow.
+For log-content migration, record the exact source line range and full hash.
+The standalone design must equal that span, including entry prefixes, without summary or correction.
+Log its full hash under [change-records.md](change-records.md) § Manual records and safe writes.
+Later corrections need a new user-approved design version.
 A new change without design tracks or review-fix children has one level.
 It needs no manual status file or design-track research log.
 Missing manual tree records do not make an existing session unreadable.
