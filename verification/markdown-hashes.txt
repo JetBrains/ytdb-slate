@@ -1,4 +1,4 @@
-82be1d05700330afb32026d1fa992bbf3ad034a46a27443dd4bd9e2d3ec6811d  AGENTS.md
+5febe10a7891c1001c5616404676a49c88d0977828dbd6f15903c3f236bb062a  AGENTS.md
 
 ec4ee6e307ddae903eada2af0465e6f57926da1c4e85e4265ff434ae42ff92ef  README-GUIDELINES.md
 
@@ -88,4 +88,4 @@ ff583b7578b55fa21887fde2ca828eb55a6d9efa0851112d830802eae1cc86e4  research/opena
 
 266812b566da8edc5d90936b39bfc7d13e160cd42291aba56b6e00eac3cf5077  research/writing-threshold-provenance.md
 
-e47ae83cc28185f89c0336b36fd0f229e439035355c559c967891a62b0dedf2d  verification/README.md
+b7399a8a4a689aae087aab152e2d99e5f7658a2a88851d1d56ac5aef3f769aed  verification/README.md

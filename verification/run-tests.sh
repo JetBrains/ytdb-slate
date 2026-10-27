@@ -181,9 +181,9 @@ if [ "$gate_status" -ne 0 ]; then
   exit "$gate_status"
 fi
 if grep -q '^VERDICT: WARN —' "$gate_output"; then
-  # WARN remains exit 0 because the minimum-denominator policy says "warn
-  # instead of fail". It is nevertheless a distinct final outcome that must be
-  # reviewed by hand; never collapse it into PASS.
+  # Zero changed branches, zero line records, or uncommitted in-scope files
+  # produce WARN with exit 0. Keep this outcome distinct from PASS because
+  # it requires manual review.
   echo "RUN VERDICT: WARN — tests passed; coverage requires manual review"
   exit 0
 fi
