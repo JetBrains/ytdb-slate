@@ -63,11 +63,11 @@ For a design track, ask for whole-subtree acceptance.>
 
 The **Result** states the completed outcome, not an activity log.
 Show names, finding details, and accounting references only when a decision needs them.
-Keep the cumulative implementation commit or exact range in the owning research log.
+Keep the exact owned range in the owning research log.
 For code ranges and design markers, use [change-records.md](change-records.md)
 § Identifiers, code ranges, and design markers.
 The owning research log names a design track's approved design, accepted child ranges,
-and its contribution to the change delivery. A design track has no implementation range or extra cumulative commit.
+and its contribution to the change delivery. A design track has no implementation range or implementation commit.
 Do not count accepted child work as new implementation.
 With publishing, state the delivery result when it affects acceptance.
 Disclose merge state and unmerged dependencies when acceptance needs them.

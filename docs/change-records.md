@@ -27,7 +27,7 @@ Record its start boundary immediately before its first owned commit, before writ
 Use the current change-branch head, not path-number arithmetic.
 Exclude bootstrap commits and base merges. Base merges occur only between ranges.
 Every non-marker commit inside the range belongs to that code track.
-Keep the start stable through permitted pre-user-review rewrites.
+Keep the recorded start unchanged.
 Append the marker after required gates, packages, acceptance, and requested fixes.
 Later feedback follows [user-notes.md](user-notes.md), not an extension of a closed range.
 
@@ -44,9 +44,8 @@ for one continuing code report, its contents, and commit forms.
 The current `root-design.md` or `track-<number>-design.md` is authoritative for its node.
 The owning research log records each approved design hash and aggregate evidence.
 A copied design in a log does not replace that authority.
-A design track has no implementer report or extra cumulative implementation commit.
+A design track has no implementer report or implementation commit.
 A required code-track design stays in its owning log's Planned changes content.
-Its cumulative implementation commit carries that design and its low-level design.
 
 ## Manual records and safe writes
 

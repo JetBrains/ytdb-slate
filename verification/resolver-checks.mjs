@@ -3411,7 +3411,7 @@ Use its § Session handoff and the research log for ownership.`);
 				"repair-consultations": "86f0f04219e871881c7f99263689d848fc78772d2b034e3d359cdc6662f4d780",
 				"child-fix-title": "423264fe845a64f12e87dafc1740bf71ba8cbc23d8afd6344bc14bd6f98a1348",
 			});
-			const protectedRepairSummary = "2cdf9eafbc4a97834cfc62419c4f88ff015530018d4d085e635677ddab2ff988";
+			const protectedRepairSummary = "b017165f26ad0eeadf033ab5c16a11ee68c8793a0dc79761be5a4f2396f654d7";
 			if (!ONLY) {
 			const agreementDigest = (text) => createHash("sha256").update(normalizeText(text)).digest("hex");
 			sharedRecursiveRules = [
@@ -3493,14 +3493,14 @@ Use its § Session handoff and the research log for ownership.`);
 			const recordDigest = (text) => createHash("sha256").update(normalizeText(text)).digest("hex");
 			const resumeOrderExpected = normalizeText(`Resume in this fixed order: 1. Read the initial request and latest state summary. Before relying on a summary, check that its named subtree entry exists. An older summary without a subtree reference still resumes under its recorded workflow. 2. Read later decisions and the active subtree's records. When the summary names an existing current implementer report, read it there. Use [recursive-workflow.md](recursive-workflow.md) § Resume and folder forks for tree reconciliation and read-only source boundaries. Before resuming a paused subtree, read its typed \`decision\` entry in the owning parent research log. Check that its unfinished sibling dependency has completed and its recorded resume condition holds. Confirm the decision records a boundary between code-track ranges, with no open range. A status entry alone authorizes neither pause nor resume. 3. Inspect marker commits and the current branch state. 4. Reconcile the declared file list, track table, coverage register, proved focus areas, risk record, and live diff. 5. Re-run any stale precondition check. 6. Apply the user-decision reuse rule before asking any question. 7. Continue only after answering: **What changed since the last state summary, and does it change focus, scope, or required gates?** A mismatch pauses work. Reconcile it in the log. Use marker commits and Git history as boundary authority. The track table is display-only.`);
 			const recursiveRecordUnits = [
-				{ id: "identifiers-ranges", source: commonRecords, start: "## Identifiers, code ranges, and design markers", extract: headingUnit("## Identifiers, code ranges, and design markers"), expected: "1374fd12c19b6005802b48e1084a45dab32f03efd5ee59c32c993f796932db03" },
+				{ id: "identifiers-ranges", source: commonRecords, start: "## Identifiers, code ranges, and design markers", extract: headingUnit("## Identifiers, code ranges, and design markers"), expected: "46319c39c8d1540c8c4171975d6b33bd332dcc265c8ba297e9ba1fca9f3945ee" },
 				{ id: "tool-records-and-recovery", source: commonRecords, start: "## Manual records and safe writes", extract: headingUnit("## Manual records and safe writes"), expected: "8ec25b74e709c2f8a72556947aecee40f0cff2f38947976e9609c0e2436b47e0" },
 				{ id: "resume-forks", source: recursive, start: "## Resume and folder forks", extract: headingUnit("## Resume and folder forks"), expected: "0bf3c8bcc7b36ee0dd8a5a6fd514b73f5e19b5514f5a3a1711034ac2b051729e" },
 				{ id: "handoff-pointer", source: recursive, start: "## Handoff boundaries", extract: headingUnit("## Handoff boundaries"), expected: "225c24f843fa607d5ebfd489e574e16641953dab064546450ea0082463bf48d0" },
 				{ id: "marker-identity", source: workflow, extract: markedUnit("marker-identity-policy"), expected: "ae24e23298695b323c803f31515c87ee8de5777cd0b0a13dba90d747c9df4308" },
 				{ id: "resume-order", source: workflow, start: "## Resume order and reconciliation", extract: headingUnit("## Resume order and reconciliation"), expected: recordDigest(resumeOrderExpected) },
 				{ id: "general-handoff", source: workflow, start: "### Handoff summary", extract: headingUnit("### Handoff summary"), expected: "b3aaa6e40d75e2a2e311e8da00982a70b8fbe46e3921a578e01274f98fe171ee" },
-				{ id: "closed-range-feedback", source: workflow, start: "### Closed-range corrections", extract: headingUnit("### Closed-range corrections"), expected: "460af97e1d77774e44cad918e52d89a1c36ecad5ab107d25c1a8a21b191f22f3" },
+				{ id: "closed-range-feedback", source: workflow, start: "### Closed-range corrections", extract: headingUnit("### Closed-range corrections"), expected: "b162898f9f10b91f3ed511220678f9ba534cdb886ce93bac72d7e07e3a416143" },
 			];
 			const acceptsRecordUnit = (unit, source) => {
 				const resolved = unit.extract(source);
@@ -3523,7 +3523,7 @@ Use its § Session handoff and the research log for ownership.`);
 			// review-rules.md input amendments and RG9 common-text mutations.
 			// Independent reviewed pins protect the common owner.
 			commonUnits = [
-				{ id: "identifiers", start: "## Identifiers, code ranges, and design markers", expected: "1374fd12c19b6005802b48e1084a45dab32f03efd5ee59c32c993f796932db03" },
+				{ id: "identifiers", start: "## Identifiers, code ranges, and design markers", expected: "46319c39c8d1540c8c4171975d6b33bd332dcc265c8ba297e9ba1fca9f3945ee" },
 				{ id: "records", start: "## Manual records and safe writes", expected: "8ec25b74e709c2f8a72556947aecee40f0cff2f38947976e9609c0e2436b47e0" },
 			];
 			const acceptsCommon = (source) => commonUnits.every(({ start, expected }) => {
@@ -3532,7 +3532,7 @@ Use its § Session handoff and the research log for ownership.`);
 			});
 			privacyHeading = "### Design authority and privacy";
 			const commonHeadings = [...commonUnits.map(({ start }) => start), privacyHeading];
-			const completeCommonDigest = "33eed092de61cd847813460d9d454ec84e6b507358168da61c939bf42b00ccc9";
+			const completeCommonDigest = "7a26d6898c86ee361259589bbce58bd1738faf62462ca0eb0bc466f1cc32acd6";
 			const acceptsCompleteCommon = (source) => createHash("sha256").update(source).digest("hex") === completeCommonDigest;
 			const completeCommonAttacks = [
 				["title", commonRecords.replace("# Common change records", "# Nested change records")],
@@ -3588,7 +3588,7 @@ Use [change-records.md](change-records.md) § Design authority and privacy.`) },
 				["each comparison rejects its changed input and disabling it accepts that violation", pointerComparisonControls.every(({ changed, rejected, disabledAccepts }) => changed && rejected && disabledAccepts), pointerComparisonControls],
 				["outside-region edits preserve the pointer expectations", acceptsNestedPointers(`${recursive}\n## Outside pointer control\nUnrelated text.\n`), "outside control"],
 			]);
-			const completeNestedDigest = "9927b899ec0cc30fffe27fc0bd2cd233063cfa583198f05ce1beed7b6bbf1089";
+			const completeNestedDigest = "294eece4da2c2aaa117cce7f04cd60b53ec92ebac6a6156257effe90ddca3e58";
 			const acceptsCompleteNested = (source) => createHash("sha256").update(source).digest("hex") === completeNestedDigest;
 			const completeNestedAttacks = [
 				["weaker-record-rule", `${recursive}\n## Additional record guidance\nWorkers may replace earlier log entries.\n`],
@@ -4057,7 +4057,7 @@ The split bypasses no stuck-fix consultation or required fix gate.`) },
 				{ id: "aggregate", source: recursive, start: "## Whole-subtree acceptance", expected: "5086c2cea0fe27c090ff39b42cf1f26ed690f22b412d38ba362efa381e6f14f1" },
 				{ id: "issues", source: recursive, start: "## Packages, attribution, and issues", end: null, expected: "90f54deda3a1be019069dfe198b33c39772fce2467c64321b124bbbe7202ec2b" },
 				{ id: "sources", source: deliveryPackages, start: "## Durable accounting", expected: "6d952bcbfe6c9914da9bffa5b2db9a61b06296a5fa784069c580bf542e2a631e" },
-				{ id: "workflow-accounting", source: workflow, start: "### Delivery history and accounting", expected: "66e62a8eff125255b5ff607a5f5e41012f63ce9da0de128cb4729f41a03a27e6" },
+				{ id: "workflow-accounting", source: workflow, start: "### Delivery history and accounting", expected: "47ad3ae481f37783a629807b0a814d8d2609084b2a428b0ec4130bca9bc7bb9f" },
 				{ id: "notes-accounting", source: userNotes, start: "### Final accounting preparation", expected: "34a1af81ea8c9cb69a4e6dcb948ad1492bc057c0caa05213fd15364d053b253f" },
 				{ id: "publishing-sync", source: publishing, start: "## Keeping the PR in sync", expected: "4d0b485020a5fef57f7a07b5e5e42adccb26c6482f0cff2bf7c04a513e72acf8" },
 				{ id: "public-workflow", source: projectReadme, start: "A track is a bounded", end: "## ", endAtLineStart: true, expected: "b26ce5296092014b89b311c50a0bdfd41e6b4b4ae95eeb39a099a78750bec6a2" },
@@ -4073,7 +4073,7 @@ The split bypasses no stuck-fix consultation or required fix gate.`) },
 				}
 				: unit.id === "public-workflow" ? policyRegion(unit.start, unit.end, unit.endAtLineStart) : headingUnit(unit.start) }));
 			const repairEscalationDigest = "9f61738c4c77d9e59406480fdaa58485ce66fb2a921e634ed26c45c4cc1ee99b";
-			const EXPECTED_DELIVERY_PACKAGES_SHA256 = "541f2cc8917cd2c6874d2670fac537ef249f54be0a93145066ba290884717394";
+			const EXPECTED_DELIVERY_PACKAGES_SHA256 = "d12227e5fa8bcc963eadae03455c4e376195b09a556ee4090f62abcb7b11f786";
 			if (!ONLY) {
 			const acceptsRecursiveDelivery = (unit, source) => {
 				const resolved = unit.extract(source);
@@ -4491,17 +4491,11 @@ Record contents can also appear in saved worker sessions and command text.
 Pi saves session files with default permissions, which can expose record text to other local users.
 [Issue #499](https://github.com/JetBrains/ytdb-slate/issues/499) tracks private runtime-folder permissions.`) },
 { id: "workflow-accounting", source: workflow, extract: headingUnit("### Delivery history and accounting"), expected: normalizeText(`A bootstrap commit created to open a draft pull request uses
-\`Bootstrap: <intent title>\`. It is not part of any track. Re-pin every recorded
-commit range after the rewrite, including the coverage register and any range
-in a track packet. Complete the rewrite before user review, so later
-user-review fix commits do not invalidate the reviewed range.
+\`Bootstrap: <intent title>\`. It opens publishing before owned implementation
+starts and is not part of any track.
 
-Use ordinary branch updates by default. Do not routinely force-push.
-The pre-user-review cumulative-commit rule is the only routine rewrite exception while that rule exists.
-
-When draft-pull-request publishing is enabled, update its current branch with a
-lease-protected force-push. The lease must prevent discarding a commit pushed
-by another party.
+Use ordinary branch updates. Do not routinely rewrite history or force-push.
+Only a user-chosen privacy rewrite permits rewriting history under the duties below.
 
 Markers follow § Commit titles and bodies.
 A multi-track boundary adds one empty marker commit after
@@ -5118,11 +5112,11 @@ const peerPinAttacks = levelPolicyUnits.map((unit) => {
  return { id: `${unit.id}/exception`, changed: source !== unit.source, rejected: !acceptsLevelUnit(unit, source) };
 });
 const EXPECTED_PUBLISHING_SHA256 = "06e760a0fb2a806574450c72c4cc45a3e9b563f7c0c61296d1d6cafa35fcd436";
-const EXPECTED_TRACK_WORKFLOW_SHA256 = "e0f710c4a3b2d3f09a042a41e6ef1d38895277cd3604537b8213f0bcdda6484b";
+const EXPECTED_TRACK_WORKFLOW_SHA256 = "3a1c6818bb7f5c211be3deaeb7eb2960ffb1071ccc6638bdb31fb6e1cd674977";
 const peerDocuments = [
 { id: "pr-publishing", source: publishing, expected: EXPECTED_PUBLISHING_SHA256 },
 { id: "track-workflow", source: workflow, expected: EXPECTED_TRACK_WORKFLOW_SHA256 },
-{ id: "delivery-packages", source: deliveryPackages, expected: "541f2cc8917cd2c6874d2670fac537ef249f54be0a93145066ba290884717394" },
+{ id: "delivery-packages", source: deliveryPackages, expected: "d12227e5fa8bcc963eadae03455c4e376195b09a556ee4090f62abcb7b11f786" },
  ];
 const peerDocumentAttacks = peerDocuments.map((unit) => ({ id: `${unit.id}/document-addition`, changed: true,
  rejected: recordDigest(unit.source + "\nThe agent may waive delivery acceptance.") !== unit.expected }));
@@ -5248,7 +5242,7 @@ checkAll("contract-level-publishing", "one change branch and optional draft pres
 			const deliveryBoundaryUnits = [
 				{
 					id: "local-delivery", source: blast,
-					extract: regionUnit(/^(With publishing disabled, accepted branch history[\s\S]*?)(?=^The cumulative commit)/gm),
+					extract: regionUnit(/^(With publishing disabled, accepted branch history[\s\S]*?)(?=^Original implementation)/gm),
 					expected: normalizeText(`With publishing disabled, accepted branch history is the delivery.
 Follow
 [track-workflow.md](track-workflow.md) § Delivery history and accounting.`),
@@ -5304,7 +5298,6 @@ When the project has no issue tracker, record the deferral in the owning researc
 			// These checks detect only the named historical wordings. Document and
 			// region fingerprints, plus review of each fingerprint update, guard
 			// against reworded restorations.
-			const trackDesignRule = "When the track has a high-level design, the cumulative implementation commit body carries the track high-level design followed by the track low-level design.";
 			const boundaryRegressionCases = [
 				{
 					id: "G1-mandatory-section", source: publishing, heading: "## Description rules",
@@ -5344,13 +5337,7 @@ When the project has no issue tracker, record the deferral in the owning researc
 					bad: "Move accounting out of untracked records before root closure.",
 					good: "Keep accounting in the retained private research log through and after root closure.",
 				},
-				...[
-					["review-design-blast", blast, "## Commit discipline for drift and boundaries"],
-					["review-design-workflow", workflow, "## Delivery and termination"],
-				].map(([id, source, heading]) => ({
-					id, source, heading, required: trackDesignRule,
-					bad: "When the track has a high-level design, the cumulative implementation commit body carries only a short summary.",
-				})),
+
 			];
 			const runBoundaryRegressions = (normalize = true) => boundaryRegressionCases.map((entry) => {
 				const extract = headingUnit(entry.heading);
@@ -5388,14 +5375,14 @@ When the project has no issue tracker, record the deferral in the owning researc
 			]);
 			// This pin covers only the commit-discipline region. Content edits need
 			// a reviewed digest refresh. Whitespace-only reflow passes.
-			const EXPECTED_COMMIT_DISCIPLINE_SHA256 = "c6f0aedef50085711c91cab51d11ea3a4bc27d500b3359c2b20ddf214d104daf";
+			const EXPECTED_COMMIT_DISCIPLINE_SHA256 = "8b37049c603059ccfdb57b384f7002989ddc67d9d90911658487bec59e2910be";
 			const commitDisciplinePattern = /^(## Commit discipline for drift and boundaries\r?\n[\s\S]*?)(?=^## |$(?![\s\S]))/gm;
 			const commitDisciplineRegion = regionUnit(commitDisciplinePattern);
 			const acceptsCommitDiscipline = (source) => {
 				const region = commitDisciplineRegion(source);
 				return region.count === 1 && recordDigest(region.text) === EXPECTED_COMMIT_DISCIPLINE_SHA256;
 			};
-			const changedCommitDiscipline = blast.replace(commitDisciplinePattern, (raw) => `${raw}\nA short summary of the design is enough.\n`);
+			const changedCommitDiscipline = blast.replace(commitDisciplinePattern, (raw) => `${raw}\nImplementation bodies must contain the high-level and low-level designs.\n`);
 			const reflowedCommitDiscipline = blast.replace(commitDisciplinePattern, (raw) =>
 				raw.replace(/^(##[^\n]*\n)([\s\S]*)$/, (_match, heading, body) => heading + body.replace(/\s+/g, "\n")));
 			const acceptsDeliveryBoundary = (unit, source) => {
@@ -5406,7 +5393,7 @@ When the project has no issue tracker, record the deferral in the owning researc
 				const source = unit.source.replace(literalPattern(unit.expected), (raw) => raw.replace(literalPattern(before), after));
 				return { id: `${unit.id}/${kind}`, changed: source !== unit.source, rejected: !acceptsDeliveryBoundary(unit, source) };
 			})).concat({
-				id: "commit-discipline/design-summary", changed: changedCommitDiscipline !== blast,
+				id: "commit-discipline/design-body-restoration", changed: changedCommitDiscipline !== blast,
 				rejected: !acceptsCommitDiscipline(changedCommitDiscipline),
 			});
 			mutationAudit.record("delivery-boundaries", deliveryBoundaryAttacks);
@@ -5436,12 +5423,12 @@ Host-generated target-branch commits are exempt.`);
 			const hasFirstIdentity = (body) => body.split("\n")[0] === identityLine;
 			const bodyContents = [
 				"Intent: Add commit identity.\n\nDeviation delta:",
-				"High-level design\nKeep one identity.\n\nLow-level design\nPut the line first.",
+				"Intent: Keep review fixes separate.\n\nDeviation delta: Approved title change.",
 				"",
 			];
 			const expectedBodies = [
 				"Change: Use one pull request per change\n\nIntent: Add commit identity.\n\nDeviation delta:",
-				"Change: Use one pull request per change\n\nHigh-level design\nKeep one identity.\n\nLow-level design\nPut the line first.",
+				"Change: Use one pull request per change\n\nIntent: Keep review fixes separate.\n\nDeviation delta: Approved title change.",
 				"Change: Use one pull request per change",
 			];
 			const validBodies = bodyContents.map((content) => content ? `${identityLine}\n\n${content}` : identityLine);
@@ -5455,6 +5442,31 @@ Host-generated target-branch commits are exempt.`);
 				] : []),
 			].map(({ id, body }) => ({ id, changed: body !== validBodies[index], rejected: !keepsBodyContent(body, index) })));
 			mutationAudit.record("change-identity", [...identityAttacks, ...bodyAttacks]);
+			// Check history obligations independently of fingerprints and identity.
+			const historyFault = (source) => normalizeText(source).split(/(?<=[.!?]) /).some((line) => {
+				if (/^(?:Do not|Never|Only a user-chosen privacy)/i.test(line)) return false;
+				return /(?:commit|implementation).*(?:body|message).*(?:must|carries|contains?|includes?).*(?:design|architecture)/i.test(line)
+					|| /(?:must|require[ds]?|put|embed).*(?:design|architecture).*(?:commit|body|message)/i.test(line)
+					|| /(?:before user review|before presenting.*user|pre-user-review).*(?:squash|combin|fold|consolidat|collaps|replac).*(?:commit|implementation|fix)/i.test(line)
+					|| /(?:squash|combin|fold|consolidat|collaps|replac).*(?:commit|implementation|fix).*(?:before user review|before presenting.*user)/i.test(line)
+					|| /(?:routine|ordinary|pre-review|pre-user-review).*(?:rewrite|rebase|force-push).*(?:exception|allow|permit|required)/i.test(line)
+					|| /(?:allow|permit|exception).*(?:routine|ordinary|pre-review).*(?:rewrite|rebase|force-push)/i.test(line);
+			});
+			const historyCases = [
+				["design-body", "When the track has a high-level design, the cumulative implementation commit body carries the track high-level design followed by the track low-level design."],
+				["architecture-body", "Put the approved architecture and detailed design in every implementation message."],
+				["review-collapse", "Before user review, squash implementation and review fixes into one commit."],
+				["review-combine", "Before presenting work to the user, combine the implementation and fixes into a single commit."],
+				["routine-rewrite", "The pre-user-review cumulative-commit rule is the only routine rewrite exception while that rule exists."],
+				["ordinary-rebase", "Allow ordinary pre-review rebases and force-push updates."],
+			];
+			const historySources = [workflow, blast, commonRecords, recursive, deliveryPackages];
+			const historyAttacks = historyCases.map(([id, rule]) => ({
+				id, changed: historySources.every((source) => !source.includes(rule)),
+				rejected: historySources.every((source) => !historyFault(source) && historyFault(source + "\n" + rule) && historyFault(source + "\n" + rule.replace(/ /g, "\n"))),
+			}));
+			mutationAudit.record("review-history", historyAttacks);
+			const historyControls = ["Discuss the design with its reviewers.", "Intent: Preserve implementation history. Deviation delta:", "Only a user-chosen privacy rewrite permits rewriting history."];
 			const escalationRule = normalizeText("Pre-existing defects, exhausted budgets, disputed stuck-fix results, blocker lowering, and regressions route through [user-notes.md](user-notes.md) § Mandatory escalation set.");
 			const deferredRule = normalizeText("Deferred work becomes a tracked issue. A project with no issue tracker records the deferral in the owning research log. Disclose relevant concerns in the user package.");
 			const occurrencesOf = (text, fragment) => text.split(fragment).length - 1;
@@ -5465,10 +5477,11 @@ Host-generated target-branch commits are exempt.`);
 			const droppedTarget = normalizeText(reviews.replaceAll("Mandatory escalation set.", "the review log."));
 			checkAll("contract-escalation-routing", "mandatory escalation routing and deferred-work tracking hold as assertions of their own, after the terminal end marker and outside every acceptance unit, so neither protection depends on that unit", [
 				["named boundary regressions reject restored rules and accept allowed lookalikes in the same region", normalizationRejected && boundaryRegressionResults.every(({ baseline, changed, rejected, controlChanged, accepted, wrappedChanged, wrappedRejected }) => baseline && changed && rejected && controlChanged && accepted && wrappedChanged && wrappedRejected), { boundaryRegressionResults, normalizationRejected }],
+				["history rules reject each restoration and accept benign discussion", historySources.every((source) => !historyFault(source)) && historyAttacks.every(({ rejected }) => rejected) && historyControls.every((source) => !historyFault(source)), historyAttacks],
 				["both common identity owners agree", acceptsChangeIdentity(workflow) && acceptsCommitDiscipline(blast), "common identity owners"],
 				["later identity mentions are allowed", hasFirstIdentity(`${identityLine}\n\nIntent: Explain ${identityLine}\n${identityLine}`), "only the first line is required"],
 				["missing or misplaced identity and dropped or changed body content fail", [...identityAttacks, ...bodyAttacks].every(({ changed, rejected }) => changed && rejected), [...identityAttacks, ...bodyAttacks]],
-				["valid two-part, design-bearing and marker bodies keep content intact", validBodies.every(keepsBodyContent), validBodies],
+				["valid ordinary and marker bodies keep content intact", validBodies.every(keepsBodyContent), validBodies],
 				["the commit-discipline region matches its reviewed fingerprint", acceptsCommitDiscipline(blast), commitDisciplineRegion(blast)],
 				["whitespace-only region reflow and outside edits preserve the fingerprint", reflowedCommitDiscipline !== blast && acceptsCommitDiscipline(reflowedCommitDiscipline) && acceptsCommitDiscipline(`${blast}\n## Outside fingerprint control\nUnrelated text.\n`), "region reflow and outside control"],
 				["delivery boundary copies equal independent content expectations", deliveryBoundaryUnits.every((unit) => acceptsDeliveryBoundary(unit, unit.source)), deliveryBoundaryUnits.map((unit) => ({ id: unit.id, ...unit.extract(unit.source) }))],
@@ -5719,9 +5732,9 @@ verbatim retention of every tool result.`);
 			// No complete heading region is protocol-only. The mixed regions contain
 			// level or reference operations alongside surviving accounting duties.
 			const survivingAccountingRules = [
-				"The pre-user-review cumulative-commit rule is the only routine rewrite exception while that rule exists.",
-				"Complete the rewrite before user review, so later user-review fix commits do not invalidate the reviewed range.",
-				"Re-pin every recorded commit range after the rewrite, including the coverage register and any range in a track packet.",
+				"Use ordinary branch updates. Do not routinely rewrite history or force-push.",
+				"Only a user-chosen privacy rewrite permits rewriting history under the duties below.",
+				"Accepted history is delivery. Acceptance adds no commit or rewrite.",
 			];
 			const accountingOwner = headingOwnedUnits.find(({ id }) => id === "workflow-accounting");
 			const acceptsSurvivingAccounting = (source) => {
@@ -5804,8 +5817,8 @@ verbatim retention of every tool result.`);
 			const privacyRule = "Pi saves session files with default permissions, which can expose record text to other local users.";
 			const privacyMutation = commonRecords.replace(privacyRule, "Session permissions need no attention.");
 			checkAll("contract-heading-regions", "all 19 heading-owned regions retain complete independent content protection and fence-aware same-level or higher boundaries", [
-				["surviving rewrite limits reject weakening without relying on the mixed accounting fingerprint", acceptsSurvivingAccounting(accountingOwner.source) && survivingAccountingControls.length === 3 && survivingAccountingControls.every(({ changed, rejected }) => changed && rejected), survivingAccountingControls],
-				["surviving and mixed heading groups exhaust the independent mutation roster", new Set([...survivingHeadingIds, ...mixedHeadingIds]).size === 19 && survivingHeadingIds.length + mixedHeadingIds.length === 19 && headingOwnedUnits.every(({ id }) => [...survivingHeadingIds, ...mixedHeadingIds].includes(id)) && survivingHeadingAttacks.length + mixedHeadingAttacks.length === 894, { surviving: survivingHeadingAttacks.length, mixed: mixedHeadingAttacks.length }],
+				["independent history safeguards reject weakening without relying on the mixed accounting fingerprint", acceptsSurvivingAccounting(accountingOwner.source) && survivingAccountingControls.length === 3 && survivingAccountingControls.every(({ changed, rejected }) => changed && rejected), survivingAccountingControls],
+				["surviving and mixed heading groups exhaust the independent mutation roster", new Set([...survivingHeadingIds, ...mixedHeadingIds]).size === 19 && survivingHeadingIds.length + mixedHeadingIds.length === 19 && headingOwnedUnits.every(({ id }) => [...survivingHeadingIds, ...mixedHeadingIds].includes(id)) && survivingHeadingAttacks.length + mixedHeadingAttacks.length === 886, { surviving: survivingHeadingAttacks.length, mixed: mixedHeadingAttacks.length }],
 				["surviving heading safeguards reject every existing violation", survivingHeadingAttacks.length > 0 && survivingHeadingAttacks.every(({ changed, rejected, intended }) => changed && rejected && intended), survivingHeadingAttacks],
 				["mixed heading regions keep every current safeguard active", mixedHeadingAttacks.length > 0 && mixedHeadingAttacks.every(({ changed, rejected, intended }) => changed && rejected && intended), mixedHeadingAttacks],
 				["the exact region roster resolves once and matches independent expectations", JSON.stringify(headingOwnedUnits.map((unit) => unit.id)) === JSON.stringify(expectedHeadingRegionIds) && headingOwnedUnits.every((unit) => acceptsRecordUnit(unit, unit.source)), headingOwnedUnits.map((unit) => ({ id: unit.id, result: unit.extract(unit.source).reason }))],

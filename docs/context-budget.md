@@ -538,42 +538,42 @@ They are 227,535 bytes / 56,884 estimated tokens with publishing off and
 
 | Phase | Publishing | Plan | Required bytes | Estimated tokens | Byte limit | Token limit | Conditional maximum bytes | Estimated tokens | Byte limit | Token limit |
 | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1. Research | off | ordinary | 75507 | 18877 | 75856 | 18964 | 144490 | 36123 | 144492 | 36123 |
-| 1. Research | off | nested | 90792 | 22698 | 129137 | 32285 | 159775 | 39944 | 227535 | 56884 |
-| 1. Research | on | ordinary | 87019 | 21755 | 92700 | 23175 | 156002 | 39001 | 161336 | 40334 |
-| 1. Research | on | nested | 102304 | 25576 | 145981 | 36496 | 171287 | 42822 | 244379 | 61095 |
-| 2. Risk assessment | off | ordinary | 111900 | 27975 | 114401 | 28601 | 180883 | 45221 | 183038 | 45760 |
-| 2. Risk assessment | off | nested | 127185 | 31797 | 167682 | 41921 | 196168 | 49042 | 236319 | 59080 |
-| 2. Risk assessment | on | ordinary | 123412 | 30853 | 131245 | 32812 | 192395 | 48099 | 199882 | 49971 |
-| 2. Risk assessment | on | nested | 138697 | 34675 | 184526 | 46132 | 207680 | 51920 | 253163 | 63291 |
-| 3. Design validation | off | ordinary | 111900 | 27975 | 114401 | 28601 | 180883 | 45221 | 183038 | 45760 |
-| 3. Design validation | off | nested | 127185 | 31797 | 167682 | 41921 | 196168 | 49042 | 236319 | 59080 |
-| 3. Design validation | on | ordinary | 123412 | 30853 | 131245 | 32812 | 192395 | 48099 | 199882 | 49971 |
-| 3. Design validation | on | nested | 138697 | 34675 | 184526 | 46132 | 207680 | 51920 | 253163 | 63291 |
-| 4. Focus reconfirmation | off | ordinary | 111900 | 27975 | 114401 | 28601 | 180883 | 45221 | 183038 | 45760 |
-| 4. Focus reconfirmation | off | nested | 127185 | 31797 | 167682 | 41921 | 196168 | 49042 | 236319 | 59080 |
-| 4. Focus reconfirmation | on | ordinary | 123412 | 30853 | 131245 | 32812 | 192395 | 48099 | 199882 | 49971 |
-| 4. Focus reconfirmation | on | nested | 138697 | 34675 | 184526 | 46132 | 207680 | 51920 | 253163 | 63291 |
-| 5. Adversarial design review | off | ordinary | 134815 | 33704 | 138753 | 34689 | 231582 | 57896 | 236562 | 59141 |
-| 5. Adversarial design review | off | nested | 150100 | 37525 | 192034 | 48009 | 246867 | 61717 | 289844 | 72461 |
-| 5. Adversarial design review | on | ordinary | 146327 | 36582 | 155597 | 38900 | 243094 | 60774 | 253406 | 63352 |
-| 5. Adversarial design review | on | nested | 161612 | 40403 | 208878 | 52220 | 258379 | 64595 | 306688 | 76672 |
-| 6. Final design approval | off | ordinary | 134815 | 33704 | 138753 | 34689 | 231582 | 57896 | 236562 | 59141 |
-| 6. Final design approval | off | nested | 150100 | 37525 | 192034 | 48009 | 246867 | 61717 | 289844 | 72461 |
-| 6. Final design approval | on | ordinary | 146327 | 36582 | 155597 | 38900 | 243094 | 60774 | 253406 | 63352 |
-| 6. Final design approval | on | nested | 161612 | 40403 | 208878 | 52220 | 258379 | 64595 | 306688 | 76672 |
-| 7. Track loop | off | ordinary | 158010 | 39503 | 163384 | 40846 | 259414 | 64854 | 302924 | 75731 |
-| 7. Track loop | off | nested | 173295 | 43324 | 216665 | 54167 | 259414 | 64854 | 302924 | 75731 |
-| 7. Track loop | on | ordinary | 169522 | 42381 | 180228 | 45057 | 270926 | 67732 | 319769 | 79943 |
-| 7. Track loop | on | nested | 184807 | 46202 | 233509 | 58378 | 270926 | 67732 | 319769 | 79943 |
-| 8. Final acceptance | off | ordinary | 158010 | 39503 | 163384 | 40846 | 259414 | 64854 | 302924 | 75731 |
-| 8. Final acceptance | off | nested | 173295 | 43324 | 216665 | 54167 | 259414 | 64854 | 302924 | 75731 |
-| 8. Final acceptance | on | ordinary | 169522 | 42381 | 180228 | 45057 | 270926 | 67732 | 319769 | 79943 |
-| 8. Final acceptance | on | nested | 184807 | 46202 | 233509 | 58378 | 270926 | 67732 | 319769 | 79943 |
-| 9. Delivery | off | ordinary | 158010 | 39503 | 163384 | 40846 | 259414 | 64854 | 302924 | 75731 |
-| 9. Delivery | off | nested | 173295 | 43324 | 216665 | 54167 | 259414 | 64854 | 302924 | 75731 |
-| 9. Delivery | on | ordinary | 169522 | 42381 | 180228 | 45057 | 270926 | 67732 | 319769 | 79943 |
-| 9. Delivery | on | nested | 184807 | 46202 | 233509 | 58378 | 270926 | 67732 | 319769 | 79943 |
+| 1. Research | off | ordinary | 74442 | 18611 | 75856 | 18964 | 143425 | 35857 | 144492 | 36123 |
+| 1. Research | off | nested | 89547 | 22387 | 129137 | 32285 | 158530 | 39633 | 227535 | 56884 |
+| 1. Research | on | ordinary | 85954 | 21489 | 92700 | 23175 | 154937 | 38735 | 161336 | 40334 |
+| 1. Research | on | nested | 101059 | 25265 | 145981 | 36496 | 170042 | 42511 | 244379 | 61095 |
+| 2. Risk assessment | off | ordinary | 110479 | 27620 | 114401 | 28601 | 179462 | 44866 | 183038 | 45760 |
+| 2. Risk assessment | off | nested | 125584 | 31396 | 167682 | 41921 | 194567 | 48642 | 236319 | 59080 |
+| 2. Risk assessment | on | ordinary | 121991 | 30498 | 131245 | 32812 | 190974 | 47744 | 199882 | 49971 |
+| 2. Risk assessment | on | nested | 137096 | 34274 | 184526 | 46132 | 206079 | 51520 | 253163 | 63291 |
+| 3. Design validation | off | ordinary | 110479 | 27620 | 114401 | 28601 | 179462 | 44866 | 183038 | 45760 |
+| 3. Design validation | off | nested | 125584 | 31396 | 167682 | 41921 | 194567 | 48642 | 236319 | 59080 |
+| 3. Design validation | on | ordinary | 121991 | 30498 | 131245 | 32812 | 190974 | 47744 | 199882 | 49971 |
+| 3. Design validation | on | nested | 137096 | 34274 | 184526 | 46132 | 206079 | 51520 | 253163 | 63291 |
+| 4. Focus reconfirmation | off | ordinary | 110479 | 27620 | 114401 | 28601 | 179462 | 44866 | 183038 | 45760 |
+| 4. Focus reconfirmation | off | nested | 125584 | 31396 | 167682 | 41921 | 194567 | 48642 | 236319 | 59080 |
+| 4. Focus reconfirmation | on | ordinary | 121991 | 30498 | 131245 | 32812 | 190974 | 47744 | 199882 | 49971 |
+| 4. Focus reconfirmation | on | nested | 137096 | 34274 | 184526 | 46132 | 206079 | 51520 | 253163 | 63291 |
+| 5. Adversarial design review | off | ordinary | 133394 | 33349 | 138753 | 34689 | 230161 | 57541 | 236562 | 59141 |
+| 5. Adversarial design review | off | nested | 148499 | 37125 | 192034 | 48009 | 245266 | 61317 | 289844 | 72461 |
+| 5. Adversarial design review | on | ordinary | 144906 | 36227 | 155597 | 38900 | 241673 | 60419 | 253406 | 63352 |
+| 5. Adversarial design review | on | nested | 160011 | 40003 | 208878 | 52220 | 256778 | 64195 | 306688 | 76672 |
+| 6. Final design approval | off | ordinary | 133394 | 33349 | 138753 | 34689 | 230161 | 57541 | 236562 | 59141 |
+| 6. Final design approval | off | nested | 148499 | 37125 | 192034 | 48009 | 245266 | 61317 | 289844 | 72461 |
+| 6. Final design approval | on | ordinary | 144906 | 36227 | 155597 | 38900 | 241673 | 60419 | 253406 | 63352 |
+| 6. Final design approval | on | nested | 160011 | 40003 | 208878 | 52220 | 256778 | 64195 | 306688 | 76672 |
+| 7. Track loop | off | ordinary | 156557 | 39140 | 163384 | 40846 | 257781 | 64446 | 302924 | 75731 |
+| 7. Track loop | off | nested | 171662 | 42916 | 216665 | 54167 | 257781 | 64446 | 302924 | 75731 |
+| 7. Track loop | on | ordinary | 168069 | 42018 | 180228 | 45057 | 269293 | 67324 | 319769 | 79943 |
+| 7. Track loop | on | nested | 183174 | 45794 | 233509 | 58378 | 269293 | 67324 | 319769 | 79943 |
+| 8. Final acceptance | off | ordinary | 156557 | 39140 | 163384 | 40846 | 257781 | 64446 | 302924 | 75731 |
+| 8. Final acceptance | off | nested | 171662 | 42916 | 216665 | 54167 | 257781 | 64446 | 302924 | 75731 |
+| 8. Final acceptance | on | ordinary | 168069 | 42018 | 180228 | 45057 | 269293 | 67324 | 319769 | 79943 |
+| 8. Final acceptance | on | nested | 183174 | 45794 | 233509 | 58378 | 269293 | 67324 | 319769 | 79943 |
+| 9. Delivery | off | ordinary | 156557 | 39140 | 163384 | 40846 | 257781 | 64446 | 302924 | 75731 |
+| 9. Delivery | off | nested | 171662 | 42916 | 216665 | 54167 | 257781 | 64446 | 302924 | 75731 |
+| 9. Delivery | on | ordinary | 168069 | 42018 | 180228 | 45057 | 269293 | 67324 | 319769 | 79943 |
+| 9. Delivery | on | nested | 183174 | 45794 | 233509 | 58378 | 269293 | 67324 | 319769 | 79943 |
 
 ### Session starts
 
@@ -603,8 +603,8 @@ differ from the phase totals. Their measured entry totals follow.
 
 | Publishing | Required bytes | Estimated tokens | Conditional maximum bytes | Estimated tokens | Byte limit | Token limit |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| off | 90792 | 22698 | 189537 | 47385 | 227535 | 56884 |
-| on | 102304 | 25576 | 201049 | 50263 | 244379 | 61095 |
+| off | 89547 | 22387 | 188292 | 47073 | 227535 | 56884 |
+| on | 101059 | 25265 | 199804 | 49951 | 244379 | 61095 |
 
 The doctrine requires common change records at every start. Nested planning
 and resume load recursive workflow. Fresh sessions cannot reuse prior context
@@ -631,7 +631,7 @@ implementation input for workers only. It adds no orchestrator read.
 | Rationale | 30268 | 7567 |
 | Unusual prose | 28067 | 7017 |
 | Early notes | 10648 | 2662 |
-| Ordinary split | 15285 | 3822 |
+| Ordinary split | 15105 | 3777 |
 | Manual review | 55851 | 13963 |
 
 Private evidence, designs, reports, source chains, project additions, configured

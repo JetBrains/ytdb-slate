@@ -28,13 +28,11 @@ The mandatory phases run in this order:
 8. obtain blocking final acceptance.
 9. deliver.
 
-The cumulative implementation commit is the original implementation and all
-agentic-review fixes squashed into one commit before user review. The track loop
+The track loop
 presents the approved high-level design when required, plans and judges the
 track's independent risk record, implements, validates, compares the committed
 difference with the proved areas, reviews, and fixes. It then presents any
-changed high-level design when required, creates the cumulative implementation
-commit, and delivers the track package. It applies and commits required user-review
+changed high-level design when required and delivers the track package. It applies and commits required user-review
 fixes whenever the user requests them. It verifies their range when one exists
 and marks the boundary. The implementer produces the low-level design and
 implements it as one integrated action.
@@ -726,25 +724,20 @@ The note queue is drained before final acceptance. Every escalation has a
 disposition. The coverage
 invariant holds. The user accepts the final change.
 
-Each code track contributes one cumulative implementation commit, any user-review
-fixes and corrections, and a marker in multi-track changes.
+Each code track contributes its implementation, separate review fixes and
+corrections, and a marker in multi-track changes.
 For design markers, use [change-records.md](change-records.md)
 § Identifiers, code ranges, and design markers.
-Commit machine-review fixes separately for gate inspection.
-Before user review, squash the original implementation and all agentic-review
-fixes into the cumulative implementation commit.
+Keep the original implementation and each machine-review fix as separate commits.
+Gates inspect each fix difference and the combined behavior.
 The user reviews both designs and implementation together.
-
-When the track has a high-level design, the cumulative implementation commit
-body carries the track high-level design followed by the track low-level
-design. Otherwise, use the two-part Intent and Deviation-delta body in
+Use the two-part Intent and Deviation-delta body in
 [blast-radius.md](blast-radius.md) § Commit discipline for drift and boundaries.
 
 ### Closed-range corrections
 
-Commit each fix requested during user review separately after the cumulative
-commit. Do not squash a user-review fix into the cumulative commit, because
-folding it back would destroy the exact state the user reviewed. Present each
+Commit each fix requested during user review separately.
+Preserve the exact state the user reviewed. Present each
 fix's status in one batch acceptance question. Let the user accept or reject each
 fix separately. Keep one commit per fix. When at least one such commit exists, add their
 contiguous range to the coverage register. Dispatch one fresh gate thread to
@@ -761,8 +754,7 @@ corrected range. This correction loop uses the ordinary two-round cap and
 escalation rules in
 [review-rules.md](review-rules.md) § Fix loop and gate verdicts.
 
-The correction remains a separate commit after the cumulative implementation
-commit. Do not squash it. A track with no user-review fix commit adds neither
+The correction remains a separate commit after the user-review fixes. A track with no user-review fix commit adds neither
 this range nor this gate action. Where a marker applies, it comes last because
 it defines the track range. Later feedback follows [user-notes.md](user-notes.md).
 It does not extend the closed range or automatically belong to the next track.
@@ -770,16 +762,11 @@ It does not extend the closed range or automatically belong to the next track.
 ### Delivery history and accounting
 
 A bootstrap commit created to open a draft pull request uses
-`Bootstrap: <intent title>`. It is not part of any track. Re-pin every recorded
-commit range after the rewrite, including the coverage register and any range
-in a track packet. Complete the rewrite before user review, so later
-user-review fix commits do not invalidate the reviewed range.
+`Bootstrap: <intent title>`. It opens publishing before owned implementation
+starts and is not part of any track.
 
-Use ordinary branch updates by default. Do not routinely force-push.
-The pre-user-review cumulative-commit rule is the only routine rewrite exception while that rule exists.
-When draft-pull-request publishing is enabled, update its current branch with a
-lease-protected force-push. The lease must prevent discarding a commit pushed
-by another party.
+Use ordinary branch updates. Do not routinely rewrite history or force-push.
+Only a user-chosen privacy rewrite permits rewriting history under the duties below.
 
 Markers follow § Commit titles and bodies.
 A multi-track boundary adds one empty marker commit after

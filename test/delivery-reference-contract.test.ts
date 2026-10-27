@@ -62,8 +62,9 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
           assert.match(output, new RegExp(`^CHECK +${contract} +${accepted ? "PASS" : "FAIL"}\\b`, "m"));
           assert.match(output, /^CHECK +roster +PASS\b/m);
           if (focusedGroup) assert.ok(output.includes("all 53 surviving identities retain active rules →"), output);
+          if (name.startsWith("history restoration:")) assert.ok(output.includes("history rules reject each restoration and accept benign discussion →"), output);
           if (name === "clean source") {
-            assert.equal(mutationCounts(output)["boundary-regression"], 31);
+            assert.equal(mutationCounts(output)["boundary-regression"], 25);
             assert.equal(mutationCounts(output)["delivery-boundaries"], 12);
             assert.equal(mutationCounts(output)["surviving-safeguards"], 53);
             assert.equal(mutationCounts(output)["retained-protocol"], undefined);
@@ -94,8 +95,8 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
         assert.equal(output.match(verdict)?.[1], cleanOutput.match(verdict)?.[1], output);
         assert.match(output, /^CHECK +roster +PASS\b/m);
         selectedOutput(output, contract, true);
-        assert.deepEqual(mutationCounts(output), contract === "contract-heading-regions" ? { "heading-policy": 894 } : {});
-        if (contract === "contract-heading-regions") assert.equal(mutationCounts(cleanOutput)["heading-policy"], 894);
+        assert.deepEqual(mutationCounts(output), contract === "contract-heading-regions" ? { "heading-policy": 886 } : {});
+        if (contract === "contract-heading-regions") assert.equal(mutationCounts(cleanOutput)["heading-policy"], 886);
       }
     });
     const resolverFile = "verification/resolver-checks.mjs";
@@ -132,11 +133,24 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
         .replace("Completed descendant ranges need not form one uninterrupted subtree slice.", "Completed descendant ranges need not form\n one uninterrupted subtree slice.")
         .replace("Before resume, read the decision and verify the dependency's completion evidence.", "Before resume, read the decision and verify\n the dependency's completion evidence."),
     }, true, "contract-heading-regions");
-    const designContent = '"High-level design\\nKeep one identity.\\n\\nLow-level design\\nPut the line first."';
+    const designContent = '"Intent: Keep review fixes separate.\\n\\nDeviation delta: Approved title change."';
     assert.ok(resolver.includes(designContent));
     for (const content of ['""', '"Replacement content."']) {
       await check(`independent body expectation rejects ${content}`, {
         [resolverFile]: resolver.replace(designContent, content),
+      }, false, "contract-escalation-routing");
+    }
+    for (const [file, rule] of [
+      ["docs/blast-radius.md", "When the track has a high-level design, the cumulative implementation commit body carries the track high-level design followed by the track low-level design."],
+      ["docs/change-records.md", "Put the approved architecture and detailed design in every implementation message."],
+      ["docs/track-workflow.md", "Before user review, squash implementation and review fixes into one commit."],
+      ["docs/recursive-workflow.md", "Before presenting work to the user, combine the implementation and fixes into a single commit."],
+      ["docs/delivery-packages.md", "The pre-user-review cumulative-commit rule is the only routine rewrite exception while that rule exists."],
+      ["docs/track-workflow.md", "Allow ordinary pre-review rebases and force-push updates."],
+    ]) {
+      const original = readFileSync(join(fixture, file!), "utf8");
+      await check(`history restoration: ${rule}`, {
+        [file!]: original + "\n" + rule + "\n",
       }, false, "contract-escalation-routing");
     }
     const deliveryFile = "docs/delivery-packages.md";
@@ -179,9 +193,9 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
       assert.ok(publishing.includes(rule));
       await check(`changed description boundary: ${rule}`, { [publishingFile]: publishing.replace(rule, "Refresh the description after every commit.") }, false, "contract-heading-regions");
     }
-    const rewriteLimit = "The pre-user-review cumulative-commit rule is the only routine rewrite exception while that rule exists.";
+    const rewriteLimit = "Only a user-chosen privacy rewrite permits rewriting history under the duties below.";
     assert.ok(workflow.includes(rewriteLimit));
-    await check("surviving rewrite scope in mixed accounting", {
+    await check("privacy-only rewrite scope in mixed accounting", {
       [workflowFile]: workflow.replace(rewriteLimit, "The rewrite exception always applies."),
     }, false, "contract-heading-regions");
     const handoffRule = "Follow [delivery-packages.md](delivery-packages.md) § Durable accounting in order.";

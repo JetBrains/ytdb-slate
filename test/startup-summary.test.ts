@@ -691,7 +691,7 @@ test("theme failures warn without breaking terminal startup", { timeout: 10000 }
 });
 
 test("the short phase list follows all nine lifecycle phases in the shipped document", () => {
-	const section = readFileSync(TRACK_WORKFLOW_DOC, "utf8").split("## Lifecycle and phases\n")[1]!.split("\nThe cumulative implementation")[0]!;
+	const section = readFileSync(TRACK_WORKFLOW_DOC, "utf8").split("## Lifecycle and phases\n")[1]!.split("\nThe track loop")[0]!;
 	const phases = [...section.matchAll(/^\d+\. (.*(?:\n(?!\d+\.|\n)[ \t]+.*)*)/gm)].map((match) => match[1]!.replace(/\s+/g, " ").trim());
 	assert.deepEqual(phases, [
 		"research.",

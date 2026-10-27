@@ -215,11 +215,9 @@ After a completed investigation, two further failed ordinary rounds on that requ
 Neither read-only investigation nor holistic-solution approval permits repair beyond the two-round limit.
 A split bypasses no consultation, verification, or escalation rule.
 
-Before user review, child fixes join the affected cumulative implementation commit.
-After user review, keep child fixes and corrections as separate commits.
-Never fold them into the already reviewed cumulative commit.
-Re-pin permitted rewritten ranges before review or packaging.
-Required fix gates inspect the child fix differences and cumulative result.
+Keep each child fix and correction as a separate commit.
+Preserve the exact state already reviewed.
+Required fix gates inspect the child fix differences and combined behavior.
 The affected track completes only after every child repair and required gate is resolved.
 
 ## Whole-subtree acceptance

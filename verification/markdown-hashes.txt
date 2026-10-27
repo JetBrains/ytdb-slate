@@ -6,15 +6,15 @@ aad42d98ec655236f5bfb6d440a9f1d8b197021b7a359ecdad02eda057af5670  README.md
 
 4a386484fe95a897d2917a9b3856a5474c1fe79e85531c150c6a50bc9b3617d6  RELEASING.md
 
-63a258c94c974f69dcd860dca2a123325fdac312368aff40f65b21dce61cc526  docs/blast-radius.md
+c3ec46232ae59a874141e6528bebf5a079f492e72048f86474166fde53d58d20  docs/blast-radius.md
 
-33eed092de61cd847813460d9d454ec84e6b507358168da61c939bf42b00ccc9  docs/change-records.md
+7a26d6898c86ee361259589bbce58bd1738faf62462ca0eb0bc466f1cc32acd6  docs/change-records.md
 
 9e610485471383ce71317ce4d84bdbfad62a3f0c43eb0c49353ceead485131ad  docs/configuration.md
 
-cd4ea198ea16d8b0123fc109aad6d2ffc33b3d2f55cb5fb0ad521243b1e4803b  docs/context-budget.md
+b73e8a6fdc88013c6463a73284d5c83749e0420facc3147777502f466c3a60d3  docs/context-budget.md
 
-0fa1dc5b979304aae079c6bdfaa8b772be9e6401ac82bd1958ca77255e390a96  docs/delivery-packages.md
+8d65be127e9cf384eb6d12f4089a813d472046357ea0b4c1abc0dbe179b846ce  docs/delivery-packages.md
 
 69e5205073cf9a835a8e02d8a22c0cac1650439d824c8af9cfd2756aeb664c01  docs/design-principles.md
 
@@ -22,7 +22,7 @@ cd4ea198ea16d8b0123fc109aad6d2ffc33b3d2f55cb5fb0ad521243b1e4803b  docs/context-b
 
 0fae4450d2f24b44919521a210a39a694be0873a29ae1fb0dd124398d9859f15  docs/pr-publishing.md
 
-9927b899ec0cc30fffe27fc0bd2cd233063cfa583198f05ce1beed7b6bbf1089  docs/recursive-workflow.md
+294eece4da2c2aaa117cce7f04cd60b53ec92ebac6a6156257effe90ddca3e58  docs/recursive-workflow.md
 
 5e88766faf4b58aba0715e704b38619c02cb9a0c851c037700600d554f6a5784  docs/review-common-policy.md
 
@@ -58,7 +58,7 @@ a527dcd58276be7808e0a284add5f1dc08036ee9a522db85a4d5aeab3dd7b2f2  docs/review-pe
 
 0a5e32799a1b0dc786b32ad2b01a2b363162ce73e75c0fac86896159daa47e52  docs/safety-and-trust.md
 
-577d412d8a7e9b994948dc07e45df9ac4caa909ea352fc6851ac305432abe0f5  docs/track-workflow.md
+8aab0043662db39bad95d88248ccb54115bd87c287b048aba788d64d2701e746  docs/track-workflow.md
 
 f18298e3a2b41c6c77fb92e7410618df557e494374e4392b5085a626d00f01c8  docs/user-notes.md
 
@@ -88,4 +88,4 @@ ff583b7578b55fa21887fde2ca828eb55a6d9efa0851112d830802eae1cc86e4  research/opena
 
 266812b566da8edc5d90936b39bfc7d13e160cd42291aba56b6e00eac3cf5077  research/writing-threshold-provenance.md
 
-f6a01a9e937991987f83d3908bc3d8529b5105afe53941c5f92cf7855e2cc09c  verification/README.md
+8d452885cd1fc42fd10d97ee2e8c1f952c1f965569675b0c83a2a4a29ccc7828  verification/README.md

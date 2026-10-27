@@ -1,8 +1,9 @@
 // Independent accepted mutation identities and fail-closed execution accounting.
 const numbered = (id, count) => Array.from({ length: count }, (_, index) => `${id}/${index}`);
 const combinations = (ids, kinds) => ids.flatMap((id) => kinds.map((kind) => `${id}/${kind}`));
-const headingCounts = {"identifiers-ranges": 33, "manual-records": 137, "resume-forks": 21, "handoff-pointer": 3, "resume-order": 19, "general-handoff": 3, "closed-range-feedback": 19, "repairs": 60, "aggregate": 21, "sources": 74, "workflow-accounting": 77, "notes-accounting": 23, "publishing-sync": 7, "public-roadmap": 21, "repair-escalation": 49, "repair-rounds-owner": 52, "repair-consultations-owner": 26, "child-fix-title-owner": 12, "P13-authoring": 28};
+const headingCounts = {"identifiers-ranges": 32, "manual-records": 137, "resume-forks": 21, "handoff-pointer": 3, "resume-order": 19, "general-handoff": 3, "closed-range-feedback": 18, "repairs": 58, "aggregate": 21, "sources": 74, "workflow-accounting": 73, "notes-accounting": 23, "publishing-sync": 7, "public-roadmap": 21, "repair-escalation": 49, "repair-rounds-owner": 52, "repair-consultations-owner": 26, "child-fix-title-owner": 12, "P13-authoring": 28};
 export const EXPECTED_MUTATIONS = {
+ "review-history": ["design-body", "architecture-body", "review-collapse", "review-combine", "routine-rewrite", "ordinary-rebase"],
  "surviving-safeguards": [
   "reviewed-state", "aggregate-no-authority", "preserve-before-rewrite", "reconcile-references",
   "original-marker-evidence", "missing-history-pause", "exact-recovery", "no-substitute",
@@ -26,17 +27,16 @@ export const EXPECTED_MUTATIONS = {
   "G8-description-target/restored-rule", "G8-description-target/benign-control", "G8-description-target/wrapped-restored-rule", "G8-delivery-target/restored-rule",
   "G8-delivery-target/benign-control", "G8-delivery-target/wrapped-restored-rule", "G8-measured-exception/restored-rule", "G8-measured-exception/benign-control",
   "G8-measured-exception/wrapped-restored-rule", "G9-untracked-closure/restored-rule", "G9-untracked-closure/benign-control", "G9-untracked-closure/wrapped-restored-rule",
-  "review-design-blast/restored-rule", "review-design-blast/benign-control", "review-design-blast/wrapped-restored-rule", "review-design-workflow/restored-rule",
-  "review-design-workflow/benign-control", "review-design-workflow/wrapped-restored-rule", "normalization-weakening"
+  "normalization-weakening"
  ],
  "delivery-boundaries": [
   "local-delivery/final-squash", "local-delivery/delivery-authority", "first-deferred/suppress-concerns", "first-deferred/redirect-record",
   "scope-outcome/redirect-record", "scope-outcome/omit-record", "note-route/redirect-record", "note-route/omit-record",
-  "template-applicability/disabled-exemption", "template-applicability/disabled-template", "template-applicability/publishing-duty", "commit-discipline/design-summary"
+  "template-applicability/disabled-exemption", "template-applicability/disabled-template", "template-applicability/publishing-duty", "commit-discipline/design-body-restoration"
  ],
  "delivery-rules": [
-  ...numbered("repairs", 60), ...numbered("aggregate", 21), ...numbered("issues", 15), ...numbered("sources", 74),
-  ...numbered("workflow-accounting", 77), ...numbered("notes-accounting", 23), ...numbered("publishing-sync", 7), ...numbered("public-workflow", 29),
+  ...numbered("repairs", 58), ...numbered("aggregate", 21), ...numbered("issues", 15), ...numbered("sources", 74),
+  ...numbered("workflow-accounting", 73), ...numbered("notes-accounting", 23), ...numbered("publishing-sync", 7), ...numbered("public-workflow", 29),
   ...numbered("public-roadmap", 21)
  ],
  "transfer": [
@@ -49,13 +49,13 @@ export const EXPECTED_MUTATIONS = {
   ...numbered("level-publishing", 20), ...numbered("publishing-creation", 19), ...numbered("publishing-after-merge", 19), ...numbered("sync", 7),
   ...numbered("ready", 31), ...numbered("post-flip", 18), ...numbered("merge-advice", 12), ...numbered("description-scope", 15),
   ...numbered("default-template", 4), ...numbered("migration", 12), ...numbered("accepted-history", 22), ...numbered("history", 25),
-  ...numbered("disabled-preservation", 23), ...numbered("private-set", 14), ...numbered("workflow-accounting", 77)
+  ...numbered("disabled-preservation", 23), ...numbered("private-set", 14), ...numbered("workflow-accounting", 73)
  ],
  "safety-removals": [
   ...numbered("level-publishing", 20), ...numbered("publishing-creation", 19), ...numbered("publishing-after-merge", 19), ...numbered("sync", 7),
   ...numbered("ready", 31), ...numbered("post-flip", 18), ...numbered("merge-advice", 12), ...numbered("description-scope", 15),
   ...numbered("default-template", 4), ...numbered("migration", 12), ...numbered("accepted-history", 22), ...numbered("history", 25),
-  ...numbered("disabled-preservation", 23), ...numbered("private-set", 14), ...numbered("workflow-accounting", 77)
+  ...numbered("disabled-preservation", 23), ...numbered("private-set", 14), ...numbered("workflow-accounting", 73)
  ],
  "ordering": [
   "before-first-range", "after-descendant-ranges", "resume-completed-dependency", "open-range-interleaving"

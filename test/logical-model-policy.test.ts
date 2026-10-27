@@ -653,7 +653,7 @@ test("resolver exclusions are explicit and preserve the complete default roster"
       const selected = run(wrapper, ["--only", selection.join(",")], false);
       assert.equal(selected.status, 0, selected.output);
       assert.deepEqual([...selected.output.matchAll(/^CHECK +(\S+) /gm)].map((match) => match[1]), [...selectedIds, "selected-mutation-audit", "roster"]);
-      assert.match(selected.output, /^NOTE executed mutation counts: {"heading-policy":894}$/m);
+      assert.match(selected.output, /^NOTE executed mutation counts: {"heading-policy":886}$/m);
       assert.match(selected.output, /^== summary: 4 pass, 0 fail, 0 not run \(4 result lines = 2 selected checks \+ scoped mutation audit \+ this roster audit\) ==$/m);
     }
     for (const args of [
