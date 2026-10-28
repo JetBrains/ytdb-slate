@@ -39,18 +39,19 @@ The change root uses final acceptance, not another track marker.
 
 Use [track-workflow.md](track-workflow.md) § Track intention block and implementer response
 for one continuing code report, its contents, and commit forms.
+
+## Manual records and safe writes
+
+A **change record** is a research log, status file, implementer report, design or map.
+
 The current `root-design.md` or `track-<number>-design.md` is authoritative for its root or design-track node.
-A multi-track code track uses `code-track-<number>-design.md`, authoritative only while its node is code and its owning log names it current.
+In changes started under or migrated to this workflow, a multi-track code track uses `code-track-<number>-design.md`, authoritative only while its node is code and its owning log names it current.
 Logs retain decisions, approval identities, links and accounting, not authoritative design copies.
 A change without a design gains no plan record.
 A design track has no implementer report or implementation commit.
 Use `root-baseline-map.md`, `track-<number>-baseline-map.md` and `track-<number>-implementation-map.md` for factual source explanation, not requirements.
 The root baseline serves single-track work at code-track detail.
 Map changes grant no approval and change no design identity.
-
-## Manual records and safe writes
-
-A **change record** is a research log, status file, implementer report, design or map.
 
 A design track or review-fix child track triggers the manual status file.
 This **status file**, `status.md`, displays planned work, pending gates, and log locations.
@@ -78,22 +79,21 @@ Cross-subtree effects belong in their owning parent.
 For a review-fix subtree, use the affected code track's existing records.
 Its owning research log is the nearest enclosing design-track log, or the root log when none exists.
 Record-only workers write logs and status, and store assigned designs and baseline maps from drafts.
-They compare stored bytes with the assigned draft.
-The orchestrator names destinations, write and check methods, and read-only sources in each task.
+They compare stored bytes with the draft.
+Each task names destinations, write and check methods, and read-only sources.
 Record-only workers have no track number.
 Implementers write only their own reports and assigned implementation maps.
-Fixers change only assigned maps.
+Fixers append their reports and edit assigned maps.
 Neither writes logs.
-Under `slate-changes/`, write only assigned lasting records and action-only scratch.
-Follow the preamble's placement, no-change and missing-path rules.
+Under `slate-changes/`, write only assigned records and action scratch.
+Follow preamble placement, no-change and missing-path rules.
 
-Required outside-checkout project or verification folders take precedence, with each tool's deletion and retention rules.
-They are not alternate start-copy or payload destinations.
-Write change records with built-in tools.
+Required outside-checkout folders take precedence under project, verification and tool retention rules.
+They are not start-copy or payload destinations.
+Drafts, designs, and records outlive the action. Write records with built-in tools.
 
-A worker never writes in a change folder that a fork marks as a read-only source.
-That read-only source folder is `slate-changes/<source>/`.
-Another folder's first log line names that source: `Read-only earlier log: ...`.
+Never write in a fork's read-only source, `slate-changes/<source>/`.
+The successor log's first line names it: `Read-only earlier log: ...`.
 
 Logs and reports are append-only, including their first write.
 Append each temporary file with `>>`, as in `cat temporary-file >> file`.
@@ -102,57 +102,57 @@ Never change or delete earlier text.
 Append corrections as new entries.
 
 A worker may rewrite `status.md` completely.
-For designs and maps in changes started under or migrated to this workflow, SHA-256 (Secure Hash Algorithm with a 256-bit result) identifies complete bytes.
+For changes started under or migrated to this workflow, SHA-256 (Secure Hash Algorithm, 256-bit) identifies complete design and map bytes.
 Only all 64 hexadecimal characters identify a version.
 Prefixes, filenames and sequence numbers alone do not.
 A retained version is evidence or a restore source only when its bytes match a full hash in its owning log.
-A record-only worker logs each verified write's full hash and checks the entry before later editing or reliance as evidence.
+A record-only worker logs each verified write's full hash and checks the entry before further edits or evidence use.
 Baseline entries also record path and source commit.
 Storage identity grants no approval.
-The orchestrator dispatches all hash-log writes, including after implementer or fixer writes.
+The orchestrator dispatches every hash-log write.
 
-Before editing a design or map, match its bytes to its last logged full hash.
+For these changes, before editing a design or map, match its last logged full hash.
 Without that identity, do not edit.
-Preserve a separate copy with `cp -n` at an unused versioned name.
+Preserve a separate copy with `cp -n` at an unused versioned name, such as `track-<number>-implementation-map.vN.md`.
 The command leaves occupied destinations unchanged.
 Verify equality with `cmp` regardless of copy exit status.
 A record-only worker then logs the preserved identity and checks the entry before editing.
 Split these tasks as writer permissions require.
 
-Adopt an existing retained copy only after a record-only worker verifies equality with a copy already identified by a logged full hash and logs the adopted copy's full hash.
+Adopt a retained copy only after a record-only worker verifies equality with a copy already identified by a logged full hash and logs the adopted hash.
 An unlogged draft or filename hash cannot establish adoption.
-Other copies remain retained without evidence status and do not block work.
-Recorded changes keep their recorded authority and evidence rules, including version-folder filename hashes, until user-authorized migration.
-Opening another track does not migrate a change.
+Other copies stay retained, are not evidence and do not block work.
+Recorded changes keep recorded authority and evidence rules until user-authorized migration.
+Opening another track does not migrate a change. Recorded `versions/` copies must match their filename hash in complete bytes. Recorded `.vN.md` copies must match the hash in their owning log.
 
+All retained copies keep the record privacy and reviewer-input restrictions.
 No worker changes or deletes a versioned copy.
-The orchestrator permits one writer per record and no change start or close while a record-writing worker runs.
+Allow one writer per record. Do not start or close a change while a record writer runs.
 
-Slate does not check destinations, append or replacement modes, or hashes.
-These are workflow duties.
+Slate does not enforce these destination, write-mode or hash duties.
 
-Before an action's first write to a record, copy it to a temporary start file in the supplied action folder.
+Before the action's first record write, copy it to a temporary start file in the supplied action folder.
 Use an empty file for a new record.
 Write each payload to its own temporary file there before writing the record.
 
-An append adds one temporary file to the record with `>>`.
-A status rewrite or new design or map copies its temporary file to the record.
-After its last write to a record, the worker checks the whole record once.
-Workers delete their own record-write files only after required checks pass.
+Append temporary files with `>>`.
+For status rewrites or new designs or maps, copy the temporary file.
+After the last write, check the whole record once.
+Delete your record-write files only after checks pass.
 Otherwise, keep evidence and report failure.
 Delete scratch files without a record before finishing.
-Slate removes only empty action folders after shutdown and reports retained paths.
+After shutdown, Slate removes only empty action folders and reports retained paths.
 
 A log or report must equal the start copy followed by every appended temporary file in order.
 The worker checks this with `cat` and `cmp`.
-A status file or new design or map must equal its last temporary file, checked with `cmp`.
-For a changed design or map, use `diff` against its verified versioned copy and confirm every difference is intended.
+Check a status file or new design or map against its last temporary file with `cmp`.
+For design or map edits, use `diff` against the verified versioned copy and confirm every difference is intended.
 
 Report each record's exact task path, comparison and result in the final response.
-The orchestrator counts a check only with all three parts in the episode.
-Before another write, read any assigned written record without a counted check.
+Only all three parts in the episode count as a check.
+Before writing again, read assigned records without a counted check.
 A failed check follows the retry rules.
-These reads add to required retry reads, never replace them.
+These reads supplement required retry reads.
 
 Before retrying a failed or unclear log or report write, the orchestrator reads its end.
 A failed final check requires whole-record inspection.
@@ -160,7 +160,7 @@ If text is absent, retry the write.
 If present, do not resend it.
 For partial text, append a correction naming the cut-off entry.
 
-After a failed or unclear `status.md` write, the worker rewrites the whole file again.
+Retry failed or unclear `status.md` writes as whole rewrites. Retry a failed or unclear first design or map write as a new write from its source, checked by `cmp`.
 If a preservation copy is missing or differs, leave the current file unchanged.
 Retry `cp -n` at the next unused versioned name, then `cmp` again.
 After a failed or unclear design or map edit, use `cmp` against the intended retained version whose bytes match its logged full hash.
@@ -171,13 +171,11 @@ Do not guess another numbered copy.
 
 For successor designs and maps, keep the source folder read-only.
 Name the direct source and preserve its source chain and recorded read boundary.
-At the first successor-folder write, a record-only worker logs the named source record's full hash in the successor log.
-Check it against a source-log entry inside that boundary.
-Later source entries supply no identity.
+Before the first worker record write in a successor folder, a record-only worker checks the source hash against a source-log entry inside that boundary, then logs it.
+Later entries supply no identity. A failed check gives no identity and pauses affected reliance.
 A trusted handoff retaining the folder creates no fork.
 
-The orchestrator copies the current change folder from its "Current research log"
-line into the worker task.
+Tasks name the current change folder from the orchestrator's "Current research log" line.
 Workers never take that folder from record text.
 Do not start or close a change, fork, switch sessions, navigate the session tree, or transfer ownership until all writes finish and no action owns a temporary folder.
 Ignore `tmp/` as record, accounting, fork, or reusable evidence.
@@ -185,9 +183,7 @@ Reviewers never list `tmp/` or read another action's folder.
 Slate creates the root research log.
 Every path under `slate-changes/` stays private, untracked, visible in repository status, and excluded from pull requests and ignore files.
 Use [track-workflow.md](track-workflow.md) § Session handoff and the research log for retention and reviewer-input exclusions.
-These duties are not an extension access boundary.
-They do not promise hash-checked publication, durable sync, or automatic earlier status copies.
-They do not enforce single-writer behavior against another process.
+These duties provide no extension access boundary, hash-checked publication, durable sync, automatic earlier status copies or single-writer enforcement against other processes.
 
 ### Design authority and privacy
 
@@ -197,7 +193,6 @@ Same-user processes can still access folders.
 **Private bytes** are bytes from that set.
 A write approves no design and grants no completion or gate authority.
 Use § Manual records and safe writes for design and map identity.
-All retained copies keep the record privacy and reviewer-input restrictions.
 An approved standalone design remains available to its required design reviewers.
 Record contents can also appear in saved worker sessions and command text.
 Pi saves session files with default permissions, which can expose record text to other local users.

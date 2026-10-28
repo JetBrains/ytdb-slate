@@ -505,15 +505,15 @@ Every implementation and review dispatch carries these fields:
 
 Every implementation dispatch carries this focused current-context block:
 
-> Name the exact retained research-log path `slate-changes/<change>/research-log.md` and implementer-report path `slate-changes/<change>/track-<number>-implementer-report.md`. Use supplied references and excerpts. Read further history only for unresolved relevant questions.
+> Research log: `slate-changes/<change>/research-log.md`. Report: `slate-changes/<change>/track-<number>-implementer-report.md`. Use supplied references and excerpts. Read further history only for unresolved relevant questions.
 
-Name the current standalone approved design, if any, task, acceptance condition, assigned findings with compact fix evidence, affected files, relevant decisions and unresolved questions.
+Name the current approved design, if any, wherever authoritative: standalone or recorded log content. Name task, acceptance condition, assigned findings with compact fix evidence, affected files, relevant decisions and unresolved questions.
 Give implementers and fixers section references or bounded excerpts, never a required whole-log read.
 Identify assigned maps as factual context, not requirements.
 When a stored baseline exists, obtain its path and source commit from the log and name both.
 Use the root baseline for single-track work.
 Recorded changes without baselines gain no retrospective requirement.
-For map reading depth, use [maps.md](maps.md).
+Implementers use [maps.md](maps.md) for reading depth.
 Reviewer input restrictions remain unchanged.
 Every implementation dispatch either carries each focus-area trigger with its boundary
 sentences or directs the implementer to the risk definitions in

@@ -3495,8 +3495,8 @@ Use its § Session handoff and the research log for ownership.`);
 			const recordDigest = (text) => createHash("sha256").update(normalizeText(text)).digest("hex");
 			const resumeOrderExpected = normalizeText(`Resume in this fixed order: 1. Read the initial request and latest state summary. Before relying on a summary, check that its named subtree entry exists. An older summary without a subtree reference still resumes under its recorded workflow. 2. Read later decisions and the active subtree's records. When the summary names an existing current implementer report, read it there. Use [recursive-workflow.md](recursive-workflow.md) § Resume and folder forks for tree reconciliation and read-only source boundaries. Before resuming a paused subtree, read its typed \`decision\` entry in the owning parent research log. Check that its unfinished sibling dependency has completed and its recorded resume condition holds. Confirm the decision records a boundary between code-track ranges, with no open range. A status entry alone authorizes neither pause nor resume. 3. Inspect marker commits and the current branch state. 4. Reconcile the declared file list, track table, coverage register, proved focus areas, risk record, and live diff. 5. Re-run any stale precondition check. 6. Apply the user-decision reuse rule before asking any question. 7. Continue only after answering: **What changed since the last state summary, and does it change focus, scope, or required gates?** A mismatch pauses work. Reconcile it in the log. Use marker commits and Git history as boundary authority. The track table is display-only.`);
 			const recursiveRecordUnits = [
-				{ id: "identifiers-ranges", source: commonRecords, start: "## Identifiers, code ranges, and design markers", extract: headingUnit("## Identifiers, code ranges, and design markers"), expected: "71dd9cb8145bbec1ae41a0d5987ad9b4058b9750bfce48d409b0055b47e6be83" },
-				{ id: "tool-records-and-recovery", source: commonRecords, start: "## Manual records and safe writes", extract: headingUnit("## Manual records and safe writes"), expected: "c6876caad32c6de1e85d804d4f42e30337af4654d15b7a11f3c3b3e335f7395a" },
+				{ id: "identifiers-ranges", source: commonRecords, start: "## Identifiers, code ranges, and design markers", extract: headingUnit("## Identifiers, code ranges, and design markers"), expected: "0d995abc7711561bde6f3b397106a7c4957559453f5d45320352cfd1bfc52ffb" },
+				{ id: "tool-records-and-recovery", source: commonRecords, start: "## Manual records and safe writes", extract: headingUnit("## Manual records and safe writes"), expected: "0789009445e037948a0815310ff37f8e2e0a5226bbda6a9cb5480cac5bb0cf51" },
 				{ id: "resume-forks", source: recursive, start: "## Resume and folder forks", extract: headingUnit("## Resume and folder forks"), expected: "d8d1c5deb0410447097d6fa6e8e8add60c3a0e7f34b77c3452d4d498327b983d" },
 				{ id: "handoff-pointer", source: recursive, start: "## Handoff boundaries", extract: headingUnit("## Handoff boundaries"), expected: "225c24f843fa607d5ebfd489e574e16641953dab064546450ea0082463bf48d0" },
 				{ id: "marker-identity", source: workflow, extract: markedUnit("marker-identity-policy"), expected: "ae24e23298695b323c803f31515c87ee8de5777cd0b0a13dba90d747c9df4308" },
@@ -3525,8 +3525,8 @@ Use its § Session handoff and the research log for ownership.`);
 			// review-rules.md input amendments and RG9 common-text mutations.
 			// Independent reviewed pins protect the common owner.
 			commonUnits = [
-				{ id: "identifiers", start: "## Identifiers, code ranges, and design markers", expected: "71dd9cb8145bbec1ae41a0d5987ad9b4058b9750bfce48d409b0055b47e6be83" },
-				{ id: "records", start: "## Manual records and safe writes", expected: "c6876caad32c6de1e85d804d4f42e30337af4654d15b7a11f3c3b3e335f7395a" },
+				{ id: "identifiers", start: "## Identifiers, code ranges, and design markers", expected: "0d995abc7711561bde6f3b397106a7c4957559453f5d45320352cfd1bfc52ffb" },
+				{ id: "records", start: "## Manual records and safe writes", expected: "0789009445e037948a0815310ff37f8e2e0a5226bbda6a9cb5480cac5bb0cf51" },
 			];
 			const acceptsCommon = (source) => commonUnits.every(({ start, expected }) => {
 				const region = headingUnit(start)(source);
@@ -3534,7 +3534,7 @@ Use its § Session handoff and the research log for ownership.`);
 			});
 			privacyHeading = "### Design authority and privacy";
 			const commonHeadings = [...commonUnits.map(({ start }) => start), privacyHeading];
-			const completeCommonDigest = "6f3a9b6c825ecb88ec732e5121b97d29b36a6048fda51c5b90505ba519c94d7c";
+			const completeCommonDigest = "1ab44ff06c56b0c9eb027d6dbf579d3f2fea9b592205da3f14f0b1aceb064d29";
 			const acceptsCompleteCommon = (source) => createHash("sha256").update(source).digest("hex") === completeCommonDigest;
 			const completeCommonAttacks = [
 				["title", commonRecords.replace("# Common change records", "# Nested change records")],
@@ -3673,12 +3673,12 @@ Use [change-records.md](change-records.md) § Design authority and privacy.`) },
 			const directWriteBlock = headingUnit("## Manual records and safe writes")(commonRecords).rawText;
 			const appendToolBan = "Never use `>`, the write tool, the edit tool, or `sed -i` on an existing log or report.";
 			const recordContractRules = new Map([
-				["record-only-task-record-names-removed", "The orchestrator names destinations, write and check methods, and read-only sources in each task."],
+				["record-only-task-record-names-removed", "Each task names destinations, write and check methods, and read-only sources."],
 				["record-only-task-assigned-method-removed", "write and check methods"],
-				["record-only-task-source-rule-removed", "and read-only sources in each task."],
+				["record-only-task-source-rule-removed", "and read-only sources."],
 				["start-copy-removed", "copy it to a temporary start file in the supplied action folder."],
 				["start-copy-location-inside-records", "temporary start file in the supplied action folder"],
-				["start-copy-after-first-write", "Before an action's first write to a record,"],
+				["start-copy-after-first-write", "Before the action's first record write,"],
 				["new-record-empty-start-copy-removed", "Use an empty file for a new record."],
 				["new-text-temporary-file-removed", "Write each payload to its own temporary file there before writing the record."],
 				["new-text-temporary-file-shared", "each payload to its own temporary file"],
@@ -3686,40 +3686,40 @@ Use [change-records.md](change-records.md) § Design authority and privacy.`) },
 				["new-text-temporary-file-after-write", "before writing the record."],
 				["new-log-first-temporary-append-removed", "Logs and reports are append-only, including their first write."],
 				["new-report-first-temporary-append-removed", "Logs and reports are append-only, including their first write."],
-				["append-temporary-file-removed", "An append adds one temporary file to the record with `>>`."],
-				["append-temporary-file-operator-removed", "An append adds one temporary file to the record with `>>`."],
-				["status-rewrite-temporary-copy-removed", "A status rewrite or new design or map copies its temporary file to the record."],
-				["new-design-temporary-copy-removed", "A status rewrite or new design or map copies its temporary file to the record."],
-				["final-check-before-last-write", "After its last write to a record,"],
-				["final-check-whole-record-removed", "the worker checks the whole record once."],
-				["final-check-once-per-record-removed", "the worker checks the whole record once."],
+				["append-temporary-file-removed", "Append temporary files with `>>`."],
+				["append-temporary-file-operator-removed", "Append temporary files with `>>`."],
+				["status-rewrite-temporary-copy-removed", "For status rewrites or new designs or maps, copy the temporary file."],
+				["new-design-temporary-copy-removed", "For status rewrites or new designs or maps, copy the temporary file."],
+				["final-check-before-last-write", "After the last write,"],
+				["final-check-whole-record-removed", "check the whole record once."],
+				["final-check-once-per-record-removed", "check the whole record once."],
 				["append-equality-start-copy-removed", "must equal the start copy followed by every appended temporary file in order."],
 				["append-equality-every-temporary-file-removed", "every appended temporary file in order."],
 				["append-equality-temporary-order-removed", "every appended temporary file in order."],
 				["append-equality-cat-removed", "The worker checks this with `cat` and `cmp`."],
 				["append-equality-cmp-removed", "The worker checks this with `cat` and `cmp`."],
-				["status-final-temporary-equality-removed", "A status file or new design or map must equal its last temporary file, checked with `cmp`."],
-				["new-design-final-temporary-equality-removed", "A status file or new design or map must equal its last temporary file, checked with `cmp`."],
-				["status-final-cmp-removed", "checked with `cmp`."],
-				["new-design-final-cmp-removed", "checked with `cmp`."],
+				["status-final-temporary-equality-removed", "Check a status file or new design or map against its last temporary file with `cmp`."],
+				["new-design-final-temporary-equality-removed", "Check a status file or new design or map against its last temporary file with `cmp`."],
+				["status-final-cmp-removed", "Check a status file or new design or map against its last temporary file with `cmp`."],
+				["new-design-final-cmp-removed", "Check a status file or new design or map against its last temporary file with `cmp`."],
 				["changed-design-diff-removed", "use `diff` against"],
-				["changed-design-verified-copy-removed", "use `diff` against its verified versioned copy"],
+				["changed-design-verified-copy-removed", "use `diff` against the verified versioned copy"],
 				["changed-design-intended-differences-removed", "and confirm every difference is intended."],
 				["check-report-per-record-removed", "Report each record's exact task path, comparison and result in the final response."],
 				["check-report-final-response-removed", "Report each record's exact task path, comparison and result in the final response."],
 				["check-report-exact-task-path-removed", "each record's exact task path"],
 				["check-report-comparison-description-removed", "comparison and result"],
 				["check-report-result-removed", "comparison and result"],
-				["count-incomplete-check-report", "only with all three parts in the episode."],
-				["unreported-written-record-read-removed", "Before another write, read any assigned written record without a counted check."],
-				["unreported-read-extended-to-read-only-records", "assigned written record without a counted check."],
-				["unreported-read-depends-on-tool-warning", "Before another write, read any assigned written record without a counted check."],
-				["unreported-read-after-another-write", "Before another write,"],
+				["count-incomplete-check-report", "Only all three parts in the episode count as a check."],
+				["unreported-written-record-read-removed", "Before writing again, read assigned records without a counted check."],
+				["unreported-read-extended-to-read-only-records", "assigned records without a counted check."],
+				["unreported-read-depends-on-tool-warning", "Before writing again, read assigned records without a counted check."],
+				["unreported-read-after-another-write", "Before writing again,"],
 				["failed-check-retry-route-removed", "A failed check follows the retry rules."],
 				["failed-final-check-end-only-inspection", "A failed final check requires whole-record inspection."],
-				["required-retry-reads-addition-removed", "These reads add to required retry reads, never replace them."],
-				["required-retry-reads-replacement-permitted", "never replace them."],
-				["status-retry-complete-rewrite-removed", "After a failed or unclear `status.md` write, the worker rewrites the whole file again."],
+				["required-retry-reads-addition-removed", "These reads supplement required retry reads."],
+				["required-retry-reads-replacement-permitted", "These reads supplement required retry reads."],
+				["status-retry-complete-rewrite-removed", "Retry failed or unclear `status.md` writes as whole rewrites."],
 				["unequal-versioned-copy-refusal-removed", "If a preservation copy is missing or differs,"],
 				["missing-versioned-copy-refusal-removed", "If a preservation copy is missing or differs,"],
 				["invalid-versioned-copy-existing-file-protection-removed", "leave the current file unchanged."],
@@ -3734,8 +3734,8 @@ Use [change-records.md](change-records.md) § Design authority and privacy.`) },
 				["partial-design-restore-cp-removed", "restore with `cp`"],
 				["partial-design-restore-cmp-removed", "prove equality with `cmp`"],
 				["partial-design-retry-before-restoration-comparison", "prove equality with `cmp`, then retry."],
-				["change-start-while-record-writer-permitted", "The orchestrator permits one writer per record and no change start or close while a record-writing worker runs."],
-				["change-close-while-record-writer-permitted", "The orchestrator permits one writer per record and no change start or close while a record-writing worker runs."],
+				["change-start-while-record-writer-permitted", "Allow one writer per record. Do not start or close a change while a record writer runs."],
+				["change-close-while-record-writer-permitted", "Allow one writer per record. Do not start or close a change while a record writer runs."],
 				["log-report-retry-missing-text-not-resent", "If text is absent, retry the write."],
 				["log-report-retry-present-text-resent", "If present, do not resend it."],
 				["log-report-retry-partial-text-resent", "For partial text, append a correction naming the cut-off entry."],
@@ -3752,19 +3752,19 @@ Use [change-records.md](change-records.md) § Design authority and privacy.`) },
 				["permit-write-tool", recursive.replace(appendToolBan, "A worker may use the write tool on an existing log or report.")],
 				["permit-edit-tool", recursive.replace(appendToolBan, "A worker may use the edit tool on an existing log or report.")],
 				["permit-sed-in-place", recursive.replace(appendToolBan, "A worker may use `sed -i` on an existing log or report.")],
-				["design-copy-cp-n-removed", recursive.replace("Preserve a separate copy with `cp -n` at an unused versioned name.", "The worker changes the existing design without making the copy.")],
+				["design-copy-cp-n-removed", recursive.replace("Preserve a separate copy with `cp -n` at an unused versioned name, such as `track-<number>-implementation-map.vN.md`.", "The worker changes the existing design without making the copy.")],
 				["design-copy-cmp-removed", recursive.replace("Verify equality with `cmp` regardless of copy exit status.", "")],
 				["design-copy-exit-status-authority", recursive.replace("Verify equality with `cmp` regardless of copy exit status.", "The worker accepts the copy when `cp -n` exits successfully, regardless of the `cmp` result.")],
 				["direct-write-block-missing", recursive.replace(directWriteBlock, "")],
 				["direct-write-block-contradictory", recursive.replace(directWriteBlock, `${directWriteBlock}\nA worker may rewrite earlier log entries.`)],
 				["direct-write-block-duplicate", recursive.replace(directWriteBlock, `${directWriteBlock}\n\n${directWriteBlock}`)],
 				["omit-transcript-limit", recursive.replace("Record contents can also appear in saved worker sessions and command text.", "Record contents never appear in saved worker sessions or command text.")],
-				["record-only-task-record-names-removed", recursive.replace("The orchestrator names destinations, write and check methods, and read-only sources in each task.", "")],
+				["record-only-task-record-names-removed", recursive.replace("Each task names destinations, write and check methods, and read-only sources.", "")],
 				["record-only-task-assigned-method-removed", recursive.replace("write and check methods", "Each record-only task states the method for only one assigned record.")],
-				["record-only-task-source-rule-removed", recursive.replace("and read-only sources in each task.", "")],
+				["record-only-task-source-rule-removed", recursive.replace("and read-only sources.", "")],
 				["start-copy-removed", recursive.replace("copy it to a temporary start file in the supplied action folder.", "the worker makes no start copy.")],
 				["start-copy-location-inside-records", recursive.replace("temporary start file in the supplied action folder", "copies the record to a temporary file beside retained records, outside its action folder")],
-				["start-copy-after-first-write", recursive.replace("Before an action's first write to a record,", "After its first write to a record in an action,")],
+				["start-copy-after-first-write", recursive.replace("Before the action's first record write,", "After its first write to a record in an action,")],
 				["new-record-empty-start-copy-removed", recursive.replace("Use an empty file for a new record.", "")],
 				["new-text-temporary-file-removed", recursive.replace("Write each payload to its own temporary file there before writing the record.", "The worker writes each new text directly to the record.")],
 				["new-text-temporary-file-shared", recursive.replace("each payload to its own temporary file", "all new texts to one shared temporary file")],
@@ -3772,40 +3772,40 @@ Use [change-records.md](change-records.md) § Design authority and privacy.`) },
 				["new-text-temporary-file-after-write", recursive.replace("before writing the record.", "after it writes the record.")],
 				["new-log-first-temporary-append-removed", recursive.replace("Logs and reports are append-only, including their first write.", "A worker creates only a new report by appending its first temporary file with `>>`.")],
 				["new-report-first-temporary-append-removed", recursive.replace("Logs and reports are append-only, including their first write.", "A worker creates only a new log by appending its first temporary file with `>>`.")],
-				["append-temporary-file-removed", recursive.replace("An append adds one temporary file to the record with `>>`.", "An append adds arbitrary text to the record with `>>`.")],
-				["append-temporary-file-operator-removed", recursive.replace("An append adds one temporary file to the record with `>>`.", "An append adds one temporary file to the record with `>`.")],
-				["status-rewrite-temporary-copy-removed", recursive.replace("A status rewrite or new design or map copies its temporary file to the record.", "Only a new design file copies its temporary file to the record.")],
-				["new-design-temporary-copy-removed", recursive.replace("A status rewrite or new design or map copies its temporary file to the record.", "Only a `status.md` rewrite copies its temporary file to the record.")],
-				["final-check-before-last-write", recursive.replace("After its last write to a record,", "Before its last write to a record,")],
-				["final-check-whole-record-removed", recursive.replace("the worker checks the whole record once.", "the worker checks only the last entry once.")],
-				["final-check-once-per-record-removed", recursive.replace("the worker checks the whole record once.", "the worker checks the whole record repeatedly.")],
+				["append-temporary-file-removed", recursive.replace("Append temporary files with `>>`.", "An append adds arbitrary text to the record with `>>`.")],
+				["append-temporary-file-operator-removed", recursive.replace("Append temporary files with `>>`.", "An append adds one temporary file to the record with `>`.")],
+				["status-rewrite-temporary-copy-removed", recursive.replace("For status rewrites or new designs or maps, copy the temporary file.", "Only a new design file copies its temporary file to the record.")],
+				["new-design-temporary-copy-removed", recursive.replace("For status rewrites or new designs or maps, copy the temporary file.", "Only a `status.md` rewrite copies its temporary file to the record.")],
+				["final-check-before-last-write", recursive.replace("After the last write,", "Before its last write to a record,")],
+				["final-check-whole-record-removed", recursive.replace("check the whole record once.", "the worker checks only the last entry once.")],
+				["final-check-once-per-record-removed", recursive.replace("check the whole record once.", "the worker checks the whole record repeatedly.")],
 				["append-equality-start-copy-removed", recursive.replace("must equal the start copy followed by every appended temporary file in order.", "must equal every appended temporary file in order.")],
 				["append-equality-every-temporary-file-removed", recursive.replace("every appended temporary file in order.", "some appended temporary files in order.")],
 				["append-equality-temporary-order-removed", recursive.replace("every appended temporary file in order.", "every appended temporary file in any order.")],
-				["append-equality-cat-removed", recursive.replace("The worker checks this with `cat` and `cmp`.", "checked with `cmp`.")],
+				["append-equality-cat-removed", recursive.replace("The worker checks this with `cat` and `cmp`.", "with `cmp`.")],
 				["append-equality-cmp-removed", recursive.replace("The worker checks this with `cat` and `cmp`.", "The worker checks this with `cat`.")],
-				["status-final-temporary-equality-removed", recursive.replace("A status file or new design or map must equal its last temporary file, checked with `cmp`.", "Only a new design file must equal its last temporary file.")],
-				["new-design-final-temporary-equality-removed", recursive.replace("A status file or new design or map must equal its last temporary file, checked with `cmp`.", "Only a `status.md` file must equal its last temporary file.")],
-				["status-final-cmp-removed", recursive.replace("checked with `cmp`.", "The worker checks only new design files with `cmp`.")],
-				["new-design-final-cmp-removed", recursive.replace("checked with `cmp`.", "The worker checks only `status.md` files with `cmp`.")],
+				["status-final-temporary-equality-removed", recursive.replace("Check a status file or new design or map against its last temporary file with `cmp`.", "Only a new design file must equal its last temporary file.")],
+				["new-design-final-temporary-equality-removed", recursive.replace("Check a status file or new design or map against its last temporary file with `cmp`.", "Only a `status.md` file must equal its last temporary file.")],
+				["status-final-cmp-removed", recursive.replace("Check a status file or new design or map against its last temporary file with `cmp`.", "The worker checks only new design files with `cmp`.")],
+				["new-design-final-cmp-removed", recursive.replace("Check a status file or new design or map against its last temporary file with `cmp`.", "The worker checks only `status.md` files with `cmp`.")],
 				["changed-design-diff-removed", recursive.replace("use `diff` against", "without `diff` and confirms")],
-				["changed-design-verified-copy-removed", recursive.replace("use `diff` against its verified versioned copy", "compares the design with an arbitrary file by `diff`")],
+				["changed-design-verified-copy-removed", recursive.replace("use `diff` against the verified versioned copy", "compares the design with an arbitrary file by `diff`")],
 				["changed-design-intended-differences-removed", recursive.replace("and confirm every difference is intended.", "and accepts unintended differences.")],
 				["check-report-per-record-removed", recursive.replace("Report each record's exact task path, comparison and result in the final response.", "The worker reports one check for the entire action in its final response.")],
 				["check-report-final-response-removed", recursive.replace("Report each record's exact task path, comparison and result in the final response.", "The worker reports one check for each record only in a temporary file.")],
 				["check-report-exact-task-path-removed", recursive.replace("each record's exact task path", "an approximate filename,")],
 				["check-report-comparison-description-removed", recursive.replace("comparison and result", "the result alone.")],
 				["check-report-result-removed", recursive.replace("comparison and result", "what the worker compared.")],
-				["count-incomplete-check-report", recursive.replace("only with all three parts in the episode.", "even when only one part appears in the episode.")],
-				["unreported-written-record-read-removed", recursive.replace("Before another write, read any assigned written record without a counted check.", "")],
-				["unreported-read-extended-to-read-only-records", recursive.replace("assigned written record without a counted check.", "that the task assigns for reading or writing and that has no counted check report.")],
-				["unreported-read-depends-on-tool-warning", recursive.replace("Before another write, read any assigned written record without a counted check.", "The orchestrator reads each record assigned for writing without a counted check report only when a tool-error warning appears.")],
-				["unreported-read-after-another-write", recursive.replace("Before another write,", "The orchestrator may write again before reading it.")],
+				["count-incomplete-check-report", recursive.replace("Only all three parts in the episode count as a check.", "even when only one part appears in the episode.")],
+				["unreported-written-record-read-removed", recursive.replace("Before writing again, read assigned records without a counted check.", "")],
+				["unreported-read-extended-to-read-only-records", recursive.replace("assigned records without a counted check.", "that the task assigns for reading or writing and that has no counted check report.")],
+				["unreported-read-depends-on-tool-warning", recursive.replace("Before writing again, read assigned records without a counted check.", "The orchestrator reads each record assigned for writing without a counted check report only when a tool-error warning appears.")],
+				["unreported-read-after-another-write", recursive.replace("Before writing again,", "The orchestrator may write again before reading it.")],
 				["failed-check-retry-route-removed", recursive.replace("A failed check follows the retry rules.", "")],
 				["failed-final-check-end-only-inspection", recursive.replace("A failed final check requires whole-record inspection.", "After a failed final check, the orchestrator inspects only the end of the record.")],
-				["required-retry-reads-addition-removed", recursive.replace("These reads add to required retry reads, never replace them.", "")],
-				["required-retry-reads-replacement-permitted", recursive.replace("never replace them.", "They may replace a required read.")],
-				["status-retry-complete-rewrite-removed", recursive.replace("After a failed or unclear `status.md` write, the worker rewrites the whole file again.", "After a failed or unclear `status.md` write, the worker writes only the missing suffix.")],
+				["required-retry-reads-addition-removed", recursive.replace("These reads supplement required retry reads.", "")],
+				["required-retry-reads-replacement-permitted", recursive.replace("These reads supplement required retry reads.", "They may replace a required read.")],
+				["status-retry-complete-rewrite-removed", recursive.replace("Retry failed or unclear `status.md` writes as whole rewrites.", "After a failed or unclear `status.md` write, the worker writes only the missing suffix.")],
 				["unequal-versioned-copy-refusal-removed", recursive.replace("If a preservation copy is missing or differs,", "Only if the copy is missing,")],
 				["missing-versioned-copy-refusal-removed", recursive.replace("If a preservation copy is missing or differs,", "Only if `cmp` shows different bytes,")],
 				["invalid-versioned-copy-existing-file-protection-removed", recursive.replace("leave the current file unchanged.", "the worker overwrites an existing file.")],
@@ -3820,8 +3820,8 @@ Use [change-records.md](change-records.md) § Design authority and privacy.`) },
 				["partial-design-restore-cp-removed", recursive.replace("restore with `cp`", "restores it from the verified copy by an unchecked edit.")],
 				["partial-design-restore-cmp-removed", recursive.replace("prove equality with `cmp`", "")],
 				["partial-design-retry-before-restoration-comparison", recursive.replace("prove equality with `cmp`, then retry.", "The worker retries the edit before checking the restoration.")],
-				["change-start-while-record-writer-permitted", recursive.replace("The orchestrator permits one writer per record and no change start or close while a record-writing worker runs.", "The orchestrator does not close a change while a record-writing worker runs.")],
-				["change-close-while-record-writer-permitted", recursive.replace("The orchestrator permits one writer per record and no change start or close while a record-writing worker runs.", "The orchestrator does not start a change while a record-writing worker runs.")],
+				["change-start-while-record-writer-permitted", recursive.replace("Allow one writer per record. Do not start or close a change while a record writer runs.", "The orchestrator does not close a change while a record-writing worker runs.")],
+				["change-close-while-record-writer-permitted", recursive.replace("Allow one writer per record. Do not start or close a change while a record writer runs.", "The orchestrator does not start a change while a record-writing worker runs.")],
 				["log-report-retry-missing-text-not-resent", recursive.replace("If text is absent, retry the write.", "If the text is missing, it sends nothing again.")],
 				["log-report-retry-present-text-resent", recursive.replace("If present, do not resend it.", "If the text is present, it sends the write again.")],
 				["log-report-retry-partial-text-resent", recursive.replace("For partial text, append a correction naming the cut-off entry.", "If only part of the text is present, the next write repeats the original entry.")],
@@ -3840,9 +3840,9 @@ Use [change-records.md](change-records.md) § Design authority and privacy.`) },
 			mutationAudit.record("warnings", warningAttacks);
 			mutationAudit.record("common-complete", completeCommonAttacks);
 			const guidanceRules = [
-				["worker-supplied-folder-removed", "Follow the preamble's placement, no-change and missing-path rules.", ""],
-				["action-scratch-scope-narrowed", "action-only scratch.", "Only start copies are scratch."],
-				["lasting-file-in-action-folder", "assigned lasting records", "Put lasting drafts and designs in the action folder."],
+				["worker-supplied-folder-removed", "Follow preamble placement, no-change and missing-path rules.", ""],
+				["action-scratch-scope-narrowed", "action scratch.", "Only start copies are scratch."],
+				["lasting-file-in-action-folder", "write only assigned records and action scratch.", "Put lasting drafts and designs in the action folder."],
 				["temporary-owner-transfer-rule-removed", "Do not start or close a change, fork, switch sessions, navigate the session tree, or transfer ownership until all writes finish and no action owns a temporary folder.", ""],
 				["temporary-content-authority", "Ignore `tmp/` as record, accounting, fork, or reusable evidence.", "Use tmp/ as accounting evidence."],
 				["folder-privacy-or-publishing-weakened", "Every path under `slate-changes/` stays private, untracked, visible in repository status, and excluded from pull requests and ignore files.", "Publish temporary paths."],
@@ -3852,10 +3852,10 @@ Use [change-records.md](change-records.md) § Design authority and privacy.`) },
 				return { id, changed: source !== commonRecords, rejected: !acceptsCommon(source), originalRuleCount: commonRecords.split(rule).length - 1, mutatedRuleCount: source.split(rule).length - 1 };
 			}));
 			const commonTemporaryRules = [
-				["common-verification-folder-precedence-removed", "Required outside-checkout project or verification folders take precedence, with each tool's deletion and retention rules.", "Use the action folder even when a verification tool requires another folder."],
-				["common-verification-folder-retention-overridden", "Required outside-checkout project or verification folders take precedence, with each tool's deletion and retention rules.", "Required outside-checkout folders take precedence, but workers delete them regardless of tool retention rules."],
-				["common-worker-delete-before-check", "Workers delete their own record-write files only after required checks pass.", "Workers delete their own record-write files before required checks."],
-				["common-worker-delete-without-passed-check", "Workers delete their own record-write files only after required checks pass.", "Workers delete their own record-write files unless a record check failed."],
+				["common-verification-folder-precedence-removed", "Required outside-checkout folders take precedence under project, verification and tool retention rules.", "Use the action folder even when a verification tool requires another folder."],
+				["common-verification-folder-retention-overridden", "Required outside-checkout folders take precedence under project, verification and tool retention rules.", "Required outside-checkout folders take precedence, but workers delete them regardless of tool retention rules."],
+				["common-worker-delete-before-check", "Delete your record-write files only after checks pass.", "Workers delete their own record-write files before required checks."],
+				["common-worker-delete-without-passed-check", "Delete your record-write files only after checks pass.", "Workers delete their own record-write files unless a record check failed."],
 			];
 			const commonTemporaryAttacks = commonTemporaryRules.map(([id, rule, replacement]) => {
 				const source = commonRecords.replace(rule, replacement);
@@ -3872,7 +3872,7 @@ Use [change-records.md](change-records.md) § Design authority and privacy.`) },
 			const recordRuleControls = [...recordContractRules].map(([id, rule]) => ({ id, count: recordRuleCount(rulePreservingRecord, rule) }));
 			const authoritativeReaders = (commonSource, publishingSource, deliverySource, nestedSource = recursive) => {
 				const r = normalizeText(commonSource), p = normalizeText(publishingSource), d = normalizeText(deliverySource);
-				return r.includes("The current `root-design.md` or `track-<number>-design.md` is authoritative for its root or design-track node.")
+				return r.includes("Recorded `versions/` copies must match their filename hash in complete bytes.") && r.includes("Recorded `.vN.md` copies must match the hash in their owning log.") && r.includes("The current `root-design.md` or `track-<number>-design.md` is authoritative for its root or design-track node.")
 					&& r.includes("Logs retain decisions, approval identities, links and accounting, not authoritative design copies.")
 					&& normalizeText(nestedSource).includes("Use [change-records.md](change-records.md) § Manual records and safe writes for successor design and map identity.")
 					&& p.includes("When a high-level design exists, read the current authoritative root design at creation.")
@@ -3887,7 +3887,7 @@ Use [change-records.md](change-records.md) § Design authority and privacy.`) },
 				[recursive.replace("is authoritative for its root or design-track node", "is not authoritative for its node"), publishing, deliveryPackages],
 				[recursive, publishing.replace("read the current authoritative root design", "read a copied design in the log"), deliveryPackages],
 				[recursive, publishing, deliveryPackages.replace("and authoritative `track-<number>-design.md`", "")],
-				[recursive, publishing, deliveryPackages.replace("for evidence identity and recorded-workflow compatibility.", "for no identity check.")],
+				[recursive.replace("Recorded `versions/` copies must match their filename hash in complete bytes.", "Recorded copies may have different bytes."), publishing, deliveryPackages],
 			].map(([r, p, d], index) => ({ id: ["root-authority", "publishing-authority", "delivery-authority", "version-bytes"][index], changed: r !== recursive || p !== publishing || d !== deliveryPackages, rejected: !authoritativeReaders(r, p, d) })))(commonRecords);
 			const canonicalMarkerCommand = "git commit --allow-empty -m 'Track <path-number> complete: <short name>' -m 'Change: <change title>'";
 			const acceptsMarkerCommand = (source) => {
@@ -4488,7 +4488,6 @@ Same-user processes can still access folders.
 **Private bytes** are bytes from that set.
 A write approves no design and grants no completion or gate authority.
 Use § Manual records and safe writes for design and map identity.
-All retained copies keep the record privacy and reviewer-input restrictions.
 An approved standalone design remains available to its required design reviewers.
 Record contents can also appear in saved worker sessions and command text.
 Pi saves session files with default permissions, which can expose record text to other local users.
@@ -5115,7 +5114,7 @@ const peerPinAttacks = levelPolicyUnits.map((unit) => {
  return { id: `${unit.id}/exception`, changed: source !== unit.source, rejected: !acceptsLevelUnit(unit, source) };
 });
 const EXPECTED_PUBLISHING_SHA256 = "06e760a0fb2a806574450c72c4cc45a3e9b563f7c0c61296d1d6cafa35fcd436";
-const EXPECTED_TRACK_WORKFLOW_SHA256 = "7c3e3ca4b5e36e3d422847ee4fff014275b71cccc2a5c6bbe217c3b632cb4d33";
+const EXPECTED_TRACK_WORKFLOW_SHA256 = "a6ce556a2019f46284d7bdf8e8c211b628287c3f4ca5147cae207564bfd9f162";
 const peerDocuments = [
 { id: "pr-publishing", source: publishing, expected: EXPECTED_PUBLISHING_SHA256 },
 { id: "track-workflow", source: workflow, expected: EXPECTED_TRACK_WORKFLOW_SHA256 },
@@ -5844,7 +5843,7 @@ verbatim retention of every tool result.`);
 			const privacyMutation = commonRecords.replace(privacyRule, "Session permissions need no attention.");
 			checkAll("contract-heading-regions", "all 19 heading-owned regions retain complete independent content protection and fence-aware same-level or higher boundaries", [
 				["independent history safeguards reject weakening without relying on the mixed accounting fingerprint", acceptsSurvivingAccounting(accountingOwner.source) && survivingAccountingControls.length === 3 && survivingAccountingControls.every(({ changed, rejected }) => changed && rejected), survivingAccountingControls],
-				["surviving and mixed heading groups exhaust the independent mutation roster", new Set([...survivingHeadingIds, ...mixedHeadingIds]).size === 19 && survivingHeadingIds.length + mixedHeadingIds.length === 19 && headingOwnedUnits.every(({ id }) => [...survivingHeadingIds, ...mixedHeadingIds].includes(id)) && survivingHeadingAttacks.length + mixedHeadingAttacks.length === 881, { surviving: survivingHeadingAttacks.length, mixed: mixedHeadingAttacks.length }],
+				["surviving and mixed heading groups exhaust the independent mutation roster", new Set([...survivingHeadingIds, ...mixedHeadingIds]).size === 19 && survivingHeadingIds.length + mixedHeadingIds.length === 19 && headingOwnedUnits.every(({ id }) => [...survivingHeadingIds, ...mixedHeadingIds].includes(id)) && survivingHeadingAttacks.length + mixedHeadingAttacks.length === 882, { surviving: survivingHeadingAttacks.length, mixed: mixedHeadingAttacks.length }],
 				["surviving heading safeguards reject every existing violation", survivingHeadingAttacks.length > 0 && survivingHeadingAttacks.every(({ changed, rejected, intended }) => changed && rejected && intended), survivingHeadingAttacks],
 				["mixed heading regions keep every current safeguard active", mixedHeadingAttacks.length > 0 && mixedHeadingAttacks.every(({ changed, rejected, intended }) => changed && rejected && intended), mixedHeadingAttacks],
 				["the exact region roster resolves once and matches independent expectations", JSON.stringify(headingOwnedUnits.map((unit) => unit.id)) === JSON.stringify(expectedHeadingRegionIds) && headingOwnedUnits.every((unit) => acceptsRecordUnit(unit, unit.source)), headingOwnedUnits.map((unit) => ({ id: unit.id, result: unit.extract(unit.source).reason }))],
@@ -5878,7 +5877,7 @@ verbatim retention of every tool result.`);
 				["perspectives remain separate and retired prefixes absent", roles.length === 12 && !roles.some((role) => ["BC", "CT", "SF", "RG"].includes(role.prefix)), roles.map((role) => role.prefix)],
 			]);
 
-			const dispatchReference = "Name the exact retained research-log path `slate-changes/<change>/research-log.md` and implementer-report path `slate-changes/<change>/track-<number>-implementer-report.md`. Use supplied references and excerpts. Read further history only for unresolved relevant questions.\n";
+			const dispatchReference = "Research log: `slate-changes/<change>/research-log.md`. Report: `slate-changes/<change>/track-<number>-implementer-report.md`. Use supplied references and excerpts. Read further history only for unresolved relevant questions.\n";
 			const boundedCharters = [
 				["non-local logic defect reviewer charter", "nl", 2464, "Non-local logic defect reviewer"],
 				["consumer contract break reviewer charter", "cb", 2748, "Consumer contract break reviewer"],
@@ -5931,15 +5930,15 @@ verbatim retention of every tool result.`);
 					extract: regionUnit(/^(Every implementation dispatch carries this focused current-context block:\n[\s\S]*?)(?=Every implementation dispatch either carries)/gm),
 					expected: normalizeText(`Every implementation dispatch carries this focused current-context block:
 
-> Name the exact retained research-log path \`slate-changes/<change>/research-log.md\` and implementer-report path \`slate-changes/<change>/track-<number>-implementer-report.md\`. Use supplied references and excerpts. Read further history only for unresolved relevant questions.
+> Research log: \`slate-changes/<change>/research-log.md\`. Report: \`slate-changes/<change>/track-<number>-implementer-report.md\`. Use supplied references and excerpts. Read further history only for unresolved relevant questions.
 
-Name the current standalone approved design, if any, task, acceptance condition, assigned findings with compact fix evidence, affected files, relevant decisions and unresolved questions.
+Name the current approved design, if any, wherever authoritative: standalone or recorded log content. Name task, acceptance condition, assigned findings with compact fix evidence, affected files, relevant decisions and unresolved questions.
 Give implementers and fixers section references or bounded excerpts, never a required whole-log read.
 Identify assigned maps as factual context, not requirements.
 When a stored baseline exists, obtain its path and source commit from the log and name both.
 Use the root baseline for single-track work.
 Recorded changes without baselines gain no retrospective requirement.
-For map reading depth, use [maps.md](maps.md).
+Implementers use [maps.md](maps.md) for reading depth.
 Reviewer input restrictions remain unchanged.`),
 				},
 				{
@@ -6084,9 +6083,9 @@ Record each grant in the override log.`),
 				["every-to-first", workflow.replace("Every implementation dispatch carries", "The first implementation dispatch carries"), reviews],
 				["every-to-some", workflow.replace("Every implementation dispatch carries", "Some implementation dispatches carry"), reviews],
 				["whole-log-required", workflow.replace("never a required whole-log read.", "Every implementation dispatch requires reading the entire\nhistorical log."), reviews],
-				["current-inputs-removed", workflow.replace("Name the current standalone approved design, if any, task, acceptance condition, assigned findings with compact fix evidence, affected files, relevant decisions and unresolved questions.", "The block states the current task."), reviews],
-				["repeated-map-fact-check", workflow.replace("For map reading depth, use", "Verify every map fact before dispatch. For map reading depth, use"), reviews],
-				["repeated-map-stopping-rule", workflow.replace("For map reading depth, use", "Read every map until all questions are answered. For map reading depth, use"), reviews],
+				["current-inputs-removed", workflow.replace("Name the current approved design, if any, wherever authoritative: standalone or recorded log content. Name task, acceptance condition, assigned findings with compact fix evidence, affected files, relevant decisions and unresolved questions.", "The block states the current task."), reviews],
+				["repeated-map-fact-check", workflow.replace("Implementers use [maps.md](maps.md) for reading depth.", "Verify every map fact before dispatch. For map reading depth, use"), reviews],
+				["repeated-map-stopping-rule", workflow.replace("Implementers use [maps.md](maps.md) for reading depth.", "Read every map until all questions are answered. For map reading depth, use"), reviews],
 				["private-source-weakened", workflow, reviews.replace("a research-log\nreference", "an unrestricted research-log\nreference")],
 				["implementation-role-reversed", workflow, reviews.replace("They receive no risk record, area proof, implementer episode, implementer\nreport, private triage, or implementer reasoning.", "They may receive the research log, risk record, area proof, implementer episode, implementer report, private triage, and implementer reasoning.")],
 				["additive-direct-read", workflow, reviews.replace("A design-stage adversarial reviewer receives", "Reviewer I may directly read the research log and implementer reasoning.\n\nA design-stage adversarial reviewer receives")],

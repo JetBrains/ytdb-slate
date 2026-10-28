@@ -953,42 +953,46 @@ const policies: Record<string, Record<string, string>> = {
   "change-records": {
     categories: "A **change record** is a research log, status file, implementer report, design or map.",
     rootAuthority: "The current `root-design.md` or `track-<number>-design.md` is authoritative for its root or design-track node.",
-    codeAuthority: "A multi-track code track uses `code-track-<number>-design.md`, authoritative only while its node is code and its owning log names it current.",
+    codeAuthority: "In changes started under or migrated to this workflow, a multi-track code track uses `code-track-<number>-design.md`, authoritative only while its node is code and its owning log names it current.",
     logAuthority: "Logs retain decisions, approval identities, links and accounting, not authoritative design copies.",
     noPlan: "A change without a design gains no plan record.",
     mapFamilies: "Use `root-baseline-map.md`, `track-<number>-baseline-map.md` and `track-<number>-implementation-map.md` for factual source explanation, not requirements.",
     singleTrack: "The root baseline serves single-track work at code-track detail.",
     facts: "Map changes grant no approval and change no design identity.",
-    draftCheck: "Record-only workers write logs and status, and store assigned designs and baseline maps from drafts. They compare stored bytes with the assigned draft.",
-    writers: "Implementers write only their own reports and assigned implementation maps. Fixers change only assigned maps. Neither writes logs.",
-    workflowScope: "For designs and maps in changes started under or migrated to this workflow, SHA-256 (Secure Hash Algorithm with a 256-bit result) identifies complete bytes.",
+    draftCheck: "Record-only workers write logs and status, and store assigned designs and baseline maps from drafts. They compare stored bytes with the draft.",
+    writers: "Implementers write only their own reports and assigned implementation maps. Fixers append their reports and edit assigned maps. Neither writes logs.",
+    workflowScope: "For changes started under or migrated to this workflow, SHA-256 (Secure Hash Algorithm, 256-bit) identifies complete design and map bytes.",
     fullHash: "Only all 64 hexadecimal characters identify a version. Prefixes, filenames and sequence numbers alone do not.",
     loggedEvidence: "A retained version is evidence or a restore source only when its bytes match a full hash in its owning log.",
-    afterWrite: "A record-only worker logs each verified write's full hash and checks the entry before later editing or reliance as evidence.",
+    afterWrite: "A record-only worker logs each verified write's full hash and checks the entry before further edits or evidence use.",
     baselineIdentity: "Baseline entries also record path and source commit.",
     noApproval: "Storage identity grants no approval.",
-    logDispatch: "The orchestrator dispatches all hash-log writes, including after implementer or fixer writes.",
-    editBarrier: "Before editing a design or map, match its bytes to its last logged full hash. Without that identity, do not edit.",
-    preserve: "Preserve a separate copy with `cp -n` at an unused versioned name. The command leaves occupied destinations unchanged.",
+    logDispatch: "The orchestrator dispatches every hash-log write.",
+    editBarrier: "For these changes, before editing a design or map, match its last logged full hash. Without that identity, do not edit.",
+    preserve: "Preserve a separate copy with `cp -n` at an unused versioned name, such as `track-<number>-implementation-map.vN.md`. The command leaves occupied destinations unchanged.",
     copyStatus: "Verify equality with `cmp` regardless of copy exit status.",
     preservationLog: "A record-only worker then logs the preserved identity and checks the entry before editing. Split these tasks as writer permissions require.",
-    adoption: "Adopt an existing retained copy only after a record-only worker verifies equality with a copy already identified by a logged full hash and logs the adopted copy's full hash.",
+    adoption: "Adopt a retained copy only after a record-only worker verifies equality with a copy already identified by a logged full hash and logs the adopted hash.",
     adoptionExclusions: "An unlogged draft or filename hash cannot establish adoption.",
-    unrelatedCopies: "Other copies remain retained without evidence status and do not block work.",
-    compatibility: "Recorded changes keep their recorded authority and evidence rules, including version-folder filename hashes, until user-authorized migration. Opening another track does not migrate a change.",
+    unrelatedCopies: "Other copies stay retained, are not evidence and do not block work.",
+    compatibility: "Recorded changes keep recorded authority and evidence rules until user-authorized migration. Opening another track does not migrate a change. Recorded `versions/` copies must match their filename hash in complete bytes. Recorded `.vN.md` copies must match the hash in their owning log.",
+    firstWrite: "Retry failed or unclear `status.md` writes as whole rewrites. Retry a failed or unclear first design or map write as a new write from its source, checked by `cmp`.",
+    retention: "Drafts, designs, and records outlive the action. Write records with built-in tools.",
     immutableCopies: "No worker changes or deletes a versioned copy.",
     missingCopy: "If a preservation copy is missing or differs, leave the current file unchanged. Retry `cp -n` at the next unused versioned name, then `cmp` again.",
     recoveryIdentity: "After a failed or unclear design or map edit, use `cmp` against the intended retained version whose bytes match its logged full hash.",
     recoveryOrder: "If unchanged, retry only the edit. Otherwise restore with `cp`, prove equality with `cmp`, then retry.",
     recoveryPause: "If that recovery version cannot be verified, pause the affected replacement. Do not guess another numbered copy.",
     successorSource: "For successor designs and maps, keep the source folder read-only. Name the direct source and preserve its source chain and recorded read boundary.",
-    successorLog: "At the first successor-folder write, a record-only worker logs the named source record's full hash in the successor log.",
-    successorBoundary: "Check it against a source-log entry inside that boundary. Later source entries supply no identity.",
+    successorLog: "Before the first worker record write in a successor folder, a record-only worker checks the source hash against a source-log entry inside that boundary, then logs it.",
+    successorBoundary: "Later entries supply no identity. A failed check gives no identity and pauses affected reliance.",
     handoff: "A trusted handoff retaining the folder creates no fork.",
     retainedPrivacy: "All retained copies keep the record privacy and reviewer-input restrictions.",
   },
   "track-workflow": {
-    designDispatch: "Name the current standalone approved design, if any, task, acceptance condition, assigned findings with compact fix evidence, affected files, relevant decisions and unresolved questions.",
+    focusedContext: "Research log: `slate-changes/<change>/research-log.md`. Report: `slate-changes/<change>/track-<number>-implementer-report.md`.",
+    workerDepth: "Implementers use [maps.md](maps.md) for reading depth.",
+    designDispatch: "Name the current approved design, if any, wherever authoritative: standalone or recorded log content. Name task, acceptance condition, assigned findings with compact fix evidence, affected files, relevant decisions and unresolved questions.",
     boundedContext: "Give implementers and fixers section references or bounded excerpts, never a required whole-log read.",
     factualContext: "Identify assigned maps as factual context, not requirements.",
     baselineDispatch: "When a stored baseline exists, obtain its path and source commit from the log and name both.",
@@ -1009,7 +1013,7 @@ const policies: Record<string, Record<string, string>> = {
 };
 
 for (const [file, rules] of Object.entries(policies)) {
-  for (const [name, rule] of Object.entries(rules)) test(`factual record contract in ${file}: ${name} rejects removal and weakening`, () => {
+  for (const [name, rule] of Object.entries(rules)) test(`factual record contract in ${file}: ${name} rejects removal and weakening`, (t) => {
     const source = normalize(read(file));
     const accepts = (text: string) => Object.values(rules).every((rule) => text.includes(rule));
     assert.ok(accepts(source), file);
@@ -1025,17 +1029,29 @@ for (const [file, rules] of Object.entries(policies)) {
       assert.ok(accepts(restored), "restored policy");
     }
     assert.ok(accepts(source), "original policy accepts its permitted case");
+    t.diagnostic(`${name}: removal and weakening rejected, restoration accepted`);
   });
 }
 
 // These are document-policy counterexamples, not a replacement record writer.
 test("record policy rejects unsafe copy, identity, adoption and migration scenarios", (t) => {
   const cases = [
+    ["change-records", "unscoped pre-edit barrier", "For these changes, before editing", "Before editing"],
+    ["change-records", "new code track implicitly migrates recorded change", "In changes started under or migrated to this workflow, a multi-track code track uses", "Every multi-track code track uses"],
+    ["change-records", "fixer report append forbidden", "Fixers append their reports and edit assigned maps.", "Fixers change only assigned maps."],
+    ["change-records", "first-write retry blocked", "Retry a failed or unclear first design or map write as a new write from its source, checked by `cmp`.", "Retry it only after finding a logged identity."],
+    ["change-records", "successor logs before checking", "then logs it.", "log it before checking."],
+    ["change-records", "failed successor check supplies identity", "A failed check gives no identity and pauses affected reliance.", "A failed check still supplies identity."],
+    ["change-records", "versioned map form removed", "such as `track-<number>-implementation-map.vN.md`", "with any name"],
+    ["change-records", "retention ends with action", "Drafts, designs, and records outlive the action.", "Delete drafts and records after the action."],
+    ["track-workflow", "recorded approved design omitted", "wherever authoritative: standalone or recorded log content.", "only when standalone."],
+    ["track-workflow", "map depth assigned to orchestrator", "Implementers use [maps.md](maps.md) for reading depth.", "For map reading depth, use [maps.md](maps.md)."],
+    ["track-workflow", "focused block instructs orchestrator", "Research log:", "Name the research log:"],
     ["change-records", "occupied preservation name", "The command leaves occupied destinations unchanged.", "The command replaces an occupied destination."],
     ["change-records", "equal copy with nonzero exit", "Verify equality with `cmp` regardless of copy exit status.", "Reject equal bytes when the copy exits nonzero."],
     ["change-records", "missing pre-edit log identity", "Without that identity, do not edit.", "Edit without a logged identity."],
     ["change-records", "failed preservation log check", "checks the entry before editing", "edits before checking the entry"],
-    ["change-records", "failed resulting log check", "checks the entry before later editing or reliance as evidence", "permits reliance after a failed log check"],
+    ["change-records", "failed resulting log check", "checks the entry before further edits or evidence use", "permits reliance after a failed log check"],
     ["change-records", "short hash", "Only all 64 hexadecimal characters identify a version.", "A 12-character prefix identifies a version."],
     ["change-records", "sequence-only recovery", "Do not guess another numbered copy.", "Recover the highest numbered copy."],
     ["change-records", "unverified recovery", "If that recovery version cannot be verified, pause the affected replacement.", "Restore an unverified recovery copy."],
@@ -1044,13 +1060,13 @@ test("record policy rejects unsafe copy, identity, adoption and migration scenar
     ["change-records", "adoption without identified equal bytes", "equality with a copy already identified by a logged full hash", "equality with any unlogged copy"],
     ["change-records", "unlogged draft adoption", "An unlogged draft or filename hash cannot establish adoption.", "An unlogged draft establishes adoption."],
     ["change-records", "filename-only adoption", "An unlogged draft or filename hash cannot establish adoption.", "A filename hash establishes adoption."],
-    ["change-records", "unrelated retained copy", "Other copies remain retained without evidence status and do not block work.", "An unrelated retained copy blocks every edit."],
+    ["change-records", "unrelated retained copy", "Other copies stay retained, are not evidence and do not block work.", "An unrelated retained copy blocks every edit."],
     ["change-records", "new track in recorded change", "Opening another track does not migrate a change.", "Opening another track migrates the change."],
-    ["change-records", "source hash beyond read boundary", "Later source entries supply no identity.", "Later source entries identify the source version."],
+    ["change-records", "source hash beyond read boundary", "Later entries supply no identity.", "Later source entries identify the source version."],
     ["change-records", "code node changed to design", "authoritative only while its node is code and its owning log names it current", "authoritative even after its node becomes a design track"],
     ["change-records", "map edit changes approval", "Map changes grant no approval and change no design identity.", "Map edits approve a new design."],
-    ["change-records", "recorded filename evidence preserved until migration", "including version-folder filename hashes, until user-authorized migration", "excluding all version-folder filename hashes even without migration"],
-    ["change-records", "source hash inside read boundary required", "Check it against a source-log entry inside that boundary.", "Use an entry from any part of the source log."],
+    ["change-records", "recorded filename evidence preserved until migration", "Recorded `versions/` copies must match their filename hash in complete bytes.", "excluding all version-folder filename hashes even without migration"],
+    ["change-records", "source hash inside read boundary required", "against a source-log entry inside that boundary", "Use an entry from any part of the source log."],
     ["track-workflow", "migration exact line range", "record the exact source line range and full hash", "record an approximate source region without a hash"],
     ["track-workflow", "migration exact bytes", "must equal that span", "may summarize that span"],
     ["track-workflow", "migration strips entry prefix", "including entry prefixes, without summary or correction", "after removing entry prefixes"],
@@ -1071,7 +1087,7 @@ test("record policy rejects unsafe copy, identity, adoption and migration scenar
 test("shared design and map duties stay in the measured safe-write owner", () => {
   const source = read("change-records");
   const start = "## Manual records and safe writes\n", end = "### Design authority and privacy\n";
-  const keys = ["categories", "draftCheck", "writers", "workflowScope", "fullHash", "loggedEvidence",
+  const keys = ["rootAuthority", "codeAuthority", "logAuthority", "noPlan", "mapFamilies", "singleTrack", "facts", "noApproval", "immutableCopies", "handoff", "retainedPrivacy", "firstWrite", "retention", "categories", "draftCheck", "writers", "workflowScope", "fullHash", "loggedEvidence",
     "afterWrite", "baselineIdentity", "logDispatch", "editBarrier", "preserve", "copyStatus",
     "preservationLog", "adoption", "adoptionExclusions", "compatibility", "missingCopy",
     "recoveryIdentity", "recoveryOrder", "recoveryPause", "successorSource", "successorLog", "successorBoundary"];
@@ -1090,6 +1106,7 @@ test("shared design and map duties stay in the measured safe-write owner", () =>
         : start + without + "\n" + end + rule;
       assert.ok(normalize(moved).includes(rule), "the rule remains in the document");
       assert.equal(accepts(moved), false, `${key}: moved into ${outside}`);
+      if (key === "mapFamilies" && outside === "preface") console.log("PF3: mapFamilies in preface rejected");
     }
   }
 });

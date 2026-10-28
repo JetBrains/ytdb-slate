@@ -1,7 +1,7 @@
 // Independent accepted mutation identities and fail-closed execution accounting.
 const numbered = (id, count) => Array.from({ length: count }, (_, index) => `${id}/${index}`);
 const combinations = (ids, kinds) => ids.flatMap((id) => kinds.map((kind) => `${id}/${kind}`));
-const headingCounts = {"identifiers-ranges": 34, "manual-records": 131, "resume-forks": 21, "handoff-pointer": 3, "resume-order": 19, "general-handoff": 3, "closed-range-feedback": 18, "repairs": 58, "aggregate": 21, "sources": 73, "workflow-accounting": 73, "notes-accounting": 23, "publishing-sync": 7, "public-roadmap": 21, "repair-escalation": 49, "repair-rounds-owner": 52, "repair-consultations-owner": 26, "child-fix-title-owner": 12, "P13-authoring": 28};
+const headingCounts = {"identifiers-ranges": 26, "manual-records": 140, "resume-forks": 21, "handoff-pointer": 3, "resume-order": 19, "general-handoff": 3, "closed-range-feedback": 18, "repairs": 58, "aggregate": 21, "sources": 73, "workflow-accounting": 73, "notes-accounting": 23, "publishing-sync": 7, "public-roadmap": 21, "repair-escalation": 49, "repair-rounds-owner": 52, "repair-consultations-owner": 26, "child-fix-title-owner": 12, "P13-authoring": 28};
 export const EXPECTED_MUTATIONS = {
  "review-history": ["design-body", "architecture-body", "review-collapse", "review-combine", "routine-rewrite", "ordinary-rebase", "approved-design-body", "prior-review-combine", "review-before-user", "permitted-rebase", "forbidden-separate-fixes", "body-before-commit", "present-single-commit", "consolidate-corrections", "rebase-until-review", "forbidden-individual-fixes", "fold-corrections"],
  "surviving-safeguards": [
@@ -49,13 +49,13 @@ export const EXPECTED_MUTATIONS = {
   ...numbered("level-publishing", 20), ...numbered("publishing-creation", 19), ...numbered("publishing-after-merge", 19), ...numbered("sync", 7),
   ...numbered("ready", 31), ...numbered("post-flip", 18), ...numbered("merge-advice", 12), ...numbered("description-scope", 15),
   ...numbered("default-template", 4), ...numbered("migration", 16), ...numbered("accepted-history", 22), ...numbered("history", 25),
-  ...numbered("disabled-preservation", 23), ...numbered("private-set", 11), ...numbered("workflow-accounting", 73)
+  ...numbered("disabled-preservation", 23), ...numbered("private-set", 10), ...numbered("workflow-accounting", 73)
  ],
  "safety-removals": [
   ...numbered("level-publishing", 20), ...numbered("publishing-creation", 19), ...numbered("publishing-after-merge", 19), ...numbered("sync", 7),
   ...numbered("ready", 31), ...numbered("post-flip", 18), ...numbered("merge-advice", 12), ...numbered("description-scope", 15),
   ...numbered("default-template", 4), ...numbered("migration", 16), ...numbered("accepted-history", 22), ...numbered("history", 25),
-  ...numbered("disabled-preservation", 23), ...numbered("private-set", 11), ...numbered("workflow-accounting", 73)
+  ...numbered("disabled-preservation", 23), ...numbered("private-set", 10), ...numbered("workflow-accounting", 73)
  ],
  "ordering": [
   "before-first-range", "after-descendant-ranges", "resume-completed-dependency", "open-range-interleaving"

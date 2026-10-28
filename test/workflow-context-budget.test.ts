@@ -11,6 +11,7 @@ import { SlateStore } from "../extension/state.ts";
 import { createLogicalRuntime } from "../extension/logical-model-runtime.ts";
 import { EMPTY_WORKER_EXTENSION_SET } from "../extension/worker-extensions.ts";
 import * as paths from "../extension/paths.ts";
+import { trackIdentifier } from "../extension/record-names.ts";
 // @ts-ignore Data-only JavaScript fixture.
 import { phases, lifecycle, scenarios, reads, referenceOnly, dependencies, conditionalSets, limits, occurrences, sessionEntries, resumeReads, accumulatedReads, sessionReads, startsSession, requiresBoundary, transferReads } from "../verification/workflow-context-map.mjs";
 
@@ -84,6 +85,8 @@ function membership(ids: Record<string, string>): void {
   }
   for (const id of Object.keys(ids)) assert.ok(reads.some((r: Read) => r[0] === id) || referenceOnly[id], `unclassified export ${id}`);
 }
+const CHILD_CEILING = 143875;
+const checkChildCeiling = (value: number) => checkLimit(value, CHILD_CEILING, "child reservation");
 function checkLimit(value: number, limit: number, label: string): void {
   assert.ok(Number.isInteger(limit) && value <= limit, `${label}: total ${value}, limit ${limit}, excess ${value - limit}`);
 }
@@ -108,13 +111,20 @@ function references(text: string, origin: string, installedPrefix = directory): 
       const raw = match[0].replace(/^[<`]+/, "");
       let target: string;
       if (raw.startsWith(directory)) target = relative(directory, raw);
-      else if (/^(?:root-baseline-map|track-(?:<number>|[1-9]\d*(?:\.[1-9]\d*)*)-(?:baseline|implementation)-map)\.md$/.test(raw)) target = `variable:${raw}`;
+      else if (isMapName(raw)) target = `variable:${raw}`;
       else if (raw.startsWith("/") || /[*{}]|slate-changes\//.test(raw) || /(?:research-log|implementer-report|design|vN|observation)\.md$/.test(raw)) target = `variable:${raw}`;
       else target = relative(directory, resolve(origin.startsWith("doctrine") ? directory : dirname(join(directory, origin)), raw));
       result.push({ source: origin, target, context: createHash("sha256").update(line).digest("hex") });
     }
   }
   return result;
+}
+function isMapName(raw: string): boolean {
+  if (raw === "root-baseline-map.md") return true;
+  const match = /^track-(<number>|[0-9.]+)-(?:baseline|implementation)-map\.md$/.exec(raw);
+  if (!match) return false;
+  if (match[1] === "<number>") return true;
+  try { return trackIdentifier(match[1]) === match[1]; } catch { return false; }
 }
 function scan(sources: Record<string, string>): any[] {
   return Object.entries(sources).flatMap(([id, text]) => references(text, id));
@@ -286,10 +296,12 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
     checkLimit(maximum, pair[1], `design-track maximum ${scenario}`);
     return `| ${publishing} | ${required} | ${tokens(required)} | ${maximum} | ${tokens(maximum)} | ${pair[1]} | ${tokens(pair[1])} |`;
   });
-  assert.deepEqual(measured[0], { key: "1 off ordinary", requiredBytes: 74885, maximumBytes: 143849, proposed: [78630, 151042] });
-  checkLimit(measured[0].maximumBytes, 143875, "child 1.2 reservation");
+  assert.deepEqual(measured[0], { key: "1 off ordinary", requiredBytes: 74776, maximumBytes: 143740, proposed: [78515, 150927] });
+  checkChildCeiling(measured[0].maximumBytes);
   checkLimit(143425 + 700, 144492, "wider-limit control");
-  assert.throws(() => checkLimit(143425 + 700, 143875, "child reservation"), /child reservation/);
+  assert.throws(() => checkChildCeiling(143425 + 700), /child reservation/);
+  checkChildCeiling(143875);
+  assert.throws(() => checkChildCeiling(143876), /child reservation/);
   const publication = table(rows, costs, entries);
   if (process.env.SLATE_PHASE_INSPECT === "1") console.log(JSON.stringify({ measured, references: scan(sources), publication, excluded, costs }));
   assert.equal(Object.keys(limits).length, 36);
@@ -303,12 +315,12 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
   assert.equal(pending.length, 1);
   assert.equal(pending[0].reason, "Pending worker-only reference. Child 1.3 publishes the document.");
   assert.equal(pending[0].recipient, undefined);
-  for (const name of ["root-baseline-map.md", "track-1-baseline-map.md", "track-1.2-implementation-map.md", "track-<number>-baseline-map.md", "track-<number>-implementation-map.md"]) {
+  for (const name of ["root-baseline-map.md", "track-1-baseline-map.md", "track-1.2-implementation-map.md", "track-<number>-baseline-map.md", "track-<number>-implementation-map.md", "track-9007199254740991-baseline-map.md", `track-${"1.".repeat(63)}1-baseline-map.md`, `track-${"1.".repeat(63)}11-implementation-map.md`]) {
     for (const spelling of [name, `\`${name}\``, `[map](${name})`]) {
       assert.equal(references(spelling, "track-workflow.md")[0]?.target, `variable:${name}`, spelling);
     }
   }
-  for (const name of ["maps.md", "roadmap.md", "baselinemap.md", "track-map.md", "root-implementation-map.md", "track-1-baseline-maps.md", "track-0-baseline-map.md", "track-01-implementation-map.md", "track-1.0-baseline-map.md", "track-1-implementation-maps.md"]) {
+  for (const name of ["maps.md", "roadmap.md", "baselinemap.md", "track-map.md", "root-implementation-map.md", "track-1-baseline-maps.md", "track-0-baseline-map.md", "track-01-implementation-map.md", "track-1.0-baseline-map.md", "track-1-implementation-maps.md", "track-9007199254740992-baseline-map.md", `track-${"1.".repeat(64)}1-baseline-map.md`]) {
     assert.equal(references(name, "track-workflow.md")[0]?.target, name, name);
     assert.throws(() => coverage(scan({ ...sources, "track-workflow.md": sources["track-workflow.md"] + "\nRead " + name })), /unknown reference/);
   }
