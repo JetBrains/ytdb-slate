@@ -39,8 +39,11 @@ implements it as one integrated action.
 
 Every high-level design states the intention, goals, non-goals, approach, key
 decisions, rejected alternatives, risks, scope boundary, and open questions.
-The design author includes each component or data-flow diagram that helps the
-reader. Each omitted diagram gets a one-sentence reason. The design stays high
+Design authors include helpful component or data-flow diagrams.
+The orchestrator uses tables, neutral pseudocode or small diagrams where helpful in designs, plans, packages and decision questions.
+Design and orchestrator-presentation diagrams have topic titles and state arrow meaning.
+The orchestrator names the maps.md path beside this document in every map-writing or map-composing worker task.
+It does not read the reference. The design stays high
 level. It names no file path, method signature, or line number.
 
 A high-level design states what must be true and why. A low-level design states

@@ -844,7 +844,7 @@ combination with `--exclude` refuse startup with exit 2. The wrapper reports
 Selection loads only required modules and runs only the requested checks and
 their prerequisites. Checks retain their full-run implementations. The independent
 mutation roster supplies identities for selected families. Heading selection
-requires all 886 `heading-policy` identities, including commit identity rules. Package selection has an empty
+requires all `heading-policy` identities, including commit identity rules. Package selection has an empty
 mutation scope. Missing, duplicate, incomplete, outside-family or crashed mutation
 execution fails `selected-mutation-audit`. Crash and driver failure lines always
 report. A separate `roster` audit requires each requested check and scoped audit

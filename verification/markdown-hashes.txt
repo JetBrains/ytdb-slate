@@ -1,8 +1,8 @@
-9fc63d4939511c6200ff10443623dd48d0e6c2594490aad5eeed5e4becc1e85d  AGENTS.md
+2702dcb348b6ba676d6d29bd3468febb4052a43b468b4fc22047d8142274cc0b  AGENTS.md
 
 ec4ee6e307ddae903eada2af0465e6f57926da1c4e85e4265ff434ae42ff92ef  README-GUIDELINES.md
 
-aad42d98ec655236f5bfb6d440a9f1d8b197021b7a359ecdad02eda057af5670  README.md
+90ffe93fefa079bc402b920f35b324ae47e5e6e8c4a245bbdd220a0e13553d7b  README.md
 
 4a386484fe95a897d2917a9b3856a5474c1fe79e85531c150c6a50bc9b3617d6  RELEASING.md
 
@@ -12,11 +12,13 @@ c3ec46232ae59a874141e6528bebf5a079f492e72048f86474166fde53d58d20  docs/blast-rad
 
 9e610485471383ce71317ce4d84bdbfad62a3f0c43eb0c49353ceead485131ad  docs/configuration.md
 
-af821ede8398df1aa23454abba4e29950ec35cbff63d30669dea2a2166756bfa  docs/context-budget.md
+14ef60a72a067e05c0c46df1c8e5c8bb13f0c5d6fd64f86add3b85d288ce8a48  docs/context-budget.md
 
 a19eef7bf9a86c2cf57f5f510534791c02320b6ce2259eabc3a9e7099d8254c5  docs/delivery-packages.md
 
 7544335666b51c4e8a1c4cb482910d011ff80d5db4a54bc9ec641ef3dde9a688  docs/design-principles.md
+
+5f8d7d1dcb19cbf3d2e7d4c0a4b50c3dd2be2a3efbd07352f50fae2f02ba3d79  docs/maps.md
 
 5e2395fcc77c07d89326faaae1a2be687b3a8e8a95fe3bc36703f6776f3ce11f  docs/model-routing.md
 
@@ -58,7 +60,7 @@ a527dcd58276be7808e0a284add5f1dc08036ee9a522db85a4d5aeab3dd7b2f2  docs/review-pe
 
 0a5e32799a1b0dc786b32ad2b01a2b363162ce73e75c0fac86896159daa47e52  docs/safety-and-trust.md
 
-a0c41486a9cfab9009330ee6998ec12075d19221b52906823c00105adb9c1fdb  docs/track-workflow.md
+11a5525d4bfedfb0c45451b5c64ca727cc1b8d682ba02e7abfaafa7d705bb095  docs/track-workflow.md
 
 f18298e3a2b41c6c77fb92e7410618df557e494374e4392b5085a626d00f01c8  docs/user-notes.md
 
@@ -88,4 +90,4 @@ ff583b7578b55fa21887fde2ca828eb55a6d9efa0851112d830802eae1cc86e4  research/opena
 
 266812b566da8edc5d90936b39bfc7d13e160cd42291aba56b6e00eac3cf5077  research/writing-threshold-provenance.md
 
-3da15d76dbbfd8fde3a2546344e57f3e238af7d166b8cd8b90884dfe68ce9243  verification/README.md
+0c4218764a2bccbc13e144365c0e509b4b8d5a145b019cf12cc5eecb7e6f4698  verification/README.md

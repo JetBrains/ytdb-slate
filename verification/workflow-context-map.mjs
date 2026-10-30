@@ -57,6 +57,7 @@ export function transferReads(outcome, currentReads, entry, scenario, maximum = 
   return startsSession(outcome) ? sessionReads(entry, scenario, maximum) : currentReads;
 }
 export const referenceOnly = {
+  MAPS_DOC: "Published worker-only map reference, no orchestrator read duty.",
   REVIEW_IMPLEMENTATION_INPUT_DOC: "Worker-only input. Built-in implementation review loads it for the worker, not the orchestrator.",
   MODEL_ROUTING_DOC: "Reference document, no orchestrator read duty.",
   CONFIGURATION_DOC: "Reference document, no orchestrator read duty.",
@@ -117,6 +118,7 @@ export const limits = {
 };
 // Exact line-context SHA-256 and occurrence counts. Each entry classifies one reviewed context.
 export const occurrences = [
+  {"source": "track-workflow.md", "target": "maps.md", "context": "d40cf828debe08b81c6a3bb11a33b9d5a40e1c2b89f799bcb0ca5bc88c5676d3", "count": 1, "reason": "Published worker-only map reference, no orchestrator read duty."},
   {"reason":"Private versioned record name.","source":"change-records.md","target":"variable:track-<number>-implementation-map.vN.md","context":"856703106d3a7bd611758fd2e244b110b6f804e5a0a43d6b0629a5a1db8ae5ce","count":1},
   {"reason":"Private versioned record name.","source":"change-records.md","target":"variable:.vN.md","context":"9df837dd8afe3b103473b045c5b550e4ff6a71036e6190e7247643e486e09c95","count":1},
   {"source":"track-workflow.md","target":"blast-radius.md","context":"df113123e95b50a0473c8ab0a8634672a9c6a76e4ed0da0c656d6051cb1cbd5b","count":1,"recipient":"orchestrator","phase":2,"condition":"always"},
@@ -143,7 +145,7 @@ export const occurrences = [
   {"source":"track-workflow.md","target":"review-rules.md","context":"1ea115c6cc064c260baa348272f3693fd1d1a29f4f101a7f64b0b06497a48f1c","count":1,"recipient":"orchestrator","phase":5,"condition":"always"},
   {"reason":"Variable private record or evidence path, excluded from fixed shipped context.","source":"track-workflow.md","target":"variable:slate-changes/<change>/research-log.md","context":"b8fc2ef400f837555f77d1735c87c425318c0463de9df2207376dc3d28f69af9","count":1},
   {"reason":"Variable private record or evidence path, excluded from fixed shipped context.","source":"track-workflow.md","target":"variable:slate-changes/<change>/track-<number>-implementer-report.md","context":"b8fc2ef400f837555f77d1735c87c425318c0463de9df2207376dc3d28f69af9","count":1},
-  {"reason":"Pending worker-only reference. Child 1.3 publishes the document.","source":"track-workflow.md","target":"maps.md","context":"466a96c420f4db52a9fb0ba55787b0a296dab19571655c890776ffbfd80f0f49","count":1},
+  {"reason":"Published worker-only map reference, no orchestrator read duty.","source":"track-workflow.md","target":"maps.md","context":"466a96c420f4db52a9fb0ba55787b0a296dab19571655c890776ffbfd80f0f49","count":1},
   {"source":"track-workflow.md","target":"blast-radius.md","context":"3a388718764ad36458ee5fa2dc8ec665765e35e6ad4fc50870e01111e0abff1f","count":1,"recipient":"orchestrator","phase":2,"condition":"always"},
   {"source":"track-workflow.md","target":"review-rules.md","context":"80dfd0cd0c68ba16228891428a05f103aa0e7951187ace188772b08b6d46a858","count":1,"recipient":"orchestrator","phase":5,"condition":"always"},
   {"source":"track-workflow.md","target":"blast-radius.md","context":"6c87fd0c0808c406be96a1cf7328d028519d873ad872f58612242691f8baa0b2","count":1,"recipient":"orchestrator","phase":2,"condition":"always"},

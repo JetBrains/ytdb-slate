@@ -12,7 +12,7 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
   const repo = process.cwd();
   const fixture = mkdtempSync(join(tmpdir(), "slate-delivery-references-"));
   try {
-    for (const path of ["extension", "verification", "docs", "test", "README.md", "package.json"]) {
+    for (const path of ["extension", "verification", "docs", "test", "README.md", "AGENTS.md", "package.json"]) {
       cpSync(join(repo, path), join(fixture, path), { recursive: true });
     }
     mkdirSync(join(fixture, ".pi"));

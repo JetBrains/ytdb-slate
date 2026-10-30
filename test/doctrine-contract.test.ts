@@ -950,6 +950,16 @@ const read = (file: string) => readFileSync(new URL(`../docs/${file}.md`, import
 
 // Independent policy expectations make each weakening observable without a hash refresh.
 const policies: Record<string, Record<string, string>> = {
+  maps: {
+    start: "Start with decision-dependent questions.",
+    stop: "Stop reading when no questions remain.",
+    reliance: "Before relying on a baseline fact, check current source when that source changed after the map commit.",
+    facts: "Check every map fact against source evidence.",
+    further: "Read further only for open or reopened questions.",
+    access: "Map access follows the current Reviewer input contract in [review-rules.md](review-rules.md).",
+    length: "Use a soft guideline of about 1,500 words for every map.",
+    nodes: "Keep each Mermaid diagram under 40 nodes.",
+  },
   "change-records": {
     categories: "A **change record** is a research log, status file, implementer report, design or map.",
     rootAuthority: "The current `root-design.md` or `track-<number>-design.md` is authoritative for its root or design-track node.",

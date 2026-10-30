@@ -5114,7 +5114,7 @@ const peerPinAttacks = levelPolicyUnits.map((unit) => {
  return { id: `${unit.id}/exception`, changed: source !== unit.source, rejected: !acceptsLevelUnit(unit, source) };
 });
 const EXPECTED_PUBLISHING_SHA256 = "06e760a0fb2a806574450c72c4cc45a3e9b563f7c0c61296d1d6cafa35fcd436";
-const EXPECTED_TRACK_WORKFLOW_SHA256 = "a6ce556a2019f46284d7bdf8e8c211b628287c3f4ca5147cae207564bfd9f162";
+const EXPECTED_TRACK_WORKFLOW_SHA256 = "1698f531e394e7148c811342b5abf085609efc6b1591685f5381c94944979060";
 const peerDocuments = [
 { id: "pr-publishing", source: publishing, expected: EXPECTED_PUBLISHING_SHA256 },
 { id: "track-workflow", source: workflow, expected: EXPECTED_TRACK_WORKFLOW_SHA256 },
@@ -6141,9 +6141,26 @@ omitted and why.`);
 			const benignWorkflow = `${workflow}\n\n<!-- resolver benign dispatch-context control -->`;
 			const benignReviews = `${reviews}\n\n## Editorial appendix\n\nThis note changes no dispatch policy.`;
 			const benignOutcomes = resolveDispatchUnits(benignWorkflow, benignReviews);
+			const mapReference = readFileSync(paths.MAPS_DOC, "utf8");
+			const mapRules = ["Start with decision-dependent questions.", "Stop reading when no questions remain.",
+				"Before relying on a baseline fact, check current source when that source changed after the map commit.",
+				"Check every map fact against source evidence."];
+			const mapOutside = [workflow, readFileSync(paths.CONTEXT_BUDGET_DOC, "utf8"), await doctrine(we.EMPTY_WORKER_EXTENSION_SET, undefined, true, {}), await doctrine(we.EMPTY_WORKER_EXTENSION_SET, undefined, true, { workflow: { draftPRs: true } })];
+			const acceptsMapOwnership = (reference, outside) => mapRules.every((rule) => reference.split(rule).length === 2 && outside.every((text) => !text.includes(rule)));
+			const mapOwnershipAttacks = mapRules.flatMap((rule) => [
+				!acceptsMapOwnership(mapReference.replace(rule, ""), mapOutside),
+				...mapOutside.map((_, index) => !acceptsMapOwnership(mapReference, mapOutside.map((text, i) => i === index ? text + "\n" + rule : text))),
+			]);
+			const mapNoRead = "It does not read the reference.";
+			const acceptsMapPointer = (text) => text.includes("The orchestrator names the maps.md path beside this document in every map-writing or map-composing worker task.") && text.split(mapNoRead).length === 2;
+			const countFree = (text) => !/\b\d+\s+(?:independent\s+)?`heading-policy` identities/.test(text);
+			const countDocuments = ["AGENTS.md", "verification/README.md"].map((file) => readFileSync(join(REPO, file), "utf8"));
 			const duplicatedCharters = `${roleFiles.nl}\n${roleFiles.nl}`;
 			const missingBoundary = roleFiles.nl.replace("**Charter.**", "**Task.**");
 			checkAll("contract-dispatch-context", "four complete dispatch-policy units resolve exactly once and equal independent expectations. They cover the focused implementation-context obligation, research-log lifecycle, reviewer-input contract, and stuck-fix policy. Counterfactuals reject missing current-context inputs, a restored mandatory whole-log read, other policy weakening, or additions inside a unit, while benign text outside the units remains accepted. Five bounded UTF-8 measurements remain exact", [
+				["map reading rules belong once to the worker reference and all removal and whole-document repeat mutations fail", acceptsMapOwnership(mapReference, mapOutside) && mapOwnershipAttacks.every(Boolean), mapOwnershipAttacks],
+				["the workflow pointer names the worker task and rejects loss of the no-read duty", acceptsMapPointer(workflow) && !acceptsMapPointer(workflow.replace(mapNoRead, "")), mapNoRead],
+				["published heading-policy descriptions are count-free and reject a restored number", countDocuments.every((text) => countFree(text) && !countFree(text + "\nall 882 independent `heading-policy` identities")), "count-free documents"],
 				["the complete research-log privacy paragraph matches an independent literal in its owning section", acceptsResearchPrivacy(workflow), researchPrivacy(workflow)],
 				["all three privacy sentence removals change input and fail for missing or changed content", researchPrivacyRemovals.length === 3 && researchPrivacyRemovals.every(({ changed, rejected, intended }) => changed && rejected && intended), researchPrivacyRemovals],
 				["moving the intact privacy paragraph outside its owner fails with no owned paragraph", movedResearchPrivacy !== workflow && normalizeText(movedResearchPrivacy).includes(expectedResearchPrivacy) && researchPrivacy(movedResearchPrivacy).count === 0 && !acceptsResearchPrivacy(movedResearchPrivacy), researchPrivacy(movedResearchPrivacy)],

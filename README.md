@@ -111,6 +111,7 @@ These documents define workflow and reference behavior. Slate uses installed pat
 - [`docs/change-records.md`](docs/change-records.md) defines identifiers, code ranges, design markers, and safe writes to change records.
 - [`docs/configuration.md`](docs/configuration.md) defines settings, merge rules, and path warnings.
 - [`docs/context-budget.md`](docs/context-budget.md) defines context limits, model overrides, and measured prompt sizes.
+- [`docs/maps.md`](docs/maps.md) defines baseline and implementation maps for workers who write or compose them.
 - [`docs/delivery-packages.md`](docs/delivery-packages.md) — the compact track and change package format, read only before package preparation
 - [`docs/design-principles.md`](docs/design-principles.md) explains the architecture and its trade-offs.
 - [`docs/model-routing.md`](docs/model-routing.md) defines logical-model routing, recovery, and accepted limits.
