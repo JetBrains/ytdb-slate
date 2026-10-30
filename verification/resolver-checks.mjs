@@ -6164,7 +6164,13 @@ omitted and why.`);
 				const changed = workflow.replace(privacyPattern(rule), "");
 				return changed !== workflow && !acceptsMapPresentation(changed);
 			});
-			const countFree = (text) => !/\b\d[\d,]* (?:independent )?heading-policy\b|\bheading-policy (?:identities|mutations|checks|count|roster)(?: (?:count|is|has|of|contains|includes|totals|equals|remains|at|exactly|all|the))*[ :=-]*\d|\bheading-policy (?:has|contains|includes|totals) (?:exactly |all )?\d/i.test(normalizeText(text).replace(/`/g, ""));
+			const countFreeResults = new Map();
+			const countFree = (text) => {
+				if (!countFreeResults.has(text)) {
+					countFreeResults.set(text, !/\b\d[\d,]* (?:independent )?heading-policy\b|\bheading-policy (?:identities|mutations|checks|count|roster)(?: (?:count|is|has|of|contains|includes|totals|equals|remains|at|exactly|all|the))*[ :=-]*\d|\bheading-policy (?:has|contains|includes|totals) (?:exactly |all )?\d/i.test(normalizeText(text).replace(/`/g, "")));
+				}
+				return countFreeResults.get(text);
+			};
 			const markdownFiles = (directory) => readdirSync(join(REPO, directory), { withFileTypes: true }).flatMap((entry) => {
 				const file = join(directory, entry.name);
 				return entry.isDirectory() ? markdownFiles(file) : entry.isFile() && file.endsWith(".md") ? [file] : [];

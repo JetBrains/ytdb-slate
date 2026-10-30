@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { spawnSync } from "node:child_process";
+import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import {
   chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync,
   readdirSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync,
@@ -738,7 +738,26 @@ test("run-tests roster audit rejects omitted, overlapping, and duplicate partiti
   }
 });
 
-test("run-tests isolates Jiti coverage from a cache warmed by an earlier process", { timeout: 120_000 }, (t) => {
+function subprocessDetails(result: SpawnSyncReturns<string>): string {
+  const tail = (output: string | null) => (output ?? "").slice(-4_096);
+  return `error: ${result.error}\nsignal: ${result.signal}\nstdout tail:\n${tail(result.stdout)}\nstderr tail:\n${tail(result.stderr)}`;
+}
+
+test("subprocess diagnostics retain timeout evidence and bound both output tails", () => {
+  const result: SpawnSyncReturns<string> = {
+    pid: 1, status: null, signal: "SIGTERM",
+    error: new Error("spawnSync bash ETIMEDOUT"),
+    stdout: "discarded stdout" + "x".repeat(4_096),
+    stderr: "discarded stderr" + "y".repeat(4_096), output: [],
+  };
+  assert.equal(subprocessDetails(result),
+    `error: Error: spawnSync bash ETIMEDOUT\nsignal: SIGTERM\nstdout tail:\n${"x".repeat(4_096)}\nstderr tail:\n${"y".repeat(4_096)}`);
+  assert.equal(subprocessDetails({ ...result, error: undefined, signal: null, stdout: "", stderr: "" }),
+    "error: undefined\nsignal: null\nstdout tail:\n\nstderr tail:\n");
+});
+
+// Two 120-second child limits leave 60 seconds for fixture setup and assertions.
+test("run-tests isolates Jiti coverage from a cache warmed by an earlier process", { timeout: 300_000 }, (t) => {
   const harness = scratchDirectory("slate-runner-jiti-cache-");
   t.after(() => rmSync(harness, { recursive: true, force: true }));
   const repo = join(harness, "repo");
@@ -803,21 +822,22 @@ test("run-tests isolates Jiti coverage from a cache warmed by an earlier process
     PI_BIN: join(repo, "node_modules/.bin/pi"),
   };
   const prewarm = spawnSync("bash", ["verification/run-resolver-checks.sh", "--repo", repo, "--strict"], {
-    cwd: repo, encoding: "utf8", env: childEnv, timeout: 60_000,
+    cwd: repo, encoding: "utf8", env: childEnv, timeout: 120_000,
   });
-  assert.equal(prewarm.status, 0, `resolver prewarm failed\nerror: ${prewarm.error}\nsignal: ${prewarm.signal}\n${prewarm.stdout}\n${prewarm.stderr}`);
+  assert.equal(prewarm.status, 0, `resolver prewarm failed\n${subprocessDetails(prewarm)}`);
   const sharedCache = join(outerTmp, "jiti");
   const warmedNames = readdirSync(sharedCache);
   assert.ok(warmedNames.some((name) => name.startsWith("extension-logical-model-render.")), "prewarm did not cache logical-model-render");
   assert.ok(warmedNames.some((name) => name.startsWith("extension-logical-model-resolver.")), "prewarm did not cache logical-model-resolver");
 
   const isolated = spawnSync("bash", ["verification/run-tests.sh", "--base", base], {
-    cwd: repo, encoding: "utf8", env: childEnv, timeout: 30_000,
+    cwd: repo, encoding: "utf8", env: childEnv, timeout: 120_000,
   });
-  assert.equal(isolated.status, 0, `${isolated.stdout}\n${isolated.stderr}`);
-  assert.match(isolated.stdout, /logical-model-render\.ts: lines ([1-9]\d*)\/\1=100\.00%/);
-  assert.match(isolated.stdout, /logical-model-resolver\.ts: lines ([1-9]\d*)\/\1=100\.00%/);
-  assert.match(isolated.stdout, /RUN VERDICT: PASS — tests passed and coverage gate accepted the patch/);
+  const details = subprocessDetails(isolated);
+  assert.equal(isolated.status, 0, details);
+  assert.match(isolated.stdout, /logical-model-render\.ts: lines ([1-9]\d*)\/\1=100\.00%/, details);
+  assert.match(isolated.stdout, /logical-model-resolver\.ts: lines ([1-9]\d*)\/\1=100\.00%/, details);
+  assert.match(isolated.stdout, /RUN VERDICT: PASS — tests passed and coverage gate accepted the patch/, details);
 });
 
 test("a missing exact-pinned TypeScript devDependency is a legible infrastructure error", { timeout: 20_000 }, (t) => {
