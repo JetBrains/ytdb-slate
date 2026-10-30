@@ -756,8 +756,9 @@ test("subprocess diagnostics retain timeout evidence and bound both output tails
     "error: undefined\nsignal: null\nstdout tail:\n\nstderr tail:\n");
 });
 
-// Two 120-second child limits leave 60 seconds for fixture setup and assertions.
-test("run-tests isolates Jiti coverage from a cache warmed by an earlier process", { timeout: 300_000 }, (t) => {
+// Nine 20-second Git limits and two 120-second child limits total 420 seconds.
+// The 480-second test limit leaves 60 seconds for fixture setup and assertions.
+test("run-tests isolates Jiti coverage from a cache warmed by an earlier process", { timeout: 480_000 }, (t) => {
   const harness = scratchDirectory("slate-runner-jiti-cache-");
   t.after(() => rmSync(harness, { recursive: true, force: true }));
   const repo = join(harness, "repo");
