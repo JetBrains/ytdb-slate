@@ -198,27 +198,27 @@ characters. Tool names use 64 characters. Descriptions use 140 characters.
 | fixture | paths | portable characters | lines |
 | --- | ---: | ---: | ---: |
 | shipped logical section | 0 | 3,596 | 11 |
-| trusted shipped-default doctrine | 5 | 8,404 | 74 |
+| trusted shipped-default doctrine | 5 | 8,397 | 74 |
 | untrusted doctrine without a home configuration file | 4 | 2,711 | 33 |
-| draft pull requests, shipped policy | 6 | 8,474 | 75 |
-| capped workers, shipped policy | 5 | 9,751 | 84 |
-| draft plus capped workers | 6 | 9,821 | 85 |
-| deferred issues plus capped workers | 5 | 9,825 | 85 |
-| routing recommendations plus capped workers | 5 | 9,804 | 85 |
-| draft plus deferred issues and capped workers | 6 | 9,895 | 86 |
-| draft plus routing recommendations and capped workers | 6 | 9,870 | 86 |
-| deferred issues plus routing recommendations and capped workers | 5 | 9,878 | 86 |
-| canonical maximal baseline with all workflow options | 6 | 9,944 | 87 |
-| maximal baseline with an open change | 6 | 10,142 | 88 |
-| maximal baseline with source and legacy root log | 6 | 10,372 | 90 |
-| dogfood `.pi/slate.json` and its two extension units | 6 | 9,069 | 86 |
-| runtime boundary plus draft and capped workers, source and legacy log | 6 | 26,053 | 88 |
-| runtime boundary plus draft and deferred issues, source and legacy log | 6 | 26,127 | 89 |
-| runtime boundary plus routing recommendations, source and legacy log | 5 | 26,036 | 88 |
-| runtime boundary plus deferred issues and routing recommendations, source and legacy log | 5 | 26,110 | 89 |
-| runtime boundary plus draft and routing recommendations, source and legacy log | 6 | 26,102 | 89 |
-| same boundary composition plus deferred issues | 6 | 26,176 | 90 |
-| valid shipped policy plus 88 capped worker tools, source and legacy log | 6 | 28,046 | 173 |
+| draft pull requests, shipped policy | 6 | 8,467 | 75 |
+| capped workers, shipped policy | 5 | 9,744 | 84 |
+| draft plus capped workers | 6 | 9,814 | 85 |
+| deferred issues plus capped workers | 5 | 9,818 | 85 |
+| routing recommendations plus capped workers | 5 | 9,797 | 85 |
+| draft plus deferred issues and capped workers | 6 | 9,888 | 86 |
+| draft plus routing recommendations and capped workers | 6 | 9,863 | 86 |
+| deferred issues plus routing recommendations and capped workers | 5 | 9,871 | 86 |
+| canonical maximal baseline with all workflow options | 6 | 9,937 | 87 |
+| maximal baseline with an open change | 6 | 10,135 | 88 |
+| maximal baseline with source and legacy root log | 6 | 10,365 | 90 |
+| dogfood `.pi/slate.json` and its two extension units | 6 | 9,062 | 86 |
+| runtime boundary plus draft and capped workers, source and legacy log | 6 | 26,046 | 88 |
+| runtime boundary plus draft and deferred issues, source and legacy log | 6 | 26,120 | 89 |
+| runtime boundary plus routing recommendations, source and legacy log | 5 | 26,029 | 88 |
+| runtime boundary plus deferred issues and routing recommendations, source and legacy log | 5 | 26,103 | 89 |
+| runtime boundary plus draft and routing recommendations, source and legacy log | 6 | 26,095 | 89 |
+| same boundary composition plus deferred issues | 6 | 26,169 | 90 |
+| valid shipped policy plus 88 capped worker tools, source and legacy log | 6 | 28,039 | 173 |
 
 An untrusted session with an empty home `slate.json` receives the same doctrine
 as the trusted shipped-default fixture above. It includes routing and writing
@@ -229,25 +229,25 @@ project preferences can.
 The canonical maximal baseline uses all six shipped logical definitions, all
 three workflow options, and the fixed capped worker roster. Its largest variant
 has an open change, one direct source folder, and a legacy root log. Its
-five-percent requirement is `ceil(10,372 × 1.05) = 10,891`.
+five-percent requirement is `ceil(10,365 × 1.05) = 10,884`.
 The 26,300 whole-doctrine ceiling exceeds it. The table pins all eight
 combinations of the three workflow options with the capped worker roster. The
 dogfood row reads the actual project configuration. A change to `.pi/slate.json` requires a fresh render.
 
-The four routing-enabled rows from 26,036 through 26,176 are
-boundary-composition controls. The 26,053 and 26,127 rows keep the
-routing-recommendation feature off as compatibility controls. The 26,176 row
-pins the largest supported composition. It has 124 characters of headroom.
+The four routing-enabled rows from 26,029 through 26,169 are
+boundary-composition controls. The 26,046 and 26,120 rows keep the
+routing-recommendation feature off as compatibility controls. The 26,169 row
+pins the capped-roster boundary composition. It has 131 characters of headroom.
 Each row combines a valid logical section padded to exactly 19,400 characters with supported doctrine tails. The rows do not define reserve-bearing
 baselines. Every row remains below the 26,300 portable-character ceiling.
-A valid third worker unit with a 118-character label reaches 26,300 exactly
-when all three workflow options are on. A 119-character label reaches 26,301,
+A valid third worker unit with a 125-character label reaches 26,300 exactly
+when all three workflow options are on. A 126-character label reaches 26,301,
 the first value beyond the ceiling.
 
 The over-cap counterfactual uses a valid shipped logical policy and one supported
 worker-extension unit with 88 capped tools. It also includes an open change,
-its source, and the legacy root log. Its 28,046 portable characters exceed
-the whole-doctrine ceiling by 1,746. The check therefore detects whole-doctrine
+its source, and the legacy root log. Its 28,039 portable characters exceed
+the whole-doctrine ceiling by 1,739. The check therefore detects whole-doctrine
 growth without using a retired model-row shape or an assumed per-tool increment.
 Worker-extension doctrine has no runtime size cap, so the fixture reaches the
 whole-doctrine guard rather than failing logical-policy validation first.
@@ -267,15 +267,17 @@ per-turn doctrine.
 | Worker preamble form | UTF-8 bytes | Increase from base |
 | --- | ---: | ---: |
 | Base | 1,317 | — |
-| Base + writing guidance | 1,861 | 544 |
+| Base + complete writing guidance | 2,479 | 1,162 |
 | Base + reviewer charter | 3,472 | 2,155 |
-| Base + writing guidance + reviewer charter | 4,016 | 2,699 |
+| Base + short writing guidance + reviewer charter | 4,016 | 2,699 |
 
 The preamble explains that the harness runs calls issued in one turn at the
 same time. It also explains that cumulative token cost grows with the square of
 the number of turns because each turn resends the conversation history.
 
-The writing guidance is 543 bytes. The reviewer charter constant is 2,154 bytes.
+The writing guidance is 1,161 bytes. This complete form includes the design-scope exception.
+Short review writing guidance is 543 bytes.
+The reviewer charter constant is 2,154 bytes.
 The writing addendum needs one separating space. The reviewer charter addendum
 needs one separating newline. The current text uses UTF-8 punctuation, so byte
 and character counts can differ.
@@ -299,7 +301,7 @@ Its action path adds `/tmp/action.` and six allocator characters.
 | No-change hidden action message | 0 | 0 | 0 | 0 |
 
 The message includes both final line feeds. System blocks have no final line feed.
-Open-change record-writing system totals are 2,116 or 2,660 bytes without or with writing guidance.
+Open-change record-writing system totals are 2,116 or 3,278 bytes without or with writing guidance.
 Open-change review system totals are 3,785 or 4,329 bytes without or with writing guidance.
 These totals exclude selected review guidance, prompt documents, base Pi text, and provider framing.
 
@@ -330,7 +332,7 @@ The count excludes the original task and its separating newlines.
 | Writing guidance | System preamble bytes | Task guidance bytes, no source / source | Sum, no source / source |
 | --- | ---: | ---: | ---: |
 | Off | 1,317 | 995 / 1,377 | 2,312 / 2,694 |
-| On | 1,861 | 995 / 1,377 | 2,856 / 3,238 |
+| On | 2,479 | 995 / 1,377 | 3,474 / 3,856 |
 
 The sums exclude message and provider framing.
 They do not join the preamble and task as one system block.
@@ -377,7 +379,7 @@ questions and examples of useful evidence.
 
 | bounded block | exact UTF-8 bytes |
 | --- | ---: |
-| implementation-dispatch focused-context reference | 351 |
+| implementation-dispatch focused-context reference | 226 |
 | non-local logic defect reviewer charter | 2,464 |
 | consumer contract break reviewer charter | 2,748 |
 | governing-rule defect reviewer charter | 2,857 |
@@ -509,7 +511,8 @@ The doctrine is the workflow guidance rendered for the orchestrator. Each row
 adds cumulative required document reads to that guidance. Earlier reads stay
 in later rows. A later whole-file read replaces section ranges. Overlapping
 ranges count once. Section ranges include headings, subsections, separators,
-and final line feeds up to the next heading of the same or higher level. These rows describe one session from research to delivery. A change with more than one track hands off before each track, and the user runs each handoff. A session after a handoff holds less context than the rows for phases 7 to 9.
+and final line feeds up to the next heading of the same or higher level.
+The phase rows preserve accumulation for single-track work without a handoff.
 
 Each fixture uses trusted shipped policy, no worker extensions, and one open
 change with a 56-character name. It has no source change. Deferred issues and
@@ -531,45 +534,92 @@ is ceil(baseline bytes * 1.05). Tests enforce total <= stored literal limit.
 The token limit is ceil(byte limit / 4). Reserve is checked at approval,
 not recalculated as text grows. A maximum includes all applicable optional
 reads. Any subset fits because removing ranges cannot increase union size.
+The user approved the two nested research maximum limits on 2026-10-25.
+They are 227,535 bytes / 56,884 estimated tokens with publishing off and
+244,379 bytes / 61,095 estimated tokens with publishing on.
 
 | Phase | Publishing | Plan | Required bytes | Estimated tokens | Byte limit | Token limit | Conditional maximum bytes | Estimated tokens | Byte limit | Token limit |
 | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1. Research | off | ordinary | 75507 | 18877 | 75856 | 18964 | 144490 | 36123 | 144492 | 36123 |
-| 1. Research | off | nested | 90792 | 22698 | 129137 | 32285 | 159775 | 39944 | 197773 | 49444 |
-| 1. Research | on | ordinary | 87019 | 21755 | 92700 | 23175 | 156002 | 39001 | 161336 | 40334 |
-| 1. Research | on | nested | 102304 | 25576 | 145981 | 36496 | 171287 | 42822 | 214617 | 53655 |
-| 2. Risk assessment | off | ordinary | 111900 | 27975 | 114401 | 28601 | 180883 | 45221 | 183038 | 45760 |
-| 2. Risk assessment | off | nested | 127185 | 31797 | 167682 | 41921 | 196168 | 49042 | 236319 | 59080 |
-| 2. Risk assessment | on | ordinary | 123412 | 30853 | 131245 | 32812 | 192395 | 48099 | 199882 | 49971 |
-| 2. Risk assessment | on | nested | 138697 | 34675 | 184526 | 46132 | 207680 | 51920 | 253163 | 63291 |
-| 3. Design validation | off | ordinary | 111900 | 27975 | 114401 | 28601 | 180883 | 45221 | 183038 | 45760 |
-| 3. Design validation | off | nested | 127185 | 31797 | 167682 | 41921 | 196168 | 49042 | 236319 | 59080 |
-| 3. Design validation | on | ordinary | 123412 | 30853 | 131245 | 32812 | 192395 | 48099 | 199882 | 49971 |
-| 3. Design validation | on | nested | 138697 | 34675 | 184526 | 46132 | 207680 | 51920 | 253163 | 63291 |
-| 4. Focus reconfirmation | off | ordinary | 111900 | 27975 | 114401 | 28601 | 180883 | 45221 | 183038 | 45760 |
-| 4. Focus reconfirmation | off | nested | 127185 | 31797 | 167682 | 41921 | 196168 | 49042 | 236319 | 59080 |
-| 4. Focus reconfirmation | on | ordinary | 123412 | 30853 | 131245 | 32812 | 192395 | 48099 | 199882 | 49971 |
-| 4. Focus reconfirmation | on | nested | 138697 | 34675 | 184526 | 46132 | 207680 | 51920 | 253163 | 63291 |
-| 5. Adversarial design review | off | ordinary | 134815 | 33704 | 138753 | 34689 | 231582 | 57896 | 236562 | 59141 |
-| 5. Adversarial design review | off | nested | 150100 | 37525 | 192034 | 48009 | 246867 | 61717 | 289844 | 72461 |
-| 5. Adversarial design review | on | ordinary | 146327 | 36582 | 155597 | 38900 | 243094 | 60774 | 253406 | 63352 |
-| 5. Adversarial design review | on | nested | 161612 | 40403 | 208878 | 52220 | 258379 | 64595 | 306688 | 76672 |
-| 6. Final design approval | off | ordinary | 134815 | 33704 | 138753 | 34689 | 231582 | 57896 | 236562 | 59141 |
-| 6. Final design approval | off | nested | 150100 | 37525 | 192034 | 48009 | 246867 | 61717 | 289844 | 72461 |
-| 6. Final design approval | on | ordinary | 146327 | 36582 | 155597 | 38900 | 243094 | 60774 | 253406 | 63352 |
-| 6. Final design approval | on | nested | 161612 | 40403 | 208878 | 52220 | 258379 | 64595 | 306688 | 76672 |
-| 7. Track loop | off | ordinary | 158010 | 39503 | 163384 | 40846 | 259414 | 64854 | 302924 | 75731 |
-| 7. Track loop | off | nested | 173295 | 43324 | 216665 | 54167 | 259414 | 64854 | 302924 | 75731 |
-| 7. Track loop | on | ordinary | 169522 | 42381 | 180228 | 45057 | 270926 | 67732 | 319769 | 79943 |
-| 7. Track loop | on | nested | 184807 | 46202 | 233509 | 58378 | 270926 | 67732 | 319769 | 79943 |
-| 8. Final acceptance | off | ordinary | 158010 | 39503 | 163384 | 40846 | 259414 | 64854 | 302924 | 75731 |
-| 8. Final acceptance | off | nested | 173295 | 43324 | 216665 | 54167 | 259414 | 64854 | 302924 | 75731 |
-| 8. Final acceptance | on | ordinary | 169522 | 42381 | 180228 | 45057 | 270926 | 67732 | 319769 | 79943 |
-| 8. Final acceptance | on | nested | 184807 | 46202 | 233509 | 58378 | 270926 | 67732 | 319769 | 79943 |
-| 9. Delivery | off | ordinary | 158010 | 39503 | 163384 | 40846 | 259414 | 64854 | 302924 | 75731 |
-| 9. Delivery | off | nested | 173295 | 43324 | 216665 | 54167 | 259414 | 64854 | 302924 | 75731 |
-| 9. Delivery | on | ordinary | 169522 | 42381 | 180228 | 45057 | 270926 | 67732 | 319769 | 79943 |
-| 9. Delivery | on | nested | 184807 | 46202 | 233509 | 58378 | 270926 | 67732 | 319769 | 79943 |
+| 1. Research | off | ordinary | 75071 | 18768 | 75856 | 18964 | 144035 | 36009 | 144492 | 36123 |
+| 1. Research | off | nested | 90305 | 22577 | 129137 | 32285 | 159269 | 39818 | 227535 | 56884 |
+| 1. Research | on | ordinary | 86583 | 21646 | 92700 | 23175 | 155547 | 38887 | 161336 | 40334 |
+| 1. Research | on | nested | 101817 | 25455 | 145981 | 36496 | 170781 | 42696 | 244379 | 61095 |
+| 2. Risk assessment | off | ordinary | 111108 | 27777 | 114401 | 28601 | 180072 | 45018 | 183038 | 45760 |
+| 2. Risk assessment | off | nested | 126342 | 31586 | 167682 | 41921 | 195306 | 48827 | 236319 | 59080 |
+| 2. Risk assessment | on | ordinary | 122620 | 30655 | 131245 | 32812 | 191584 | 47896 | 199882 | 49971 |
+| 2. Risk assessment | on | nested | 137854 | 34464 | 184526 | 46132 | 206818 | 51705 | 253163 | 63291 |
+| 3. Design validation | off | ordinary | 111108 | 27777 | 114401 | 28601 | 180072 | 45018 | 183038 | 45760 |
+| 3. Design validation | off | nested | 126342 | 31586 | 167682 | 41921 | 195306 | 48827 | 236319 | 59080 |
+| 3. Design validation | on | ordinary | 122620 | 30655 | 131245 | 32812 | 191584 | 47896 | 199882 | 49971 |
+| 3. Design validation | on | nested | 137854 | 34464 | 184526 | 46132 | 206818 | 51705 | 253163 | 63291 |
+| 4. Focus reconfirmation | off | ordinary | 111108 | 27777 | 114401 | 28601 | 180072 | 45018 | 183038 | 45760 |
+| 4. Focus reconfirmation | off | nested | 126342 | 31586 | 167682 | 41921 | 195306 | 48827 | 236319 | 59080 |
+| 4. Focus reconfirmation | on | ordinary | 122620 | 30655 | 131245 | 32812 | 191584 | 47896 | 199882 | 49971 |
+| 4. Focus reconfirmation | on | nested | 137854 | 34464 | 184526 | 46132 | 206818 | 51705 | 253163 | 63291 |
+| 5. Adversarial design review | off | ordinary | 134023 | 33506 | 138753 | 34689 | 230771 | 57693 | 236562 | 59141 |
+| 5. Adversarial design review | off | nested | 149257 | 37315 | 192034 | 48009 | 246005 | 61502 | 289844 | 72461 |
+| 5. Adversarial design review | on | ordinary | 145535 | 36384 | 155597 | 38900 | 242283 | 60571 | 253406 | 63352 |
+| 5. Adversarial design review | on | nested | 160769 | 40193 | 208878 | 52220 | 257517 | 64380 | 306688 | 76672 |
+| 6. Final design approval | off | ordinary | 134023 | 33506 | 138753 | 34689 | 230771 | 57693 | 236562 | 59141 |
+| 6. Final design approval | off | nested | 149257 | 37315 | 192034 | 48009 | 246005 | 61502 | 289844 | 72461 |
+| 6. Final design approval | on | ordinary | 145535 | 36384 | 155597 | 38900 | 242283 | 60571 | 253406 | 63352 |
+| 6. Final design approval | on | nested | 160769 | 40193 | 208878 | 52220 | 257517 | 64380 | 306688 | 76672 |
+| 7. Track loop | off | ordinary | 157135 | 39284 | 163384 | 40846 | 258469 | 64618 | 302924 | 75731 |
+| 7. Track loop | off | nested | 172369 | 43093 | 216665 | 54167 | 258469 | 64618 | 302924 | 75731 |
+| 7. Track loop | on | ordinary | 168647 | 42162 | 180228 | 45057 | 269981 | 67496 | 319769 | 79943 |
+| 7. Track loop | on | nested | 183881 | 45971 | 233509 | 58378 | 269981 | 67496 | 319769 | 79943 |
+| 8. Final acceptance | off | ordinary | 157135 | 39284 | 163384 | 40846 | 258469 | 64618 | 302924 | 75731 |
+| 8. Final acceptance | off | nested | 172369 | 43093 | 216665 | 54167 | 258469 | 64618 | 302924 | 75731 |
+| 8. Final acceptance | on | ordinary | 168647 | 42162 | 180228 | 45057 | 269981 | 67496 | 319769 | 79943 |
+| 8. Final acceptance | on | nested | 183881 | 45971 | 233509 | 58378 | 269981 | 67496 | 319769 | 79943 |
+| 9. Delivery | off | ordinary | 157135 | 39284 | 163384 | 40846 | 258469 | 64618 | 302924 | 75731 |
+| 9. Delivery | off | nested | 172369 | 43093 | 216665 | 54167 | 258469 | 64618 | 302924 | 75731 |
+| 9. Delivery | on | ordinary | 168647 | 42162 | 180228 | 45057 | 269981 | 67496 | 319769 | 79943 |
+| 9. Delivery | on | nested | 183881 | 45971 | 233509 | 58378 | 269981 | 67496 | 319769 | 79943 |
+
+### Session starts
+
+A session runs between actual handoff transfers. A failed or cancelled transfer
+and resume without transfer keep the current session. Single-track work has
+no mandatory handoff. Reads continue accumulating inside each session.
+
+Each start rereads the accumulated fixed-document set for its phase and plan.
+Nested phase-1 resume starts include design-track entry and optional handoffs.
+Their required sets cover unchanged-record reconciliation without added definitions.
+Their conditional maxima add focus and coverage definitions for renewed focus judgment.
+These two ranges in [blast-radius.md](blast-radius.md) add 29,762 bytes.
+Root research starts add neither range, including with a nested plan.
+From phase 2, the whole [blast-radius.md](blast-radius.md) already contains both ranges.
+
+| Session start | Entry phase | Plan | Added required reads | Added conditional reads |
+| --- | --- | --- | --- | --- |
+| Root research | 1 | ordinary or nested | none | none |
+| Optional handoff | 1 | ordinary | none | none |
+| Design track or optional handoff | 1 | nested | none | [Focus areas and their gates](blast-radius.md#focus-areas-and-their-gates), including Judged proof and risk record, plus [Review coverage and the coverage register](blast-radius.md#review-coverage-and-the-coverage-register) |
+| Code track, including the second boundary | 7 | ordinary or nested | none | none |
+| Parent return | continuing phase 2–9 | ordinary or nested | none | none |
+| Optional handoff | continuing phase 2–9 | ordinary or nested | none | none |
+
+All starts use the corresponding phase limits. Only nested phase-1 resume maxima
+differ from the phase totals. Their measured entry totals follow.
+
+| Publishing | Required bytes | Estimated tokens | Conditional maximum bytes | Estimated tokens | Byte limit | Token limit |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| off | 90305 | 22577 | 189031 | 47258 | 227535 | 56884 |
+| on | 101817 | 25455 | 200543 | 50136 | 244379 | 61095 |
+
+The doctrine requires common change records at every start. Nested planning
+and resume load recursive workflow. Fresh sessions cannot reuse prior context
+to skip review rules, rationale, or unusual-prose guidance when applicable.
+Resume reconciles records, accepted history, focus, coverage, and the live difference.
+Variable records remain required evidence but are outside fixed-document bytes.
+Tests compare document identities, conditions, and selected range unions.
+Current source rules release no fixed-document read at a handoff.
+
+A handoff saves retained conversation content, including messages, episodes,
+and variable records. It does not save required fixed-document reads.
+These tables exclude that conversation content and repeated reads.
+They do not measure the total context saving from a handoff.
 
 Conditional sets have the following whole-document costs. Early notes cost
 zero extra after required notes enter phase 7. Unusual prose costs zero extra
@@ -580,11 +630,16 @@ guidance, and all twelve charters from phase 5. Built-in review loads its
 implementation input for workers only. It adds no orchestrator read.
 | Conditional set | Bytes | Estimated tokens |
 | --- | ---: | ---: |
-| Rationale | 30268 | 7567 |
-| Unusual prose | 28067 | 7017 |
+| Rationale | 30142 | 7536 |
+| Unusual prose | 28174 | 7044 |
 | Early notes | 10648 | 2662 |
-| Ordinary split | 15285 | 3822 |
-| Manual review | 55851 | 13963 |
+| Ordinary split | 15234 | 3809 |
+| Manual review | 55958 | 13990 |
+
+Maps use a soft guideline of about 1,500 words, with Mermaid diagrams under 40 nodes.
+The worker reference is 3130 bytes. See [maps.md](maps.md) for its writer readers.
+Map text, worker reference reads and composed drafts are real excluded costs.
+Several maps can exceed fixed-row headroom. These totals do not bound the whole conversation.
 
 Private evidence, designs, reports, source chains, project additions, configured
 prompt documents, provider framing, tools, results, message wrappers, repeated
@@ -592,4 +647,8 @@ reads, and the incoming system prompt are excluded. These variable costs can
 exceed every total. Compaction can reduce retained text but not this metric.
 The reference scanner checks filenames and reviewed contexts, not read semantics.
 A reviewer checks recipients, conditions, dependencies, and first-read phases.
+After any resume, handoff, or reread duty changes, reconcile session-entry
+assignments against source duties even when tests pass. Follow
+[Workflow-phase context maintenance](../verification/README.md#workflow-phase-context-maintenance)
+and record either the updated assignments, expectations, and publication or a no-change decision.
 <!-- workflow-phase:end -->

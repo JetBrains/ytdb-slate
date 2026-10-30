@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -9,22 +9,26 @@ import { REVIEW_COMMON_POLICY_DOC, REVIEW_IMPLEMENTATION_INPUT_DOC, WRITING_CHEC
 import { REVIEW_PERSPECTIVES } from "../extension/review-perspectives.ts";
 import { SlateStore, THREAD_TYPES, type ThreadRecord, type ThreadType } from "../extension/state.ts";
 import { createLogicalRuntime } from "../extension/logical-model-runtime.ts";
+import { WRITING_REQUIREMENTS, WRITING_STYLE_RULES, WRITING_REQUIREMENTS_TITLE, WRITING_SCOPE_EXCLUSION, DESIGN_REQUIREMENTS } from "../extension/writing-reminder.ts";
 import type { WorkerSession } from "../extension/worker.ts";
 
 const codingAgentModule = await import("@earendil-works/pi-coding-agent") as unknown as {
   codingAgentStub: {
+    getAgentDir(): string;
     createAgentSession(options: Record<string, unknown>): Promise<{ session: WorkerSession }>;
   };
 };
 const { codingAgentStub } = codingAgentModule;
 const originalCreateAgentSession = codingAgentStub.createAgentSession;
 const { ThreadManager } = await import("../extension/threads.ts");
+const { loadConfig } = await import("../extension/config.ts");
 const {
   REVIEWER_CHARTER,
   workerPreamble,
   changeGuidance,
   WORKER_PREAMBLE,
   WORKER_WRITING_GUIDANCE,
+  REVIEWER_WRITING_GUIDANCE,
 } = await import("../extension/worker.ts");
 
 interface ManagerInternals {
@@ -42,10 +46,10 @@ function record(id: string, type?: ThreadType): ThreadRecord {
     id,
     name: id,
     status: "cancelled",
-    type: type ?? "general",
+    ...(type === undefined ? {} : { type }),
     createdAt: 1,
     updatedAt: 1,
-  };
+  } as ThreadRecord;
 }
 
 const EXPECTED_CHARTER_BY_THREAD_TYPE = {
@@ -73,14 +77,14 @@ test("workerPreamble keeps unchanged reviewer guidance independent of writing tr
   assert.equal(trusted, `${WORKER_PREAMBLE} ${WORKER_WRITING_GUIDANCE}`);
   assert.ok(WORKER_WRITING_GUIDANCE.includes("Describe only the current state in the README, docs, code comments and the project's own agent instruction file, not removed features or past behavior, but allow change records such as pull request descriptions, commit bodies, release notes and issues to describe removals and past behavior."));
   assert.equal(untrustedReviewer, `${WORKER_PREAMBLE}\n${REVIEWER_CHARTER}`);
-  assert.equal(trustedReviewer, `${WORKER_PREAMBLE} ${WORKER_WRITING_GUIDANCE}\n${REVIEWER_CHARTER}`);
+  assert.equal(trustedReviewer, `${WORKER_PREAMBLE} ${REVIEWER_WRITING_GUIDANCE}\n${REVIEWER_CHARTER}`);
   for (const preamble of [untrusted, trusted, untrustedReviewer, trustedReviewer]) {
     assert.equal(preamble.split(PARALLEL_TOOL_RULE).length - 1, 1);
     for (const sentence of COST_REASON_SENTENCES) assert.equal(preamble.split(sentence).length - 1, 1);
   }
   assert.deepEqual(
     [untrusted, trusted, untrustedReviewer, trustedReviewer].map((preamble) => Buffer.byteLength(preamble)),
-    [1317, 1861, 3472, 4016],
+    [1317, 2479, 3472, 4016],
   );
   assert.equal(untrustedReviewer.match(/^- /gm)?.length, 10);
   assert.equal(trustedReviewer.match(/^- /gm)?.length, 10);
@@ -117,8 +121,8 @@ test("real worker assembly delivers the charter only to review thread types", as
       getRegisteredProviderConfig: () => undefined,
     },
   } as unknown as ExtensionContext;
-  const manager = new ThreadManager({} as never, { writing: { check: false, remind: false } });
-  const view = manager as unknown as ManagerInternals;
+  const originalGetAgentDir = codingAgentStub.getAgentDir;
+  codingAgentStub.getAgentDir = () => root;
   const cases: Array<[ThreadType | undefined, boolean]> = [
     ...THREAD_TYPES.map((type): [ThreadType, boolean] => [type, EXPECTED_CHARTER_BY_THREAD_TYPE[type]]),
     [undefined, false],
@@ -129,25 +133,48 @@ test("real worker assembly delivers the charter only to review thread types", as
       cases.some(([type, hasCharter]) => type === undefined && hasCharter === false),
       "cases include the untyped legacy thread",
     );
-    for (const [type, hasCharter] of cases) {
-      await view.openWorkerFor({
-        thread: record(`thread-${type ?? "untyped"}`, type),
-        ctx,
-        open: {},
-        tools: undefined,
-        report: (message) => reports.push(message),
-      });
-      const loader = opened.at(-1)?.resourceLoader as { options?: { appendSystemPrompt?: unknown[] } } | undefined;
-      const appendSystemPrompt = loader?.options?.appendSystemPrompt;
-      assert.deepEqual(appendSystemPrompt, [workerPreamble(true, hasCharter)], type ?? "untyped");
-      const assembled = appendSystemPrompt?.[0];
-      assert.equal(typeof assembled === "string" && assembled.includes(REVIEWER_CHARTER), hasCharter, type ?? "untyped");
-      assert.equal(typeof assembled === "string" && assembled.includes(PARALLEL_TOOL_RULE), true, type ?? "untyped");
+    for (const permission of ["trusted", "denied", "home", "forged"] as const) {
+      const trusted = permission === "trusted";
+      const permitted = trusted || permission === "home";
+      const homeFile = join(root, "slate.json");
+      if (permission === "home") writeFileSync(homeFile, "{}");
+      else rmSync(homeFile, { force: true });
+      const config = permission === "forged" ? {} : loadConfig(root, trusted, () => {});
+      const manager = new ThreadManager({} as never, config);
+      const view = manager as unknown as ManagerInternals;
+      const trustContext = { ...ctx, isProjectTrusted: () => trusted } as ExtensionContext;
+      for (const [type, hasCharter] of cases) {
+        await view.openWorkerFor({
+          thread: record(`thread-${type ?? "untyped"}`, type),
+          ctx: trustContext,
+          open: {},
+          tools: undefined,
+          report: (message) => reports.push(message),
+        });
+        const loader = opened.at(-1)?.resourceLoader as { options?: { appendSystemPrompt?: unknown[] } } | undefined;
+        const appendSystemPrompt = loader?.options?.appendSystemPrompt;
+        assert.deepEqual(appendSystemPrompt, [workerPreamble(permitted, hasCharter)], `${permission}/${type ?? "untyped"}`);
+        const assembled = appendSystemPrompt?.[0];
+        assert.equal(typeof assembled === "string" && assembled.includes(REVIEWER_CHARTER), hasCharter, type ?? "untyped");
+        assert.equal(typeof assembled === "string" && assembled.includes(PARALLEL_TOOL_RULE), true, type ?? "untyped");
+        const text = String(assembled);
+        const count = permitted && !hasCharter ? 1 : 0;
+        for (const item of [WRITING_REQUIREMENTS_TITLE, ...WRITING_STYLE_RULES.map(x => x.text), ...WRITING_REQUIREMENTS.map(x => x.text)]) {
+          // The short review form retains the shared semicolon rule.
+          const expected = hasCharter && permitted && item === WRITING_STYLE_RULES[2]!.text ? 1 : count;
+          assert.equal(text.split(item).length - 1, expected, `${permission}/${type ?? "untyped"}: ${item}`);
+        }
+        assert.equal(text.split(WRITING_SCOPE_EXCLUSION).length - 1, permitted ? 1 : 0);
+        assert.equal(text.split("A high-level design remains governed even inside a research log.").length - 1, count);
+        for (const { text: item } of DESIGN_REQUIREMENTS) assert.equal(text.includes(item), false);
+        assert.equal(Buffer.byteLength(text), permitted ? (hasCharter ? 4016 : 2479) : (hasCharter ? 3472 : 1317));
+      }
     }
-    assert.equal(opened.length, cases.length);
+    assert.equal(opened.length, cases.length * 4);
     assert.deepEqual(reports, []);
   } finally {
     codingAgentStub.createAgentSession = originalCreateAgentSession;
+    codingAgentStub.getAgentDir = originalGetAgentDir;
     rmSync(root, { recursive: true, force: true });
   }
 });

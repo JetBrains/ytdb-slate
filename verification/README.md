@@ -810,8 +810,8 @@ The wrapper reports one `CHECK` line per identifier, one roster audit, and one
 summary. Exit 0 means every non-excluded check passed. Exit 1 means a failure, missing check,
 or strict `NOT RUN`. Exit 2 means the wrapper refused to start. The roster and
 summary output own the live count. The full suite has 208 checks plus the roster
-audit, for 209 result lines. Its independent mutation roster has 35 families and
-2,377 identities. The 53 surviving-safeguards identities preserve reviewed-state,
+audit, for 209 result lines. Its independent mutation roster has 36 families and
+2,366 identities. The 53 surviving-safeguards identities preserve reviewed-state,
 privacy, acceptance and delivery rules. The one-branch-rules family covers 32
 named violations. The audit-repairs family covers ten configuration, recursive
 pointer, delivery verification and README merge-advice cases. Each case accepts
@@ -819,7 +819,10 @@ original and wrapped text and rejects removal and contradiction. History-moves
 relocates a rule outside its owner. Ordering-wrapped attacks a wrapped rule.
 Pause controls pass valid wrapped policy through the complete history-unit
 check and require that the same check reject permission for open-range
-interleaving. These checks prove document policy, not live workflow execution.
+interleaving. The 17 review-history cases reject the listed restored and reworded
+rules. Correct-sentence controls accept the listed valid guidance. Both use plain
+and reflowed text. This check does not prove a removed rule is absent in other
+words. These checks prove document policy, not live workflow execution.
 
 `--exclude <id,id>` accepts only `doctrine-original-base` and
 `doctrine-original-controls`, together or individually. The driver accepts the
@@ -841,7 +844,7 @@ combination with `--exclude` refuse startup with exit 2. The wrapper reports
 Selection loads only required modules and runs only the requested checks and
 their prerequisites. Checks retain their full-run implementations. The independent
 mutation roster supplies identities for selected families. Heading selection
-requires all 894 `heading-policy` identities, including commit identity rules. Package selection has an empty
+requires all `heading-policy` identities, including commit identity rules. Package selection has an empty
 mutation scope. Missing, duplicate, incomplete, outside-family or crashed mutation
 execution fails `selected-mutation-audit`. Crash and driver failure lines always
 report. A separate `roster` audit requires each requested check and scoped audit
@@ -928,37 +931,42 @@ exact current production renders are:
 | fixture | paths | portable characters | lines |
 | --- | ---: | ---: | ---: |
 | shipped logical section | 0 | 3,596 | 11 |
-| trusted shipped-default doctrine | 5 | 8404 | 74 |
+| trusted shipped-default doctrine | 5 | 8397 | 74 |
 | untrusted doctrine | 4 | 2711 | 33 |
-| draft pull requests, shipped policy | 6 | 8474 | 75 |
-| capped workers, shipped policy | 5 | 9751 | 84 |
-| draft plus capped workers | 6 | 9821 | 85 |
-| deferred issues plus capped workers | 5 | 9825 | 85 |
-| routing recommendations plus capped workers | 5 | 9804 | 85 |
-| draft plus deferred issues and capped workers | 6 | 9895 | 86 |
-| draft plus routing recommendations and capped workers | 6 | 9870 | 86 |
-| deferred issues plus routing recommendations and capped workers | 5 | 9878 | 86 |
-| canonical maximal baseline with all workflow options | 6 | 9944 | 87 |
-| maximal baseline with an open change | 6 | 10142 | 88 |
-| maximal baseline with source and legacy root log | 6 | 10372 | 90 |
-| dogfood config and extension roster | 6 | 9069 | 86 |
-| 19,400-character policy plus draft, source and legacy log | 6 | 26053 | 88 |
-| same policy plus draft and deferred issues, source and legacy log | 6 | 26127 | 89 |
-| same policy plus routing recommendations, source and legacy log | 5 | 26036 | 88 |
-| same policy plus deferred issues and routing recommendations, source and legacy log | 5 | 26110 | 89 |
-| same policy plus draft and routing recommendations, source and legacy log | 6 | 26102 | 89 |
-| same boundary composition plus deferred issues | 6 | 26176 | 90 |
-| valid shipped policy plus 88 capped tools, source and legacy log | 6 | 28046 | 173 |
+| draft pull requests, shipped policy | 6 | 8467 | 75 |
+| capped workers, shipped policy | 5 | 9744 | 84 |
+| draft plus capped workers | 6 | 9814 | 85 |
+| deferred issues plus capped workers | 5 | 9818 | 85 |
+| routing recommendations plus capped workers | 5 | 9797 | 85 |
+| draft plus deferred issues and capped workers | 6 | 9888 | 86 |
+| draft plus routing recommendations and capped workers | 6 | 9863 | 86 |
+| deferred issues plus routing recommendations and capped workers | 5 | 9871 | 86 |
+| canonical maximal baseline with all workflow options | 6 | 9937 | 87 |
+| maximal baseline with an open change | 6 | 10135 | 88 |
+| maximal baseline with source and legacy root log | 6 | 10365 | 90 |
+| dogfood config and extension roster | 6 | 9062 | 86 |
+| 19,400-character policy plus draft, source and legacy log | 6 | 26046 | 88 |
+| same policy plus draft and deferred issues, source and legacy log | 6 | 26120 | 89 |
+| same policy plus routing recommendations, source and legacy log | 5 | 26029 | 88 |
+| same policy plus deferred issues and routing recommendations, source and legacy log | 5 | 26103 | 89 |
+| same policy plus draft and routing recommendations, source and legacy log | 6 | 26095 | 89 |
+| same boundary composition plus deferred issues | 6 | 26169 | 90 |
+| valid shipped policy plus 88 capped tools, source and legacy log | 6 | 28039 | 173 |
+
+Complete worker writing guidance measures 1161 UTF-8 bytes, including the design-scope exception.
+The permitted non-review preamble measures 2479 bytes.
+Its open-change record-writing system measures 3278 bytes.
+The short reviewer writing form remains 543 bytes, with a 4016-byte permitted review preamble.
 
 The capped worker baseline has two units and four tools. Each unit label has 128
 characters. Each tool name has 64 characters. Each description has 140
 characters. The dogfood fixture reads `.pi/slate.json` and represents its two
 configured extension units.
 
-The canonical 9,944-character baseline uses all six shipped logical models,
+The canonical 9,937-character baseline uses all six shipped logical models,
 all three workflow options, and the capped worker roster. With an open change,
-a direct source folder, and a legacy root log, it measures 10,372 characters.
-Its required five-percent value is 10,891. The 26,300 whole-doctrine ceiling
+a direct source folder, and a legacy root log, it measures 10,365 characters.
+Its required five-percent value is 10,884. The 26,300 whole-doctrine ceiling
 keeps that reserve. The exact fixtures cover all eight workflow-option
 combinations.
 
@@ -969,17 +977,17 @@ characters and 12 lines. An adoption pause adds neither version.
 Runtime rejection controls are separate. A logical section at exactly 19,400
 portable characters or 105 lines is valid. A section at 19,401 characters or
 106 lines is rejected before work. The four routing-enabled boundary
-compositions and the 26,053-character and 26,127-character feature-off
+compositions and the 26,046-character and 26,120-character feature-off
 compatibility controls include the current change, direct source, and legacy
 root log. They prove that an exact-boundary policy fits the 26,300-character
-whole-doctrine ceiling. The 26,176-character control has 124 characters of headroom.
-A valid third worker unit with a 118-character label and all three workflow
-options measures 26,300. A 119-character label measures 26,301 and fails. These controls are
+whole-doctrine ceiling. The 26,169-character control has 131 characters of headroom.
+A valid third worker unit with a 125-character label and all three workflow
+options measures 26,300. A 126-character label measures 26,301 and fails. These controls are
 not reserve-bearing canonical baselines.
 
 The over-cap counterfactual keeps the shipped logical policy valid and adds 88
 supported capped worker tools. With an open change, source, and legacy log, its
-28,046 portable characters exceed the ceiling by 1,746 characters.
+28,039 portable characters exceed the ceiling by 1,739 characters.
 This transformed fixture replaces the retired six-copy physical model-row shape.
 It does not assume an old per-row or per-tool increment. Removing the whole-
 doctrine comparison makes the counterfactual pass and therefore breaks the
@@ -997,13 +1005,50 @@ remains 24,600 characters. The whole-doctrine ceiling is 26,300 characters.
 `test/workflow-context-budget.test.ts` owns phase measurements, read-reference
 coverage, literal-limit enforcement, mutation controls, and publication equality.
 `verification/workflow-context-map.mjs` holds the reviewed read assignments and
-literal limits approved by the user on 2026-10-16.
+literal limits approved by the user on 2026-10-16. The two nested research
+conditional limits were approved on 2026-10-25. The user must approve higher limits.
+
+The map also names bounded session-entry cases. Research and optional handoffs
+use their current phase. Code-track boundaries use phase 7, including the second
+boundary after a meaningful pre-track change. Design tracks enter nested phase 1.
+Parent returns use the continuing parent phase. Equivalent successive tracks
+reuse these coordinates without fixing a track count.
+
+Entry tests compare document identities, conditions and selected range unions
+against an independent accumulated-set selection plus named resume reads.
+Renewed focus judgment at any nested phase-1 resume adds definition ranges.
+This includes design-track entry and optional handoffs inside a design subtree.
+Root research starts add none, even with a nested plan.
+Unchanged-record reconciliation adds none. Other entries equal their accumulated
+sets. Continuation retains entry reads and accumulates later phases.
+Negative controls remove successor rereads and conditional reads, add an
+unsupported release, and reset a continuing session. Outcome-dependent transfer
+controls retain current reads after failure, cancellation, or resume without transfer.
+Any completed transfer starts a session. Single-track work has no mandatory boundary.
+The publication includes fresh rendered nested phase-1 resume totals.
+Handoff savings in variable conversation content remain outside this metric.
+Re-run the native phase tests after changing mapped reads, document exports,
+doctrine, phase assignments, limits, entry coordinates, resume ranges, source
+duties, scenario filters, or publication text. Inspect with
+`SLATE_PHASE_INSPECT=1 node --test test/workflow-context-budget.test.ts`.
+
+After any resume, handoff, or reread source duty changes, reconcile session-entry
+assignments semantically even when tests pass. Check `extension/mode.ts` doctrine
+rules, `docs/track-workflow.md` § Confirmation gate and § Resume order and
+reconciliation, `docs/recursive-workflow.md` § Resume and folder forks, and
+`docs/blast-radius.md` focus and coverage definitions. Compare recipients,
+conditions, selected ranges, and inherited records at every affected start.
+Update entry assignments, independent expectations, and the publication from a
+fresh production render. If no update is needed, record an explicit no-change
+decision with the checked duties and reasons in the implementer report.
+A passing test run does not replace this reconciliation.
+
 Publishing-disabled delivery uses accepted local branch history. Its checks cover
 marker completion, branch preservation, local verification and resume, private
 history inspection, and owning-log verification before closure. The default
 publishing template has no disabled-delivery read assignment. The delivery
 reference tests reject a final squash and deleted preservation duties. They also
-accept the current history rule with harmless line wrapping. The user must approve fresh baseline limits.
+accept the current history rule with harmless line wrapping.
 
 On failure, inspect the reported scenario, phase, source ranges, total, limit,
 and excess bytes. Check for a wrong read assignment or unintended growth first.
@@ -1030,8 +1075,11 @@ A failed comparison grants no authority to replace its base.
 ## Re-run triggers
 
 Re-run phase tests after changes to mapped reads, document exports, doctrine,
-phase assignments, limits, or the published phase section. Run both independent
-package-content commands and their self-test for package evidence.
+phase assignments, limits, entry coordinates, resume ranges, source duties,
+scenario filters, or publication text. Any resume, handoff, or reread source-duty
+change also requires the semantic reconciliation under Workflow-phase context
+maintenance, even when tests pass. Run both independent package-content commands
+and their self-test for package evidence.
 
 Re-run the strict suite after changes to active logical-model modules,
 `mode.ts`, `paths.ts`, worker-extension doctrine, state sanitizers, base-model

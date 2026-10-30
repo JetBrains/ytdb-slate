@@ -65,6 +65,7 @@ Use [track-workflow.md](track-workflow.md) § Track size and split for change co
 Use [track-workflow.md](track-workflow.md) § Recursive planning and loading for record triggers.
 Entering a design track triggers its research log and nested gates.
 An ordinary code track or a high-level design alone triggers neither extra record.
+Standalone designs and maps follow the lifecycle artifact summary.
 Questions follow unresolved decisions rather than record or track counts.
 
 ## Recorded-workflow compatibility
@@ -136,7 +137,7 @@ A **folder fork** gives a different session owner new active records.
 Use [track-workflow.md](track-workflow.md) § Session handoff and the research log
 for same-owner resume, trusted handoff, and folder allocation.
 At the first record write after a fork, name each direct source record as read-only.
-A successor design names its read-only source design.
+Use [change-records.md](change-records.md) § Manual records and safe writes for successor design and map identity.
 Name the last source entry seen in each record, including the root log.
 Readers ignore later source entries.
 Follow source links for earlier history without copying or rewriting source files.
@@ -215,11 +216,9 @@ After a completed investigation, two further failed ordinary rounds on that requ
 Neither read-only investigation nor holistic-solution approval permits repair beyond the two-round limit.
 A split bypasses no consultation, verification, or escalation rule.
 
-Before user review, child fixes join the affected cumulative implementation commit.
-After user review, keep child fixes and corrections as separate commits.
-Never fold them into the already reviewed cumulative commit.
-Re-pin permitted rewritten ranges before review or packaging.
-Required fix gates inspect the child fix differences and cumulative result.
+Keep each child fix and correction as a separate commit.
+Preserve the exact state already reviewed.
+Required fix gates inspect the child fix differences and combined behavior.
 The affected track completes only after every child repair and required gate is resolved.
 
 ## Whole-subtree acceptance

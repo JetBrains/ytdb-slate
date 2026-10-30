@@ -750,6 +750,7 @@ test("run-tests isolates Jiti coverage from a cache warmed by an earlier process
   cpSync(join(CHECKOUT, "verification"), join(repo, "verification"), { recursive: true });
   cpSync(join(CHECKOUT, "package.json"), join(repo, "package.json"));
   cpSync(join(CHECKOUT, "README.md"), join(repo, "README.md"));
+  cpSync(join(CHECKOUT, "AGENTS.md"), join(repo, "AGENTS.md"));
   mkdirSync(join(repo, ".pi"));
   cpSync(join(CHECKOUT, ".pi/settings.json"), join(repo, ".pi/settings.json"));
   cpSync(join(CHECKOUT, ".pi/slate.json"), join(repo, ".pi/slate.json"));

@@ -28,21 +28,22 @@ The mandatory phases run in this order:
 8. obtain blocking final acceptance.
 9. deliver.
 
-The cumulative implementation commit is the original implementation and all
-agentic-review fixes squashed into one commit before user review. The track loop
+The track loop
 presents the approved high-level design when required, plans and judges the
 track's independent risk record, implements, validates, compares the committed
 difference with the proved areas, reviews, and fixes. It then presents any
-changed high-level design when required, creates the cumulative implementation
-commit, and delivers the track package. It applies and commits required user-review
+changed high-level design when required and delivers the track package. It applies and commits required user-review
 fixes whenever the user requests them. It verifies their range when one exists
 and marks the boundary. The implementer produces the low-level design and
 implements it as one integrated action.
 
 Every high-level design states the intention, goals, non-goals, approach, key
 decisions, rejected alternatives, risks, scope boundary, and open questions.
-The design author includes each component or data-flow diagram that helps the
-reader. Each omitted diagram gets a one-sentence reason. The design stays high
+Design authors include helpful component or data-flow diagrams.
+The orchestrator uses tables, neutral pseudocode or small diagrams where helpful in designs, plans, packages and decision questions.
+Design and orchestrator-presentation diagrams have topic titles and state arrow meaning.
+The orchestrator names the maps.md path beside this document in every map-writing or map-composing worker task.
+It does not read the reference. The design stays high
 level. It names no file path, method signature, or line number.
 
 A high-level design states what must be true and why. A low-level design states
@@ -174,7 +175,7 @@ The approved plan supplies specific evidence for proportional process.
 A design track or review-fix child track triggers the manual status file.
 Entering a design track triggers its research log and nested gates.
 An ordinary code track or a high-level design alone triggers neither extra record.
-These conditions add no unconditional-artifact exception.
+Standalone designs and maps use the artifact exceptions in [design-principles.md](design-principles.md) P11.
 Questions follow unresolved decisions rather than record or track counts.
 [recursive-workflow.md](recursive-workflow.md) owns the nested planning relations.
 <!-- recursive-planning-policy:end -->
@@ -507,16 +508,16 @@ Every implementation and review dispatch carries these fields:
 
 Every implementation dispatch carries this focused current-context block:
 
-> Research log: the current `slate-changes/<change>/research-log.md` remains the retained full record. The dispatch names its exact path and the implementer's `slate-changes/<change>/track-<number>-implementer-report.md` path. Use the references and excerpts supplied for this action. Read more history only when a relevant question remains unresolved.
+> Research log: `slate-changes/<change>/research-log.md`. Report: `slate-changes/<change>/track-<number>-implementer-report.md`. Use supplied references and excerpts. Read further history only for unresolved relevant questions.
 
-The block states the current approved design when one exists, the current task
-and acceptance condition, assigned findings and compact evidence when fixing,
-affected code or documents, relevant decisions, and unresolved relevant
-questions. The orchestrator supplies these inputs through specific section
-references or bounded excerpts. Implementers and fixers use the supplied
-current context. The full log remains available for unresolved relevant
-questions and retention. No implementation dispatch requires reading the entire
-historical log. This rule does not change reviewer input restrictions.
+Name the current approved design, if any, wherever authoritative: standalone or recorded log content. Name task, acceptance condition, assigned findings with compact fix evidence, affected files, relevant decisions and unresolved questions.
+Give implementers and fixers section references or bounded excerpts, never a required whole-log read.
+Identify assigned maps as factual context, not requirements.
+When a stored baseline exists, obtain its path and source commit from the log and name both.
+Use the root baseline for single-track work.
+Recorded changes without baselines gain no retrospective requirement.
+Implementers use [maps.md](maps.md) for reading depth.
+Reviewer input restrictions remain unchanged.
 Every implementation dispatch either carries each focus-area trigger with its boundary
 sentences or directs the implementer to the risk definitions in
 [blast-radius.md](blast-radius.md) § Focus areas and their gates. The implementer
@@ -582,7 +583,8 @@ abandonment. It deletes no files.
 - an unresolved question needed later.
 
 Open these sections: Initial request, Decision Log, Surprises and Discoveries,
-and Open Questions. Add Planned changes, Track table, risk record, coverage
+and Open Questions. Planned changes links standalone designs under [change-records.md](change-records.md).
+Add Track table, risk record, coverage
 register, override log, and escalation records when needed. Do not use an
 observations section. Worker observation files are review evidence, not user
 feedback. Naming an area opens the log even when the orchestrator later judges
@@ -594,11 +596,7 @@ Do not copy secrets, credentials, private user data, or unnecessary personal
 data into the log. Record a privacy exception as a typed ruling. State what was
 omitted and why.
 
-Use a safe write method. Follow the direct-write and retry rules for change records, including implementer reports.
-Use [change-records.md](change-records.md) § Manual records and safe writes
-for write methods, record checks, and inspection before retries.
-Research logs and implementer reports are append-only.
-A correction is a new entry.
+Use [change-records.md](change-records.md) § Manual records and safe writes for append-only logs and reports, correction entries, checks and retry inspection.
 Slate checks the folder chain when it creates the change.
 Keep all manual records and leftover temporary files untracked and visible in repository status.
 Do not add them to an ignore file or a pull request.
@@ -726,25 +724,20 @@ The note queue is drained before final acceptance. Every escalation has a
 disposition. The coverage
 invariant holds. The user accepts the final change.
 
-Each code track contributes one cumulative implementation commit, any user-review
-fixes and corrections, and a marker in multi-track changes.
+Each code track contributes its implementation, separate review fixes and
+corrections, and a marker in multi-track changes.
 For design markers, use [change-records.md](change-records.md)
 § Identifiers, code ranges, and design markers.
-Commit machine-review fixes separately for gate inspection.
-Before user review, squash the original implementation and all agentic-review
-fixes into the cumulative implementation commit.
-The user reviews both designs and implementation together.
-
-When the track has a high-level design, the cumulative implementation commit
-body carries the track high-level design followed by the track low-level
-design. Otherwise, use the two-part Intent and Deviation-delta body in
+Keep the original implementation and each machine-review fix as separate commits.
+Gates inspect each fix difference and the combined behavior.
+The user reviews the approved high-level design and the implementation together.
+Use the two-part Intent and Deviation-delta body in
 [blast-radius.md](blast-radius.md) § Commit discipline for drift and boundaries.
 
 ### Closed-range corrections
 
-Commit each fix requested during user review separately after the cumulative
-commit. Do not squash a user-review fix into the cumulative commit, because
-folding it back would destroy the exact state the user reviewed. Present each
+Commit each fix requested during user review separately.
+Preserve the exact state the user reviewed. Present each
 fix's status in one batch acceptance question. Let the user accept or reject each
 fix separately. Keep one commit per fix. When at least one such commit exists, add their
 contiguous range to the coverage register. Dispatch one fresh gate thread to
@@ -761,8 +754,7 @@ corrected range. This correction loop uses the ordinary two-round cap and
 escalation rules in
 [review-rules.md](review-rules.md) § Fix loop and gate verdicts.
 
-The correction remains a separate commit after the cumulative implementation
-commit. Do not squash it. A track with no user-review fix commit adds neither
+The correction remains a separate commit after the user-review fixes. A track with no user-review fix commit adds neither
 this range nor this gate action. Where a marker applies, it comes last because
 it defines the track range. Later feedback follows [user-notes.md](user-notes.md).
 It does not extend the closed range or automatically belong to the next track.
@@ -770,16 +762,11 @@ It does not extend the closed range or automatically belong to the next track.
 ### Delivery history and accounting
 
 A bootstrap commit created to open a draft pull request uses
-`Bootstrap: <intent title>`. It is not part of any track. Re-pin every recorded
-commit range after the rewrite, including the coverage register and any range
-in a track packet. Complete the rewrite before user review, so later
-user-review fix commits do not invalidate the reviewed range.
+`Bootstrap: <intent title>`. It opens publishing before owned implementation
+starts and is not part of any track.
 
-Use ordinary branch updates by default. Do not routinely force-push.
-The pre-user-review cumulative-commit rule is the only routine rewrite exception while that rule exists.
-When draft-pull-request publishing is enabled, update its current branch with a
-lease-protected force-push. The lease must prevent discarding a commit pushed
-by another party.
+Use ordinary branch updates. Do not routinely rewrite history or force-push.
+Only a user-chosen privacy rewrite permits rewriting history under the duties below.
 
 Markers follow § Commit titles and bodies.
 A multi-track boundary adds one empty marker commit after
@@ -810,7 +797,7 @@ Never destroy the exact state the user reviewed.
 A later aggregate package cannot authorize rewriting earlier user-reviewed ranges.
 Keep the local change branch and accepted-marker branches until root closure.
 Use the local branch for delivery verification and resume.
-Do not rebase after user review except for a user-chosen privacy rewrite under the duties below.
+Do not rebase except for a user-chosen privacy rewrite under the duties below.
 Use an ordinary merge of a moved base only for conflicts or required checks, between code-track ranges.
 That merge belongs to no track and carries the change title under § Commit titles and bodies.
 
@@ -874,6 +861,10 @@ A needed stacked rewrite pauses for a user decision.
 At closure, report leftover references for the user to delete.
 Do not rename markers or rewrite history to resemble a tree.
 Every new change uses the current workflow.
+For log-content migration, record the exact source line range and full hash.
+The standalone design must equal that span, including entry prefixes, without summary or correction.
+Log its full hash under [change-records.md](change-records.md) § Manual records and safe writes.
+Later corrections need a new user-approved design version.
 A new change without design tracks or review-fix children has one level.
 It needs no manual status file or design-track research log.
 Missing manual tree records do not make an existing session unreadable.
