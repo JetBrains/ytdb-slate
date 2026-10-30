@@ -6146,21 +6146,43 @@ omitted and why.`);
 				"Before relying on a baseline fact, check current source when that source changed after the map commit.",
 				"Check every map fact against source evidence."];
 			const mapOutside = [workflow, readFileSync(paths.CONTEXT_BUDGET_DOC, "utf8"), await doctrine(we.EMPTY_WORKER_EXTENSION_SET, undefined, true, {}), await doctrine(we.EMPTY_WORKER_EXTENSION_SET, undefined, true, { workflow: { draftPRs: true } })];
-			const acceptsMapOwnership = (reference, outside) => mapRules.every((rule) => reference.split(rule).length === 2 && outside.every((text) => !text.includes(rule)));
+			const acceptsMapOwnership = (reference, outside) => mapRules.every((rule) => normalizeText(reference).split(rule).length === 2 && outside.every((text) => !normalizeText(text).includes(rule)));
 			const mapOwnershipAttacks = mapRules.flatMap((rule) => [
 				!acceptsMapOwnership(mapReference.replace(rule, ""), mapOutside),
-				...mapOutside.map((_, index) => !acceptsMapOwnership(mapReference, mapOutside.map((text, i) => i === index ? text + "\n" + rule : text))),
+				...mapOutside.flatMap((_, index) => [rule, rule.replace(" ", "\n")].map((repeat) =>
+					!acceptsMapOwnership(mapReference, mapOutside.map((text, i) => i === index ? text + "\n" + repeat : text)))),
 			]);
 			const mapNoRead = "It does not read the reference.";
 			const acceptsMapPointer = (text) => text.includes("The orchestrator names the maps.md path beside this document in every map-writing or map-composing worker task.") && text.split(mapNoRead).length === 2;
-			const countFree = (text) => !/\b\d+\s+(?:independent\s+)?`heading-policy` identities/.test(text);
-			const countDocuments = ["AGENTS.md", "verification/README.md"].map((file) => readFileSync(join(REPO, file), "utf8"));
+			const mapPresentationRules = [
+				"Design authors include helpful component or data-flow diagrams.",
+				"The orchestrator uses tables, neutral pseudocode or small diagrams where helpful in designs, plans, packages and decision questions.",
+				"Design and orchestrator-presentation diagrams have topic titles and state arrow meaning.",
+			];
+			const acceptsMapPresentation = (text) => mapPresentationRules.every((rule) => normalizeText(text).includes(rule));
+			const mapPresentationRemovals = mapPresentationRules.map((rule) => {
+				const changed = workflow.replace(privacyPattern(rule), "");
+				return changed !== workflow && !acceptsMapPresentation(changed);
+			});
+			const countFree = (text) => !/\b\d[\d,]* (?:independent )?heading-policy\b|\bheading-policy (?:identities|mutations|checks|count|roster)(?: (?:count|is|has|of|contains|includes|totals|equals|remains|at|exactly|all|the))*[ :=-]*\d|\bheading-policy (?:has|contains|includes|totals) (?:exactly |all )?\d/i.test(normalizeText(text).replace(/`/g, ""));
+			const markdownFiles = (directory) => readdirSync(join(REPO, directory), { withFileTypes: true }).flatMap((entry) => {
+				const file = join(directory, entry.name);
+				return entry.isDirectory() ? markdownFiles(file) : entry.isFile() && file.endsWith(".md") ? [file] : [];
+			});
+			const countDocuments = new Map(["AGENTS.md", "verification/README.md", "README.md", ...markdownFiles("docs")].map((file) => [file, readFileSync(join(REPO, file), "utf8")]));
+			const acceptsCountDocuments = (documents) => [...documents.values()].every(countFree);
+			const countShapes = ["all 882 independent `heading-policy` identities", "all 886 independent heading-policy identities", "886 heading-policy identities", "heading-policy count: 886", "heading-policy identities totals 886"];
+			const countAttacks = [...countDocuments].flatMap(([file, text]) => countShapes.map((shape) => {
+				const changed = new Map(countDocuments).set(file, text + "\n" + shape.replace(/ /g, "\n"));
+				return !acceptsCountDocuments(changed);
+			}));
 			const duplicatedCharters = `${roleFiles.nl}\n${roleFiles.nl}`;
 			const missingBoundary = roleFiles.nl.replace("**Charter.**", "**Task.**");
 			checkAll("contract-dispatch-context", "four complete dispatch-policy units resolve exactly once and equal independent expectations. They cover the focused implementation-context obligation, research-log lifecycle, reviewer-input contract, and stuck-fix policy. Counterfactuals reject missing current-context inputs, a restored mandatory whole-log read, other policy weakening, or additions inside a unit, while benign text outside the units remains accepted. Five bounded UTF-8 measurements remain exact", [
 				["map reading rules belong once to the worker reference and all removal and whole-document repeat mutations fail", acceptsMapOwnership(mapReference, mapOutside) && mapOwnershipAttacks.every(Boolean), mapOwnershipAttacks],
+				["all three presentation duties have independent presence pins and removal controls", acceptsMapPresentation(workflow) && mapPresentationRemovals.every(Boolean), mapPresentationRemovals],
 				["the workflow pointer names the worker task and rejects loss of the no-read duty", acceptsMapPointer(workflow) && !acceptsMapPointer(workflow.replace(mapNoRead, "")), mapNoRead],
-				["published heading-policy descriptions are count-free and reject a restored number", countDocuments.every((text) => countFree(text) && !countFree(text + "\nall 882 independent `heading-policy` identities")), "count-free documents"],
+				["published heading-policy descriptions are count-free across root, verification and recursive docs paths", acceptsCountDocuments(countDocuments) && countDocuments.has("docs/maps.md") && countAttacks.every(Boolean), { files: [...countDocuments.keys()], attacks: countAttacks.length }],
 				["the complete research-log privacy paragraph matches an independent literal in its owning section", acceptsResearchPrivacy(workflow), researchPrivacy(workflow)],
 				["all three privacy sentence removals change input and fail for missing or changed content", researchPrivacyRemovals.length === 3 && researchPrivacyRemovals.every(({ changed, rejected, intended }) => changed && rejected && intended), researchPrivacyRemovals],
 				["moving the intact privacy paragraph outside its owner fails with no owned paragraph", movedResearchPrivacy !== workflow && normalizeText(movedResearchPrivacy).includes(expectedResearchPrivacy) && researchPrivacy(movedResearchPrivacy).count === 0 && !acceptsResearchPrivacy(movedResearchPrivacy), researchPrivacy(movedResearchPrivacy)],

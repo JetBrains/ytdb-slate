@@ -637,7 +637,7 @@ implementation input for workers only. It adds no orchestrator read.
 | Manual review | 55958 | 13990 |
 
 Maps use a soft guideline of about 1,500 words, with Mermaid diagrams under 40 nodes.
-The worker reference is 3109 bytes. See [maps.md](maps.md) for its writer readers.
+The worker reference is 3130 bytes. See [maps.md](maps.md) for its writer readers.
 Map text, worker reference reads and composed drafts are real excluded costs.
 Several maps can exceed fixed-row headroom. These totals do not bound the whole conversation.
 

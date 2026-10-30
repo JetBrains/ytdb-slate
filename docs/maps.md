@@ -11,7 +11,7 @@ An implementation map describes delivered behavior at a named source commit.
 Map-writing and map-composition workers read this reference.
 These workers include design authors, researchers, implementers, fixers and combined-map workers.
 Map access follows the current Reviewer input contract in [review-rules.md](review-rules.md).
-Use [track-workflow.md](track-workflow.md) for general design and presentation forms.
+Use [track-workflow.md](track-workflow.md#lifecycle-and-phases) for general design and presentation forms.
 
 ## Reading depth
 
