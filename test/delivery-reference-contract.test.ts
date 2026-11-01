@@ -212,11 +212,11 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
     await check("duplicated context", { "README.md": readme.replace(readmeReference, `${readmeReference}\n${readmeReference}`) });
     await check("count-preserving document move", {
       "README.md": readme.replace(readmeReference, ""),
-      "docs/new/moved.md": `# ytdb-slate: multi-agent orchestration for the pi coding agent\n\n## Shipped docs\n\n${readmeReference}\n`,
+      "docs/new/moved.md": `# ytdb-slate: design-first feature development for the pi coding agent\n\n## Shipped docs\n\n${readmeReference}\n`,
     });
     await check("count-preserving heading move", { "README.md": readme.replace(readmeReference, "") + `\n## Early reads\n\n${readmeReference}\n` });
     await check("duplicated owning heading", { "README.md": `${readme}\n## Shipped docs\n\nUnrelated text.\n` });
-    await check("changed parent heading", { "README.md": readme.replace("# ytdb-slate: multi-agent orchestration for the pi coding agent\n", "# Other title\n") });
+    await check("changed parent heading", { "README.md": readme.replace("# ytdb-slate: design-first feature development for the pi coding agent\n", "# Other title\n") });
     const notes = readFileSync(join(fixture, "docs/user-notes.md"), "utf8");
     const combinedPackage = notes.match(/Use \[delivery-packages\.md\]\(delivery-packages\.md\) § Change package[\s\S]*?(?=\n\n)/)?.[0];
     assert.ok(combinedPackage);

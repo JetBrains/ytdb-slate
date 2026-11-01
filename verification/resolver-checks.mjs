@@ -2235,7 +2235,7 @@ try {
 			// Heading: document reads, normalization, regionUnit/headingUnit, markedUnit,
 			// recursive/commonRecords, protectedRepairOwners/protectedRepairSummary,
 			// recordDigest, resumeOrderExpected, recursiveRecordUnits, acceptsRecordUnit,
-			// policyRegion, roadmapExpected, recursiveDeliveryUnits, repairEscalationDigest,
+			// roadmapExpected, recursiveDeliveryUnits, repairEscalationDigest,
 			// authorGuidelines, headingOwnedUnits and heading-policy recording.
 			// Packages: document reads, block, normalization, ACCEPTANCE_FACTS, markedUnit,
 			// EXPECTED_DELIVERY_PACKAGES_SHA256 and the complete package block below,
@@ -4050,7 +4050,6 @@ The split bypasses no stuck-fix consultation or required fix gate.`) },
 
 			}
 			// These pins cover complete owned policies. Source-set pins protect every record kind.
-			const policyRegion = (start, end, endAtLineStart = false) => regionUnit(new RegExp(`^${start.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([\\s\\S]*?)(?=${endAtLineStart ? "^" : ""}${end.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gm"));
 			const roadmapExpected = normalizeText(`The current workflow supports nested planning through design tracks. A **design track** plans a nested change with child tracks. A **code track** implements bounded approved work. A **level** contains sibling tracks created by one split. Levels group planning only. The whole change uses one branch and one optional draft pull request. A **subtree** contains a track and its descendants. Tracks finish in dependency order. Design tracks finish first only when tracks do not depend on each other. Complete an entered subtree before continuing its siblings, except for a permitted dependency pause. A subtree may pause for an unfinished sibling dependency only between code-track ranges. No code track may leave an open owned range while another track commits. A late dependency inside an open range stops work for a user-approved replan. Each design track needs explicit acceptance of its whole subtree. Root final acceptance covers the whole change. Only the user merges the change pull request after root final acceptance. A **review-fix child track** repairs outstanding work under a user-approved split. It stays in the affected code track's delivery. Each new child starts at round zero with two ordinary rounds and one stuck-fix consultation. Use [recursive-workflow.md](recursive-workflow.md) for the nested rules. Use [track-workflow.md](track-workflow.md) for the common lifecycle.`);
 			const recursiveDeliveryUnits = [
 				{ id: "repairs", source: recursive, start: "## Review-fix subtrees and repair limits", expected: protectedRepairSummary },
@@ -4060,7 +4059,6 @@ The split bypasses no stuck-fix consultation or required fix gate.`) },
 				{ id: "workflow-accounting", source: workflow, start: "### Delivery history and accounting", expected: "66e62a8eff125255b5ff607a5f5e41012f63ce9da0de128cb4729f41a03a27e6" },
 				{ id: "notes-accounting", source: userNotes, start: "### Final accounting preparation", expected: "34a1af81ea8c9cb69a4e6dcb948ad1492bc057c0caa05213fd15364d053b253f" },
 				{ id: "publishing-sync", source: publishing, start: "## Keeping the PR in sync", expected: "4d0b485020a5fef57f7a07b5e5e42adccb26c6482f0cff2bf7c04a513e72acf8" },
-				{ id: "public-workflow", source: projectReadme, start: "A track is a bounded", end: "## ", endAtLineStart: true, expected: "b26ce5296092014b89b311c50a0bdfd41e6b4b4ae95eeb39a099a78750bec6a2" },
 				{ id: "public-roadmap", source: readFileSync(join(REPO, "docs", "roadmap.md"), "utf8"), start: "## Larger changes", expected: recordDigest(roadmapExpected) },
 			].map((unit) => ({ ...unit, extract: unit.end === null
 				? (source) => {
@@ -4071,7 +4069,7 @@ The split bypasses no stuck-fix consultation or required fix gate.`) },
 					const visibleTail = parts[1].replace(/<!--[^<>]*-->/g, "");
 					return regionUnit(/^## Packages, attribution, and issues([\s\S]*)(?![\s\S])/gm)(parts[0] + marker + visibleTail);
 				}
-				: unit.id === "public-workflow" ? policyRegion(unit.start, unit.end, unit.endAtLineStart) : headingUnit(unit.start) }));
+				: headingUnit(unit.start) }));
 			const repairEscalationDigest = "9f61738c4c77d9e59406480fdaa58485ce66fb2a921e634ed26c45c4cc1ee99b";
 			const EXPECTED_DELIVERY_PACKAGES_SHA256 = "541f2cc8917cd2c6874d2670fac537ef249f54be0a93145066ba290884717394";
 			if (!ONLY) {
@@ -4089,19 +4087,6 @@ The split bypasses no stuck-fix consultation or required fix gate.`) },
 				});
 			});
 			mutationAudit.record("delivery-rules", recursiveDeliveryAttacks, ({ id, index }) => `${id}/${index}`);
-			// Public workflow text ends at the next level-two heading at line start.
-			const publicWorkflowUnit = recursiveDeliveryUnits.find((unit) => unit.id === "public-workflow");
-			const publicWorkflowRaw = projectReadme.match(/^A track is a bounded[\s\S]*?(?=^## )/m)?.[0] ?? "";
-			const publicWorkflowOutsideSection = projectReadme.replace(publicWorkflowRaw, `${publicWorkflowRaw}## Unrelated section\n\nUnrelated public guidance.\n\n`);
-			const publicWorkflowHeadingAttacks = [
-				["level-two", "## Inserted heading"],
-				["inline", "Inline ## Inserted heading"],
-				["indented", "  ## Inserted heading"],
-				["level-three", "### Inserted heading"],
-			].map(([id, heading]) => {
-				const source = projectReadme.replace("The orchestrator records risks", `${heading}\n\nThe orchestrator records risks`);
-				return { id, changed: source !== projectReadme, rejected: !acceptsRecursiveDelivery(publicWorkflowUnit, source) };
-			});
 const codeAcceptanceScope = "Code-track acceptance follows [track-workflow.md](track-workflow.md) § Delivery and termination.";
  const scopedAcceptanceUnits = [[userNotes, codeAcceptanceScope], [reviews, codeAcceptanceScope]];
  const acceptsCodeScope = (source, next) => source.split(next).length === 2;
@@ -4116,8 +4101,6 @@ const codeAcceptanceScope = "Code-track acceptance follows [track-workflow.md](t
 				["each policy resolves exactly once and matches its independent pin", recursiveDeliveryUnits.every((unit) => acceptsRecursiveDelivery(unit, unit.source)), recursiveDeliveryUnits.map((unit) => ({ id: unit.id, count: unit.extract(unit.source).count, digest: recordDigest(unit.extract(unit.source).text) }))],
 				["every sentence mutation changes input and fails its policy", recursiveDeliveryAttacks.every(({ changed, rejected }) => changed && rejected), recursiveDeliveryAttacks],
 				["missing and duplicate units fail, while outside controls pass", recursiveDeliveryUnits.every((unit) => !acceptsRecursiveDelivery(unit, unit.source.replace(unit.start, "Missing policy anchor")) && !acceptsRecursiveDelivery(unit, `${unit.source}\n${unit.source}`) && acceptsRecursiveDelivery(unit, `${unit.source}\n${["sources", "notes-accounting"].includes(unit.id) ? "## Outside accounting control\n" : ""}<!-- Outside policy control. -->`)), "bounded policy controls"],
-				["an unrelated section after public workflow text preserves its pin", publicWorkflowRaw !== "" && publicWorkflowOutsideSection !== projectReadme && acceptsRecursiveDelivery(publicWorkflowUnit, publicWorkflowOutsideSection), "next level-two heading control"],
-				["headings inside public workflow text fail without hiding remaining rules", publicWorkflowHeadingAttacks.every(({ changed, rejected }) => changed && rejected), publicWorkflowHeadingAttacks],
 				["visible contradictions after the final marker fail the complete final section", finalSectionAttacks.every(({ changed, rejected }) => changed && rejected), finalSectionAttacks],
 				["each acceptance pointer explicitly names code tracks", scopedAcceptanceUnits.every(([source, next]) => acceptsCodeScope(source, next)), "lifecycle, user notes, review termination"],
 ["missing, weakened, moved, and duplicate scope qualifiers fail", scopedAcceptanceUnits.every(([source, next]) => !acceptsCodeScope(source.replace(next, ""), next) && !acceptsCodeScope(source.replace(next, next.replace("Code-track", "All-track")), next) && !acceptsCodeScope(source + "\n" + next, next)), "scope counterfactuals"],
@@ -4878,10 +4861,10 @@ const auditRepairCases = [
  ["delivery-every-method", "docs/delivery-packages.md", "Use [pr-publishing.md](pr-publishing.md) § After the merge for every merge method."],
  ["delivery-result-before-closure", "docs/delivery-packages.md", "Record that result in the owning log before root closure."],
  ["delivery-later-push", "docs/delivery-packages.md", "Obtain renewed acceptance when that rule requires it."],
- ["readme-merge-advice", "README.md", "Merge commits or rebase merges keep separate implementation commits."],
- ["readme-squash-loss", "README.md", "A squash merge combines them."],
- ["readme-rebase-loss", "README.md", "Rebase merges can drop empty marker commits that record accepted track boundaries."],
- ["readme-accepted-loss", "README.md", "These losses are accepted."]
+ ["publishing-merge-advice", "docs/pr-publishing.md", "Recommend merge commits or rebase merges because they preserve separate implementation commits."],
+ ["publishing-squash-loss", "docs/pr-publishing.md", "A squash merge combines the change into one commit."],
+ ["publishing-rebase-loss", "docs/pr-publishing.md", "A rebase merge reapplies commits and can drop empty markers."],
+ ["publishing-accepted-loss", "docs/pr-publishing.md", "Slate accepts those losses."]
 ];
 const auditRepairResults = auditRepairCases.map(([id, file, rule]) => {
  const source = readFileSync(join(REPO, file), "utf8");
@@ -5673,7 +5656,7 @@ verbatim retention of every tool result.`);
 			if (wants("contract-heading-regions")) {
 			const headingOwnedUnits = [
 				...recursiveRecordUnits.filter((unit) => unit.id !== "marker-identity").map((unit) => ({ ...unit, id: unit.id === "tool-records-and-recovery" ? "manual-records" : unit.id })),
-				...recursiveDeliveryUnits.filter((unit) => !["issues", "public-workflow"].includes(unit.id)),
+				...recursiveDeliveryUnits.filter((unit) => unit.id !== "issues"),
 				{ id: "repair-escalation", source: userNotes, start: "## Mandatory escalation set", expected: repairEscalationDigest },
 				{ id: "repair-rounds-owner", source: reviews, start: "## Fix loop and gate verdicts", expected: protectedRepairOwners["repair-rounds"] },
 				{ id: "repair-consultations-owner", source: reviews, start: "## Stuck-fix consultation", expected: protectedRepairOwners["repair-consultations"] },
@@ -6256,7 +6239,7 @@ Final change acceptance is always blocking.`),
 			];
 			const reviewedReference = (file, headings, text) => ({ file, headings, text: normalizeText(text), uniqueOwner: true });
 			const expectedPackageReferenceContexts = [
-				reviewedReference("README.md", ["# ytdb-slate: multi-agent orchestration for the pi coding agent", "## Shipped docs"], "- [`docs/delivery-packages.md`](docs/delivery-packages.md) — the compact track and change package format, read only before package preparation"),
+				reviewedReference("README.md", ["# ytdb-slate: design-first feature development for the pi coding agent", "## Shipped docs"], "- [`docs/delivery-packages.md`](docs/delivery-packages.md) — the compact track and change package format, read only before package preparation"),
 				reviewedReference("docs/pr-publishing.md", ["# Draft-PR publishing", "## Ready-for-review flip"], `Complete every code track, required machine review, track package, requested fix, and blocking user note.
 Code-track acceptance follows [track-workflow.md](track-workflow.md) § Delivery and termination.
 A subtree contains a track and all its descendants.
