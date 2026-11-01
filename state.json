@@ -2,9 +2,9 @@
   "schema": 2,
   "version": "0.18.0",
   "identity": "682b48a6b14aa51868f99cb8c14e961ef52a606aca41200fcbf4d58a986e6978",
-  "status": "promotion-unknown",
+  "status": "promoted",
   "upload": "verified",
-  "promotion": "unknown",
+  "promotion": "verified",
   "requestBaseSha": "990c53169fc1b284bec53d4258638af20c33e68e",
   "releaseSha": "049969221cdd06b5fae52b0f3da4d3fb2d3086e9",
   "releaseParent": "990c53169fc1b284bec53d4258638af20c33e68e",
@@ -46,10 +46,13 @@
     "releaseSha": "049969221cdd06b5fae52b0f3da4d3fb2d3086e9",
     "execution": "41287594067:1",
     "expectedLatest": "0.17.0",
-    "intentAt": "2026-11-01T08:20:45.829Z"
+    "intentAt": "2026-11-01T08:20:45.829Z",
+    "before": "0.17.0",
+    "result": "verified",
+    "after": "0.18.0"
   },
   "tag": "v0.18.0",
   "internalTag": "slate-candidate",
   "createdAt": "2026-11-01T07:54:01.458Z",
-  "updatedAt": "2026-11-01T08:20:45.829Z"
+  "updatedAt": "2026-11-01T08:21:21.218Z"
 }
