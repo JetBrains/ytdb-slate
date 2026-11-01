@@ -1,19 +1,19 @@
 {
   "schema": 2,
-  "version": "0.17.0",
-  "baseSha": "852fae14a27021e32c42f65e736377c41193672c",
-  "authorization": "40361664307",
-  "notesSha256": "2d7cde20a5214e62837bf1e0ac2c15ab72c9c377752358979c099519183299ac",
+  "version": "0.18.0",
+  "baseSha": "990c53169fc1b284bec53d4258638af20c33e68e",
+  "authorization": "41286588314",
+  "notesSha256": "6fd08b4a209fa5e9962f6bb55ccd246cd160d88040d68d7101803aea15c69558",
   "coverageDisposition": {
     "verdict": "WARN",
     "parentPolicy": "exact-release-parent",
     "allowedPaths": [
       "package-lock.json",
       "package.json",
-      "release/requests/0.17.0/coverage.json",
-      "release/requests/0.17.0/notes.md",
-      "release/requests/0.17.0/request.json"
+      "release/requests/0.18.0/coverage.json",
+      "release/requests/0.18.0/notes.md",
+      "release/requests/0.18.0/request.json"
     ]
   },
-  "identity": "d07eaa84a2fa4300d8c2e415d9a27dc688feebbc253800598ccfcf1d3fdd803c"
+  "identity": "682b48a6b14aa51868f99cb8c14e961ef52a606aca41200fcbf4d58a986e6978"
 }
