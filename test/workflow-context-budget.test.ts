@@ -86,8 +86,8 @@ function membership(ids: Record<string, string>): void {
   for (const id of Object.keys(ids)) assert.ok(reads.some((r: Read) => r[0] === id) || referenceOnly[id], `unclassified export ${id}`);
 }
 const checkChildCeiling = (required: number, maximum: number) => {
-  checkLimit(required, 75076, "child required reservation");
-  checkLimit(maximum, 144040, "child maximum reservation");
+  checkLimit(required, 75221, "child required reservation");
+  checkLimit(maximum, 144185, "child maximum reservation");
 };
 function checkLimit(value: number, limit: number, label: string): void {
   assert.ok(Number.isInteger(limit) && value <= limit, `${label}: total ${value}, limit ${limit}, excess ${value - limit}`);
@@ -231,8 +231,9 @@ function table(rows: string[], costs: string[], entries: string[]): string {
     "implementation input for workers only. It adds no orchestrator read.",
     "| Conditional set | Bytes | Estimated tokens |", "| --- | ---: | ---: |", ...costs, "",
     `Maps use a soft guideline of about 1,500 words, with Mermaid diagrams under 40 nodes.`,
-    `The worker reference is ${bytes(source("MAPS_DOC"))} bytes. See [maps.md](maps.md) for its writer readers.`,
+    `The worker reference is ${bytes(source("MAPS_DOC"))} bytes. See [maps.md](maps.md) for its writer and authorized checker readers.`,
     "Map text, worker reference reads and composed drafts are real excluded costs.",
+    "Whole applicable designs supplied to reviewers are excluded costs that repeat across reviewers and fix-gate rounds.",
     "Several maps can exceed fixed-row headroom. These totals do not bound the whole conversation.", "",
     "Private evidence, designs, reports, source chains, project additions, configured",
     "prompt documents, provider framing, tools, results, message wrappers, repeated",
@@ -304,11 +305,11 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
     checkLimit(maximum, pair[1], `design-track maximum ${scenario}`);
     return `| ${publishing} | ${required} | ${tokens(required)} | ${maximum} | ${tokens(maximum)} | ${pair[1]} | ${tokens(pair[1])} |`;
   });
-  assert.deepEqual(measured[0], { key: "1 off ordinary", requiredBytes: 75071, maximumBytes: 144035, proposed: [78825, 151237] });
+  assert.deepEqual(measured[0], { key: "1 off ordinary", requiredBytes: 75207, maximumBytes: 144171, proposed: [78968, 151380] });
   checkChildCeiling(measured[0].requiredBytes, measured[0].maximumBytes);
-  checkChildCeiling(75076, 144040);
-  assert.throws(() => checkChildCeiling(75077, 144040), /child required reservation/);
-  assert.throws(() => checkChildCeiling(75076, 144041), /child maximum reservation/);
+  checkChildCeiling(75221, 144185);
+  assert.throws(() => checkChildCeiling(75222, 144185), /child required reservation/);
+  assert.throws(() => checkChildCeiling(75221, 144186), /child maximum reservation/);
   checkLimit(75856, limits["1 off ordinary"][0], "wider required control");
   checkLimit(144492, limits["1 off ordinary"][1], "wider maximum control");
   assert.throws(() => checkChildCeiling(75856, 144040), /child required reservation/);
@@ -335,6 +336,9 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
   for (const entry of sessionEntries) for (const scenario of scenarios.filter((s: string) => entry.plans.includes(s.split(" ")[1]))) {
     assert.ok(sessionReads(entry, scenario, true).every((r: Read) => r[0] !== "MAPS_DOC"));
   }
+  const checking = occurrences.filter((r: any) => r.source === "review-rules.md" && r.target === "maps.md");
+  assert.equal(checking.length, 1);
+  assert.equal(checking[0].reason, referenceOnly.MAPS_DOC);
   const publishedWorker = (roster: any[]) => roster.filter((r) => r.target === "maps.md").every((r) => r.reason === referenceOnly.MAPS_DOC && !r.recipient);
   assert.ok(publishedWorker(occurrences));
   for (const reason of ["Pending worker-only reference. Child 1.3 publishes the document.", undefined]) {

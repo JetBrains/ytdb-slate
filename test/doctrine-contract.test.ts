@@ -956,7 +956,7 @@ const policies: Record<string, Record<string, string>> = {
     reliance: "Before relying on a baseline fact, check current source when that source changed after the map commit.",
     facts: "Check every map fact against source evidence.",
     further: "Read further only for open or reopened questions.",
-    access: "Map access follows the current Reviewer input contract in [review-rules.md](review-rules.md).",
+    access: "Map access follows the Reviewer input contract in [review-rules.md](review-rules.md).",
     length: "Use a soft guideline of about 1,500 words for every map.",
     nodes: "Keep each Mermaid diagram under 40 nodes.",
   },

@@ -182,7 +182,7 @@ Ignore `tmp/` as record, accounting, fork, or reusable evidence.
 Reviewers never list `tmp/` or read another action's folder.
 Slate creates the root research log.
 Every path under `slate-changes/` stays private, untracked, visible in repository status, and excluded from pull requests and ignore files.
-Use [track-workflow.md](track-workflow.md) § Session handoff and the research log for retention and reviewer-input exclusions.
+Use [track-workflow.md](track-workflow.md) for retention and [review-rules.md](review-rules.md) § Reviewer input contract for reviewer access.
 These duties provide no extension access boundary, hash-checked publication, durable sync, automatic earlier status copies or single-writer enforcement against other processes.
 
 ### Design authority and privacy
@@ -193,7 +193,7 @@ Same-user processes can still access folders.
 **Private bytes** are bytes from that set.
 A write approves no design and grants no completion or gate authority.
 Use § Manual records and safe writes for design and map identity.
-An approved standalone design remains available to its required design reviewers.
+Reviewer access: [review-rules.md](review-rules.md) § Reviewer input contract.
 Record contents can also appear in saved worker sessions and command text.
 Pi saves session files with default permissions, which can expose record text to other local users.
 [Issue #499](https://github.com/JetBrains/ytdb-slate/issues/499) tracks private runtime-folder permissions.

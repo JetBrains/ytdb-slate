@@ -9,48 +9,27 @@ only the reviewer's own writing-checker diff. Independent reviewers run in paral
 
 ### Reviewer input contract
 
-No reviewer may receive or directly read a manual status file, leftover record
-temporary file, their references or contents, the research log, a research-log
-reference, a research-log extract, an implementer report, private orchestrator
-triage, or implementer reasoning. The reviewer must not seek those sources, even
-when repository tools can reach them. Private orchestrator triage means the
-orchestrator's private deliberation and implementation rationale. Implementer
-reasoning means private reasoning produced by an implementer. These are distinct
-sources.
+No reviewer may receive or directly read status files, leftover record temporary files, any research log, their references or extracts, implementer reports, private orchestrator triage, or implementer reasoning. This covers early, ordinary and design-track logs. Do not seek these sources through repository tools. Private triage means orchestrator deliberation and implementation rationale. Implementer reasoning means an implementer's private reasoning.
 
-This restriction applies to a design-stage adversary, Reviewer I, every
-implementation specialist, an agentic fix gate, a user-review fix-range gate,
-and a stuck-fix consultation. Ordinary repository and library evidence needed
-for the assigned work remains available. This permission is not a closed
-changed-file allowlist.
+These restrictions govern every review role below. Ordinary repository and library evidence needed for the assignment remains available beyond changed files.
 
-A design-stage adversarial reviewer receives the standalone approved design,
-approved change context, track intention, applicable risk record and
-area proofs, tracked source evidence, charter, and output contract. This is the
-only reviewer role that receives the risk record and area proofs as
-separate artifacts.
+Applicable designs are whole standalone design files. Every reviewer receives them under its stage contract. Recorded changes with log-held approved designs keep their current reviewer inputs until user-authorized migration. Supply neither a log-held design nor its extract. An orchestrator-written statement of an approved decision is approved context, not a log extract. Outside design-stage review, designs provide context, not correctness proof or a duty to repeat whole-design review.
 
-Reviewer I and implementation specialists receive the approved review range,
-track intention, applicable charter, output contract, and ordinary evidence.
-They receive no risk record, area proof, implementer episode, implementer
-report, private triage, or implementer reasoning.
+A design adversary receives the whole validated candidate, applicable designs, approved context, track intention, risk record, area proofs, tracked source evidence, charter and output contract. Only this role receives risk records and area proofs separately. It reviews independently before checking baseline facts.
 
-An agentic fix gate and a user-review fix-range gate receive the compact finding
-index, fix diff, approved scope context, and ordinary evidence needed to verify
-the fix. The compact index may contain only finding identifiers, evidence,
-validated severity, and required disposition. It contains no private
-orchestrator deliberation or implementer reasoning. Both gates receive no
-implementer episode or direct private source.
+Implementation reviewers receive applicable approved designs, approved range, intention, charter, output contract and ordinary evidence. Only Reviewer I receives an implementation map. Neither Reviewer I nor specialists receive risk records, area proofs or implementer episodes.
 
-The stuck-fix consultation in § Stuck-fix consultation is the only reviewer
-role that can receive an implementer episode. Its whole-episode rule does not
-permit a direct private read or a separately supplied private source.
+Both fix gates receive applicable approved designs, compact finding index, fix diff, approved scope context and needed ordinary evidence. The index contains only finding identifiers, evidence, validated severity and required disposition, without private triage or implementer reasoning. Neither gate receives implementer episodes or direct private sources. The fixer names the map statements its fix relies on. The orchestrator passes them unread to the agentic fix gate. A user-review fix-range gate receives no map statements.
+
+A map's question list is map content, not implementer reasoning. Questions follow authorized map inputs. Partial recipients receive only questions tied to supplied statements. No separate list expands access.
+
+Only stuck-fix consultation may receive implementer episodes under § Stuck-fix consultation. Whole episodes permit no separate private input or direct private read.
 
 The supplied action temporary folder permits only the reviewer's own writing-checker diff and adds no reviewer input. A reviewer never lists tmp/ or reads another action's folder.
 
 A design-stage adversarial review also judges the simplest solution. The review checks the approved high-level design against slate's simplest-solution requirement. That requirement asks for the simplest solution with the fewest changes that keeps every approved goal, the product and implementation quality, and every required gate. The review judges the design as a whole and not one track at a time. This duty adds no artifact, no phase and no gate.
 
-Every reviewer uses the [common review policy](review-common-policy.md) for writing checks, evidence, severity, identifiers, and output format. Resolve its writing-checker path from the installed package as `../extension/writing-check.mjs`. Resolve its writing-guidance path as `writing-guidance.md` beside the policy. Manual reviews combine this policy with their stage-specific input contract and applicable charter.
+Every reviewer uses the [common review policy](review-common-policy.md) for writing checks, evidence, severity, identifiers, and output format. Resolve its writing-checker path from the installed package as `../extension/writing-check.mjs`. Resolve its writing-guidance path as `writing-guidance.md` beside the policy. Manual reviews use this input contract, the common policy and applicable charter. Name [maps.md](maps.md) in authorized map-checking tasks without reading it.
 
 ## Reviewer sets, merge rule and charters
 
@@ -100,7 +79,7 @@ Project charters supplement the required reviewers and never replace them.
 
 ### Built-in implementation perspectives
 
-For built-in implementation review, give the `thread` tool type `reviewer` and the `reviewPerspectives` list. Supply the approved review range, track intention, and ordinary evidence in the task. The track intention states the target, scope boundary, deferred work, acceptance condition, and declared file list. Slate loads the [common policy](review-common-policy.md), the [implementation-only input contract](review-implementation-input.md), and every selected perspective file into worker system guidance. Do not copy built-in charters into the task. Names select fixed shipped files. Prefixes identify findings and are not selector aliases. RG is a regression-gate prefix and not a perspective.
+For built-in implementation review, give the `thread` tool type `reviewer` and the `reviewPerspectives` list. Supply stage-authorized inputs under § Reviewer input contract. Name the map reference in authorized checking tasks without reading it. The track intention states the target, scope boundary, deferred work, acceptance condition, and declared file list. Slate loads the [common policy](review-common-policy.md), the [implementation-only input contract](review-implementation-input.md), and every selected perspective file into worker system guidance. Do not copy built-in charters into the task. Names select fixed shipped files. Prefixes identify findings and are not selector aliases. RG is a regression-gate prefix and not a perspective.
 
 | perspective | prefix | focus area | charter |
 | --- | --- | --- | --- |
@@ -125,7 +104,7 @@ The [common review policy](review-common-policy.md) defines finding dimensions, 
 
 The orchestrator validates severity and exposure. It records the reviewer
 severity, validated severity, reason, episode identifier, and canonical
-observation path. It may raise or lower severity. It cannot lower a gate verdict
+observation path. It may raise or lower severity, but never lower it because a design approved the behavior. Record design-level triage with the finding identifier in the owning research log, without adding a finding field. It cannot lower a gate verdict
 of STILL OPEN or REGRESSION. Lowering a blocker requires user confirmation.
 
 Merge duplicate findings only under the general merge rule. Keep every origin
@@ -259,8 +238,7 @@ A gate returns one verdict for each fixed finding at major severity or above:
 An addressed finding at major severity or above remains open until VERIFIED or
 MOOT. A fix below major severity receives no verdict of its own. A gate thread
 uses a fresh reviewer context. It receives the compact finding index and fix
-diff under § Reviewer input contract. It receives no fixer or implementer
-episode and no direct private source.
+diff and authorized designs and map statements under § Reviewer input contract. Name the map reference for checking without reading it. It receives no fixer or implementer episode and no direct private source.
 
 A round that lands no fix stops the ordinary loop. The two-round cap also
 stops it. A second regression on one finding escalates.
@@ -309,8 +287,7 @@ a round lands no fix, one finding returns STILL OPEN twice, the implementer
 cannot locate the cause, or fixes keep regressing.
 
 Dispatch one fresh `adversarial` consultation. Its job is diagnosis, not a gate
-verdict. Pass only the smallest set of whole implementer episodes needed for
-evidence. Name each episode and reason. Only an implementer episode is eligible.
+verdict. Supply applicable approved designs under § Reviewer input contract. Pass only the smallest set of whole implementer episodes needed for evidence. Name each episode and reason. Only an implementer episode is eligible.
 A design-review, implementation-review, fix-gate, or other reviewer episode is
 not eligible.
 
@@ -349,9 +326,10 @@ review section is complete.
 Apply this ordered test to each finding that is not waived, moot, or rejected:
 
 1. Route the five mandatory user cases before automatic repair.
-2. Apply recommended fixes for blocker and major findings inside this change.
-3. Validate each remaining minor finding and choose whether to fix or ignore it.
-4. Record each minor disposition and reason only in the research log.
+2. Separately, at every severity, obtain user approval before repairing a fix that adds a goal or non-goal, or changes an approved guarantee, assumption or reasoning. Use the Confirmation gate design-update approval, not a new escalation event. Without approval, stop that repair and use existing waiver, deferral or scope routes without bypassing termination.
+3. Apply recommended fixes for blocker and major findings inside this change.
+4. Validate each remaining minor finding and choose whether to fix or ignore it.
+5. Record each minor disposition and reason only in the research log.
 
 For design tracks, use [recursive-workflow.md](recursive-workflow.md) § Whole-subtree acceptance.
 Code-track acceptance follows the governing policy below.

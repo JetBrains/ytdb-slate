@@ -2616,9 +2616,7 @@ for each proved DESIGN-TRIGGERING area. Final design
 approval follows those reviews. The design stage is the only stage where an
 adversarial reviewer receives the risk record and area proofs as
 separate inputs. Implementation reviewers and both repair gates receive neither.
-The stuck-fix consultation follows the whole-episode exception in
-[review-rules.md](review-rules.md) and receives no separately supplied risk
-record or area proof.
+Stuck-fix consultation uses [review-rules.md](review-rules.md) § Reviewer input contract: applicable approved designs, intact episodes, no separate risk record or area proof.
 
 Before code review, the orchestrator compares the committed difference with the
 proved set. A missed area follows the late-area route below. For an area that no
@@ -2698,12 +2696,12 @@ minor dispositions, and moot or rejected findings in both review phases.
 
 Five cases require a user decision: a waiver, a scope exception, a pre-existing
 defect, lowering a blocker, and an implementation-level finding without a recommended fix.
-A design-level finding that adds goals or non-goals requires approval.
-A fix that changes an approved guarantee, assumption, or reasoning requires design-update approval.
+At every severity, obtain user design-update approval before a fix adds goals or non-goals, or changes approved guarantees, assumptions or reasoning.
+Without approval, stop repair. Existing waiver, deferral and scope routes do not bypass termination.
 Record every design-level change in the design update or track package.
-Automatic repair never bypasses halt rules, user notes, checks, gates, or acceptance.`);
+Repair bypasses no halt, user note, check, gate or acceptance.`);
 			const repairRule = (source) => normalizeText(source).includes(automaticRepair);
-			const repairMutations = ["both review phases", "waiver", "scope exception", "pre-existing", "lowering a blocker", "without a recommended fix", "adds goals or non-goals", "design-update approval", "minor dispositions", "halt rules", "acceptance"].map((term) => normalizeText(workflow).replace(automaticRepair, automaticRepair.replace(term, "REMOVED RULE")));
+			const repairMutations = ["both review phases", "waiver", "scope exception", "pre-existing", "lowering a blocker", "without a recommended fix", "adds goals or non-goals", "design-update approval", "minor dispositions", "halt", "acceptance"].map((term) => normalizeText(workflow).replace(automaticRepair, automaticRepair.replace(term, "REMOVED RULE")));
 			const ownerMutation = riskLifecycle.replace("The orchestrator judges", "The implementer judges");
 			const proofMutation = proofSection.replace("becomes proved when the orchestrator judges its proof sufficient", "becomes proved only through user approval");
 			const skippedMutation = proofSection.replace("SKIPPED and adds no gate or reviewer", "SKIPPED and adds its reviewer");
@@ -3408,8 +3406,8 @@ Use [track-workflow.md](track-workflow.md) § Migration for compatibility.
 Use its § Session handoff and the research log for ownership.`);
 			}
 			const protectedRepairOwners = Object.freeze({
-				"repair-rounds": "850fecdacea6768febb420af28c5e950a8d1349dac494a05699bdba823409953",
-				"repair-consultations": "86f0f04219e871881c7f99263689d848fc78772d2b034e3d359cdc6662f4d780",
+				"repair-rounds": "9201721d57ccd7855d9c705f58f13febf9c5bb44233bb375bc9769bfd0852228",
+				"repair-consultations": "782230608dd19a0d4c15b5c9914f257f8824a366e6b1dbda8aef3b8c0fba63e8",
 				"child-fix-title": "423264fe845a64f12e87dafc1740bf71ba8cbc23d8afd6344bc14bd6f98a1348",
 			});
 			const protectedRepairSummary = "b017165f26ad0eeadf033ab5c16a11ee68c8793a0dc79761be5a4f2396f654d7";
@@ -3496,7 +3494,7 @@ Use its § Session handoff and the research log for ownership.`);
 			const resumeOrderExpected = normalizeText(`Resume in this fixed order: 1. Read the initial request and latest state summary. Before relying on a summary, check that its named subtree entry exists. An older summary without a subtree reference still resumes under its recorded workflow. 2. Read later decisions and the active subtree's records. When the summary names an existing current implementer report, read it there. Use [recursive-workflow.md](recursive-workflow.md) § Resume and folder forks for tree reconciliation and read-only source boundaries. Before resuming a paused subtree, read its typed \`decision\` entry in the owning parent research log. Check that its unfinished sibling dependency has completed and its recorded resume condition holds. Confirm the decision records a boundary between code-track ranges, with no open range. A status entry alone authorizes neither pause nor resume. 3. Inspect marker commits and the current branch state. 4. Reconcile the declared file list, track table, coverage register, proved focus areas, risk record, and live diff. 5. Re-run any stale precondition check. 6. Apply the user-decision reuse rule before asking any question. 7. Continue only after answering: **What changed since the last state summary, and does it change focus, scope, or required gates?** A mismatch pauses work. Reconcile it in the log. Use marker commits and Git history as boundary authority. The track table is display-only.`);
 			const recursiveRecordUnits = [
 				{ id: "identifiers-ranges", source: commonRecords, start: "## Identifiers, code ranges, and design markers", extract: headingUnit("## Identifiers, code ranges, and design markers"), expected: "0d995abc7711561bde6f3b397106a7c4957559453f5d45320352cfd1bfc52ffb" },
-				{ id: "tool-records-and-recovery", source: commonRecords, start: "## Manual records and safe writes", extract: headingUnit("## Manual records and safe writes"), expected: "0789009445e037948a0815310ff37f8e2e0a5226bbda6a9cb5480cac5bb0cf51" },
+				{ id: "tool-records-and-recovery", source: commonRecords, start: "## Manual records and safe writes", extract: headingUnit("## Manual records and safe writes"), expected: "ed1a6f36d16fa9866ec4e3097f7289ca350bd7f71f8a02cdb3b056c114a2421e" },
 				{ id: "resume-forks", source: recursive, start: "## Resume and folder forks", extract: headingUnit("## Resume and folder forks"), expected: "d8d1c5deb0410447097d6fa6e8e8add60c3a0e7f34b77c3452d4d498327b983d" },
 				{ id: "handoff-pointer", source: recursive, start: "## Handoff boundaries", extract: headingUnit("## Handoff boundaries"), expected: "225c24f843fa607d5ebfd489e574e16641953dab064546450ea0082463bf48d0" },
 				{ id: "marker-identity", source: workflow, extract: markedUnit("marker-identity-policy"), expected: "ae24e23298695b323c803f31515c87ee8de5777cd0b0a13dba90d747c9df4308" },
@@ -3526,7 +3524,7 @@ Use its § Session handoff and the research log for ownership.`);
 			// Independent reviewed pins protect the common owner.
 			commonUnits = [
 				{ id: "identifiers", start: "## Identifiers, code ranges, and design markers", expected: "0d995abc7711561bde6f3b397106a7c4957559453f5d45320352cfd1bfc52ffb" },
-				{ id: "records", start: "## Manual records and safe writes", expected: "0789009445e037948a0815310ff37f8e2e0a5226bbda6a9cb5480cac5bb0cf51" },
+				{ id: "records", start: "## Manual records and safe writes", expected: "ed1a6f36d16fa9866ec4e3097f7289ca350bd7f71f8a02cdb3b056c114a2421e" },
 			];
 			const acceptsCommon = (source) => commonUnits.every(({ start, expected }) => {
 				const region = headingUnit(start)(source);
@@ -3534,7 +3532,7 @@ Use its § Session handoff and the research log for ownership.`);
 			});
 			privacyHeading = "### Design authority and privacy";
 			const commonHeadings = [...commonUnits.map(({ start }) => start), privacyHeading];
-			const completeCommonDigest = "1ab44ff06c56b0c9eb027d6dbf579d3f2fea9b592205da3f14f0b1aceb064d29";
+			const completeCommonDigest = "6ef08afc2954ea1148529cc5020b1755085173260dc6413907781754305cf6a5";
 			const acceptsCompleteCommon = (source) => createHash("sha256").update(source).digest("hex") === completeCommonDigest;
 			const completeCommonAttacks = [
 				["title", commonRecords.replace("# Common change records", "# Nested change records")],
@@ -4471,7 +4469,7 @@ Same-user processes can still access folders.
 **Private bytes** are bytes from that set.
 A write approves no design and grants no completion or gate authority.
 Use § Manual records and safe writes for design and map identity.
-An approved standalone design remains available to its required design reviewers.
+Reviewer access: [review-rules.md](review-rules.md) § Reviewer input contract.
 Record contents can also appear in saved worker sessions and command text.
 Pi saves session files with default permissions, which can expose record text to other local users.
 [Issue #499](https://github.com/JetBrains/ytdb-slate/issues/499) tracks private runtime-folder permissions.`) },
@@ -5097,7 +5095,7 @@ const peerPinAttacks = levelPolicyUnits.map((unit) => {
  return { id: `${unit.id}/exception`, changed: source !== unit.source, rejected: !acceptsLevelUnit(unit, source) };
 });
 const EXPECTED_PUBLISHING_SHA256 = "06e760a0fb2a806574450c72c4cc45a3e9b563f7c0c61296d1d6cafa35fcd436";
-const EXPECTED_TRACK_WORKFLOW_SHA256 = "1698f531e394e7148c811342b5abf085609efc6b1591685f5381c94944979060";
+const EXPECTED_TRACK_WORKFLOW_SHA256 = "3163f796a220fa941fcb6a1812244a378b18bb50bad6a3bca86768b32c6ce429";
 const peerDocuments = [
 { id: "pr-publishing", source: publishing, expected: EXPECTED_PUBLISHING_SHA256 },
 { id: "track-workflow", source: workflow, expected: EXPECTED_TRACK_WORKFLOW_SHA256 },
@@ -5624,7 +5622,7 @@ verbatim retention of every tool result.`);
 				[reviews.replace("at most 100 counted lines or documentation-only", "at most 100 counted lines"), reviewerICharter],
 			];
 			const approvedDigests = Object.freeze({
-				ri: "380d8d974d4460ccdcd3ab5029ad3cf190449806f0989d5315b8b96ddbbd7ab3",
+				ri: "bfddf46edc0d00c9ac7801379e9af4df1f881e7f005a8a025d03ace283fe0377",
 				cn: "fb2eaf412ddcc6797701ac8c4c05fcd8c634819b22a0b69d9b292c4dc4dd2ae8",
 				du: "5f98a4e3bcffb695991f5392abb713de9f11454e3248656ad85ee4c2e1494ba2",
 				se: "e5ae88718099d595c980f69656360a139e211be350aba99ea7e355c09b68741b",
@@ -5638,7 +5636,7 @@ verbatim retention of every tool result.`);
 				uf: "d63fddb00199e3c8c4a4081d8c79c45f4032b36c1ca2be9618dd05af9caaa9fd",
 			});
 			approvedContentDigests = Object.freeze({
-				ri: "c23a1624fa6910fa914743a4daf3d406431ce17360e4ef1e94ba12fde3ab60a9",
+				ri: "6b596c25457b580f5a593ab1ffdb3ea907918f662d2d271250f576bed009c5b4",
 				cn: "9353b4d0727cc6643c3a87fdf6065683e9afaf6937a5d1a63d91668f0c51dd5a",
 				du: "c071f183e9800ae2bc1f5699cd082b4c8db257254b1d11bb5db3f27fa352a116",
 				se: "7ae8a9e8f634eb0b89ea1d93696a3980c0b9a6fae07a55367dba23c3a195cdca",
@@ -5826,7 +5824,7 @@ verbatim retention of every tool result.`);
 			const privacyMutation = commonRecords.replace(privacyRule, "Session permissions need no attention.");
 			checkAll("contract-heading-regions", "all 19 heading-owned regions retain complete independent content protection and fence-aware same-level or higher boundaries", [
 				["independent history safeguards reject weakening without relying on the mixed accounting fingerprint", acceptsSurvivingAccounting(accountingOwner.source) && survivingAccountingControls.length === 3 && survivingAccountingControls.every(({ changed, rejected }) => changed && rejected), survivingAccountingControls],
-				["surviving and mixed heading groups exhaust the independent mutation roster", new Set([...survivingHeadingIds, ...mixedHeadingIds]).size === 19 && survivingHeadingIds.length + mixedHeadingIds.length === 19 && headingOwnedUnits.every(({ id }) => [...survivingHeadingIds, ...mixedHeadingIds].includes(id)) && survivingHeadingAttacks.length + mixedHeadingAttacks.length === 882, { surviving: survivingHeadingAttacks.length, mixed: mixedHeadingAttacks.length }],
+				["surviving and mixed heading groups exhaust the independent mutation roster", new Set([...survivingHeadingIds, ...mixedHeadingIds]).size === 19 && survivingHeadingIds.length + mixedHeadingIds.length === 19 && headingOwnedUnits.every(({ id }) => [...survivingHeadingIds, ...mixedHeadingIds].includes(id)) && survivingHeadingAttacks.length + mixedHeadingAttacks.length === 884, { surviving: survivingHeadingAttacks.length, mixed: mixedHeadingAttacks.length }],
 				["surviving heading safeguards reject every existing violation", survivingHeadingAttacks.length > 0 && survivingHeadingAttacks.every(({ changed, rejected, intended }) => changed && rejected && intended), survivingHeadingAttacks],
 				["mixed heading regions keep every current safeguard active", mixedHeadingAttacks.length > 0 && mixedHeadingAttacks.every(({ changed, rejected, intended }) => changed && rejected && intended), mixedHeadingAttacks],
 				["the exact region roster resolves once and matches independent expectations", JSON.stringify(headingOwnedUnits.map((unit) => unit.id)) === JSON.stringify(expectedHeadingRegionIds) && headingOwnedUnits.every((unit) => acceptsRecordUnit(unit, unit.source)), headingOwnedUnits.map((unit) => ({ id: unit.id, result: unit.extract(unit.source).reason }))],
@@ -5880,12 +5878,12 @@ verbatim retention of every tool result.`);
 			].join("\n");
 			const contextBudget = readFileSync(join(REPO, "docs", "context-budget.md"), "utf8");
 			const expectedInjected = [
-				["Reviewer I", 8664, 8541], ["Concurrency reviewer", 7418, 7295],
-				["Data loss and recovery reviewer", 7613, 7490], ["Security reviewer", 7560, 7437],
-				["Performance reviewer", 7615, 7492], ["Test-quality and structure reviewer", 8869, 8746],
-				["Prose reviewer", 7827, 7704], ["Licensing reviewer", 7558, 7435],
-				["Non-local logic defect reviewer", 8555, 8432], ["Consumer contract break reviewer", 8839, 8716],
-				["Governing-rule defect reviewer", 8948, 8825], ["Unreported failure reviewer", 8480, 8357],
+				["Reviewer I", 9158, 9035], ["Concurrency reviewer", 7820, 7697],
+				["Data loss and recovery reviewer", 8015, 7892], ["Security reviewer", 7962, 7839],
+				["Performance reviewer", 8017, 7894], ["Test-quality and structure reviewer", 9271, 9148],
+				["Prose reviewer", 8229, 8106], ["Licensing reviewer", 7960, 7837],
+				["Non-local logic defect reviewer", 8957, 8834], ["Consumer contract break reviewer", 9241, 9118],
+				["Governing-rule defect reviewer", 9350, 9227], ["Unreported failure reviewer", 8882, 8759],
 			];
 			const docsPrefix = paths.REVIEW_RULES_DOC.slice(0, -"review-rules.md".length);
 			const extensionPrefix = paths.WRITING_CHECKER.slice(0, -"writing-check.mjs".length);
@@ -5895,12 +5893,15 @@ verbatim retention of every tool result.`);
 			});
 			const publishedInjected = [...contextBudget.matchAll(/^\| (Reviewer I|[^|]+ reviewer) \| ([\d,]+) \| ([\d,]+) \|$/gm)]
 				.map((match) => [match[1], Number(match[2].replaceAll(",", "")), Number(match[3].replaceAll(",", ""))]);
+			const reviewRulesFit = (reviews) => Buffer.byteLength(reviews) <= 24403;
+			const childReviewRulesFit = (reviews) => Buffer.byteLength(reviews) <= 24203;
 			checkAll("contract-review-sizes", "production-rendered per-perspective injected bytes, portable path basis, and published table match exact independent pins", [
 				["all twelve portable sizes are exact and rendered bytes add both installed path prefixes", injected.every(([, rendered, portable], i) => portable === expectedInjected[i][2] && rendered === portable + Buffer.byteLength(docsPrefix, "utf8") + Buffer.byteLength(extensionPrefix, "utf8")), injected],
 				["all twelve published rows use the declared 123-byte prefix basis and exact portable pins", JSON.stringify(publishedInjected) === JSON.stringify(expectedInjected) && publishedInjected.every(([, rendered, portable]) => rendered === portable + 123) && contextBudget.includes("prefixes totaling 123 UTF-8 bytes") && contextBudget.includes("Prefixes totaling 145 bytes add 22 bytes"), publishedInjected],
-				["policy growth stays within 100 bytes and reviewer-rule growth within 400 bytes", Buffer.byteLength(readFileSync(paths.REVIEW_COMMON_POLICY_DOC, "utf8")) - 2841 === 89 && Buffer.byteLength(reviews) - 22912 <= 400, { policy: Buffer.byteLength(readFileSync(paths.REVIEW_COMMON_POLICY_DOC, "utf8")) - 2841, reviewRules: Buffer.byteLength(reviews) - 22912 }],
+				["policy growth stays within 100 bytes and review rules within the approved 24,403-byte cap", Buffer.byteLength(readFileSync(paths.REVIEW_COMMON_POLICY_DOC, "utf8")) - 2841 === 89 && reviewRulesFit(reviews), { policy: Buffer.byteLength(readFileSync(paths.REVIEW_COMMON_POLICY_DOC, "utf8")) - 2841, reviewRules: Buffer.byteLength(reviews) }],
+				["approved cap and child ceiling pass equality and fail the first extra UTF-8 byte", [[24403, reviewRulesFit], [24203, childReviewRulesFit]].every(([cap, fits]) => fits("x".repeat(cap)) && !fits("x".repeat(cap + 1))) && childReviewRulesFit(reviews), Buffer.byteLength(reviews)],
 				["all approved perspective content matches independent snapshots", Object.entries(approvedContentDigests).every(([id, expected]) => hash(roleFiles[id] ?? "") === expected), Object.fromEntries(Object.entries(roleFiles).map(([id, content]) => [id, hash(content)]))],
-				["common and implementation text keep independent approved snapshots", hash(readFileSync(paths.REVIEW_COMMON_POLICY_DOC, "utf8")) === "bbf3bd833faabba61dad28de933320d88c8cb77ab34c450e361ce77139311227" && hash(readFileSync(paths.REVIEW_IMPLEMENTATION_INPUT_DOC, "utf8")) === "e8bbe7a6b03f175a41cb25af633e8fc32e0bce17c85b4db5061d508bc10b0872", "two shared source files"],
+				["common and implementation text keep independent approved snapshots", hash(readFileSync(paths.REVIEW_COMMON_POLICY_DOC, "utf8")) === "bbf3bd833faabba61dad28de933320d88c8cb77ab34c450e361ce77139311227" && hash(readFileSync(paths.REVIEW_IMPLEMENTATION_INPUT_DOC, "utf8")) === "2b66761336217b7b2244e45c9f91d13ed16dafec0561989030537f9c33d8043a", "two shared source files"],
 			]);
 
 			// Complete owned policy units use independent expectations. Exact equality is
@@ -5943,23 +5944,7 @@ Reviewer input restrictions remain unchanged.`),
 						const rawText = source.slice(body, boundary).trim();
 						return { count: 1, text: normalizeText(rawText), rawText };
 					},
-					expected: normalizeText(`No reviewer may receive or directly read a manual status file, leftover record temporary file, their references or contents, the research log, a research-log reference, a research-log extract, an implementer report, private orchestrator triage, or implementer reasoning. The reviewer must not seek those sources, even when repository tools can reach them. Private orchestrator triage means the orchestrator's private deliberation and implementation rationale. Implementer reasoning means private reasoning produced by an implementer. These are distinct sources.
-
-This restriction applies to a design-stage adversary, Reviewer I, every implementation specialist, an agentic fix gate, a user-review fix-range gate, and a stuck-fix consultation. Ordinary repository and library evidence needed for the assigned work remains available. This permission is not a closed changed-file allowlist.
-
-A design-stage adversarial reviewer receives the standalone approved design, approved change context, track intention, applicable risk record and area proofs, tracked source evidence, charter, and output contract. This is the only reviewer role that receives the risk record and area proofs as separate artifacts.
-
-Reviewer I and implementation specialists receive the approved review range, track intention, applicable charter, output contract, and ordinary evidence. They receive no risk record, area proof, implementer episode, implementer report, private triage, or implementer reasoning.
-
-An agentic fix gate and a user-review fix-range gate receive the compact finding index, fix diff, approved scope context, and ordinary evidence needed to verify the fix. The compact index may contain only finding identifiers, evidence, validated severity, and required disposition. It contains no private orchestrator deliberation or implementer reasoning. Both gates receive no implementer episode or direct private source.
-
-The stuck-fix consultation in § Stuck-fix consultation is the only reviewer role that can receive an implementer episode. Its whole-episode rule does not permit a direct private read or a separately supplied private source.
-
-The supplied action temporary folder permits only the reviewer's own writing-checker diff and adds no reviewer input. A reviewer never lists tmp/ or reads another action's folder.
-
-A design-stage adversarial review also judges the simplest solution. The review checks the approved high-level design against slate's simplest-solution requirement. That requirement asks for the simplest solution with the fewest changes that keeps every approved goal, the product and implementation quality, and every required gate. The review judges the design as a whole and not one track at a time. This duty adds no artifact, no phase and no gate.
-
-Every reviewer uses the [common review policy](review-common-policy.md) for writing checks, evidence, severity, identifiers, and output format. Resolve its writing-checker path from the installed package as \`../extension/writing-check.mjs\`. Resolve its writing-guidance path as \`writing-guidance.md\` beside the policy. Manual reviews combine this policy with their stage-specific input contract and applicable charter.`),
+					expected: normalizeText(`No reviewer may receive or directly read status files, leftover record temporary files, any research log, their references or extracts, implementer reports, private orchestrator triage, or implementer reasoning. This covers early, ordinary and design-track logs. Do not seek these sources through repository tools. Private triage means orchestrator deliberation and implementation rationale. Implementer reasoning means an implementer's private reasoning. These restrictions govern every review role below. Ordinary repository and library evidence needed for the assignment remains available beyond changed files. Applicable designs are whole standalone design files. Every reviewer receives them under its stage contract. Recorded changes with log-held approved designs keep their current reviewer inputs until user-authorized migration. Supply neither a log-held design nor its extract. An orchestrator-written statement of an approved decision is approved context, not a log extract. Outside design-stage review, designs provide context, not correctness proof or a duty to repeat whole-design review. A design adversary receives the whole validated candidate, applicable designs, approved context, track intention, risk record, area proofs, tracked source evidence, charter and output contract. Only this role receives risk records and area proofs separately. It reviews independently before checking baseline facts. Implementation reviewers receive applicable approved designs, approved range, intention, charter, output contract and ordinary evidence. Only Reviewer I receives an implementation map. Neither Reviewer I nor specialists receive risk records, area proofs or implementer episodes. Both fix gates receive applicable approved designs, compact finding index, fix diff, approved scope context and needed ordinary evidence. The index contains only finding identifiers, evidence, validated severity and required disposition, without private triage or implementer reasoning. Neither gate receives implementer episodes or direct private sources. The fixer names the map statements its fix relies on. The orchestrator passes them unread to the agentic fix gate. A user-review fix-range gate receives no map statements. A map's question list is map content, not implementer reasoning. Questions follow authorized map inputs. Partial recipients receive only questions tied to supplied statements. No separate list expands access. Only stuck-fix consultation may receive implementer episodes under § Stuck-fix consultation. Whole episodes permit no separate private input or direct private read. The supplied action temporary folder permits only the reviewer's own writing-checker diff and adds no reviewer input. A reviewer never lists tmp/ or reads another action's folder. A design-stage adversarial review also judges the simplest solution. The review checks the approved high-level design against slate's simplest-solution requirement. That requirement asks for the simplest solution with the fewest changes that keeps every approved goal, the product and implementation quality, and every required gate. The review judges the design as a whole and not one track at a time. This duty adds no artifact, no phase and no gate. Every reviewer uses the [common review policy](review-common-policy.md) for writing checks, evidence, severity, identifiers, and output format. Resolve its writing-checker path from the installed package as \`../extension/writing-check.mjs\`. Resolve its writing-guidance path as \`writing-guidance.md\` beside the policy. Manual reviews use this input contract, the common policy and applicable charter. Name [maps.md](maps.md) in authorized map-checking tasks without reading it.`),
 				},
 				{
 					id: "stuck-fix-policy",
@@ -5967,7 +5952,7 @@ Every reviewer uses the [common review policy](review-common-policy.md) for writ
 					extract: regionUnit(/^## Stuck-fix consultation\n\n([\s\S]*?)(?=^## Termination and deferred-work routing)/gm),
 					expected: normalizeText(`One merged stuck-fix mechanism replaces separate escape routes. It may run when a round lands no fix, one finding returns STILL OPEN twice, the implementer cannot locate the cause, or fixes keep regressing.
 
-Dispatch one fresh \`adversarial\` consultation. Its job is diagnosis, not a gate verdict. Pass only the smallest set of whole implementer episodes needed for evidence. Name each episode and reason. Only an implementer episode is eligible. A design-review, implementation-review, fix-gate, or other reviewer episode is not eligible.
+Dispatch one fresh \`adversarial\` consultation. Its job is diagnosis, not a gate verdict. Supply applicable approved designs under § Reviewer input contract. Pass only the smallest set of whole implementer episodes needed for evidence. Name each episode and reason. Only an implementer episode is eligible. A design-review, implementation-review, fix-gate, or other reviewer episode is not eligible.
 
 Pass every selected episode whole and intact. Embedded material remains present regardless of its type, source, or amount. It can include a risk record, area proof, research-log text, private triage, or implementer reasoning. Do not screen content for eligibility. Do not filter, drop, rewrite, or sanitize a needed episode because of embedded content. This is the sole reviewer episode exception and the user accepts its indirect exposure risk. The exception does not permit a direct read or separate delivery of a log, log reference, log extract, risk record, area proof, implementer report, private triage, or implementer reasoning.
 
@@ -5989,17 +5974,23 @@ Record each grant in the override log.`),
 			const reviewerInput = dispatchPolicyUnits.find(({ id }) => id === "reviewer-input-contract");
 			const amendment = "The supplied action temporary folder permits only the reviewer's own writing-checker diff and adds no reviewer input. A reviewer never lists tmp/ or reads another action's folder.";
 			const originalParagraphDigests = [
-				"861dc9144bb1e16eacf358b3fb1815b2e2ae080a206d28c7a3229c5021275d34", "f9f0228001b9e056eb489d5c6c3fee415fcf95ac23df822bd029f27eb0b1f3b3",
-				"f483f360f4d97036a9f09af119be8e40469e76380a93eccb25387473e074e878", "527f29a60ddd3564dfcbde73d357f3c43d867bb0b808b9d3852ddb3b385d48b1",
-				"3d991b3f9e25a2710869ef6bd13c69c1239e1dea6fa4378bb527b01a32384315", "bb64471333eef93ce91baac46799ce3ad4ff1c244b9ce34bc184c44d3c4e405f",
-				"2ddf2a77aff76b073c243ddff077dabcaa939fc205295e5ba3d746a18df6c9ab", "432813aee3332b7e91b0648bc96aa5fe7a5138c5c37c261e51a292cb0805ffa0",
-			];
+    "6a5242d6c9a4b3e5c4f25e982bb5ca2f34ef902b592866897b83b8f3bfdf15fc",
+    "cc07b77fae62cc67e2395a29361f5299a44e827db1de9919160da202d743799c",
+    "217150669c1324369d6cfb2e9793a65dd5dbadfceed64d9decae2a1350108c5b",
+    "23cfe8d8109a3659535cdf7afcce2cdad1601fc4ba93a59aafd915ef38993796",
+    "240446a6658d1bdd6f84a0d9409c2fdab0c819d21e4367bc5a6410f85aec39fd",
+    "1e9ae92984ec25a75ad4337a69b40591149304794309dfb5b547af21dbeabc58",
+    "f8a8b290cbd6ede41956de53fedf87c4c3185820babd25aaae1bc328a44ed98e",
+    "ae8e0598923ac355b57e64cd726e102aa4fb3ffd9a9bf6b7bbc4a3f256d55c84",
+    "2ddf2a77aff76b073c243ddff077dabcaa939fc205295e5ba3d746a18df6c9ab",
+    "aa7fa62764b20da108233c6df3f2b273b517bda1dec609ddca01e1f3ee8e57e8"
+];
 			const reviewerRawHash = (text) => createHash("sha256").update(text).digest("hex");
 			const inputParagraphs = (source) => reviewerInput.extract(source).rawText.trim().split(/\n\n/).filter((paragraph) => paragraph !== amendment);
 			const writeScope = "reviewer does not edit reviewed artifacts. The common review policy permits\nonly the reviewer's own writing-checker diff.";
 			const acceptsReviewerInputs = (source) => {
 				const unit = reviewerInput.extract(source), paragraphs = inputParagraphs(source);
-				return unit.count === 1 && unit.text === reviewerInput.expected && paragraphs.length === 8
+				return unit.count === 1 && unit.text === reviewerInput.expected && paragraphs.length === 10
 					&& source.split(writeScope).length === 2
 					&& paragraphs.every((paragraph, index) => reviewerRawHash(paragraph) === originalParagraphDigests[index]);
 			};
@@ -6020,8 +6011,8 @@ Record each grant in the override log.`),
 			});
 			const reviewerInputAttacks = reviewerInputAttacksFor(reviews);
 			mutationAudit.record("reviewer-inputs", reviewerInputAttacks);
-			checkAll("contract-review-inputs", "the complete input section protects all eight raw paragraphs and destination-only restrictions", [
-				["all eight original paragraphs remain byte-identical and ordered", acceptsReviewerInputs(reviews), inputParagraphs(reviews).map(reviewerRawHash)],
+			checkAll("contract-review-inputs", "the complete input section protects all ten raw paragraphs and destination-only restrictions", [
+				["all ten approved paragraphs remain byte-identical and ordered", acceptsReviewerInputs(reviews), inputParagraphs(reviews).map(reviewerRawHash)],
 				["each input attack fails complete section content, including the later grant", reviewerInputAttacks.every(({ changed, rejected, intended, originalRuleCount, mutatedRuleCount }) => changed && rejected && intended && originalRuleCount === 1 && mutatedRuleCount === 0), reviewerInputAttacks],
 				["an unrelated appendix preserves the input contract and write scope", acceptsReviewerInputs(reviews + "\n## Editorial appendix\n\nNo policy here.\n"), "positive outside control"],
 				["a duplicated outside-range anchor fails its own occurrence evidence", (() => {
@@ -6069,10 +6060,10 @@ Record each grant in the override log.`),
 				["current-inputs-removed", workflow.replace("Name the current approved design, if any, wherever authoritative: standalone or recorded log content. Name task, acceptance condition, assigned findings with compact fix evidence, affected files, relevant decisions and unresolved questions.", "The block states the current task."), reviews],
 				["repeated-map-fact-check", workflow.replace("Implementers use [maps.md](maps.md) for reading depth.", "Verify every map fact before dispatch. For map reading depth, use"), reviews],
 				["repeated-map-stopping-rule", workflow.replace("Implementers use [maps.md](maps.md) for reading depth.", "Read every map until all questions are answered. For map reading depth, use"), reviews],
-				["private-source-weakened", workflow, reviews.replace("a research-log\nreference", "an unrestricted research-log\nreference")],
-				["implementation-role-reversed", workflow, reviews.replace("They receive no risk record, area proof, implementer episode, implementer\nreport, private triage, or implementer reasoning.", "They may receive the research log, risk record, area proof, implementer episode, implementer report, private triage, and implementer reasoning.")],
-				["additive-direct-read", workflow, reviews.replace("A design-stage adversarial reviewer receives", "Reviewer I may directly read the research log and implementer reasoning.\n\nA design-stage adversarial reviewer receives")],
-				["fix-gate-episode", workflow, reviews.replace("Both gates receive no\nimplementer episode", "Both gates may receive an\nimplementer episode")],
+				["private-source-weakened", workflow, reviews.replace("any research log", "only the current research log")],
+				["implementation-role-reversed", workflow, reviews.replace("Neither Reviewer I nor specialists receive risk records, area proofs or implementer episodes.", "They may receive the research log, risk record, area proof, implementer episode, implementer report, private triage, and implementer reasoning.")],
+				["additive-direct-read", workflow, reviews.replace("A design adversary receives", "Reviewer I may directly read the research log and implementer reasoning.\n\nA design adversary receives")],
+				["fix-gate-episode", workflow, reviews.replace("Neither gate receives implementer episodes", "Both gates may receive implementer episodes")],
 				["reviewer-episode", workflow, reviews.replace("Only an implementer episode is eligible.", "Any reviewer episode is eligible.")],
 				["shared-child-consultation", workflow, reviews.replace("Count that budget separately for each review-fix child.", "Share one consultation budget across all children.")],
 				["automatic-second-consultation", workflow, reviews.replace("A second consultation for the same track or child requires an explicit user grant.", "A second consultation is automatic.")],
@@ -6088,7 +6079,7 @@ Record each grant in the override log.`),
 			const reportRule = regionUnit(/^For each code track, the implementer creates\n([\s\S]*?)(?=^Tracks are contiguous)/gm);
 			const forkRule = regionUnit(/^(Use \[change-records\.md\]\(change-records\.md\) § Manual records and safe writes for append-only[\s\S]*?)(?=^### Handoff summary\n)/gm);
 			const expectedReportRule = normalizeText(`\`track-<number>-implementer-report.md\` in the current change folder when the track starts. The dispatch gives the exact path. The report is untracked working material. After a session with a different identifier takes ownership, create a report in the new change folder. If the source folder has this track's report, name it as read-only in the new report's first entry. Continue the work in the new report. The report has four required sections: changes to the high-level design with the reason for each, the low-level design, diagrams where they help, and checks run with their results. The report states the approximate track size in counted lines. Later fix rounds append to that report in the current change folder.`);
-			const expectedForkRule = normalizeText(`Use [change-records.md](change-records.md) § Manual records and safe writes for append-only logs and reports, correction entries, checks and retry inspection. Slate checks the folder chain when it creates the change. Keep all manual records and leftover temporary files untracked and visible in repository status. Do not add them to an ignore file or a pull request. Exclude their references and contents from reviewer inputs. Use the common record rules for supplied action folders and temporary-reader exclusions. Never overwrite a record from a stale in-memory copy. When a session adopts a change owned by a different Pi session identifier, Slate starts a new folder. Its log first names the direct source folder as a read-only earlier log. Each source log's first entry links to its own source. Follow those links to read the full history. The source remains in place without copying. A resume or reload with the same identifier continues the current folder. A /tree move to parent history with a different owner creates a new folder on reload. A handoff makes the successor the owner of the current folder. If folder allocation fails, Slate saves no open change and reports the failure. If that save fails, Slate reports it too. A legacy root \`research-log.md\` remains read-only. Only the user deletes a delivered or abandoned change folder.`);
+			const expectedForkRule = normalizeText(`Use [change-records.md](change-records.md) § Manual records and safe writes for append-only logs and reports, correction entries, checks and retry inspection. Slate checks the folder chain when it creates the change. Keep all manual records and leftover temporary files untracked and visible in repository status. Do not add them to an ignore file or a pull request. Reviewer access follows [review-rules.md](review-rules.md) § Reviewer input contract. Use the common record rules for supplied action folders and temporary-reader exclusions. Never overwrite a record from a stale in-memory copy. When a session adopts a change owned by a different Pi session identifier, Slate starts a new folder. Its log first names the direct source folder as a read-only earlier log. Each source log's first entry links to its own source. Follow those links to read the full history. The source remains in place without copying. A resume or reload with the same identifier continues the current folder. A /tree move to parent history with a different owner creates a new folder on reload. A handoff makes the successor the owner of the current folder. If folder allocation fails, Slate saves no open change and reports the failure. If that save fails, Slate reports it too. A legacy root \`research-log.md\` remains read-only. Only the user deletes a delivered or abandoned change folder.`);
 			const acceptsLateRules = (source) => {
 				const report = reportRule(source);
 				const fork = forkRule(source);
@@ -6181,7 +6172,7 @@ omitted and why.`);
 				["the four approved policy units form the exact roster and resolve once", dispatchUnitResults.map(({ id }) => id).join() === "implementation-reference,research-log-lifecycle,reviewer-input-contract,stuck-fix-policy" && dispatchUnitResults.every(({ count }) => count === 1), dispatchUnitResults.map(({ id, count }) => ({ id, count }))],
 				["every complete policy unit equals its independent expectation", dispatchUnitResults.every(({ text, expected }) => text === expected), dispatchUnitResults.filter(({ text, expected }) => text !== expected).map(({ id, text, expected }) => ({ id, text, expected }))],
 				["the exact focused-context reference occurs once and has its measured UTF-8 bytes including its final line feed", dispatchUnitById.get("implementation-reference")?.text.split(dispatchReference.trim()).length - 1 === 1 && Buffer.byteLength(dispatchReference, "utf8") > 0, { occurrences: dispatchUnitById.get("implementation-reference")?.text.split(dispatchReference.trim()).length - 1, bytes: Buffer.byteLength(dispatchReference, "utf8") }],
-				["accepted ordinary evidence and unrestricted embedded implementer-episode content remain in the expectations", dispatchUnitById.get("reviewer-input-contract")?.expected.includes("Ordinary repository and library evidence needed for the assigned work remains available") && dispatchUnitById.get("stuck-fix-policy")?.expected.includes("Embedded material remains present regardless of its type, source, or amount") && dispatchUnitById.get("stuck-fix-policy")?.expected.includes("Do not screen content for eligibility"), dispatchUnitResults.map(({ id, expected }) => ({ id, expected }))],
+				["accepted ordinary evidence and unrestricted embedded implementer-episode content remain in the expectations", dispatchUnitById.get("reviewer-input-contract")?.expected.includes("Ordinary repository and library evidence needed for the assignment remains available") && dispatchUnitById.get("stuck-fix-policy")?.expected.includes("Embedded material remains present regardless of its type, source, or amount") && dispatchUnitById.get("stuck-fix-policy")?.expected.includes("Do not screen content for eligibility"), dispatchUnitResults.map(({ id, expected }) => ({ id, expected }))],
 				["quantifier, private-source, role, direct-read, gate, episode-source, screening, and filtering counterfactuals each change input and fail", mutationOutcomes.every(({ changed, accepted }) => changed && !accepted), mutationOutcomes],
 				["a missing anchor makes each owned unit unresolved", missingUnitOutcomes.every(({ count, text }) => count === 0 && text === ""), missingUnitOutcomes],
 				["duplicated owned units fail exact-once resolution", duplicateUnitOutcomes.every(({ count }) => count === 2), duplicateUnitOutcomes.map(({ id, count }) => ({ id, count }))],

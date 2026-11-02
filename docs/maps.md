@@ -10,7 +10,13 @@ An implementation map describes delivered behavior at a named source commit.
 
 Map-writing and map-composition workers read this reference.
 These workers include design authors, researchers, implementers, fixers and combined-map workers.
-Map access follows the current Reviewer input contract in [review-rules.md](review-rules.md).
+Authorized checkers also read this reference.
+Design adversaries check baseline facts after independent review.
+Reviewer I checks supplied implementation-map facts after independent range review.
+Agentic fix gates check only fixer-selected statements and their related questions.
+Other implementation specialists and user-review fix-range gates receive no implementation-map input.
+Stuck-fix consultations gain no separate map input.
+Map access follows the Reviewer input contract in [review-rules.md](review-rules.md).
 Use [track-workflow.md](track-workflow.md#lifecycle-and-phases) for general design and presentation forms.
 
 ## Reading depth
@@ -73,3 +79,7 @@ No explanation is needed when a map omits a diagram.
 Keep private reasoning out of the map.
 End every map with a private question list.
 The list may say none.
+Questions are map content, not implementer reasoning.
+They follow the map's access rules.
+Partial recipients receive only questions tied to supplied statements.
+A separate question list grants no wider access.

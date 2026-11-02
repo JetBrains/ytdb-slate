@@ -240,10 +240,10 @@ minor dispositions, and moot or rejected findings in both review phases.
 
 Five cases require a user decision: a waiver, a scope exception, a pre-existing
 defect, lowering a blocker, and an implementation-level finding without a recommended fix.
-A design-level finding that adds goals or non-goals requires approval.
-A fix that changes an approved guarantee, assumption, or reasoning requires design-update approval.
+At every severity, obtain user design-update approval before a fix adds goals or non-goals, or changes approved guarantees, assumptions or reasoning.
+Without approval, stop repair. Existing waiver, deferral and scope routes do not bypass termination.
 Record every design-level change in the design update or track package.
-Automatic repair never bypasses halt rules, user notes, checks, gates, or acceptance.
+Repair bypasses no halt, user note, check, gate or acceptance.
 
 The orchestrator obtains solution approval before implementation.
 Without a required high-level design, present a short plan for approval of behavior,
@@ -462,9 +462,7 @@ for each proved DESIGN-TRIGGERING area. Final design
 approval follows those reviews. The design stage is the only stage where an
 adversarial reviewer receives the risk record and area proofs as
 separate inputs. Implementation reviewers and both repair gates receive neither.
-The stuck-fix consultation follows the whole-episode exception in
-[review-rules.md](review-rules.md) and receives no separately supplied risk
-record or area proof.
+Stuck-fix consultation uses [review-rules.md](review-rules.md) § Reviewer input contract: applicable approved designs, intact episodes, no separate risk record or area proof.
 
 Before code review, the orchestrator compares the committed difference with the
 proved set. A missed area follows the late-area route below. For an area that no
@@ -525,7 +523,7 @@ ends its response with an approximate track size in counted lines, followed by
 `unplanned risk: none` or one line that names a risk the plan did not name.
 
 Review dispatches follow [review-rules.md](review-rules.md) § Reviewer input
-contract. Reviewers receive the approved inputs for their role. Ordinary
+contract. Designs and map checks follow that contract. An empty set adds no map reviewer. Ordinary
 repository and library evidence needed for the assigned work remains available.
 This permission is not a closed changed-file allowlist.
 
@@ -600,7 +598,7 @@ Use [change-records.md](change-records.md) § Manual records and safe writes for
 Slate checks the folder chain when it creates the change.
 Keep all manual records and leftover temporary files untracked and visible in repository status.
 Do not add them to an ignore file or a pull request.
-Exclude their references and contents from reviewer inputs.
+Reviewer access follows [review-rules.md](review-rules.md) § Reviewer input contract.
 Use the common record rules for supplied action folders and temporary-reader exclusions.
 Never overwrite a record from a stale in-memory copy. When a session adopts a
 change owned by a different Pi session identifier, Slate starts a new folder.
