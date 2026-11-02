@@ -85,9 +85,18 @@ function membership(ids: Record<string, string>): void {
   }
   for (const id of Object.keys(ids)) assert.ok(reads.some((r: Read) => r[0] === id) || referenceOnly[id], `unclassified export ${id}`);
 }
+const boundaryWorkflow = spawnSync("git", ["show", "ffeee65a588146a50339f735955b69007b1221af:docs/track-workflow.md"], { encoding: "utf8" });
+assert.equal(boundaryWorkflow.status, 0, "source boundary must be readable");
+function assertProductionGrowth(entries: Read[]): void {
+  const current = source("TRACK_WORKFLOW_DOC");
+  const delivered = total(entries);
+  documentTexts.set("TRACK_WORKFLOW_DOC", boundaryWorkflow.stdout);
+  try { assert.equal(delivered - total(entries), 100, "complete read-set growth"); }
+  finally { documentTexts.set("TRACK_WORKFLOW_DOC", current); }
+}
 const checkChildCeiling = (required: number, maximum: number) => {
-  checkLimit(required, 75221, "child required reservation");
-  checkLimit(maximum, 144185, "child maximum reservation");
+  checkLimit(required, 75304, "child required reservation");
+  checkLimit(maximum, 144268, "child maximum reservation");
 };
 function checkLimit(value: number, limit: number, label: string): void {
   assert.ok(Number.isInteger(limit) && value <= limit, `${label}: total ${value}, limit ${limit}, excess ${value - limit}`);
@@ -233,6 +242,8 @@ function table(rows: string[], costs: string[], entries: string[]): string {
     `Maps use a soft guideline of about 1,500 words, with Mermaid diagrams under 40 nodes.`,
     `The worker reference is ${bytes(source("MAPS_DOC"))} bytes. See [maps.md](maps.md) for its writer and authorized checker readers.`,
     "Map text, worker reference reads and composed drafts are real excluded costs.",
+    "The worker-only safe-write section is 10,416 bytes.",
+    "That separate excluded read includes privacy rules and does not enter orchestrator phase totals.",
     "Whole applicable designs supplied to reviewers are excluded costs that repeat across reviewers and fix-gate rounds.",
     "Several maps can exceed fixed-row headroom. These totals do not bound the whole conversation.", "",
     "Private evidence, designs, reports, source chains, project additions, configured",
@@ -276,6 +287,8 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
     assert.equal(has(required, "MAPS_DOC"), false);
     assert.equal(has(maximum, "MAPS_DOC"), false);
     const doctrine = bytes(doctrines[publishing === "on" ? 1 : 0]!.split(directory).join(""));
+    assertProductionGrowth(required);
+    assertProductionGrowth(maximum);
     const requiredBytes = doctrine + total(required), maximumBytes = doctrine + total(maximum);
     const key = `${phase} ${scenario}`, pair = limits[key];
     measured.push({ key, requiredBytes, maximumBytes, proposed: [Math.ceil(requiredBytes * 1.05), Math.ceil(maximumBytes * 1.05)] });
@@ -305,11 +318,11 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
     checkLimit(maximum, pair[1], `design-track maximum ${scenario}`);
     return `| ${publishing} | ${required} | ${tokens(required)} | ${maximum} | ${tokens(maximum)} | ${pair[1]} | ${tokens(pair[1])} |`;
   });
-  assert.deepEqual(measured[0], { key: "1 off ordinary", requiredBytes: 75204, maximumBytes: 144168, proposed: [78965, 151377] });
+  assert.deepEqual(measured[0], { key: "1 off ordinary", requiredBytes: 75304, maximumBytes: 144268, proposed: [79070, 151482] });
   checkChildCeiling(measured[0].requiredBytes, measured[0].maximumBytes);
-  checkChildCeiling(75221, 144185);
-  assert.throws(() => checkChildCeiling(75222, 144185), /child required reservation/);
-  assert.throws(() => checkChildCeiling(75221, 144186), /child maximum reservation/);
+  checkChildCeiling(75304, 144268);
+  assert.throws(() => checkChildCeiling(75305, 144268), /child required reservation/);
+  assert.throws(() => checkChildCeiling(75304, 144269), /child maximum reservation/);
   checkLimit(75856, limits["1 off ordinary"][0], "wider required control");
   checkLimit(144492, limits["1 off ordinary"][1], "wider maximum control");
   assert.throws(() => checkChildCeiling(75856, 144040), /child required reservation/);
@@ -330,6 +343,14 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
     assert.equal(item.recipient, undefined);
   }
   assert.equal(dirname(paths.MAPS_DOC), dirname(paths.TRACK_WORKFLOW_DOC));
+  const safeWriteSection = sections(source("CHANGE_RECORDS_DOC"), ["Manual records and safe writes"]);
+  assert.equal(bytes(source("CHANGE_RECORDS_DOC").slice(...safeWriteSection[0]!)), 10416);
+  assert.ok(source("CONTEXT_BUDGET_DOC").includes("The worker-only safe-write section is 10,416 bytes."));
+  for (const id of ["CHANGE_RECORDS_DOC", "MAPS_DOC", "REVIEW_RULES_DOC"]) {
+    const baseline = spawnSync("git", ["show", `ffeee65a588146a50339f735955b69007b1221af:docs/${relative(directory, exported[id]!)}`], { encoding: "utf8" });
+    assert.equal(baseline.status, 0);
+    assert.equal(source(id), baseline.stdout, `${id} remains byte-identical`);
+  }
   assert.equal(referenceOnly.MAPS_DOC, pending[0].reason);
   assert.match(source("MAPS_DOC"), /about 1,500 words/);
   assert.match(source("MAPS_DOC"), /under 40 nodes/);
@@ -379,7 +400,7 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
     const withoutBacking = occurrences.map((r: any) => r.condition === condition ? { ...r, reason: "Control exclusion." } : r);
     assert.throws(() => coverage(scan(sources), withoutBacking), /unbacked read/);
   }
-  const staleMapContext = occurrences.map((r: any) => r.context === "466a96c420f4db52a9fb0ba55787b0a296dab19571655c890776ffbfd80f0f49" ? { ...r, context: "0".repeat(64) } : r);
+  const staleMapContext = occurrences.map((r: any) => r.context === "cf9dbb7f52b8b3df82a0440ca5c7560eceb6e7d3ad445282524dd63bcc5aa489" ? { ...r, context: "0".repeat(64) } : r);
   assert.throws(() => coverage(scan(sources), staleMapContext), /unknown reference|stale/);
   assert.throws(() => coverage(scan(sources), [...occurrences, occurrences[0]]), /duplicate classification/);
   assert.throws(() => coverage(scan(sources), occurrences.slice(1)), /unknown reference/);
@@ -471,6 +492,7 @@ test("session entry sets, continuation, and transfer controls", { timeout: 10000
       for (let through = entry.phase; through <= 9; through++) {
         const continued = sessionReads(entry, scenario, maximum, through) as Read[];
         assertEntry(continued, entry, scenario, maximum, through);
+        assertProductionGrowth(continued);
         assert.deepEqual(readSet(continued), readSet([...actual, ...expectedAccumulation(through, scenario, maximum)]));
         checkLimit(doctrine + total(continued), limits[`${through} ${scenario}`][maximum ? 1 : 0], `continued ${entry.id}`);
       }

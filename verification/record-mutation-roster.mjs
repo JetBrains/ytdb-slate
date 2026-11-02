@@ -88,6 +88,7 @@ export const EXPECTED_MUTATIONS = {
   "worker-delete-without-passed-check", "verification-folder-precedence-removed", "verification-folder-retention-overridden", "alternate-payload-destination",
   "reviewer-owned-diff-exception-removed"
  ],
+ "map-production": ["production", "maintenance", "assignment", "applicability", "edit-hash", "preserved-copy"],
  "report-guidance": [
   "failed-record-check-report-removed"
  ],

@@ -25,6 +25,7 @@ import {
 import { MAX_CONTEXT_EPISODES, type DispatchProgress, type ThreadManager } from "./threads.ts";
 import { JUDGEMENT_THREAD_TYPES } from "./worker.ts";
 import { REVIEW_PERSPECTIVES } from "./review-perspectives.ts";
+import { CHANGE_RECORDS_DOC } from "./paths.ts";
 import { implementerReportName, trackIdentifier, TRACK_IDENTIFIER_MAX, TRACK_IDENTIFIER_PATTERN } from "./record-names.ts";
 
 const threadTypeGlosses = THREAD_TYPES.map((type) => `${type} ${THREAD_TYPE_GLOSSES[type]}`).join(", ");
@@ -165,7 +166,7 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 				? `${params.task}\n\nImplementer report: slate-changes/${store.currentChange}/${reportName}. ` +
 					"A new report starts with a `>>` append. Later appends use only `>>`. " +
 					"Never use `>`, the write tool, the edit tool, or `sed -i` on an existing report. " +
-					"Under `slate-changes/`, write only this report and assigned temporary files. " +
+					"Under `slate-changes/`, write only this report, assigned implementation maps and action scratch. " +
 					"Before its first report write in each action, the implementer copies the report to a temporary file. " +
 					"For a new report, that copy is an empty file. " +
 					"The implementer writes each new text to its own temporary file. " +
@@ -174,7 +175,12 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 					"After its last write, the implementer checks the whole report once with `cat` and `cmp`. " +
 					"The report must equal the start copy followed by every appended temporary file in order. " +
 					"In the final response, report the check with the report path, comparison, and result. " +
-					"Report a failed record check as a failure." +
+					"Report a failed record check as a failure. " +
+					"Map duties apply to changes started under or migrated to this workflow. " +
+					`For assigned maps, read <${CHANGE_RECORDS_DOC}> § Manual records and safe writes before writing. ` +
+					"Maps explain committed source at the end of the implementation action. " +
+					"Fixers update affected statements and the named commit for each delivered source commit, even if no statement changes. " +
+					"Pause map writes unless the task names the destination, write and check methods, and, for edits, the last logged full hash and verified preserved-copy path." +
 					(store.sourceChange
 						? ` If the source folder has this track's report, continue it in this new report and name slate-changes/${store.sourceChange}/${reportName} as read-only in the new report's first entry. Do not edit the source report. Never write in the read-only source folder \`slate-changes/${store.sourceChange}/\`.`
 						: "")

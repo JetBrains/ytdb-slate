@@ -504,17 +504,19 @@ Every implementation and review dispatch carries these fields:
 - acceptance condition.
 - declared file list.
 
+Map edits name last logged full hash and verified preserved-copy path.
 Every implementation dispatch carries this focused current-context block:
 
 > Research log: `slate-changes/<change>/research-log.md`. Report: `slate-changes/<change>/track-<number>-implementer-report.md`. Use supplied references and excerpts. Read further history only for unresolved relevant questions.
 
 Name any current approved design (standalone or log-held), task, acceptance condition, findings with compact fix evidence, affected files, decisions and open questions.
 Give implementers and fixers section references or bounded excerpts, not a required whole-log read.
-Identify assigned maps as factual context, not requirements.
+Assign maps per code track: facts, not requirements.
 For a stored baseline, obtain its path and source commit from the log and name both.
 Single-track work uses the root baseline.
-Recorded changes without baselines gain no retrospective requirement.
-Implementers use [maps.md](maps.md) for reading depth.
+Recorded changes keep their workflow until user-approved migration.
+Implementers map final source per [maps.md](maps.md).
+Fixers maintain maps per source commit.
 Keep reviewer input restrictions.
 Each implementation dispatch carries each focus-area trigger and boundary
 sentences or directs the implementer to

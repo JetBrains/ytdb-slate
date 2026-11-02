@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { CHANGE_RECORDS_DOC } from "../extension/paths.ts";
 import { test } from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import extension from "../extension/index.ts";
@@ -313,7 +314,7 @@ test("folder grammar rejects malformed, calendar-invalid, traversal and runtime 
 });
 
 const reportMethodGroups = [
-  ["destination", ["Under `slate-changes/`, write only this report and assigned temporary files."]],
+  ["destination", ["Under `slate-changes/`, write only this report, assigned implementation maps and action scratch."]],
   ["start copy", [
     "Before its first report write in each action, the implementer copies the report to a temporary file.",
     "For a new report, that copy is an empty file.",
@@ -329,6 +330,17 @@ const reportMethodGroups = [
   ]],
   ["report", ["In the final response, report the check with the report path, comparison, and result.", "Report a failed record check as a failure."]],
 ] as const;
+
+const mapRules = [
+  "Map duties apply to changes started under or migrated to this workflow.",
+  `For assigned maps, read <${CHANGE_RECORDS_DOC}> § Manual records and safe writes before writing.`,
+  "Maps explain committed source at the end of the implementation action.",
+  "Fixers update affected statements and the named commit for each delivered source commit, even if no statement changes.",
+  "Pause map writes unless the task names the destination, write and check methods, and, for edits, the last logged full hash and verified preserved-copy path.",
+] as const;
+function assertMapMethod(task: string) {
+  for (const rule of mapRules) assert.equal(task.split(rule).length, 2, rule);
+}
 
 function assertReportMethod(task: string) {
   for (const [group, sentences] of reportMethodGroups) {
@@ -367,9 +379,39 @@ test("implementer receives its report path and approved method with and without 
     } else {
       assert.doesNotMatch(task!, /If the source folder|read-only source folder/);
     }
-    guidanceBytes.push(Buffer.byteLength(task!.slice(call.task.length + 2)));
+    assertMapMethod(task!);
+    const originalTask = task!;
+    for (const rule of [...mapRules, ...reportMethodGroups.flatMap(([, rules]) => [...rules])]) {
+      const mutated = originalTask.replace(rule, "");
+      assert.notEqual(mutated, originalTask);
+      assert.throws(() => { assertReportMethod(mutated); assertMapMethod(mutated); });
+    }
+    const pause = mapRules[4];
+    for (const field of ["destination", "write and check methods", "write and ", "check methods", "last logged full hash", "verified preserved-copy path"]) {
+      assert.throws(() => assertMapMethod(originalTask.replace(pause, pause.replace(field, ""))), field);
+    }
+    for (const duty of ["affected statements", "named commit", "even if no statement changes", "committed source", "at the end of the implementation action", "Manual records and safe writes"]) {
+      assert.throws(() => assertMapMethod(originalTask.replace(duty, "")), duty);
+    }
+    for (const fix of ["Agentic-review fix", "User-review fix"]) {
+      await thread.execute("id", { ...call, task: fix, trackNumber: 3 }, undefined, undefined, {});
+      assertMapMethod(task!);
+      assertReportMethod(task!);
+    }
+    task = originalTask;
+    const rendered = task!.slice(call.task.length + 2);
+    const prefix = dirname(CHANGE_RECORDS_DOC) + "/";
+    assert.ok(rendered.includes(`<${CHANGE_RECORDS_DOC}> § Manual records and safe writes`));
+    const portable = rendered.replace(prefix, "");
+    for (const testPrefix of ["/opt/slate/docs/", "/tmp/slate checkout/docs/", "/tmp/映射 é/docs/"]) {
+      const relocated = portable.replace("<change-records.md>", `<${testPrefix}change-records.md>`);
+      assert.equal(Buffer.byteLength(relocated), Buffer.byteLength(portable) + Buffer.byteLength(testPrefix));
+      assert.equal(relocated.replace(testPrefix, ""), portable);
+    }
+    assert.equal(Buffer.byteLength(rendered), Buffer.byteLength(portable) + Buffer.byteLength(prefix));
+    guidanceBytes.push(Buffer.byteLength(portable));
   }
-  assert.deepEqual(guidanceBytes, [995, 1377], "production-rendered report guidance bytes, source absent and present");
+  assert.deepEqual(guidanceBytes, [1528, 1910], "portable production-rendered guidance bytes, source absent and present");
   const published = readFileSync(new URL("../docs/context-budget.md", import.meta.url), "utf8");
   const format = (bytes: number) => bytes.toLocaleString("en-US");
   assert.ok(published.includes(`Its generated guidance is ${format(guidanceBytes[0]!)} UTF-8 bytes without a source folder.`));

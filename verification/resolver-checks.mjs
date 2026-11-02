@@ -5097,7 +5097,7 @@ const peerPinAttacks = levelPolicyUnits.map((unit) => {
  return { id: `${unit.id}/exception`, changed: source !== unit.source, rejected: !acceptsLevelUnit(unit, source) };
 });
 const EXPECTED_PUBLISHING_SHA256 = "06e760a0fb2a806574450c72c4cc45a3e9b563f7c0c61296d1d6cafa35fcd436";
-const EXPECTED_TRACK_WORKFLOW_SHA256 = "98d707bba369ed217f72d95dc8135bf7c1610f4002aca070546d23909098be79";
+const EXPECTED_TRACK_WORKFLOW_SHA256 = "2a47363cd81d40dfe8c506a91ba340a4ae4f10c4ce84266f5db758e2588c4386";
 const peerDocuments = [
 { id: "pr-publishing", source: publishing, expected: EXPECTED_PUBLISHING_SHA256 },
 { id: "track-workflow", source: workflow, expected: EXPECTED_TRACK_WORKFLOW_SHA256 },
@@ -5913,18 +5913,20 @@ verbatim retention of every tool result.`);
 				{
 					id: "implementation-reference",
 					source: workflow,
-					extract: regionUnit(/^(Every implementation dispatch carries this focused current-context block:\n[\s\S]*?)(?=Each implementation dispatch carries)/gm),
-					expected: normalizeText(`Every implementation dispatch carries this focused current-context block:
+					extract: regionUnit(/^(Map edits name last logged full hash and verified preserved-copy path.\nEvery implementation dispatch carries this focused current-context block:\n[\s\S]*?)(?=Each implementation dispatch carries)/gm),
+					expected: normalizeText(`Map edits name last logged full hash and verified preserved-copy path.
+Every implementation dispatch carries this focused current-context block:
 
 > Research log: \`slate-changes/<change>/research-log.md\`. Report: \`slate-changes/<change>/track-<number>-implementer-report.md\`. Use supplied references and excerpts. Read further history only for unresolved relevant questions.
 
 Name any current approved design (standalone or log-held), task, acceptance condition, findings with compact fix evidence, affected files, decisions and open questions.
 Give implementers and fixers section references or bounded excerpts, not a required whole-log read.
-Identify assigned maps as factual context, not requirements.
+Assign maps per code track: facts, not requirements.
 For a stored baseline, obtain its path and source commit from the log and name both.
 Single-track work uses the root baseline.
-Recorded changes without baselines gain no retrospective requirement.
-Implementers use [maps.md](maps.md) for reading depth.
+Recorded changes keep their workflow until user-approved migration.
+Implementers map final source per [maps.md](maps.md).
+Fixers maintain maps per source commit.
 Keep reviewer input restrictions.`),
 				},
 				{
@@ -6060,8 +6062,8 @@ Record each grant in the override log.`),
 				["every-to-some", workflow.replace("Every implementation dispatch carries", "Some implementation dispatches carry"), reviews],
 				["whole-log-required", workflow.replace("not a required whole-log read.", "Every implementation dispatch requires reading the entire\nhistorical log."), reviews],
 				["current-inputs-removed", workflow.replace("Name any current approved design (standalone or log-held), task, acceptance condition, findings with compact fix evidence, affected files, decisions and open questions.", "The block states the current task."), reviews],
-				["repeated-map-fact-check", workflow.replace("Implementers use [maps.md](maps.md) for reading depth.", "Verify every map fact before dispatch. For map reading depth, use"), reviews],
-				["repeated-map-stopping-rule", workflow.replace("Implementers use [maps.md](maps.md) for reading depth.", "Read every map until all questions are answered. For map reading depth, use"), reviews],
+				["repeated-map-fact-check", workflow.replace("Implementers map final source per [maps.md](maps.md).", "Verify every map fact before dispatch. For map reading depth, use"), reviews],
+				["repeated-map-stopping-rule", workflow.replace("Implementers map final source per [maps.md](maps.md).", "Read every map until all questions are answered. For map reading depth, use"), reviews],
 				["private-source-weakened", workflow, reviews.replace("any research log", "only the current research log")],
 				["implementation-role-reversed", workflow, reviews.replace("Neither Reviewer I nor specialists receive risk records, area proofs or implementer episodes.", "They may receive the research log, risk record, area proof, implementer episode, implementer report, private triage, and implementer reasoning.")],
 				["additive-direct-read", workflow, reviews.replace("A design adversary receives", "Reviewer I may directly read the research log and implementer reasoning.\n\nA design adversary receives")],
@@ -6072,6 +6074,20 @@ Record each grant in the override log.`),
 				["additive-screening", workflow, reviews.replace("Pass every selected episode whole and intact.", "Screen each selected episode and drop private reasoning when possible.\n\nPass every selected episode whole and intact.")],
 				["additive-filtering", workflow, reviews.replace("Pass every selected episode whole and intact.", "Filter research-log material from each selected episode.\n\nPass every selected episode whole and intact.")],
 			];
+			const productionRemovals = [
+			  ["production", "Implementers map final source per [maps.md](maps.md)."],
+			  ["maintenance", "Fixers maintain maps per source commit."],
+			  ["assignment", "Assign maps per code track: facts, not requirements."],
+			  ["applicability", "Recorded changes keep their workflow until user-approved migration."],
+			  ["edit-hash", "last logged full hash"],
+			  ["preserved-copy", "verified preserved-copy path"],
+			].map(([id, rule]) => {
+			  const source = workflow.replace(rule, "");
+			  return { id, changed: source !== workflow,
+			    rejected: !resolveDispatchUnits(source, reviews).every((unit) => unit.count === 1 && unit.text === unit.expected),
+			    originalRuleCount: workflow.split(rule).length - 1, mutatedRuleCount: source.split(rule).length - 1 };
+			});
+			mutationAudit.record("map-production", productionRemovals);
 			const mutationOutcomes = policyMutationSources.map(([id, workflowSource, reviewSource]) => ({
 				id,
 				changed: workflowSource !== workflow || reviewSource !== reviews,
@@ -6111,7 +6127,7 @@ omitted and why.`);
 				resolveDispatchUnits(workflow, reviews.replace("### Reviewer input contract", "### Review inputs"))[2],
 				resolveDispatchUnits(workflow, reviews.replace("## Stuck-fix consultation", "## Diagnostic consultation"))[3],
 			];
-			const duplicatedWorkflow = `${workflow}\n\nEvery implementation dispatch carries this focused current-context block:\n\n> ${dispatchReference.trim()}\n\nThe block states the current approved design when one exists, the current task and acceptance condition, assigned findings and compact evidence when fixing, affected code or documents, relevant decisions, and unresolved relevant questions. The orchestrator supplies these inputs through specific section references or bounded excerpts. Implementers and fixers use the supplied current context. The full log remains available for unresolved relevant questions and retention. No implementation dispatch requires reading the entire historical log. This rule does not change reviewer input restrictions.\n\nEach implementation dispatch carries a trigger.\n\nStart a change with \`slate_change start\` before the first implementation dispatch. Slate creates \`slate-changes/<change>/research-log.md\` without waiting for a retained trigger. It records the generated folder name and owning Pi session identifier in saved state. Each track creates its implementer report there at track start. Append a retained entry immediately when any trigger below fires. \`slate_change close\` clears the current change after delivery or abandonment. It deletes no files.\n\n- a second non-obvious decision.\n- a surprise about repository behaviour.\n- a NAMED focus area.\n- a session boundary.\n- multiple tracks.\n- a plan-changing ruling.\n- a user request.\n- an unresolved question needed later.\n\nOpen these sections:`;
+			const duplicatedWorkflow = `${workflow}\n\nMap edits name last logged full hash and verified preserved-copy path.\nEvery implementation dispatch carries this focused current-context block:\n\n> ${dispatchReference.trim()}\n\nThe block states the current approved design when one exists, the current task and acceptance condition, assigned findings and compact evidence when fixing, affected code or documents, relevant decisions, and unresolved relevant questions. The orchestrator supplies these inputs through specific section references or bounded excerpts. Implementers and fixers use the supplied current context. The full log remains available for unresolved relevant questions and retention. No implementation dispatch requires reading the entire historical log. This rule does not change reviewer input restrictions.\n\nEach implementation dispatch carries a trigger.\n\nStart a change with \`slate_change start\` before the first implementation dispatch. Slate creates \`slate-changes/<change>/research-log.md\` without waiting for a retained trigger. It records the generated folder name and owning Pi session identifier in saved state. Each track creates its implementer report there at track start. Append a retained entry immediately when any trigger below fires. \`slate_change close\` clears the current change after delivery or abandonment. It deletes no files.\n\n- a second non-obvious decision.\n- a surprise about repository behaviour.\n- a NAMED focus area.\n- a session boundary.\n- multiple tracks.\n- a plan-changing ruling.\n- a user request.\n- an unresolved question needed later.\n\nOpen these sections:`;
 			const duplicatedReviews = `${reviews}\n\n### Reviewer input contract\n\n${dispatchUnitById.get("reviewer-input-contract")?.text}\n\n## Reviewer sets, merge rule and charters\n\n## Stuck-fix consultation\n\n${dispatchUnitById.get("stuck-fix-policy")?.text}\n\n## Termination and deferred-work routing`;
 			const duplicateUnitOutcomes = resolveDispatchUnits(duplicatedWorkflow, duplicatedReviews);
 			const benignWorkflow = `${workflow}\n\n<!-- resolver benign dispatch-context control -->`;
@@ -6162,6 +6178,7 @@ omitted and why.`);
 			const missingBoundary = roleFiles.nl.replace("**Charter.**", "**Task.**");
 			checkAll("contract-dispatch-context", "four complete dispatch-policy units resolve exactly once and equal independent expectations. They cover the focused implementation-context obligation, research-log lifecycle, reviewer-input contract, and stuck-fix policy. Counterfactuals reject missing current-context inputs, a restored mandatory whole-log read, other policy weakening, or additions inside a unit, while benign text outside the units remains accepted. Five bounded UTF-8 measurements remain exact", [
 				["map reading rules belong once to the worker reference and all removal and whole-document repeat mutations fail", acceptsMapOwnership(mapReference, mapOutside) && mapOwnershipAttacks.every(Boolean), mapOwnershipAttacks],
+				["production, maintenance, applicability and edit prerequisites reject independent removal", productionRemovals.every(({ changed, rejected }) => changed && rejected), productionRemovals],
 				["all three presentation duties have independent presence pins and removal controls", acceptsMapPresentation(workflow) && mapPresentationRemovals.every(Boolean), mapPresentationRemovals],
 				["the workflow pointer names the worker task and rejects loss of the no-read duty", acceptsMapPointer(workflow) && !acceptsMapPointer(workflow.replace(mapNoRead, "")), mapNoRead],
 				["published heading-policy descriptions are count-free across root, verification and recursive docs paths", acceptsCountDocuments(countDocuments) && countDocuments.has("docs/maps.md") && countAttacks.every(Boolean), { files: [...countDocuments.keys()], attacks: countAttacks.length }],
@@ -6718,7 +6735,7 @@ The accounting covers:`),
 				["reviewer-owned-diff-exception-removed", reviewBlock, reviewBlock.replace("Write only your own writing-checker diff", "Write no writing-checker diff"), "Write only your own writing-checker diff"],
 			];
 			mutationAudit.record("worker-guidance", preambleMutations.map(([id, original, source, rule]) => ({ id, changed: source !== original, rejected: !guidanceStates.some(([, , expected]) => source === expected), originalRuleCount: original.split(rule).length - 1, mutatedRuleCount: source.split(rule).length - 1 })));
-			const reportRule = '"Report a failed record check as a failure."';
+			const reportRule = '"Report a failed record check as a failure. "';
 			const reportSource = readFileSync(join(REPO, "extension", "tools.ts"), "utf8");
 			const reportMutation = reportSource.replace(reportRule, '""');
 			mutationAudit.record("report-guidance", [{ id: "failed-record-check-report-removed", changed: reportMutation !== reportSource, rejected: !reportMutation.includes(reportRule), originalRuleCount: reportSource.split(reportRule).length - 1, mutatedRuleCount: reportMutation.split(reportRule).length - 1 }]);
