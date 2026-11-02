@@ -305,7 +305,7 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
     checkLimit(maximum, pair[1], `design-track maximum ${scenario}`);
     return `| ${publishing} | ${required} | ${tokens(required)} | ${maximum} | ${tokens(maximum)} | ${pair[1]} | ${tokens(pair[1])} |`;
   });
-  assert.deepEqual(measured[0], { key: "1 off ordinary", requiredBytes: 75207, maximumBytes: 144171, proposed: [78968, 151380] });
+  assert.deepEqual(measured[0], { key: "1 off ordinary", requiredBytes: 75204, maximumBytes: 144168, proposed: [78965, 151377] });
   checkChildCeiling(measured[0].requiredBytes, measured[0].maximumBytes);
   checkChildCeiling(75221, 144185);
   assert.throws(() => checkChildCeiling(75222, 144185), /child required reservation/);

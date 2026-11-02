@@ -4,6 +4,8 @@ Review the approved range against applicable whole approved standalone designs, 
 
 Receive no risk record, area proof, implementer episode, implementer report, private orchestrator triage, or implementer reasoning. Do not receive or directly read any research log, its reference or extract, including early, ordinary and design-track logs. Supply neither a log-held design nor its extract. An orchestrator-written statement of an approved decision is approved context, not a log extract. Do not seek these private sources even when repository tools can reach them. Private orchestrator triage means private deliberation and implementation rationale. Implementer reasoning means private reasoning produced by an implementer. These are distinct sources.
 
+Without map authorization, do not read or seek an implementation map, including its question list.
+
 Ordinary repository and library evidence needed for the assigned work remains available. This permission is not a closed changed-file allowlist. The selected perspectives do not expand your authority or change the approved review scope.
 
 ### Implementation design quality

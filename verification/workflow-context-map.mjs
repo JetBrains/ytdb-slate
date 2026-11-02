@@ -118,6 +118,7 @@ export const limits = {
 };
 // Exact line-context SHA-256 and occurrence counts. Each entry classifies one reviewed context.
 export const occurrences = [
+  {"source":"track-workflow.md","target":"review-rules.md","context":"ae99448e4763fb0c9be87bae1bc18b23ae7e5d3dc9c751ccd8ef61f745b99ce1","count":1,"recipient":"orchestrator","phase":5,"condition":"always"},
   {"source": "track-workflow.md", "target": "maps.md", "context": "d40cf828debe08b81c6a3bb11a33b9d5a40e1c2b89f799bcb0ca5bc88c5676d3", "count": 1, "reason": "Published worker-only map reference, no orchestrator read duty."},
   {"reason":"Private versioned record name.","source":"change-records.md","target":"variable:track-<number>-implementation-map.vN.md","context":"856703106d3a7bd611758fd2e244b110b6f804e5a0a43d6b0629a5a1db8ae5ce","count":1},
   {"reason":"Private versioned record name.","source":"change-records.md","target":"variable:.vN.md","context":"9df837dd8afe3b103473b045c5b550e4ff6a71036e6190e7247643e486e09c95","count":1},

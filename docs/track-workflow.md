@@ -241,7 +241,7 @@ minor dispositions, and moot or rejected findings in both review phases.
 Five cases require a user decision: a waiver, a scope exception, a pre-existing
 defect, lowering a blocker, and an implementation-level finding without a recommended fix.
 At every severity, obtain user design-update approval before a fix adds goals or non-goals, or changes approved guarantees, assumptions or reasoning.
-Without approval, stop repair. Existing waiver, deferral and scope routes do not bypass termination.
+Without approval, stop that repair. Record the decision in the owning research log. Existing waiver, deferral and scope routes do not bypass termination.
 Record every design-level change in the design update or track package.
 Repair bypasses no halt, user note, check, gate or acceptance.
 
@@ -508,18 +508,18 @@ Every implementation dispatch carries this focused current-context block:
 
 > Research log: `slate-changes/<change>/research-log.md`. Report: `slate-changes/<change>/track-<number>-implementer-report.md`. Use supplied references and excerpts. Read further history only for unresolved relevant questions.
 
-Name the current approved design, if any, wherever authoritative: standalone or recorded log content. Name task, acceptance condition, assigned findings with compact fix evidence, affected files, relevant decisions and unresolved questions.
-Give implementers and fixers section references or bounded excerpts, never a required whole-log read.
+Name any current approved design (standalone or log-held), task, acceptance condition, findings with compact fix evidence, affected files, decisions and open questions.
+Give implementers and fixers section references or bounded excerpts, not a required whole-log read.
 Identify assigned maps as factual context, not requirements.
-When a stored baseline exists, obtain its path and source commit from the log and name both.
-Use the root baseline for single-track work.
+For a stored baseline, obtain its path and source commit from the log and name both.
+Single-track work uses the root baseline.
 Recorded changes without baselines gain no retrospective requirement.
 Implementers use [maps.md](maps.md) for reading depth.
-Reviewer input restrictions remain unchanged.
-Every implementation dispatch either carries each focus-area trigger with its boundary
-sentences or directs the implementer to the risk definitions in
+Keep reviewer input restrictions.
+Each implementation dispatch carries each focus-area trigger and boundary
+sentences or directs the implementer to
 [blast-radius.md](blast-radius.md) § Focus areas and their gates. The implementer
-ends its response with an approximate track size in counted lines, followed by
+names any map statements its fix relies on and ends with approximate counted lines, then
 `unplanned risk: none` or one line that names a risk the plan did not name.
 
 Review dispatches follow [review-rules.md](review-rules.md) § Reviewer input
@@ -649,6 +649,8 @@ A mismatch pauses work. Reconcile it in the log. Use marker commits and Git
 history as boundary authority. The track table is display-only.
 
 ## Review coverage
+
+Use [review-rules.md](review-rules.md) § Reviewer input contract.
 
 Every part of a track range must reach its complete routine implementation
 reviewer set. The set contains every specialist for a proved area. It contains

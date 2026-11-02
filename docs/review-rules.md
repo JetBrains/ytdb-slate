@@ -21,13 +21,13 @@ Implementation reviewers receive applicable approved designs, approved range, in
 
 Both fix gates receive applicable approved designs, compact finding index, fix diff, approved scope context and needed ordinary evidence. The index contains only finding identifiers, evidence, validated severity and required disposition, without private triage or implementer reasoning. Neither gate receives implementer episodes or direct private sources. The fixer names the map statements its fix relies on. The orchestrator passes them unread to the agentic fix gate. A user-review fix-range gate receives no map statements.
 
-A map's question list is map content, not implementer reasoning. Questions follow authorized map inputs. Partial recipients receive only questions tied to supplied statements. No separate list expands access.
+Without map authorization, do not read or seek an implementation map, including its question list. A map's question list is map content, not implementer reasoning. Questions follow authorized map inputs. Partial recipients receive only questions tied to supplied statements. No separate list expands access.
 
 Only stuck-fix consultation may receive implementer episodes under § Stuck-fix consultation. Whole episodes permit no separate private input or direct private read.
 
 The supplied action temporary folder permits only the reviewer's own writing-checker diff and adds no reviewer input. A reviewer never lists tmp/ or reads another action's folder.
 
-A design-stage adversarial review also judges the simplest solution. The review checks the approved high-level design against slate's simplest-solution requirement. That requirement asks for the simplest solution with the fewest changes that keeps every approved goal, the product and implementation quality, and every required gate. The review judges the design as a whole and not one track at a time. This duty adds no artifact, no phase and no gate.
+A design adversary judges the whole approved high-level design, not each track separately, against slate's simplest-solution requirement: the fewest changes that preserve every approved goal, product and implementation quality, and required gate. This duty adds no artifact, phase or gate.
 
 Every reviewer uses the [common review policy](review-common-policy.md) for writing checks, evidence, severity, identifiers, and output format. Resolve its writing-checker path from the installed package as `../extension/writing-check.mjs`. Resolve its writing-guidance path as `writing-guidance.md` beside the policy. Manual reviews use this input contract, the common policy and applicable charter. Name [maps.md](maps.md) in authorized map-checking tasks without reading it.
 
@@ -213,9 +213,8 @@ to the original implementer unless the context is compromised or repeatedly
 fails. The fixer receives the review episode reference, synthesized compact
 finding index, and the focused current-context block required by
 [track-workflow.md](track-workflow.md) § Track intention block and implementer
-response. It re-reads the affected code. A fixer may read more of the retained
-research log only when a relevant question remains unresolved. A fixer does not
-need to read the entire historical log.
+response. It re-reads affected source and names the map statements its fix relies on.
+A fixer reads further retained log history only for unresolved relevant questions.
 
 Run at most two ordinary fix rounds. Each round has this sequence:
 
@@ -326,7 +325,7 @@ review section is complete.
 Apply this ordered test to each finding that is not waived, moot, or rejected:
 
 1. Route the five mandatory user cases before automatic repair.
-2. Separately, at every severity, obtain user approval before repairing a fix that adds a goal or non-goal, or changes an approved guarantee, assumption or reasoning. Use the Confirmation gate design-update approval, not a new escalation event. Without approval, stop that repair and use existing waiver, deferral or scope routes without bypassing termination.
+2. Separately, at every severity, obtain user approval before applying a fix that adds a goal or non-goal, or changes an approved guarantee, assumption or reasoning. Use the Confirmation gate design-update approval, not a new escalation event. Without approval, stop that repair. Record the decision in the owning research log. Use existing waiver, deferral or scope routes without bypassing termination.
 3. Apply recommended fixes for blocker and major findings inside this change.
 4. Validate each remaining minor finding and choose whether to fix or ignore it.
 5. Record each minor disposition and reason only in the research log.
