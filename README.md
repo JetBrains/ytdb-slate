@@ -1,73 +1,95 @@
-# ytdb-slate: multi-agent orchestration for the pi coding agent
+# ytdb-slate: design-first feature development for the pi coding agent
 
 [![CI status](https://github.com/JetBrains/ytdb-slate/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/JetBrains/ytdb-slate/actions/workflows/ci.yml)
 
-Slate is a multi-agent orchestration extension for the [pi coding agent](https://pi.dev). You work in one interactive pi session, the main session. A bounded action is a focused task with a clear limit. A worker thread is an isolated pi session that researches, implements, or reviews changes. Slate sends bounded actions to separate worker threads. Each worker thread returns a short structured summary called an episode. A review workflow adds reviewers for risks the orchestrator proves or for work above a size threshold.
+Slate is an extension for the [pi coding agent](https://pi.dev) for features that need deep domain knowledge, such as database or system code. You describe what a change must do. Slate researches the code and published approaches, proposes a design, implements the change, and reviews the result. You judge designs and results. You keep control without reading every line. Judging each design helps deepen your expertise.
 
-The developers of the [YouTrackDB](https://github.com/JetBrains/youtrackdb) database use Slate in production development.
+Slate comes from the [YouTrackDB](https://github.com/JetBrains/youtrackdb) team, which develops all YouTrackDB features with Slate. Slate helps new contributors with strong reasoning skills build database features quickly and at high quality, without deep database experience. Developers outside YouTrackDB also use Slate.
 
-## What Slate does
+## Who does what
 
-- Gives each worker thread context for one action, not the full main-session history.
-- Summarizes work at the action boundary. Summaries can omit details.
-- Lets Slate adapt its plan after each result.
-- Saves episodes for later worker threads to use by reference.
-- Runs independent actions in parallel.
+| You | Slate |
+| --- | --- |
+| State the intent and limits of a change. | Researches the code and published approaches. |
+| Judge the design, logic and risks. | Proposes designs and names proved risks. |
+| Answer product and permission questions. | Implements the change in focused steps. |
+| Accept the final result. | Adds reviewers for risky or large changes and reports their findings. |
 
 ## Quick start
 
-Slate requires pi 1.4.0 or later. Older pi can still load the package, but it is not supported. Slate provides no runtime version warning.
-
-You need an installed and authenticated [pi coding agent](https://pi.dev/docs/latest/quickstart). From your project directory, install a pinned Slate version:
+Use pi 1.4.0 or later. Older pi can load Slate but is unsupported. Slate has no runtime version warning. Install and authenticate [pi](https://pi.dev/docs/latest/quickstart), then pin Slate in your project:
 
 ```bash
 pi install -l npm:ytdb-slate@<version>
 ```
 
-The `-l` option records the package in `.pi/settings.json`. Pi may ask you to trust the project before loading its settings and extensions. Pi skips pins during `pi update --extensions` and `pi update --all`. Review the shipped workflow documents before moving the pin.
+The `-l` option records the package in `.pi/settings.json`. Pi may ask you to trust the project. Pi skips pins during `pi update --extensions` and `pi update --all`. Review the shipped workflow documents before moving the pin.
 
-Slate has not reached version 1.0. Releases that change only the last number, for example 0.11.0 and 0.11.3, are compatible. A release that changes the second number, for example 0.12.0, can break compatibility. Review the release notes before you update.
+Before 1.0, releases changing only the last number are compatible, such as 0.11.0 and 0.11.3. Changing the second number can break compatibility. Review release notes before updating.
 
-Start a new interactive pi session and let Slate delegate actions:
+Start a new interactive pi session:
 
 ```text
 /slate on
 ```
 
-Try a request with a clear outcome:
+Try a request:
 
 ```text
 Add input validation to the account settings endpoint. First research the relevant code and tests. Show me the proposed plan and risks before implementation.
 ```
 
-Slate asks for required decisions before editing code. It delegates work after workflow gates allow it. The workflow summary is off by default. Run `/slate summary on` to save an opt-in. The panel appears at the next interactive startup or mode activation, not when you save the choice. The summary disappears when you send your first prompt to the model. A handoff successor keeps the current panel visibility instead of using the saved choice.
+## How a change works
 
-Run `/slate off` to stop Slate's delegation and remove the summary. `/slate summary off` also removes it. Toggling orchestrator mode off with `/slate` removes it too. Other slash commands leave it visible unless they reload or replace the session. `/reload`, `/new`, `/resume`, and `/fork` clear the panel when they reload or replace the session. Slate then shows it only when orchestrator mode is on and the saved choice allows automatic display. Run `/slate summary` to show it at any time. See [Commands](#commands).
+Slate researches, assesses risks, and asks for required decisions before editing code. You judge designs and review results. You accept the whole change before merging.
 
-## How Slate works
+See [workflow](docs/track-workflow.md), [nested planning](docs/recursive-workflow.md), and [publishing guidance](docs/pr-publishing.md) for rules.
 
-- **Main session and orchestrator:** the interactive pi session where you set goals and review results. In **orchestrator mode**, it delegates actions.
-- **Bounded action:** focused work with a clear limit and expected result.
-- **Worker thread:** an isolated pi session for one action. Follow-up work starts a new thread.
-- **Episode:** a durable, structured summary of an action. It retains intent, actions, findings, artifacts, open issues, and handoff notes.
+## How Slate differs from spec-driven development
 
-Through `context`, later worker threads can receive earlier episodes without full transcripts. A model summarizes completed work and failed partial work. A worker thread that fails without a response receives a fixed episode instead. Summaries can lose details. [Design principles](docs/design-principles.md) and [model routing](docs/model-routing.md) explain the limits.
+Spec-driven development (SDD) puts a written specification at the center of the work. Some developers worry that this becomes a waterfall process, where all design ends before anyone writes code. Slate also uses written designs, but it works in small, checked steps:
 
-Slate independently implements the thread-weaving architecture from the Random Labs technical report for `@randomlabs/slate`.
+- **Research first.** Slate studies existing code and published approaches before proposing a design. You judge the proposal.
+- **Design and code advance together.** A track is a reviewable part of a change. About 400 changed lines per track is a guideline, not a limit. In a change with several tracks, you accept each track when it is complete. You also accept the whole change at the end.
+- **Design can change.** When implementation must change a guarantee or an assumption of the approved design, Slate shows you the change and asks for your approval.
+- **Review depth follows risk.** Slate adds reviewers for proved risks, such as data loss or concurrency defects. Small changes without proved risks get fewer steps. See [review rules](docs/review-rules.md).
 
-A track is a bounded part of approved work. A code track implements that work. A design track plans a nested change with child tracks. A level contains sibling tracks from one split. Levels group planning only. The whole change uses one branch and is the merge unit. Slate supplies this development workflow in orchestrator mode. Project configuration can extend the workflow rules but cannot replace them. Eleven focus areas name specific risks. They cover
+Eleven focus areas name specific risks. They cover
 concurrency defects, data loss, security weaknesses, performance degradation,
 test-quality defects, unreadable user-facing prose, licensing exposure,
 non-local logic defects, consumer contract breaks, governing-rule defects, and
 unreported failures.
 
-The orchestrator records risks for the change and each track. The orchestrator judges each named proof and selects design gates and reviewers. You can inspect the assessment and direct changes. A track with a proved risk gets one general reviewer and its required specialists. An implementer's approximate track size above 100 added plus removed lines also adds the general reviewer unless the track changes only documents that neither ship as code nor run. Lockfiles, migration files, and generated output do not count. A track that the orchestrator estimates above 100 such lines needs a high-level design before implementation, including when it changes only documents. A track with neither review trigger gets no routine implementation reviewer. See [workflow](docs/track-workflow.md) and [focus areas](docs/blast-radius.md) for the rules. One optional draft pull request covers the whole change. Each design track needs your explicit acceptance of its whole subtree, which contains that track and its descendants. Final acceptance of the whole change remains a separate decision. Only you merge the pull request after final acceptance. Merge commits or rebase merges keep separate implementation commits. A squash merge combines them. Rebase merges can drop empty marker commits that record accepted track boundaries. These losses are accepted. See [publishing guidance](docs/pr-publishing.md) for merge advice and verification. See [recursive workflow](docs/recursive-workflow.md) for nested planning, repair children, and acceptance.
+See [focus areas](docs/blast-radius.md).
+
+## What users say
+
+> ytdb-slate pi extension which rises my development expertise to the whole new level. I am not bad developer, but I don't have a lot of experience with db development and system programming. With slate I was able to be as productive as expert in this area. Slate takes all the complexity and deep knowledge needed and only leaves the good reasoning and logic to me. So, basically, every human with a good reasoning skills and some background understanding of computers and networks could become a pro system developer. I truly believe slate is a new revolution in the software development.
+
+— YouTrackDB developer
+
+## When plain pi is enough
+
+Use plain pi for small, well-understood edits. Slate uses more model calls than plain pi, so it costs more. Designs and reviews do not guarantee correct code. You still judge the evidence.
 
 ## Product principles
 
-- **Control without reading every line.** Many coding agents produce code that the developer accepts without reading it. Slate keeps you in control in a different way. It gives you higher-level views of the work: proved risks, designs, and review results. You direct and check each change through these views, so you do not need to read all of the generated code.
-- **Quality before cost, within limits.** We expect the cost of model use to fall over time. Slate therefore spends more model work on code quality, up to a reasonable limit. For example, Slate adds reviewers for proved risks and for large tracks that change code.
-- **Cost in proportion to the change.** The cost of a change should grow in proportion to its complexity. A small track with no proved risk gets no design gate and no routine implementation reviewer. A larger or riskier track can add design steps, review steps, or both.
+- **Control without reading every line.** Judge designs, proved risks and review results instead of relying only on code inspection.
+- **Quality before cost, within limits.** Slate spends more model work on quality, up to a reasonable limit.
+- **Cost in proportion to the change.** Small changes without proved risks need fewer steps than large or risky changes.
+
+## How Slate works
+
+Slate uses multi-agent orchestration:
+
+- **Main session:** your interactive pi session. In orchestrator mode, it delegates work.
+- **Bounded action:** focused work with a clear limit and expected result.
+- **Worker thread:** an isolated pi session for one action.
+- **Episode:** a durable, structured summary of an action.
+
+Slate sends bounded actions to worker threads. The orchestrator manages worker threads, keeps steps focused, adapts after results, and runs independent actions in parallel. Later worker threads receive episodes by reference through `context`, without full transcripts. Summaries can lose details.
+
+Slate independently implements the thread-weaving architecture from the Random Labs technical report for `@randomlabs/slate`. See [design principles](docs/design-principles.md) and [model routing](docs/model-routing.md).
 
 ## Commands
 
@@ -95,13 +117,19 @@ Slate limits which extensions worker threads can load and which project settings
 
 ## Roadmap
 
-The main goal is that you can guide a change through its design without reading the code. Planned work:
+The planned vision has two levels between requirements and code. A high-level design states what must be true and why. A low-level design shows how the code works through:
 
-1. Design documents that state exact guarantees and show why the design keeps them. Reviewers check the code against the approved design ([#402](https://github.com/JetBrains/ytdb-slate/issues/402), [#403](https://github.com/JetBrains/ytdb-slate/issues/403), [#404](https://github.com/JetBrains/ytdb-slate/issues/404)).
-2. Better developer experience: asynchronous threads, a detailed cost breakdown, and a read-only view of thread execution.
-3. Remote development: planned support will allow you to set up your own infrastructure to steer agents from a laptop, a desktop or a phone through one browser application, with notifications when an agent needs attention.
+- **Baseline map:** explains how the current code works before a change.
+- **Implementation map:** explains what the delivered code does.
+- **Neutral pseudocode:** describes logic without a specific programming language.
 
-See [`docs/roadmap.md`](docs/roadmap.md) for details.
+Maps are under development. Other plans:
+
+1. Exact design guarantees, reasoning, and review against the approved design ([#402](https://github.com/JetBrains/ytdb-slate/issues/402), [#403](https://github.com/JetBrains/ytdb-slate/issues/403), [#404](https://github.com/JetBrains/ytdb-slate/issues/404)).
+2. Asynchronous threads, a detailed cost breakdown, and a read-only view of thread execution.
+3. Remote development on your infrastructure through one browser application, from a laptop, desktop or phone, with notifications when an agent needs attention.
+
+See [roadmap](docs/roadmap.md) for details.
 
 ## Shipped docs
 

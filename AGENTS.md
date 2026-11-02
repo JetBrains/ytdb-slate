@@ -418,6 +418,8 @@ Release notes at `release/requests/<version>/notes.md` use `notesSha256` in thei
 
 The convention governs new or changed prose in the root `README.md`, PR descriptions and commit bodies. It also governs issues, comments, release notes and agent messages to users. Use short, active language. Write sentences a reader understands on one reading. Keep exact technical terms. Do not use semicolons or contractions.
 
+An attributed user quote with recorded permission stays verbatim and is exempt from the writing requirements and style convention.
+
 These ten requirements are project-authored:
 
 1. Write for a reader whose first language is not English.

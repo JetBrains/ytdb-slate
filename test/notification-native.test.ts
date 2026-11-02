@@ -246,7 +246,7 @@ test("cancelled native preparation promptly releases a deferred same-type dialog
 	// A new search key forces final-access preparation rather than the successful cache.
 	f.environment.PATH = "/different/bin";
 	let bells = 0;
-	const d = new NotificationDispatcher({ mode: "tui", cwd: f.projectDirectory, settings: { ...NOTIFICATION_DEFAULTS, minimumDelayMs: 0, cooldownMs: 0 }, channels: [f.channel, { name: "bell", prepare: async () => () => { bells++; } }], current: () => true, idle: () => true, queued: () => false, recovering: () => false });
+	const d = new NotificationDispatcher({ mode: "tui", cwd: f.projectDirectory, settings: { ...NOTIFICATION_DEFAULTS, minimumDelayMs: 0 }, channels: [f.channel, { name: "bell", prepare: async () => () => { bells++; } }], current: () => true, idle: () => true, queued: () => false, recovering: () => false });
 	t.after(() => { d.retire(); release?.(); });
 	d.runStart(); d.settled(); await delay(30); assert.ok(release);
 	d.dialog(true); await delay(10); d.runStart(); await delay(20);
@@ -290,7 +290,7 @@ test("real failed kills retain the native slot until the helper exits", { timeou
 		const child = spawnRealChild(process.execPath, ["-e", "setTimeout(() => {}, 30000)"], { stdio: "ignore" });
 		children.push(child); return child;
 	}) as typeof childProcess.spawn);
-	const options = { mode: "tui", cwd: f.projectDirectory, settings: { ...NOTIFICATION_DEFAULTS, minimumDelayMs: 0, cooldownMs: 0 }, channels: [f.channel], current: () => true, idle: () => true, queued: () => false, recovering: () => false };
+	const options = { mode: "tui", cwd: f.projectDirectory, settings: { ...NOTIFICATION_DEFAULTS, minimumDelayMs: 0 }, channels: [f.channel], current: () => true, idle: () => true, queued: () => false, recovering: () => false };
 	const first = new NotificationDispatcher(options), replacement = new NotificationDispatcher(options);
 	const admit = async (dispatcher: NotificationDispatcher) => { dispatcher.runStart(); dispatcher.settled(); await delay(30); };
 	t.after(async () => {
@@ -320,7 +320,7 @@ test("real failed kills retain the native slot until the helper exits", { timeou
 
 test("replacement and reload skip accepted native work until its limit releases the slot, shutdown never waits", { timeout: 8000 }, async (t) => {
 	const f = fixture(t), second = await import(`../extension/notification-dispatcher.ts?reload=${sequence}`);
-	const options = { mode: "tui", cwd: f.projectDirectory, settings: { ...NOTIFICATION_DEFAULTS, minimumDelayMs: 0, cooldownMs: 0 }, channels: [f.channel], current: () => true, idle: () => true, queued: () => false, recovering: () => false };
+	const options = { mode: "tui", cwd: f.projectDirectory, settings: { ...NOTIFICATION_DEFAULTS, minimumDelayMs: 0 }, channels: [f.channel], current: () => true, idle: () => true, queued: () => false, recovering: () => false };
 	const a = new NotificationDispatcher(options), b = new second.NotificationDispatcher(options);
 	t.after(() => { a.retire(); b.retire(); });
 	a.runStart(); a.settled(); await delay(30); assert.equal(f.calls.length, 1); f.children[0]!.emit("spawn");

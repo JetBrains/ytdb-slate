@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { NotificationDispatcher, type NotificationDispatcherOptions } from "../extension/notification-dispatcher.ts";
 import { resolveNotificationSettings } from "../extension/notification-config.ts";
 
-const settings = resolveNotificationSettings({ minimumDelayMs: 0, cooldownMs: 0, detail: "message" }, undefined, () => {});
+const settings = resolveNotificationSettings({ minimumDelayMs: 0, detail: "message" }, undefined, () => {});
 const pause = () => new Promise<void>((resolve) => setTimeout(resolve, 20));
 function arm(dispatcher: NotificationDispatcher) { dispatcher.runStart(); dispatcher.message({ role: "assistant", stopReason: "stop" }); dispatcher.settled(); }
 function options(deliver: () => void): NotificationDispatcherOptions {

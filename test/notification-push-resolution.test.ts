@@ -25,7 +25,7 @@ async function until(condition: () => boolean) {
 	assert.ok(condition(), "condition must become true within one second");
 }
 function settings(server = "http://localhost") {
-	return resolveNotificationSettings({ minimumDelayMs: 0, cooldownMs: 0, push: { enabled: true, server, topic: "topic", token: "private" } }, undefined, () => {});
+	return resolveNotificationSettings({ minimumDelayMs: 0, push: { enabled: true, server, topic: "topic", token: "private" } }, undefined, () => {});
 }
 function resolver(t: test.TestContext, script: string) {
 	const children: ChildProcess[] = [];
@@ -261,7 +261,7 @@ test("immediate HTTPS connect failures settle silently without crashing the host
 					try { return original(...args); } catch (error) { throws++; throw error; }
 				};
 				const warnings = [], callbacks = new Set();
-				const settings = resolveNotificationSettings({ minimumDelayMs: 0, cooldownMs: 0, bell: true,
+				const settings = resolveNotificationSettings({ minimumDelayMs: 0, bell: true,
 					push: { enabled: true, server: 'https://original.example', topic: 'topic' } },
 					undefined, warning => warnings.push(warning));
 				const channel = createPushNotificationChannel({ mode: 'tui', settings,

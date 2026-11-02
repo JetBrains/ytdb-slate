@@ -81,7 +81,7 @@ test("real factory routes automatic tmux selection in background without writing
 		return Object.assign(new EventEmitter(), { unref() {}, stdin: { destroy() {} }, stdout: { unref() {} }, stderr: { unref() {} }, kill() {} });
 	}) as unknown as typeof childProcess.execFile);
 	mkdirSync(join(f.ctx.cwd, ".pi"));
-	writeFileSync(join(f.ctx.cwd, ".pi", "slate.json"), JSON.stringify({ notifications: { minimumDelayMs: 0, cooldownMs: 0 } }));
+	writeFileSync(join(f.ctx.cwd, ".pi", "slate.json"), JSON.stringify({ notifications: { minimumDelayMs: 0 } }));
 	try {
 		extension(f.pi); await f.emit("session_start"); await f.emit("ui_prompt_start");
 		assert.equal(execute.mock.callCount(), 0); assert.equal(bytes.length, 0, "event handling starts neither query nor write");
@@ -105,7 +105,7 @@ test("real factory registers native by default with general text and respects pr
 	writeFileSync(join(helper, "notify-send"), "fixture"); chmodSync(join(helper, "notify-send"), 0o755);
 	process.env.PATH = helper; process.env.DISPLAY = ":1"; process.env.DBUS_SESSION_BUS_ADDRESS = "unix:path=/fake";
 	process.env.PI_CODING_AGENT_DIR = join(helper, "agent"); mkdirSync(process.env.PI_CODING_AGENT_DIR);
-	writeFileSync(join(process.env.PI_CODING_AGENT_DIR, "slate.json"), JSON.stringify({ notifications: { detail: "message", minimumDelayMs: 0, cooldownMs: 0, terminal: false, bell: false } }));
+	writeFileSync(join(process.env.PI_CODING_AGENT_DIR, "slate.json"), JSON.stringify({ notifications: { detail: "message", minimumDelayMs: 0, terminal: false, bell: false } }));
 	const spawn = t.mock.method(childProcess, "spawn", ((..._args: unknown[]) => {
 		const child = Object.assign(new EventEmitter(), { unref() {}, kill() { return true; } });
 		queueMicrotask(() => { child.emit("spawn"); child.emit("exit", 0); }); return child;
@@ -142,7 +142,7 @@ test("real factory stops accepted helpers at quit but not replacement or reload"
 	writeFileSync(join(helper, "notify-send"), "fixture"); chmodSync(join(helper, "notify-send"), 0o755);
 	process.env.PATH = helper; process.env.DISPLAY = ":1"; process.env.DBUS_SESSION_BUS_ADDRESS = "unix:path=/fake";
 	process.env.PI_CODING_AGENT_DIR = join(helper, "agent"); mkdirSync(process.env.PI_CODING_AGENT_DIR);
-	writeFileSync(join(process.env.PI_CODING_AGENT_DIR, "slate.json"), JSON.stringify({ notifications: { minimumDelayMs: 0, cooldownMs: 0, terminal: false, bell: false } }));
+	writeFileSync(join(process.env.PI_CODING_AGENT_DIR, "slate.json"), JSON.stringify({ notifications: { minimumDelayMs: 0, terminal: false, bell: false } }));
 	t.mock.method(childProcess, "spawn", (() => {
 		const child = spawnRealChild(process.execPath, ["-e", "setTimeout(() => {}, 30000)"], { stdio: "ignore" });
 		children.push(child); return child;
@@ -230,7 +230,7 @@ test("real factory suppresses print and RPC notifications even with a UI", { tim
 function policy(t: TestContext) {
 	const f = host(t); let time = 0, recovering = false, current = true;
 	const timers = new Set<{ at: number; callback: () => void }>(), delivered: string[] = [];
-	const config = {}; bindNotificationSettings(config, { minimumDelayMs: 30, cooldownMs: 0, detail: "message" }, undefined, () => {});
+	const config = {}; bindNotificationSettings(config, { minimumDelayMs: 30, detail: "message" }, undefined, () => {});
 	const events = registerNotificationEvents(f.pi, { currentLifecycle: () => current, recovering: () => recovering,
 		channels: [{ name: "native", prepare: async (text) => () => { delivered.push(`${text.title}:${text.body}`); } }],
 		now: () => time, schedule: (delay, callback) => { const timer = { at: time + delay, callback }; timers.add(timer); return () => { timers.delete(timer); }; },
@@ -405,7 +405,7 @@ test("run and overflow cancellation survive signal loss at settlement", { timeou
 
 test("real failover registers before notification settlement and shares cancellation and completion", { timeout: 5000 }, async (t) => {
 	const f = host(t); let epoch = 0, completed = 0;
-	const config = {}; bindNotificationSettings(config, { minimumDelayMs: 0, cooldownMs: 0 }, undefined, () => {});
+	const config = {}; bindNotificationSettings(config, { minimumDelayMs: 0 }, undefined, () => {});
 	const delivered: string[] = [];
 	let recovering = () => false;
 	const events = registerNotificationEvents(f.pi, { currentLifecycle: () => true, recovering: () => recovering(),
@@ -462,7 +462,7 @@ function factoryRecovery(t: TestContext) {
 	mkdirSync(agent); mkdirSync(join(f.ctx.cwd, ".pi"));
 	writeFileSync(join(agent, "settings.json"), JSON.stringify({ retry: { enabled: true, maxRetries: 0, baseDelayMs: 0 } }));
 	writeFileSync(join(f.ctx.cwd, ".pi", "slate.json"), JSON.stringify({ preserveGlobalModelDefault: false,
-		notifications: { minimumDelayMs: 0, cooldownMs: 0 },
+		notifications: { minimumDelayMs: 0 },
 		router: { models: { replace: [{ model: "luna-6", preferredProvider: "p1", providers: { p1: "m1", p2: "m2" } }] } },
 	}));
 	const primary = { provider: "p1", id: "m1", contextWindow: 10000, reasoning: true, thinkingLevelMap: { max: "max" } };
@@ -497,7 +497,7 @@ test("real factory connects terminal and bell channels to background writes on p
 		for (const [key, value] of multiplexers) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
 	});
 	mkdirSync(agent);
-	writeFileSync(join(agent, "slate.json"), JSON.stringify({ notifications: { minimumDelayMs: 0, cooldownMs: 0, sequences: ["osc777"], native: false } }));
+	writeFileSync(join(agent, "slate.json"), JSON.stringify({ notifications: { minimumDelayMs: 0, sequences: ["osc777"], native: false } }));
 	const writes: Buffer[] = [], timers = new Set<() => void>();
 	const originalWrite = process.stdout.write.bind(process.stdout);
 	t.mock.method(process.stdout, "write", ((data: any, ...args: any[]) => {

@@ -1,7 +1,7 @@
 {
   "name": "ytdb-slate",
-  "version": "0.17.0",
-  "description": "Multi-agent orchestration extension for the pi coding agent: bounded worker sessions, structured episode summaries, and a risk-based review workflow.",
+  "version": "0.18.0",
+  "description": "Design-first feature development for the pi coding agent. Slate researches, designs, implements and reviews each change. You judge the design and keep control of the code without reading every line.",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",

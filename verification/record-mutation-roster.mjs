@@ -36,7 +36,7 @@ export const EXPECTED_MUTATIONS = {
  ],
  "delivery-rules": [
   ...numbered("repairs", 58), ...numbered("aggregate", 21), ...numbered("issues", 15), ...numbered("sources", 73),
-  ...numbered("workflow-accounting", 73), ...numbered("notes-accounting", 23), ...numbered("publishing-sync", 7), ...numbered("public-workflow", 29),
+  ...numbered("workflow-accounting", 73), ...numbered("notes-accounting", 23), ...numbered("publishing-sync", 7),
   ...numbered("public-roadmap", 21)
  ],
  "transfer": [
@@ -200,8 +200,8 @@ export const EXPECTED_MUTATIONS = {
  ],
  "audit-repairs": [
   "configuration-draft-row", "recursive-publishing-pointer", "delivery-host-accepted-head", "delivery-every-method",
-  "delivery-result-before-closure", "delivery-later-push", "readme-merge-advice", "readme-squash-loss",
-  "readme-rebase-loss", "readme-accepted-loss"
+  "delivery-result-before-closure", "delivery-later-push", "publishing-merge-advice", "publishing-squash-loss",
+  "publishing-rebase-loss", "publishing-accepted-loss"
  ],
  "one-branch-rules": [
   "accepted-head-before-handoff", "every-merge-method", "source-not-target", "host-unavailable-pause",

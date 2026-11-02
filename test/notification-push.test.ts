@@ -23,7 +23,7 @@ async function until(condition: () => boolean) {
 function policy(server: string, extra: object = {}, project?: object) {
 	const config = {};
 	const warnings: string[] = [];
-	bindNotificationSettings(config, { terminal: false, native: false, bell: false, minimumDelayMs: 0, cooldownMs: 0, push: { enabled: true, server, topic: "home_topic" }, ...extra }, project, (warning) => warnings.push(warning));
+	bindNotificationSettings(config, { terminal: false, native: false, bell: false, minimumDelayMs: 0, push: { enabled: true, server, topic: "home_topic" }, ...extra }, project, (warning) => warnings.push(warning));
 	return { config, settings: notificationSettings(config), warnings };
 }
 interface Received { url: string | undefined; headers: http.IncomingHttpHeaders; raw: string; json: Record<string, unknown> }

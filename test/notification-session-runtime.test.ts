@@ -54,7 +54,7 @@ async function live(t: TestContext, before: ExtensionFactory, after: ExtensionFa
 		},
 	});
 	const delivered: { title: string; body: string }[] = [], timers = new Set<() => void>();
-	const config = {}; bindNotificationSettings(config, { minimumDelayMs: 0, cooldownMs: 0, detail: "message" }, undefined, assert.fail);
+	const config = {}; bindNotificationSettings(config, { minimumDelayMs: 0, detail: "message" }, undefined, assert.fail);
 	const adapter: ExtensionFactory = (pi) => {
 		const events = registerNotificationEvents(pi, { currentLifecycle: () => true, recovering: () => false,
 			channels: [{ name: "native", prepare: async (text) => () => { delivered.push(text); } }],

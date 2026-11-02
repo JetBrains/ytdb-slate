@@ -376,7 +376,7 @@ test("failed kill is idempotent and cannot settle before child close", { timeout
 test("refused parent kill holds the shared push slot until the real child self-deadline closes it", { timeout: 4000 }, async (t) => {
 	keepAlive(t);
 	const slots = (globalThis as unknown as Record<symbol, Map<string, unknown>>)[Symbol.for("ytdb-slate.notification-channel-slots.v1")]!;
-	const settings = resolveNotificationSettings({ minimumDelayMs: 0, cooldownMs: 0, push: { enabled: true, server: "http://localhost", topic: "t" } }, undefined, () => {});
+	const settings = resolveNotificationSettings({ minimumDelayMs: 0, push: { enabled: true, server: "http://localhost", topic: "t" } }, undefined, () => {});
 	const children: ChildProcess[] = [], callbacks = new Set<() => void>();
 	let kills = 0;
 	const resolver = { runtime: plain, script: PUSH_RESOLVER_SCRIPT.replace("Number(process.argv[2])", "700").replace("dns.lookup", "((host, options, callback) => { setInterval(() => {}, 1000); })"),
