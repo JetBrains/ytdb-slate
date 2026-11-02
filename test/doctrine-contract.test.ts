@@ -1003,7 +1003,7 @@ const policies: Record<string, Record<string, string>> = {
     focusedContext: "Research log: `slate-changes/<change>/research-log.md`. Report: `slate-changes/<change>/track-<number>-implementer-report.md`.",
     workerDepth: "Implementers map final source per [maps.md](maps.md).",
     mapMaintenance: "Fixers maintain maps per source commit.",
-    mapEditFields: "Map edits name last logged full hash and verified preserved-copy path.",
+    mapEditFields: "Edit logged maps: name last full hash, verified preserved-copy path.",
     designDispatch: "Name any current approved design (standalone or log-held), task, acceptance condition, findings with compact fix evidence, affected files, decisions and open questions.",
     boundedContext: "Give implementers and fixers section references or bounded excerpts, not a required whole-log read.",
     factualContext: "Assign maps per code track: facts, not requirements.",

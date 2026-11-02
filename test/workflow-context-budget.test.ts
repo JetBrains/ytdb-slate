@@ -85,15 +85,45 @@ function membership(ids: Record<string, string>): void {
   }
   for (const id of Object.keys(ids)) assert.ok(reads.some((r: Read) => r[0] === id) || referenceOnly[id], `unclassified export ${id}`);
 }
-const boundaryWorkflow = spawnSync("git", ["show", "ffeee65a588146a50339f735955b69007b1221af:docs/track-workflow.md"], { encoding: "utf8" });
-assert.equal(boundaryWorkflow.status, 0, "source boundary must be readable");
-function assertProductionGrowth(entries: Read[]): void {
-  const current = source("TRACK_WORKFLOW_DOC");
-  const delivered = total(entries);
-  documentTexts.set("TRACK_WORKFLOW_DOC", boundaryWorkflow.stdout);
-  try { assert.equal(delivered - total(entries), 100, "complete read-set growth"); }
-  finally { documentTexts.set("TRACK_WORKFLOW_DOC", current); }
-}
+// Exact accumulated totals also anchor session-entry and continuation measurements.
+const phaseTotals: Record<string, [number, number]> = {
+  "1 off ordinary": [75302, 144266],
+  "1 off nested": [90536, 159500],
+  "1 on ordinary": [86814, 155778],
+  "1 on nested": [102048, 171012],
+  "2 off ordinary": [111339, 180303],
+  "2 off nested": [126573, 195537],
+  "2 on ordinary": [122851, 191815],
+  "2 on nested": [138085, 207049],
+  "3 off ordinary": [111339, 180303],
+  "3 off nested": [126573, 195537],
+  "3 on ordinary": [122851, 191815],
+  "3 on nested": [138085, 207049],
+  "4 off ordinary": [111339, 180303],
+  "4 off nested": [126573, 195537],
+  "4 on ordinary": [122851, 191815],
+  "4 on nested": [138085, 207049],
+  "5 off ordinary": [135492, 232332],
+  "5 off nested": [150726, 247566],
+  "5 on ordinary": [147004, 243844],
+  "5 on nested": [162238, 259078],
+  "6 off ordinary": [135492, 232332],
+  "6 off nested": [150726, 247566],
+  "6 on ordinary": [147004, 243844],
+  "6 on nested": [162238, 259078],
+  "7 off ordinary": [158604, 260030],
+  "7 off nested": [173838, 260030],
+  "7 on ordinary": [170116, 271542],
+  "7 on nested": [185350, 271542],
+  "8 off ordinary": [158604, 260030],
+  "8 off nested": [173838, 260030],
+  "8 on ordinary": [170116, 271542],
+  "8 on nested": [185350, 271542],
+  "9 off ordinary": [158604, 260030],
+  "9 off nested": [173838, 260030],
+  "9 on ordinary": [170116, 271542],
+  "9 on nested": [185350, 271542],
+};
 const checkChildCeiling = (required: number, maximum: number) => {
   checkLimit(required, 75304, "child required reservation");
   checkLimit(maximum, 144268, "child maximum reservation");
@@ -242,8 +272,8 @@ function table(rows: string[], costs: string[], entries: string[]): string {
     `Maps use a soft guideline of about 1,500 words, with Mermaid diagrams under 40 nodes.`,
     `The worker reference is ${bytes(source("MAPS_DOC"))} bytes. See [maps.md](maps.md) for its writer and authorized checker readers.`,
     "Map text, worker reference reads and composed drafts are real excluded costs.",
-    "The worker-only safe-write section is 10,416 bytes.",
-    "That separate excluded read includes privacy rules and does not enter orchestrator phase totals.",
+    "The safe-write section is 10,416 bytes and includes privacy rules.",
+    "Only its worker read is a separate excluded cost. Its orchestrator read enters phase totals.",
     "Whole applicable designs supplied to reviewers are excluded costs that repeat across reviewers and fix-gate rounds.",
     "Several maps can exceed fixed-row headroom. These totals do not bound the whole conversation.", "",
     "Private evidence, designs, reports, source chains, project additions, configured",
@@ -287,10 +317,9 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
     assert.equal(has(required, "MAPS_DOC"), false);
     assert.equal(has(maximum, "MAPS_DOC"), false);
     const doctrine = bytes(doctrines[publishing === "on" ? 1 : 0]!.split(directory).join(""));
-    assertProductionGrowth(required);
-    assertProductionGrowth(maximum);
     const requiredBytes = doctrine + total(required), maximumBytes = doctrine + total(maximum);
     const key = `${phase} ${scenario}`, pair = limits[key];
+    assert.deepEqual([requiredBytes, maximumBytes], phaseTotals[key], `measured phase totals ${key}`);
     measured.push({ key, requiredBytes, maximumBytes, proposed: [Math.ceil(requiredBytes * 1.05), Math.ceil(maximumBytes * 1.05)] });
     assert.ok(pair, `missing limit pair ${key}`);
     const label = `${key} sources ${required.map((r) => `${r[0]}:${r[4].join(",") || "whole"}`).join(" ")}`;
@@ -318,7 +347,7 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
     checkLimit(maximum, pair[1], `design-track maximum ${scenario}`);
     return `| ${publishing} | ${required} | ${tokens(required)} | ${maximum} | ${tokens(maximum)} | ${pair[1]} | ${tokens(pair[1])} |`;
   });
-  assert.deepEqual(measured[0], { key: "1 off ordinary", requiredBytes: 75304, maximumBytes: 144268, proposed: [79070, 151482] });
+  assert.deepEqual(measured[0], { key: "1 off ordinary", requiredBytes: 75302, maximumBytes: 144266, proposed: [79068, 151480] });
   checkChildCeiling(measured[0].requiredBytes, measured[0].maximumBytes);
   checkChildCeiling(75304, 144268);
   assert.throws(() => checkChildCeiling(75305, 144268), /child required reservation/);
@@ -345,11 +374,14 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
   assert.equal(dirname(paths.MAPS_DOC), dirname(paths.TRACK_WORKFLOW_DOC));
   const safeWriteSection = sections(source("CHANGE_RECORDS_DOC"), ["Manual records and safe writes"]);
   assert.equal(bytes(source("CHANGE_RECORDS_DOC").slice(...safeWriteSection[0]!)), 10416);
-  assert.ok(source("CONTEXT_BUDGET_DOC").includes("The worker-only safe-write section is 10,416 bytes."));
-  for (const id of ["CHANGE_RECORDS_DOC", "MAPS_DOC", "REVIEW_RULES_DOC"]) {
-    const baseline = spawnSync("git", ["show", `ffeee65a588146a50339f735955b69007b1221af:docs/${relative(directory, exported[id]!)}`], { encoding: "utf8" });
-    assert.equal(baseline.status, 0);
-    assert.equal(source(id), baseline.stdout, `${id} remains byte-identical`);
+  assert.ok(source("CONTEXT_BUDGET_DOC").includes("Only its worker read is a separate excluded cost. Its orchestrator read enters phase totals."));
+  const protectedHashes: Record<string, string> = {
+    "CHANGE_RECORDS_DOC": "6ef08afc2954ea1148529cc5020b1755085173260dc6413907781754305cf6a5",
+    "MAPS_DOC": "9d3df9f71b5007c7fae20b961c4ece296efeb9c03ed4ee4207f85c31f89fbc75",
+    "REVIEW_RULES_DOC": "2ca829f5e7b884f061e236860cd963dab9f50e57caa4a6dfd5bac53309de5d72"
+  };
+  for (const [id, expected] of Object.entries(protectedHashes)) {
+    assert.equal(createHash("sha256").update(source(id)).digest("hex"), expected, `${id} remains byte-identical`);
   }
   assert.equal(referenceOnly.MAPS_DOC, pending[0].reason);
   assert.match(source("MAPS_DOC"), /about 1,500 words/);
@@ -492,7 +524,9 @@ test("session entry sets, continuation, and transfer controls", { timeout: 10000
       for (let through = entry.phase; through <= 9; through++) {
         const continued = sessionReads(entry, scenario, maximum, through) as Read[];
         assertEntry(continued, entry, scenario, maximum, through);
-        assertProductionGrowth(continued);
+        const resumeExtra = entry.phase === 1 && through === 1 && entry.id !== "research" && scenario.endsWith("nested") && maximum ? 29762 : 0;
+        assert.equal(doctrine + total(continued), phaseTotals[`${through} ${scenario}`]![maximum ? 1 : 0] + resumeExtra,
+          `measured session total ${entry.id} ${through} ${scenario} maximum=${maximum}`);
         assert.deepEqual(readSet(continued), readSet([...actual, ...expectedAccumulation(through, scenario, maximum)]));
         checkLimit(doctrine + total(continued), limits[`${through} ${scenario}`][maximum ? 1 : 0], `continued ${entry.id}`);
       }

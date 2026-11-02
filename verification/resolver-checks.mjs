@@ -5097,7 +5097,7 @@ const peerPinAttacks = levelPolicyUnits.map((unit) => {
  return { id: `${unit.id}/exception`, changed: source !== unit.source, rejected: !acceptsLevelUnit(unit, source) };
 });
 const EXPECTED_PUBLISHING_SHA256 = "06e760a0fb2a806574450c72c4cc45a3e9b563f7c0c61296d1d6cafa35fcd436";
-const EXPECTED_TRACK_WORKFLOW_SHA256 = "2a47363cd81d40dfe8c506a91ba340a4ae4f10c4ce84266f5db758e2588c4386";
+const EXPECTED_TRACK_WORKFLOW_SHA256 = "3cd7d1d89711891913c6b57663aa068e3a4130b2b5de2b77e46e259251aff299";
 const peerDocuments = [
 { id: "pr-publishing", source: publishing, expected: EXPECTED_PUBLISHING_SHA256 },
 { id: "track-workflow", source: workflow, expected: EXPECTED_TRACK_WORKFLOW_SHA256 },
@@ -5913,8 +5913,8 @@ verbatim retention of every tool result.`);
 				{
 					id: "implementation-reference",
 					source: workflow,
-					extract: regionUnit(/^(Map edits name last logged full hash and verified preserved-copy path.\nEvery implementation dispatch carries this focused current-context block:\n[\s\S]*?)(?=Each implementation dispatch carries)/gm),
-					expected: normalizeText(`Map edits name last logged full hash and verified preserved-copy path.
+					extract: regionUnit(/^(Edit logged maps: name last full hash, verified preserved-copy path.\nEvery implementation dispatch carries this focused current-context block:\n[\s\S]*?)(?=Each implementation dispatch carries)/gm),
+					expected: normalizeText(`Edit logged maps: name last full hash, verified preserved-copy path.
 Every implementation dispatch carries this focused current-context block:
 
 > Research log: \`slate-changes/<change>/research-log.md\`. Report: \`slate-changes/<change>/track-<number>-implementer-report.md\`. Use supplied references and excerpts. Read further history only for unresolved relevant questions.
@@ -6079,7 +6079,8 @@ Record each grant in the override log.`),
 			  ["maintenance", "Fixers maintain maps per source commit."],
 			  ["assignment", "Assign maps per code track: facts, not requirements."],
 			  ["applicability", "Recorded changes keep their workflow until user-approved migration."],
-			  ["edit-hash", "last logged full hash"],
+			  ["edit-classification", "Edit logged maps:"],
+			  ["edit-hash", "last full hash"],
 			  ["preserved-copy", "verified preserved-copy path"],
 			].map(([id, rule]) => {
 			  const source = workflow.replace(rule, "");
@@ -6127,7 +6128,7 @@ omitted and why.`);
 				resolveDispatchUnits(workflow, reviews.replace("### Reviewer input contract", "### Review inputs"))[2],
 				resolveDispatchUnits(workflow, reviews.replace("## Stuck-fix consultation", "## Diagnostic consultation"))[3],
 			];
-			const duplicatedWorkflow = `${workflow}\n\nMap edits name last logged full hash and verified preserved-copy path.\nEvery implementation dispatch carries this focused current-context block:\n\n> ${dispatchReference.trim()}\n\nThe block states the current approved design when one exists, the current task and acceptance condition, assigned findings and compact evidence when fixing, affected code or documents, relevant decisions, and unresolved relevant questions. The orchestrator supplies these inputs through specific section references or bounded excerpts. Implementers and fixers use the supplied current context. The full log remains available for unresolved relevant questions and retention. No implementation dispatch requires reading the entire historical log. This rule does not change reviewer input restrictions.\n\nEach implementation dispatch carries a trigger.\n\nStart a change with \`slate_change start\` before the first implementation dispatch. Slate creates \`slate-changes/<change>/research-log.md\` without waiting for a retained trigger. It records the generated folder name and owning Pi session identifier in saved state. Each track creates its implementer report there at track start. Append a retained entry immediately when any trigger below fires. \`slate_change close\` clears the current change after delivery or abandonment. It deletes no files.\n\n- a second non-obvious decision.\n- a surprise about repository behaviour.\n- a NAMED focus area.\n- a session boundary.\n- multiple tracks.\n- a plan-changing ruling.\n- a user request.\n- an unresolved question needed later.\n\nOpen these sections:`;
+			const duplicatedWorkflow = `${workflow}\n\nEdit logged maps: name last full hash, verified preserved-copy path.\nEvery implementation dispatch carries this focused current-context block:\n\n> ${dispatchReference.trim()}\n\nThe block states the current approved design when one exists, the current task and acceptance condition, assigned findings and compact evidence when fixing, affected code or documents, relevant decisions, and unresolved relevant questions. The orchestrator supplies these inputs through specific section references or bounded excerpts. Implementers and fixers use the supplied current context. The full log remains available for unresolved relevant questions and retention. No implementation dispatch requires reading the entire historical log. This rule does not change reviewer input restrictions.\n\nEach implementation dispatch carries a trigger.\n\nStart a change with \`slate_change start\` before the first implementation dispatch. Slate creates \`slate-changes/<change>/research-log.md\` without waiting for a retained trigger. It records the generated folder name and owning Pi session identifier in saved state. Each track creates its implementer report there at track start. Append a retained entry immediately when any trigger below fires. \`slate_change close\` clears the current change after delivery or abandonment. It deletes no files.\n\n- a second non-obvious decision.\n- a surprise about repository behaviour.\n- a NAMED focus area.\n- a session boundary.\n- multiple tracks.\n- a plan-changing ruling.\n- a user request.\n- an unresolved question needed later.\n\nOpen these sections:`;
 			const duplicatedReviews = `${reviews}\n\n### Reviewer input contract\n\n${dispatchUnitById.get("reviewer-input-contract")?.text}\n\n## Reviewer sets, merge rule and charters\n\n## Stuck-fix consultation\n\n${dispatchUnitById.get("stuck-fix-policy")?.text}\n\n## Termination and deferred-work routing`;
 			const duplicateUnitOutcomes = resolveDispatchUnits(duplicatedWorkflow, duplicatedReviews);
 			const benignWorkflow = `${workflow}\n\n<!-- resolver benign dispatch-context control -->`;
