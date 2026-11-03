@@ -620,9 +620,9 @@ test("resolver exclusions are explicit and preserve the complete default roster"
   try {
     const full = run(wrapper);
     assert.equal(full.status, 0, full.output);
-    assert.match(full.output, /^== summary: 209 pass, 0 fail, 0 not run \(209 result lines = 208 expected checks \+ this roster audit\) ==$/m);
+    assert.match(full.output, /^== summary: 249 pass, 0 fail, 0 not run \(249 result lines = 248 expected checks \+ this roster audit\) ==$/m);
     assert.doesNotMatch(full.output, /EXCLUDED|NOTE --exclude/);
-    assert.equal([...full.output.matchAll(/^CHECK +\S+ +PASS\b/gm)].length, 209);
+    assert.equal([...full.output.matchAll(/^CHECK +\S+ +PASS\b/gm)].length, 249);
     for (const id of ids) assert.match(full.output, new RegExp(`^CHECK +${id} +PASS\\b`, "m"));
 
     const args = ["--exclude", ids.join(",")];
@@ -631,7 +631,7 @@ test("resolver exclusions are explicit and preserve the complete default roster"
     assert.match(bounded.output, /^NOTE --exclude doctrine-original-base,doctrine-original-controls$/m);
     assert.deepEqual([...bounded.output.matchAll(/^CHECK +(\S+) +EXCLUDED\b/gm)].map((match) => match[1]), ids);
     assert.doesNotMatch(bounded.output, /^CHECK +doctrine-original-(?:base|controls) +(?:PASS|NOT RUN)\b/m);
-    assert.match(bounded.output, /^== summary: 207 pass, 0 fail, 0 not run, 2 excluded \(209 result lines = 208 expected checks \+ this roster audit\) ==$/m);
+    assert.match(bounded.output, /^== summary: 247 pass, 0 fail, 0 not run, 2 excluded \(249 result lines = 248 expected checks \+ this roster audit\) ==$/m);
     for (const value of ["unknown-check", "", `${ids[0]},unknown-check`, `${ids[0]},${ids[0]}`]) {
       const rejected = run(wrapper, ["--exclude", value]);
       assert.equal(rejected.status, 2, rejected.output);
@@ -653,7 +653,7 @@ test("resolver exclusions are explicit and preserve the complete default roster"
       const selected = run(wrapper, ["--only", selection.join(",")], false);
       assert.equal(selected.status, 0, selected.output);
       assert.deepEqual([...selected.output.matchAll(/^CHECK +(\S+) /gm)].map((match) => match[1]), [...selectedIds, "selected-mutation-audit", "roster"]);
-      assert.match(selected.output, /^NOTE executed mutation counts: {"heading-policy":883}$/m);
+      assert.match(selected.output, /^NOTE executed mutation counts: {"heading-policy":889}$/m);
       assert.match(selected.output, /^== summary: 4 pass, 0 fail, 0 not run \(4 result lines = 2 selected checks \+ scoped mutation audit \+ this roster audit\) ==$/m);
     }
     for (const args of [
@@ -733,7 +733,7 @@ test("resolver exclusions are explicit and preserve the complete default roster"
     assert.match(missing.output, /^CHECK +roster +FAIL\b/m);
     assert.match(missing.output, /none missing → \["off-inert"\]/);
     assert.deepEqual([...missing.output.matchAll(/^CHECK +(\S+) +EXCLUDED\b/gm)].map((match) => match[1]), ids);
-    assert.match(missing.output, /^== summary: 205 pass, 1 fail, 0 not run, 2 excluded .*−1 unaccounted/m);
+    assert.match(missing.output, /^== summary: 245 pass, 1 fail, 0 not run, 2 excluded .*−1 unaccounted/m);
     const deletedExcluded = source.replace(/^\s*check\("doctrine-original-base",[^\n]+\n/m, "\n");
     assert.notEqual(deletedExcluded, source, "excluded-check fixture must delete an actual check");
     writeFileSync(driver, deletedExcluded);
@@ -741,7 +741,7 @@ test("resolver exclusions are explicit and preserve the complete default roster"
     assert.equal(missingExcluded.status, 1, missingExcluded.output);
     assert.match(missingExcluded.output, /^CHECK +roster +FAIL\b/m);
     assert.match(missingExcluded.output, /none missing → \["doctrine-original-base"\]/);
-    assert.match(missingExcluded.output, /^== summary: 206 pass, 1 fail, 0 not run, 1 excluded .*−1 unaccounted/m);
+    assert.match(missingExcluded.output, /^== summary: 246 pass, 1 fail, 0 not run, 1 excluded .*−1 unaccounted/m);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

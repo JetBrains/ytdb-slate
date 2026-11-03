@@ -86,7 +86,7 @@ function membership(ids: Record<string, string>): void {
   for (const id of Object.keys(ids)) assert.ok(reads.some((r: Read) => r[0] === id) || referenceOnly[id], `unclassified export ${id}`);
 }
 // Exact accumulated totals also anchor session-entry and continuation measurements.
-const phaseTotals: Record<string, [number, number]> = {
+const acceptedStartTotals: Record<string, [number, number]> = {
   "1 off ordinary": [75302, 144266],
   "1 off nested": [90536, 159500],
   "1 on ordinary": [86814, 155778],
@@ -124,9 +124,13 @@ const phaseTotals: Record<string, [number, number]> = {
   "9 on ordinary": [170116, 271542],
   "9 on nested": [185350, 271542],
 };
+const deliveredGrowth = bytes(source("CHANGE_RECORDS_DOC").slice(...sections(source("CHANGE_RECORDS_DOC"), ["Manual records and safe writes"])[0]!)) - 10416;
+assert.ok(deliveredGrowth >= 0 && deliveredGrowth <= 15, "funded safe-write growth");
+const phaseTotals = Object.fromEntries(Object.entries(acceptedStartTotals)
+  .map(([key, pair]) => [key, pair.map((value) => value + deliveredGrowth)]));
 const checkChildCeiling = (required: number, maximum: number) => {
-  checkLimit(required, 75304, "child required reservation");
-  checkLimit(maximum, 144268, "child maximum reservation");
+  checkLimit(required, 75317, "child required reservation");
+  checkLimit(maximum, 144281, "child maximum reservation");
 };
 function checkLimit(value: number, limit: number, label: string): void {
   assert.ok(Number.isInteger(limit) && value <= limit, `${label}: total ${value}, limit ${limit}, excess ${value - limit}`);
@@ -272,7 +276,7 @@ function table(rows: string[], costs: string[], entries: string[]): string {
     `Maps use a soft guideline of about 1,500 words, with Mermaid diagrams under 40 nodes.`,
     `The worker reference is ${bytes(source("MAPS_DOC"))} bytes. See [maps.md](maps.md) for its writer and authorized checker readers.`,
     "Map text, worker reference reads and composed drafts are real excluded costs.",
-    "The safe-write section is 10,416 bytes and includes privacy rules.",
+    "The safe-write section is 10,431 bytes and includes privacy rules.",
     "Only its worker read is a separate excluded cost. Its orchestrator read enters phase totals.",
     "Whole applicable designs supplied to reviewers are excluded costs that repeat across reviewers and fix-gate rounds.",
     "Several maps can exceed fixed-row headroom. These totals do not bound the whole conversation.", "",
@@ -347,11 +351,11 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
     checkLimit(maximum, pair[1], `design-track maximum ${scenario}`);
     return `| ${publishing} | ${required} | ${tokens(required)} | ${maximum} | ${tokens(maximum)} | ${pair[1]} | ${tokens(pair[1])} |`;
   });
-  assert.deepEqual(measured[0], { key: "1 off ordinary", requiredBytes: 75302, maximumBytes: 144266, proposed: [79068, 151480] });
+  assert.deepEqual(measured[0], { key: "1 off ordinary", requiredBytes: 75317, maximumBytes: 144281, proposed: [79083, 151496] });
   checkChildCeiling(measured[0].requiredBytes, measured[0].maximumBytes);
-  checkChildCeiling(75304, 144268);
-  assert.throws(() => checkChildCeiling(75305, 144268), /child required reservation/);
-  assert.throws(() => checkChildCeiling(75304, 144269), /child maximum reservation/);
+  checkChildCeiling(75317, 144281);
+  assert.throws(() => checkChildCeiling(75318, 144281), /child required reservation/);
+  assert.throws(() => checkChildCeiling(75317, 144282), /child maximum reservation/);
   checkLimit(75856, limits["1 off ordinary"][0], "wider required control");
   checkLimit(144492, limits["1 off ordinary"][1], "wider maximum control");
   assert.throws(() => checkChildCeiling(75856, 144040), /child required reservation/);
@@ -373,10 +377,10 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
   }
   assert.equal(dirname(paths.MAPS_DOC), dirname(paths.TRACK_WORKFLOW_DOC));
   const safeWriteSection = sections(source("CHANGE_RECORDS_DOC"), ["Manual records and safe writes"]);
-  assert.equal(bytes(source("CHANGE_RECORDS_DOC").slice(...safeWriteSection[0]!)), 10416);
+  assert.equal(bytes(source("CHANGE_RECORDS_DOC").slice(...safeWriteSection[0]!)), 10431);
   assert.ok(source("CONTEXT_BUDGET_DOC").includes("Only its worker read is a separate excluded cost. Its orchestrator read enters phase totals."));
   const protectedHashes: Record<string, string> = {
-    "CHANGE_RECORDS_DOC": "6ef08afc2954ea1148529cc5020b1755085173260dc6413907781754305cf6a5",
+    "CHANGE_RECORDS_DOC": "05d3b02829556fb8bdc4ceec16cc812ca69b703682f11df7ba12a8e89061a667",
     "MAPS_DOC": "9d3df9f71b5007c7fae20b961c4ece296efeb9c03ed4ee4207f85c31f89fbc75",
     "REVIEW_RULES_DOC": "2ca829f5e7b884f061e236860cd963dab9f50e57caa4a6dfd5bac53309de5d72"
   };
@@ -514,6 +518,8 @@ test("session entry sets, continuation, and transfer controls", { timeout: 10000
       const actual = sessionReads(entry, scenario, maximum) as Read[];
       assertEntry(actual, entry, scenario, maximum);
       const doctrine = bytes(doctrines[scenario.startsWith("on") ? 1 : 0]!.split(directory).join(""));
+      assert.equal(doctrine + total(actual), acceptedStartTotals[`${entry.phase} ${scenario}`]![maximum ? 1 : 0]
+        + deliveredGrowth + (entry.phase === 1 && entry.id !== "research" && scenario.endsWith("nested") && maximum ? 29762 : 0));
       checkLimit(doctrine + total(actual), limits[`${entry.phase} ${scenario}`][maximum ? 1 : 0], entry.id);
       // Required successor reread and conditional-read omissions must fail independently of bytes.
       assert.throws(() => assertEntry(actual.filter((r) => r[0] !== "TRACK_WORKFLOW_DOC"), entry, scenario, maximum), /entry set/);
@@ -525,7 +531,7 @@ test("session entry sets, continuation, and transfer controls", { timeout: 10000
         const continued = sessionReads(entry, scenario, maximum, through) as Read[];
         assertEntry(continued, entry, scenario, maximum, through);
         const resumeExtra = entry.phase === 1 && through === 1 && entry.id !== "research" && scenario.endsWith("nested") && maximum ? 29762 : 0;
-        assert.equal(doctrine + total(continued), phaseTotals[`${through} ${scenario}`]![maximum ? 1 : 0] + resumeExtra,
+        assert.equal(doctrine + total(continued), phaseTotals[`${through} ${scenario}`]![maximum ? 1 : 0]! + resumeExtra,
           `measured session total ${entry.id} ${through} ${scenario} maximum=${maximum}`);
         assert.deepEqual(readSet(continued), readSet([...actual, ...expectedAccumulation(through, scenario, maximum)]));
         checkLimit(doctrine + total(continued), limits[`${through} ${scenario}`][maximum ? 1 : 0], `continued ${entry.id}`);

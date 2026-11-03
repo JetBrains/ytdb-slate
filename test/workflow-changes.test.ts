@@ -342,6 +342,21 @@ function assertMapMethod(task: string) {
   for (const rule of mapRules) assert.equal(task.split(rule).length, 2, rule);
 }
 
+test("runtime map fields remain a subset of common safe-write duties", () => {
+  const common = readFileSync(CHANGE_RECORDS_DOC, "utf8");
+  const universal = "Every record and map writer's task names destinations, creation or edit, explicit write and check methods, and read-only sources.";
+  assert.ok(common.includes(universal));
+  assert.ok(common.includes("Pause if creation or edit is absent."));
+  for (const [runtime, owner] of [
+    ["destination", "destinations"], ["write and check methods", "write and check methods"],
+    ["last logged full hash", "last logged full hash"],
+    ["verified preserved-copy path", "Preserve a separate copy"],
+  ]) {
+    assert.ok(mapRules[4].includes(runtime!), runtime);
+    assert.ok(common.includes(owner!), owner);
+  }
+});
+
 function assertReportMethod(task: string) {
   for (const [group, sentences] of reportMethodGroups) {
     assert.ok(task.includes(sentences.join(" ")), `generated ${group} guidance must match the approved method`);
