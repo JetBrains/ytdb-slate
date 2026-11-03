@@ -57,10 +57,10 @@ limit and pin Node 24.18.0. They inherit the read-only workflow permission,
 reuse the Linux action SHAs and install with `npm ci --ignore-scripts`.
 The workflow configures no required-check ruleset.
 
-The Windows job runs both files with ordinary `spec` output visible:
+The Windows job runs three files in order with ordinary `spec` output visible:
 
 ```text
-node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=./verification/required-case-reporter.ts --test-reporter-destination=stdout test/notification-push-portable.test.ts test/notification-native-windows-readback.test.ts
+node --test --test-concurrency=1 --test-reporter=spec --test-reporter-destination=stdout --test-reporter=./verification/required-case-reporter.ts --test-reporter-destination=stdout test/notification-push-portable.test.ts test/notification-native-windows-readback.test.ts test/safe-record-write.test.ts
 ```
 
 The macOS job runs both files in one invocation with the same reporters:
@@ -101,8 +101,10 @@ list selects applicable native cases through `process.platform`. A selected
 platform must have at least one required file. The macOS native file has one
 required case with `platforms: ["darwin"]`. The Windows native file has one
 required case with `platforms: ["win32"]`. Each native file registers no case
-outside its platform. The roster has three files in total. The selected roster
-has two files on macOS or Windows and one on Linux.
+outside its platform. The safe record-write command file uses `platforms: ["win32"]`.
+Its six required cases run on real files with a 60-second suite limit.
+The roster has four files in total. The selected roster has three files on Windows,
+two on macOS and one on Linux.
 
 The reporter runs only in the macOS and Windows job commands. The Linux runner
 uses its ordinary reporters without this required-file contract. Linux runs

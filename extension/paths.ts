@@ -13,6 +13,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const EXTENSION_DIR = dirname(fileURLToPath(import.meta.url));
 const DOCS_DIR = join(EXTENSION_DIR, "..", "docs");
 
+export const SAFE_RECORD_WRITE = join(EXTENSION_DIR, "safe-record-write.mjs");
 export const WRITING_CHECKER = join(EXTENSION_DIR, "writing-check.mjs");
 // Dynamic import specifiers must be file URLs: raw paths break on Windows and
 // treat `#` or `?` in an install directory as URL syntax.
