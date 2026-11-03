@@ -144,7 +144,14 @@ test("required roster validates global uniqueness before platform selection", ()
 	assert.equal(selectRequiredFiles(requiredRoster, "darwin").size, 2);
 	assert.equal(requiredRoster.length, 4);
 	assert.deepEqual(requiredRoster[3], { file: fileURLToPath(new URL(recordPath, source)),
-		names: recordNames, platforms: ["win32"] });
+		names: [
+			"safe record writes preserve exclusive creation and complete byte identity",
+			"safe record writes reject unsafe leaves and retention aliases",
+			"safe record writes report platform protections and checked fallback",
+			"safe record writes detect changed identities before payload writes",
+			"safe record writes retain partial bytes and primary failures",
+			"safe record writes bound reports and guard the production interface",
+		], platforms: ["win32"] });
 	assert.deepEqual(requiredRoster[1], { file: fileURLToPath(new URL(nativePath, source)),
 		names: [nativeName], platforms: ["darwin"] });
 	assert.deepEqual(requiredRoster[2], { file: fileURLToPath(new URL(windowsNativePath, source)),

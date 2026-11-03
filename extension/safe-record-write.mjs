@@ -1,19 +1,83 @@
 #!/usr/bin/env node
+/*
+ * Arguments: create|preserve [--expected HASH] -- SOURCE DESTINATION,
+ * compare -- FIRST SECOND, hash [--expected HASH] -- FILE, or --help.
+ * HASH is a full SHA-256 digest. SHA-256 is the Secure Hash Algorithm
+ * with a 256-bit result. Paths after -- can start with a dash.
+ * Quote paths for the shell. Escape embedded single quotes.
+ *
+ * create exclusively creates and verifies a new copy. preserve does the
+ * same and also checks whether an occupied file provides separate retention.
+ * compare checks complete bytes without writing. hash reads one full digest.
+ * Expected identity is checked before destination access. A changed digest
+ * during comparison refuses success even if metadata still agrees.
+ *
+ * Exit codes: 0 ok, 2 usage, 3 occupied, 4 different, 5 identity,
+ * 6 io, 7 changed, 8 unsafe-file. Usage includes unavailable exclusive
+ * creation. Occupied never means new creation, even when bytes agree.
+ * Different means unequal comparison bytes. Identity means an expected
+ * digest mismatch. Io means an input/output failure. Changed means an
+ * observed identity, metadata or source-digest change. Unsafe-file means
+ * a symbolic link or nonregular leaf. The first file failure stays primary.
+ *
+ * Each non-help invocation attempts one JSON (JavaScript Object Notation)
+ * report on standard output. Fields have these closed meanings:
+ * operation: create, preserve, compare, hash, or invalid for an unknown verb.
+ * code: one of the exit-code names above.
+ * stage: arguments, source, destination, copy, compare, complete, or output.
+ * It identifies the first failure phase or complete success.
+ * writeState: not-created, created-unverified, or verified. Only this
+ * invocation's exclusive creation can reach the latter two values.
+ * equal: null before a completed comparison, otherwise true or false.
+ * sourceHash and destinationHash: null or a lowercase 64-digit digest.
+ * sourceHash uses the latest completed read. destinationHash needs comparison.
+ * expected: not-supplied, not-checked, agreed, or differs. Agreed describes
+ * the first digest check, not a guarantee against later source changes.
+ * retainedVerified: true only for preserve with complete equal bytes,
+ * stable distinct source and destination identities, and successful closes.
+ * An occupied equal distinct file can qualify with exit 3 and not-created.
+ * A same-path or hard-link alias cannot qualify. Any other failure clears it.
+ * Retention establishes observed bytes, not approval or caller authority.
+ *
+ * protections has exactly exclusiveCreate, noFollowOpen, nonblockingOpen,
+ * and mode0600. Values are applied, unavailable, or not-applicable.
+ * Open values describe flags requested in attempted opens, even on refusal.
+ * Unavailable is cumulative when an optional flag falls back or is absent.
+ * Exclusive creation never falls back. An unsupported exclusive open reports
+ * exclusiveCreate as unavailable. Mode describes observed created-file
+ * permissions, not merely the requested mode. No creation leaves mode
+ * not-applicable. Windows reports optional open flags and mode unavailable.
+ * Windows uses checked ordinary opens and can follow an unobserved link swap.
+ *
+ * Callers may rely on exclusive creation, complete comparison and the
+ * reported observations. Parent links are not an access boundary. Checks
+ * do not provide an atomic snapshot against a hostile same-user process.
+ * No replacement, deletion, cleanup or power-loss durability is promised.
+ * Partial bytes remain. Missing reports or signals mean unknown write state.
+ * Report output failure selects exit 6 and attempts the fixed io diagnostic.
+ * Once a report is emitted, its code and exit status remain authoritative
+ * even if standard-error delivery fails. Diagnostics are best effort.
+ * Output limits including line endings: help 1024 bytes, report 2048 bytes,
+ * standard error 256 bytes. Reports contain no paths or operating-system text.
+ */
 import * as fs from 'node:fs';
 import { createHash } from 'node:crypto';
 
 const exits = { ok: 0, usage: 2, occupied: 3, different: 4, identity: 5, io: 6, changed: 7, 'unsafe-file': 8 };
-const help = `Safe record writes use exclusive creation. Existing files stay unchanged.
-Usage: node safe-record-write.mjs create|preserve [--expected HASH] -- SOURCE DESTINATION
-       node safe-record-write.mjs compare -- FIRST SECOND
-       node safe-record-write.mjs hash [--expected HASH] -- FILE
-       node safe-record-write.mjs --help
-HASH is a full SHA-256 digest, with 64 hexadecimal characters.
-Quote every path for your shell. Escape embedded single quotes.
-Symbolic links and nonregular file leaves are refused. Parent links are not an access boundary.
-Protections describe this invocation. Windows has reduced open and mode protection.
-A missing report means unknown write state. Partial files remain after failures.
-The command grants no approval. It does not replace files or ensure power-loss durability.
+const help = `Usage: node safe-record-write.mjs OP [--expected HASH] -- SOURCE [DESTINATION]
+create: exclusive creation and full copy verification.
+preserve: create, or check separate equal retention at an occupied name.
+compare: compare complete bytes without writes. No --expected.
+hash: hash one file. --help: show this text without file access.
+HASH: full SHA-256 digest, 64 hexadecimal digits.
+SHA-256 is the Secure Hash Algorithm with a 256-bit result.
+Exits: 0 ok, 2 usage, 3 occupied, 4 different, 5 identity mismatch,
+6 input/output failure, 7 observed change, 8 unsafe file.
+Quote shell paths and escape embedded single quotes. Use -- before paths.
+Links and nonregular leaves are refused. Parent links are not an access boundary.
+Windows has reduced open and mode protection. See the source contract for report
+fields and retention rules. Missing report means unknown write state.
+Partial files remain. No replacement, approval or power-loss durability is promised.
 `;
 const fail = (code) => { throw Object.assign(new Error(code), { recordCode: code }); };
 const sameObject = (a, b) => a.dev === b.dev && a.ino === b.ino;
@@ -41,26 +105,39 @@ function protection(key, used) {
 }
 function checkedOpen(path, create = false) {
   const c = fs.constants;
-  if (create && (!c.O_EXCL || !c.O_CREAT)) fail('usage');
+  if (create && (!c.O_EXCL || !c.O_CREAT)) {
+    report.protections.exclusiveCreate = 'unavailable';
+    fail('usage');
+  }
   const base = create ? c.O_RDWR | c.O_CREAT | c.O_EXCL : c.O_RDONLY;
   let nofollow = process.platform !== 'win32' && !!c.O_NOFOLLOW;
   let nonblock = process.platform !== 'win32' && !!c.O_NONBLOCK;
   let fd;
+  protection('noFollowOpen', nofollow);
+  protection('nonblockingOpen', nonblock);
   if (create) report.protections.exclusiveCreate = 'applied';
   try {
     fd = fs.openSync(path, base | (nofollow ? c.O_NOFOLLOW : 0) | (nonblock ? c.O_NONBLOCK : 0), 0o600);
   } catch (error) {
     const unsupported = ['ENOSYS', 'ENOTSUP', 'EOPNOTSUPP'].includes(error.code);
     if (!(nofollow || nonblock) || !(unsupported || error.code === 'EINVAL')) {
-      if (create && unsupported) fail('usage');
+      if (create && unsupported) {
+        report.protections.exclusiveCreate = 'unavailable';
+        fail('usage');
+      }
       throw error;
     }
     // Retry only optional flags. Exclusive creation stays required.
     nofollow = false;
     nonblock = false;
+    protection('noFollowOpen', false);
+    protection('nonblockingOpen', false);
     try { fd = fs.openSync(path, base, 0o600); }
     catch (fallback) {
-      if (create && ['ENOSYS', 'ENOTSUP', 'EOPNOTSUPP'].includes(fallback.code)) fail('usage');
+      if (create && ['ENOSYS', 'ENOTSUP', 'EOPNOTSUPP'].includes(fallback.code)) {
+        report.protections.exclusiveCreate = 'unavailable';
+        fail('usage');
+      }
       throw fallback;
     }
   }
@@ -175,6 +252,7 @@ function execute(input) {
     const source = readOpen(input.paths[0]);
     opened.push(source);
     report.sourceHash = digest(source);
+    const firstHash = report.sourceHash;
     if (input.expected) {
       report.expected = report.sourceHash === input.expected ? 'agreed' : 'differs';
       if (report.expected === 'differs') fail('identity');
@@ -202,7 +280,10 @@ function execute(input) {
           createdMeta = stat(fd);
           report.protections.mode0600 = process.platform !== 'win32' && (createdMeta.mode & 0o077n) === 0n ? 'applied' : 'unavailable';
           if (!createdMeta.isFile()) fail('unsafe-file');
-          if (createdMeta.size !== 0n || !sameObject(createdMeta, leaf(input.paths[1]))) fail('changed');
+          let named;
+          try { named = leaf(input.paths[1]); }
+          catch (error) { if (error.code === 'ENOENT') fail('changed'); throw error; }
+          if (createdMeta.size !== 0n || !sameObject(createdMeta, named)) fail('changed');
           report.stage = 'copy';
           copy(source, fd);
         } catch (error) { primary = error; }
@@ -214,6 +295,7 @@ function execute(input) {
         if (createdMeta && !sameObject(createdMeta, destination.meta)) fail('changed');
         if (occupiedMeta && !same(occupiedMeta, destination.meta)) fail('changed');
       } catch (error) {
+        destination = undefined;
         if (!primary) {
           if (error.code === 'ENOENT') fail('changed');
           throw error;
@@ -221,8 +303,13 @@ function execute(input) {
       }
     }
     if (destination) {
-      report.stage = 'compare';
-      try { compare(source, destination); } catch (error) { primary ??= error; }
+      const failureStage = primary ? report.stage : undefined;
+      if (!primary) report.stage = 'compare';
+      try {
+        compare(source, destination);
+        if (report.sourceHash !== firstHash) fail('changed');
+      } catch (error) { primary ??= error; }
+      if (failureStage) report.stage = failureStage;
     }
     if (primary) throw primary;
     check(source);
@@ -269,8 +356,10 @@ async function main() {
   } catch (error) { report.code = classify(error); }
   try {
     await output(process.stdout, JSON.stringify(report) + '\n');
-    if (report.code !== 'ok') await output(process.stderr, `safe-record-write: ${report.code}\n`);
     process.exitCode = exits[report.code];
+    if (report.code !== 'ok') {
+      try { await output(process.stderr, `safe-record-write: ${report.code}\n`); } catch {}
+    }
   } catch {
     report.code = 'io';
     report.stage = 'output';
@@ -280,5 +369,5 @@ async function main() {
 }
 // Stream errors remain handled even after a failed write callback.
 process.stdout.on('error', () => { process.exitCode = 6; });
-process.stderr.on('error', () => { process.exitCode = 6; });
+process.stderr.on('error', () => {});
 main().catch(() => { process.exitCode = 6; });
