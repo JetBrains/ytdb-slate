@@ -8,11 +8,11 @@ a662990ad131898b265a18e14e4499b1977774b0c35027a4dc8bd34616fd4512  README-GUIDELI
 
 c3ec46232ae59a874141e6528bebf5a079f492e72048f86474166fde53d58d20  docs/blast-radius.md
 
-deeb9fc531b0ca39d3e872a36bf28a89e9ca8ce60e6703e5e891a0e7d18b5a1c  docs/change-records.md
+5f1436acf1742891c948dd91d39c00f4629dd4c6420255508d993111c1639981  docs/change-records.md
 
 84dcfbeb2f215665c7562f6d7fe37857ceb8438cfc4f7dc80eb9a94296eae517  docs/configuration.md
 
-0f11130439ce12a2ebd8ca8260241b6f3f96d8217d763b1e0555f451031a9b1d  docs/context-budget.md
+7230558a1fa64edefa2deca165bfc559038256ba63ec3b7351f7c8e32b15cb97  docs/context-budget.md
 
 a19eef7bf9a86c2cf57f5f510534791c02320b6ce2259eabc3a9e7099d8254c5  docs/delivery-packages.md
 
@@ -57,6 +57,8 @@ a527dcd58276be7808e0a284add5f1dc08036ee9a522db85a4d5aeab3dd7b2f2  docs/review-pe
 2ca829f5e7b884f061e236860cd963dab9f50e57caa4a6dfd5bac53309de5d72  docs/review-rules.md
 
 6d747d45d7b680b7d7c91ff6158cd8d312c520ab2ae19ded16f4e2d6c77aa675  docs/roadmap.md
+
+43be51d01b93a0a851fced56407a118e4f33e648a3bc7a2d9b9f9ba1ea2d966e  docs/safe-record-write.md
 
 0a5e32799a1b0dc786b32ad2b01a2b363162ce73e75c0fac86896159daa47e52  docs/safety-and-trust.md
 

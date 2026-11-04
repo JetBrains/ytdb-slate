@@ -25,7 +25,7 @@ import {
 import { MAX_CONTEXT_EPISODES, type DispatchProgress, type ThreadManager } from "./threads.ts";
 import { JUDGEMENT_THREAD_TYPES } from "./worker.ts";
 import { REVIEW_PERSPECTIVES } from "./review-perspectives.ts";
-import { CHANGE_RECORDS_DOC } from "./paths.ts";
+import { CHANGE_RECORDS_DOC, SAFE_RECORD_WRITE_DOC } from "./paths.ts";
 import { implementerReportName, trackIdentifier, TRACK_IDENTIFIER_MAX, TRACK_IDENTIFIER_PATTERN } from "./record-names.ts";
 
 const threadTypeGlosses = THREAD_TYPES.map((type) => `${type} ${THREAD_TYPE_GLOSSES[type]}`).join(", ");
@@ -180,9 +180,11 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 					`For assigned maps, read <${CHANGE_RECORDS_DOC}> § Manual records and safe writes before writing. ` +
 					"Maps explain committed source at the end of the implementation action. " +
 					"Fixers update affected statements and the named commit for each delivered source commit, even if no statement changes. " +
-					"Pause map writes unless the task names the destination, write and check methods, and, for edits, the last logged full hash and verified preserved-copy path." +
+					`Create assigned new maps only with the installed safe-record-write command. For command use, name <${SAFE_RECORD_WRITE_DOC}> as the worker reference. ` +
+					"Keep interrupted edits on the edit route even if their destination vanishes. " +
+					"Pause map writes unless the task names the destination, creation or edit, write and check methods, read-only sources and, for edits, the last logged full hash and verified preserved-copy path." +
 					(store.sourceChange
-						? ` If the source folder has this track's report, continue it in this new report and name slate-changes/${store.sourceChange}/${reportName} as read-only in the new report's first entry. Do not edit the source report. Never write in the read-only source folder \`slate-changes/${store.sourceChange}/\`.`
+						? ` If the source folder has this track's report, continue it in this new report and name slate-changes/${store.sourceChange}/${reportName} as read-only in the new report's first entry. Do not edit the source report. If an assigned map exists only in the source folder, pause map writing until a record-only worker creates its successor copy. Do not create a replacement map from scratch. Never write in the read-only source folder \`slate-changes/${store.sourceChange}/\`.`
 						: "")
 				: params.task;
 			const result = await getManager().dispatch(

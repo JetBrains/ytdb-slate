@@ -1,6 +1,6 @@
 // Reviewed source-read assignments. Initial limits were approved on 2026-10-16.
-// The user-approved safe-write raise adds 215 bytes to both limits of all 36 rows.
-// This includes the two nested research maxima and corresponding session starts.
+// The safe-write allocation raises only phase-1 publishing-off ordinary by 2,430 bytes.
+// All other limits retain their approved literals.
 // The initial five-percent reserve rule does not apply to this approved raise.
 export const phases = ["Research", "Risk assessment", "Design validation", "Focus reconfirmation", "Adversarial design review", "Final design approval", "Track loop", "Final acceptance", "Delivery"];
 export const lifecycle = ["research.", "assess and record all eleven risk lines.", "design and validate for a multi-track change, a proved DESIGN-TRIGGERING area, or a per-track estimate above 100 counted lines.", "when a design exists, reconfirm the focus list against the validated design.", "when a design exists, run one adversarial design review for each proved DESIGN-TRIGGERING area that has not reviewed the applicable design.", "when a design exists, obtain final design approval.", "run the track loop.", "obtain blocking final acceptance.", "deliver."];
@@ -59,6 +59,8 @@ export function transferReads(outcome, currentReads, entry, scenario, maximum = 
   return startsSession(outcome) ? sessionReads(entry, scenario, maximum) : currentReads;
 }
 export const referenceOnly = {
+  SAFE_RECORD_WRITE_DOC: "Worker-only command reference, no orchestrator read duty.",
+  SAFE_RECORD_WRITE_DOC: "Worker-only command reference, no orchestrator read duty.",
   MAPS_DOC: "Published worker-only map reference, no orchestrator read duty.",
   REVIEW_IMPLEMENTATION_INPUT_DOC: "Worker-only input. Built-in implementation review loads it for the worker, not the orchestrator.",
   MODEL_ROUTING_DOC: "Reference document, no orchestrator read duty.",
@@ -81,7 +83,7 @@ export const conditionalSets = [
   ["Manual review", ["REVIEW_COMMON_POLICY_DOC", "WRITING_GUIDANCE_DOC", ...["RI", "CN", "DU", "SE", "PF", "TQ", "PL", "LX", "NL", "CB", "GR", "UF"].map((id) => `REVIEW_${id}_DOC`)]],
 ];
 export const limits = {
-  "1 off ordinary": [76071, 144707],
+  "1 off ordinary": [78501, 147137],
   "1 off nested": [129352, 227750],
   "1 on ordinary": [92915, 161551],
   "1 on nested": [146196, 244594],
@@ -120,6 +122,7 @@ export const limits = {
 };
 // Exact line-context SHA-256 and occurrence counts. Each entry classifies one reviewed context.
 export const occurrences = [
+  {"source":"change-records.md","target":"safe-record-write.md","context":"ee5b3f8ab1c937681d6522d285b5897ab30987a3057e9075816fc960ca5bc691","count":1,"reason":"Worker-only command reference, no orchestrator read duty."},
   {"source":"track-workflow.md","target":"review-rules.md","context":"ae99448e4763fb0c9be87bae1bc18b23ae7e5d3dc9c751ccd8ef61f745b99ce1","count":1,"recipient":"orchestrator","phase":5,"condition":"always"},
   {"source": "track-workflow.md", "target": "maps.md", "context": "d40cf828debe08b81c6a3bb11a33b9d5a40e1c2b89f799bcb0ca5bc88c5676d3", "count": 1, "reason": "Published worker-only map reference, no orchestrator read duty."},
   {"reason":"Private versioned record name.","source":"change-records.md","target":"variable:track-<number>-implementation-map.vN.md","context":"856703106d3a7bd611758fd2e244b110b6f804e5a0a43d6b0629a5a1db8ae5ce","count":1},
@@ -190,7 +193,7 @@ export const occurrences = [
   {"reason":"Variable private record or evidence path, excluded from fixed shipped context.","source":"change-records.md","target":"variable:track-<number>-research-log.md","context":"09986521fb8814b54e2c5dba430de7405757bc547cad5565c6d2996b6a9f0ff0","count":1},
   {"source":"change-records.md","target":"variable:research-log.md","context":"86debc1659ecf4832f208e7a841e6893262ba241f2918fc1bb2f83e6c85a135c","count":1,"reason":"Variable private record or evidence path, excluded from fixed shipped context."},
   {"source":"change-records.md","target":"status.md","context":"27fa42dbd3c9f32ac06a9980660e354fbab34cacbd5def01b830fcddeec2087a","count":1,"reason":"Variable private record or evidence path, excluded from fixed shipped context."},
-  {"source":"change-records.md","target":"status.md","context":"764ea7e2cc7386cc7591e3544011ecc4c967011458fb3debb0e44d1ea8901af5","count":1,"reason":"Variable private record or evidence path, excluded from fixed shipped context."},
+  {"source":"change-records.md","target":"status.md","context":"5f11a00140913faaf63536631d09c64f1afecacceabe2fbe5c1a01167d6043c9","count":1,"reason":"Variable private record or evidence path, excluded from fixed shipped context."},
   {"source":"change-records.md","target":"track-workflow.md","context":"751161b0c02269fef82f9a85de6bab0ff9559b2f40a284dd9e1a0cdd0ec2027d","count":1,"recipient":"orchestrator","phase":1,"condition":"always"},
   {"source":"recursive-workflow.md","target":"track-workflow.md","context":"91a053ac346c223faca81867cd26aa3ebfe630854e44131e7211d0c00228b060","count":1,"recipient":"orchestrator","phase":1,"condition":"always"},
   {"source":"recursive-workflow.md","target":"track-workflow.md","context":"7f21d093741b0225643a68201caeae8ed44bc654d7275e173887e2978fcf65d9","count":1,"recipient":"orchestrator","phase":1,"condition":"always"},

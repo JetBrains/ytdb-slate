@@ -3,7 +3,7 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, sy
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { CHANGE_RECORDS_DOC } from "../extension/paths.ts";
+import { CHANGE_RECORDS_DOC, SAFE_RECORD_WRITE_DOC } from "../extension/paths.ts";
 import { test } from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import extension from "../extension/index.ts";
@@ -336,7 +336,9 @@ const mapRules = [
   `For assigned maps, read <${CHANGE_RECORDS_DOC}> § Manual records and safe writes before writing.`,
   "Maps explain committed source at the end of the implementation action.",
   "Fixers update affected statements and the named commit for each delivered source commit, even if no statement changes.",
-  "Pause map writes unless the task names the destination, write and check methods, and, for edits, the last logged full hash and verified preserved-copy path.",
+  `Create assigned new maps only with the installed safe-record-write command. For command use, name <${SAFE_RECORD_WRITE_DOC}> as the worker reference.`,
+  "Keep interrupted edits on the edit route even if their destination vanishes.",
+  "Pause map writes unless the task names the destination, creation or edit, write and check methods, read-only sources and, for edits, the last logged full hash and verified preserved-copy path.",
 ] as const;
 function assertMapMethod(task: string) {
   for (const rule of mapRules) assert.equal(task.split(rule).length, 2, rule);
@@ -344,10 +346,10 @@ function assertMapMethod(task: string) {
 
 test("runtime map fields remain a subset of common safe-write duties", () => {
   const common = readFileSync(CHANGE_RECORDS_DOC, "utf8");
-  const owner = common.match(/Every record and map writer's task names ([^.]+)\./)![1]!;
+  const owner = common.match(/Every record writer’s task names ([^.]+)\./)![1]!.replace("write/check methods", "write and check methods") + " " + common.match(/Existing design\/map edits also need ([^.]+)\./)![1]!;
   const guidance = readFileSync(new URL("../extension/tools.ts", import.meta.url), "utf8");
   const runtime = guidance.match(/Pause map writes unless the task names ([^.]+)\./)![1]!;
-  const fields = runtime.replace("and, for edits, ", "").split(/, | and /);
+  const fields = runtime.replace("and, for edits, ", ", ").split(/, | and /);
   assert.ok(fields.length >= 4);
   for (const field of fields) assert.ok(owner.includes(field.replace(/^the /, "")), field);
   assert.ok(common.includes("Pause if creation or edit is absent."));
@@ -391,14 +393,15 @@ test("implementer receives its report path and approved method with and without 
       assert.doesNotMatch(task!, /If the source folder|read-only source folder/);
     }
     assertMapMethod(task!);
+    if (source) assert.ok(task!.includes("If an assigned map exists only in the source folder, pause map writing until a record-only worker creates its successor copy. Do not create a replacement map from scratch."));
     const originalTask = task!;
     for (const rule of [...mapRules, ...reportMethodGroups.flatMap(([, rules]) => [...rules])]) {
       const mutated = originalTask.replace(rule, "");
       assert.notEqual(mutated, originalTask);
       assert.throws(() => { assertReportMethod(mutated); assertMapMethod(mutated); });
     }
-    const pause = mapRules[4];
-    for (const field of ["destination", "write and check methods", "write and ", "check methods", "last logged full hash", "verified preserved-copy path"]) {
+    const pause = mapRules[6];
+    for (const field of ["destination", "creation or edit", "read-only sources", "write and check methods", "write and ", "check methods", "last logged full hash", "verified preserved-copy path"]) {
       assert.throws(() => assertMapMethod(originalTask.replace(pause, pause.replace(field, ""))), field);
     }
     for (const duty of ["affected statements", "named commit", "even if no statement changes", "committed source", "at the end of the implementation action", "Manual records and safe writes"]) {
@@ -413,16 +416,16 @@ test("implementer receives its report path and approved method with and without 
     const rendered = task!.slice(call.task.length + 2);
     const prefix = dirname(CHANGE_RECORDS_DOC) + "/";
     assert.ok(rendered.includes(`<${CHANGE_RECORDS_DOC}> § Manual records and safe writes`));
-    const portable = rendered.replace(prefix, "");
+    const portable = rendered.split(prefix).join("");
     for (const testPrefix of ["/opt/slate/docs/", "/tmp/slate checkout/docs/", "/tmp/映射 é/docs/"]) {
-      const relocated = portable.replace("<change-records.md>", `<${testPrefix}change-records.md>`);
-      assert.equal(Buffer.byteLength(relocated), Buffer.byteLength(portable) + Buffer.byteLength(testPrefix));
-      assert.equal(relocated.replace(testPrefix, ""), portable);
+      const relocated = portable.replace("<change-records.md>", `<${testPrefix}change-records.md>`).replace("<safe-record-write.md>", `<${testPrefix}safe-record-write.md>`);
+      assert.equal(Buffer.byteLength(relocated), Buffer.byteLength(portable) + 2 * Buffer.byteLength(testPrefix));
+      assert.equal(relocated.split(testPrefix).join(""), portable);
     }
-    assert.equal(Buffer.byteLength(rendered), Buffer.byteLength(portable) + Buffer.byteLength(prefix));
+    assert.equal(Buffer.byteLength(rendered), Buffer.byteLength(portable) + 2 * Buffer.byteLength(prefix));
     guidanceBytes.push(Buffer.byteLength(portable));
   }
-  assert.deepEqual(guidanceBytes, [1528, 1910], "portable production-rendered guidance bytes, source absent and present");
+  assert.deepEqual(guidanceBytes, [1787, 2341], "portable production-rendered guidance bytes, source absent and present");
   const published = readFileSync(new URL("../docs/context-budget.md", import.meta.url), "utf8");
   const format = (bytes: number) => bytes.toLocaleString("en-US");
   assert.ok(published.includes(`Its generated guidance is ${format(guidanceBytes[0]!)} UTF-8 bytes without a source folder.`));

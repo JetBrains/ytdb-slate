@@ -4,10 +4,11 @@ import { spawn } from "node:child_process";
 import { chmodSync, copyFileSync, linkSync, lstatSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { createHash } from "node:crypto";
 import { requiredCase } from "./required-case.ts";
-import { SAFE_RECORD_WRITE } from "../extension/paths.ts";
+import { createBashTool } from "@earendil-works/pi-coding-agent";
+import { CHANGE_RECORDS_DOC, SAFE_RECORD_WRITE_DOC, SAFE_RECORD_WRITE } from "../extension/paths.ts";
 
 const names = [
 	"safe record writes preserve exclusive creation and complete byte identity",
@@ -89,9 +90,120 @@ async function concurrent(args: string[], cwd: string) {
 	});
 }
 
+// This fixture interpreter checks the manual reference. It grants no runtime authority.
+function checkWorkerReference(reference: string, common: string) {
+	const operations = ["create", "compare", "hash", "preserve", "invalid"];
+	const exits = [0, 2, 3, 4, 5, 6, 7, 8];
+	const classes = ["accept", "retry creation", "pause occupied", "pause identity", "pause unknown"];
+	function table(source: string) {
+		const rows = source.split("\n").filter(line => line.startsWith("| ") && !line.startsWith("| Operation |") && !line.startsWith("| ---"))
+			.map(line => line.split("|").slice(1, -1).map(cell => cell.trim()));
+		assert.deepEqual(rows.map(row => row[0]), operations);
+		assert.equal(new Set(rows.map(row => row[0])).size, 5);
+		const header = source.split("\n").filter(line => line.startsWith("| Operation |"));
+		assert.equal(header.length, 1);
+		assert.deepEqual(header[0]!.split("|").slice(2, -1).map(cell => cell.trim()),
+			["0 ok", "2 usage", "3 occupied", "4 different", "5 identity", "6 io", "7 changed", "8 unsafe-file"]);
+		assert.ok(rows.every(row => row.length === 9 && row.slice(1).every(cell => classes.includes(cell!))));
+		return new Map(rows.map(row => [row[0]!, row.slice(1)]));
+	}
+	const routes = table(reference);
+	const expected = [
+		["accept", "pause unknown", "pause occupied", "retry creation", "pause identity", "pause unknown", "retry creation", "pause unknown"],
+		["accept", ...Array(7).fill("pause unknown")],
+		["accept", "pause unknown", "pause unknown", "pause unknown", "pause identity", "pause unknown", "pause unknown", "pause unknown"],
+		Array(8).fill("pause unknown"), Array(8).fill("pause unknown"),
+	];
+	for (const [i, op] of operations.entries()) assert.deepEqual(routes.get(op), expected[i]);
+	const row = reference.split("\n").find(line => line.startsWith("| create |"))!;
+	assert.throws(() => table(reference.replace(row, "")));
+	assert.throws(() => table(reference.replace(row, row + "\n" + row)));
+	assert.throws(() => table(reference.replace(row, row.replace("accept", "replace occupied"))));
+	assert.throws(() => table(reference.replace(row, row + "\n" + row.replace("create", "replace"))));
+	assert.throws(() => table(reference.replace("| 0 ok |", "| 0 ok | 0 ok |")));
+	const digest = hash(bytes);
+	const proof = { operation: "create", code: "ok", stage: "complete", writeState: "verified",
+		equal: true, sourceHash: digest, destinationHash: digest, expected: "agreed", retainedVerified: false,
+		protections: { exclusiveCreate: "applied" } };
+	const accepts = (value: Record<string, unknown>, expected?: string) =>
+		value.operation === "create" && value.code === "ok" && value.stage === "complete"
+		&& value.writeState === "verified" && value.equal === true && value.retainedVerified === false
+		&& typeof value.sourceHash === "string" && /^[a-f0-9]{64}$/.test(value.sourceHash)
+		&& value.sourceHash === value.destinationHash && (!expected || expected === value.sourceHash)
+		&& value.expected === (expected ? "agreed" : "not-supplied")
+		&& (value.protections as Record<string, unknown>)?.exclusiveCreate === "applied";
+	assert.ok(accepts(proof, digest));
+	assert.ok(accepts({ ...proof, expected: "not-supplied" }));
+	assert.equal(accepts(proof, "0".repeat(64)), false);
+	for (const key of Object.keys(proof)) assert.equal(accepts({ ...proof, [key]: null }, digest), false, key);
+	for (const key of ["sourceHash", "destinationHash"]) {
+		assert.equal(accepts({ ...proof, [key]: "0".repeat(64) }, digest), false);
+		assert.equal(accepts({ ...proof, [key]: digest.slice(0, 12) }, digest), false);
+	}
+	const codes = ["ok", "usage", "occupied", "different", "identity", "io", "changed", "unsafe-file"];
+	function route(op: string, exit: number | null, reports: Record<string, unknown>[], expected?: string) {
+		if (op === "preserve") return "pause unknown";
+		if (exit === 5 && op === "create") return "pause identity";
+		if (exit === 8 && op === "create" || exit === 2) return "pause unknown";
+		const index = exits.indexOf(exit!);
+		const report = reports[0];
+		if (reports.length !== 1 || !report || report.operation !== op || report.code !== codes[index] || index < 0) {
+			return op === "create" ? "retry creation" : "pause unknown";
+		}
+		const selected = routes.get(op)?.[index] ?? "pause unknown";
+		return selected === "accept" && op === "create" && !accepts(report, expected) ? "pause unknown" : selected;
+	}
+	for (const op of operations) for (const [i, exit] of exits.entries()) {
+		const report = { ...proof, operation: op, code: codes[i] };
+		assert.equal(route(op, exit, [report], digest), expected[operations.indexOf(op)]![i]);
+	}
+	for (const bad of [[], [proof, proof], [{ ...proof, code: "bad" }]]) assert.equal(route("create", 0, bad, digest), "retry creation");
+	assert.equal(route("create", null, [], digest), "retry creation");
+	assert.equal(route("create", 3, [{ ...proof, code: "occupied" }], digest), "pause occupied");
+	for (const bad of [[], ["accept", "pause unknown"], ["invented"]]) assert.equal(bad.length === 1 && classes.includes(bad[0]!), false);
+	for (const verb of ["deleted", "moved", "renamed", "truncated", "overwritten"]) {
+		const ban = "An occupied name is never deleted, moved, renamed, truncated or overwritten as a repair.";
+		assert.ok(common.includes(ban));
+		assert.equal(common.replace(verb, "").includes(ban), false, verb);
+	}
+	for (const rule of [
+		"The first creation and every retry supply the source’s logged or approval hash as expected when the task holds one.",
+		"The worker logs only that agreed full hash and checks the entry.",
+		"A logged interrupted edit stays an edit even if its destination vanishes.",
+	]) {
+		assert.equal(common.split(rule).length, 2);
+		assert.equal(common.replace(rule, "").includes(rule), false);
+	}
+	type Identity = { log: string; path: string; entry: number; kind: string; hash: string };
+	const identities: Identity[] = [];
+	const select = (log: string, path: string, boundary: number) => identities.filter(identity =>
+		identity.log === log && identity.path === path && identity.entry <= boundary
+		&& ["verified-write", "successor", "adoption"].includes(identity.kind)).at(-1)?.hash;
+	for (const path of ["baseline-map", "source-only-implementation-map", "plan"]) {
+		identities.push({ log: "owner", path, entry: 1, kind: "verified-write", hash: "old" },
+			{ log: "owner", path, entry: 2, kind: "successor", hash: digest },
+			...["recovery-only", "preserved-copy-only", "approval-only"].map((kind, i) => ({ log: "owner", path, entry: 3 + i, kind, hash: "excluded" })),
+			{ log: "other", path, entry: 6, kind: "adoption", hash: "other-log" },
+			{ log: "owner", path, entry: 8, kind: "adoption", hash: "later" });
+		assert.equal(select("owner", path, 0), undefined);
+		assert.equal(select("owner", path, 6), digest);
+		assert.notEqual(select("owner", path, 6), "old");
+		assert.equal(select("owner", path, 8), "later");
+		assert.equal(select("other", path, 6), "other-log");
+	}
+}
+
 describe("safe record command", { timeout: 60000 }, () => {
 	requiredCase(names[0]!, { timeout: 12000 }, async (t, complete) => {
 		const { root, source, destination } = fixture(t);
+		const mismatch = destination + "-identity";
+		expect(await run(operation("create", source, mismatch, "0".repeat(64)), root), 5);
+		assert.throws(() => lstatSync(mismatch), /ENOENT/);
+		expect(await run(operation("create", source, mismatch, hash(bytes)), root), 0, "verified");
+		expect(await run(operation("create", source, mismatch, "0".repeat(64)), root), 5);
+		assert.deepEqual(readFileSync(mismatch), bytes);
+		const noExpected = expect(await run(operation("create", source, destination + "-plain"), root), 0, "verified");
+		assert.equal(noExpected.expected, "not-supplied");
 		const created = expect(await run(operation("create", source, destination, hash(bytes)), root), 0, "verified");
 		assert.equal(created.expected, "agreed");
 		assert.equal(created.equal, true);
@@ -104,6 +216,7 @@ describe("safe record command", { timeout: 60000 }, () => {
 		assert.equal(expect(await run(operation("create", source, destination, "0".repeat(64)), root), 5).expected, "differs");
 		assert.deepEqual(readFileSync(destination), bytes);
 		writeFileSync(destination, "partial");
+		assert.equal(expect(await run(operation("hash", destination, undefined, created.destinationHash!), root), 5).expected, "differs");
 		assert.equal(expect(await run(operation("preserve", source, destination), root), 3).retainedVerified, false);
 		assert.equal(expect(await run(operation("compare", source, destination), root), 4).equal, false);
 		assert.equal(readFileSync(destination, "utf8"), "partial");
@@ -282,9 +395,13 @@ describe("safe record command", { timeout: 60000 }, () => {
 		assert.deepEqual(readFileSync(source), bytes);
 		complete();
 	});
-	requiredCase(names[5]!, { timeout: 12000 }, async (t, complete) => {
+	requiredCase(names[5]!, { timeout: 20000 }, async (t, complete) => {
 		const { root, source } = fixture(t);
 		const help = (await run(["--help"], root)).stdout;
+		const reference = readFileSync(SAFE_RECORD_WRITE_DOC, "utf8");
+		const link = /\[safe-record-write\.mjs\]\(([^)]+)\)/.exec(reference)![1]!;
+		assert.equal(fileURLToPath(new URL(link, pathToFileURL(SAFE_RECORD_WRITE_DOC))), SAFE_RECORD_WRITE);
+		checkWorkerReference(reference, readFileSync(CHANGE_RECORDS_DOC, "utf8"));
 		for (const name of ["create", "preserve", "compare", "hash"]) assert.match(help, new RegExp(name + ":"));
 		for (const code of [0, 2, 3, 4, 5, 6, 7, 8]) assert.match(help, new RegExp("\\b" + code + " "));
 		for (const args of [[], ["replace"], ["--help", "extra"], ["hash", "--", ""], ["hash", "--", source, source],
@@ -299,15 +416,65 @@ describe("safe record command", { timeout: 60000 }, () => {
 		assert.equal(lostDiagnostic.status, 2);
 		assert.equal(JSON.parse(lostDiagnostic.stdout).code, "usage");
 		assert.equal(lostDiagnostic.stderr, "");
-		const relocated = join(root, "installed space");
-		mkdirSync(relocated);
+		const ready = join(root, "abort-ready"), late = join(root, "late-write");
+		const abortDestination = join(root, "abort-destination");
+		const blocker = preload(root, `const write=fs.writeSync; fs.writeSync=(...a)=>{
+		  fs.writeFileSync(${JSON.stringify(ready)}, String(process.pid));
+		  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,10000);
+		  fs.writeFileSync(${JSON.stringify(late)}, "late"); return write(...a); };`);
+		const controller = new AbortController();
+		const invocation = createBashTool(root).execute("record-abort", {
+			command: [process.execPath, "--require", blocker, SAFE_RECORD_WRITE,
+				...operation("create", source, abortDestination, hash(bytes))].map(s => JSON.stringify(s)).join(" "),
+		}, controller.signal);
+		const outcome = invocation.then(() => false, () => true);
+		try {
+			const deadline = Date.now() + 3000;
+			while (Date.now() < deadline) {
+				try { readFileSync(ready); break; } catch {}
+				await new Promise(resolve => setTimeout(resolve, 20));
+			}
+			const pid = Number(readFileSync(ready, "utf8"));
+			assert.ok(pid > 0);
+			controller.abort();
+			assert.equal(await outcome, true);
+			const stopped = () => {
+				try { process.kill(pid, 0); } catch { return true; }
+				if (process.platform === "linux") {
+					try { return /^State:\s+Z/m.test(readFileSync("/proc/" + pid + "/status", "utf8")); } catch { return true; }
+				}
+				return false;
+			};
+			const stopDeadline = Date.now() + 2000;
+			while (!stopped() && Date.now() < stopDeadline) await new Promise(resolve => setTimeout(resolve, 20));
+			assert.ok(stopped(), "aborted command child must be stopped before a retry");
+			assert.equal(readFileSync(abortDestination).length, 0);
+			assert.throws(() => lstatSync(late), /ENOENT/);
+			assert.deepEqual(readFileSync(source), bytes);
+			const retry = expect(await run(operation("create", source, abortDestination, hash(bytes)), root), 3);
+			assert.notEqual(retry.writeState, "verified");
+			assert.equal(readFileSync(abortDestination).length, 0);
+		} finally { controller.abort(); await outcome; }
+		const relocated = join(root, "installed space", "extension");
+		mkdirSync(relocated, { recursive: true });
 		copyFileSync(SAFE_RECORD_WRITE, join(relocated, "safe-record-write.mjs"));
 		copyFileSync(fileURLToPath(new URL("../extension/paths.ts", import.meta.url)), join(relocated, "paths.ts"));
+		mkdirSync(join(root, "installed space", "docs"));
+		copyFileSync(SAFE_RECORD_WRITE_DOC, join(root, "installed space", "docs", "safe-record-write.md"));
+		const relocatedDoc = join(root, "installed space", "docs", "safe-record-write.md");
+		const relocatedLink = /\[safe-record-write\.mjs\]\(([^)]+)\)/.exec(readFileSync(relocatedDoc, "utf8"))![1]!;
+		const expectedLink = fileURLToPath(new URL(relocatedLink, pathToFileURL(relocatedDoc)));
+		assert.equal(expectedLink, join(relocated, "safe-record-write.mjs"));
 		const resolver = join(root, "resolve.mjs");
-		writeFileSync(resolver, `import { SAFE_RECORD_WRITE } from './installed space/paths.ts'; console.log(SAFE_RECORD_WRITE);`);
+		writeFileSync(resolver, `import { SAFE_RECORD_WRITE } from './installed space/extension/paths.ts'; console.log(SAFE_RECORD_WRITE);`);
 		const resolved = await subprocess(process.execPath, [resolver], root);
 		assert.equal(resolved.status, 0);
-		assert.equal(resolved.stdout.trim(), join(relocated, "safe-record-write.mjs"));
+		assert.equal(resolved.stdout.trim(), expectedLink);
+		const declaration = readFileSync(SAFE_RECORD_WRITE, "utf8").match(/const exits = \{([^}]+)\}/)![1]!;
+		const exitKeys = [...declaration.matchAll(/['"]?([\w-]+)['"]?: (\d+)/g)].map(m => [m[1], Number(m[2])]);
+		const operationList = readFileSync(SAFE_RECORD_WRITE, "utf8").match(/!\[([^\]]+)\]\.includes\(operation\)/)![1]!;
+		assert.deepEqual([...operationList.matchAll(/'([^']+)'/g)].map(m => m[1]), ["create", "preserve", "compare", "hash"]);
+		assert.deepEqual(exitKeys, [["ok", 0], ["usage", 2], ["occupied", 3], ["different", 4], ["identity", 5], ["io", 6], ["changed", 7], ["unsafe-file", 8]]);
 		expect(await run(operation("hash", source), root, undefined, resolved.stdout.trim()), 0);
 		const production = readFileSync(SAFE_RECORD_WRITE, "utf8").replace(/\r\n/g, "\n");
 		assert.ok(production.startsWith("#!/usr/bin/env node\n"));
