@@ -75,7 +75,7 @@ Exits: 0 ok, 2 usage, 3 occupied, 4 different, 5 identity mismatch,
 6 input/output failure, 7 observed change, 8 unsafe file.
 Quote shell paths and escape embedded single quotes. Use -- before paths.
 Links and nonregular leaves are refused. Parent links are not an access boundary.
-Windows has reduced open and mode protection. See ../docs/safe-record-write.md for report
+Windows has reduced open and mode protection. See ../docs/safe-record-write.md (relative to this command) for report
 fields and retention rules. Missing report means unknown write state.
 Partial files remain. No replacement, approval or power-loss durability is promised.
 `;

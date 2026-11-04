@@ -137,7 +137,7 @@ A **folder fork** gives a different session owner new active records.
 Use [track-workflow.md](track-workflow.md) § Session handoff and the research log
 for same-owner resume, trusted handoff, and folder allocation.
 At the first record write after a fork, name each direct source record as read-only.
-Use [change-records.md](change-records.md) § Manual records and safe writes for successor design and map identity.
+Use [change-records.md](change-records.md) § Manual records and safe writes for successor design, map and plan identity.
 Name the last source entry seen in each record, including the root log.
 Readers ignore later source entries.
 Follow source links for earlier history without copying or rewriting source files.

@@ -3,7 +3,7 @@
 Read this reference when a task uses [safe-record-write.mjs](../extension/safe-record-write.mjs).
 Only the assigned worker runs the command.
 Orchestrator mode has no shell tool.
-The comment block at extension/safe-record-write.mjs:2–61 owns the command contract.
+The comment block at extension/safe-record-write.mjs:2–62 owns the command contract.
 This reference maps that contract to the common record rules.
 The task supplies record permissions and explicit methods under the common change-record rules.
 This reference grants no record permission.
@@ -13,7 +13,7 @@ Command source and help are not required reads.
 ## Invocation
 
 Run `node COMMAND create -- SOURCE DESTINATION` for assigned new designs, maps and plans.
-COMMAND is the installed command path supplied by the task.
+COMMAND is ../extension/safe-record-write.mjs relative to this reference.
 SOURCE is the assigned payload or verified successor source.
 DESTINATION is the exact assigned record path.
 For the first creation and every retry, add `--expected HASH` before `--` when the task holds a logged or approval hash of SOURCE.
@@ -57,7 +57,7 @@ Failed expected identity prevents destination comparison.
 
 Every success requires exit 0, code ok and stage complete.
 Every success also requires expected agreed when a hash was supplied, otherwise not-supplied.
-Creation requires writeState verified, equal true, equal full sourceHash and destinationHash, retainedVerified false and protections.exclusiveCreate applied.
+Creation requires operation create, writeState verified, equal true, equal full sourceHash and destinationHash, retainedVerified false and protections.exclusiveCreate applied.
 When supplied, the expected hash must equal both reported hashes.
 Report that hash to the record-only logging worker.
 The logging worker runs `node COMMAND hash --expected HASH -- DESTINATION` with the reported hash and logs only on agreement.
@@ -77,8 +77,8 @@ Check that every operation and exit key occurs exactly once and only defined cla
 Use only accept, retry creation, pause occupied, pause identity and pause unknown.
 Report exactly one class and the operation’s proof fields.
 Accept requires all operation-specific proof above, not exit 0 alone.
+Known exits 2, 5, 6, 8, unavailable exclusive creation and a command that cannot run take precedence.
 For create, a missing or invalid command report or a signal means retry creation with the same expected hash.
-Known exit 5, exit 8 and unavailable exclusive creation keep their pause routes.
 Other unclear command results mean pause unknown.
 A worker report with no defined class, several classes or accept without the required proof means pause unknown.
 A rejected pair is pause unknown, never success.

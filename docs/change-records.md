@@ -51,6 +51,7 @@ Every multi-track change creates a track plan.
 A single track with review-fix children counts as multi-track.
 A single track without children needs no plan.
 Plan creation and successor copies follow design hash, check and privacy duties.
+Pause plan edits and ask the user.
 A plan hash identifies bytes, not approval.
 The root research log owns plan hashes.
 A design track has no implementer report or implementation commit.
@@ -153,6 +154,7 @@ A log or report must equal the start copy followed by every appended temporary f
 The worker checks this with `cat` and `cmp`.
 Check a status file or new design or map against its last temporary file with `cmp`.
 For design/map edits, use `diff` against the verified versioned copy and confirm each difference is intended.
+After a design/map edit passes its check, report its full hash.
 
 Report each record's exact task path, comparison and result in the final response.
 Only all three episode parts count as a check.
@@ -201,19 +203,20 @@ Workers report exactly one class: accept, retry creation, pause occupied, pause 
 For command results, only retry creation permits another attempt, with no added cap.
 Log appends, status rewrites, `cp -n` copies and edit retries keep their own rules.
 A worker report with no defined class, several classes or accept without the proof below means pause unknown.
-Creation acceptance needs code ok, writeState verified, equal true and full destinationHash = sourceHash = expected hash when supplied.
+Creation acceptance needs operation create, code ok, writeState verified, equal true and full destinationHash = sourceHash = expected hash when supplied.
 Without expected, both full hashes must still agree.
 Exit 0 alone is not proof.
 The first creation and every retry supply the source’s logged or approval hash as expected when the task holds one.
 Identity failure pauses.
 New designs, maps and plans allow no non-exclusive creation.
 Unavailable exclusive creation or an unrun command pauses.
-An occupied name is never deleted, moved, renamed, truncated or overwritten as a repair.
+For creation, an occupied name is never deleted, moved, renamed, truncated or overwritten as a repair.
 Occupied creation pauses for record-only classification even if equal.
 Recovery work delivers classification. Until then, ask the user.
 An exit 3 result is never logged as a write identity.
+Known exits 2, 5, 6, 8, unavailable exclusive creation and a command that cannot run take precedence.
 For create, no command report, an invalid report or a signal means retry creation with the same expected hash.
-An occupant then gives pause occupied. Known exit 5, exit 8 and unavailable exclusive creation keep their pauses.
+An occupant then gives pause occupied.
 Other unclear command results mean pause unknown.
 While preservation is inactive, every preserve operation-and-exit pair maps to pause unknown.
 Command proof grants no file authority. Keep explicit edit methods.
@@ -225,7 +228,7 @@ Umask limits private creation permissions.
 Same-user processes can still access folders.
 **Private bytes** come from that set.
 A write approves no design and grants no completion or gate authority.
-Design/map identity: § Manual records and safe writes.
+Design/map/plan identity: § Manual records and safe writes.
 Reviewer access: [review-rules.md](review-rules.md) § Reviewer input contract.
 Records can appear in saved worker sessions and command text.
 Pi's default session permissions can expose record text to other local users.

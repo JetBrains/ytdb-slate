@@ -124,7 +124,7 @@ const acceptedStartTotals: Record<string, [number, number]> = {
   "9 on ordinary": [170346, 271772],
   "9 on nested": [185580, 271772],
 };
-// Accepted limits from 6fb9f6a, independent of the current data map.
+// Approved limit literals, independent of the current data map.
 const acceptedStartLimits: Record<string, [number, number]> = {
   "1 off ordinary": [76071, 144707],
   "1 off nested": [129352, 227750],
@@ -164,12 +164,13 @@ const acceptedStartLimits: Record<string, [number, number]> = {
   "9 on nested": [233724, 319984],
 };
 const deliveredGrowth = bytes(source("CHANGE_RECORDS_DOC").slice(...sections(source("CHANGE_RECORDS_DOC"), ["Manual records and safe writes"])[0]!)) - 10646;
-assert.ok(deliveredGrowth === 2430, "funded safe-write growth");
+assert.ok(deliveredGrowth === 2593, "funded safe-write growth");
 const phaseTotals = Object.fromEntries(Object.entries(acceptedStartTotals)
-  .map(([key, pair]) => [key, pair.map((value) => value + deliveredGrowth)]));
+  .map(([key, pair]) => [key, pair.map((value, side) => value + deliveredGrowth
+    + (key.endsWith("nested") || Number(key.split(" ")[0]) >= 7 && side === 1 ? 6 : 0))]));
 const checkChildCeiling = (required: number, maximum: number) => {
-  checkLimit(required, 77962, "child required reservation");
-  checkLimit(maximum, 146926, "child maximum reservation");
+  checkLimit(required, 78125, "child required reservation");
+  checkLimit(maximum, 147089, "child maximum reservation");
 };
 function exactLimits(key: string, pair: number[]): void {
   assert.deepEqual(pair, acceptedStartLimits[key]!.map((n) => n + (key === "1 off ordinary" ? deliveredGrowth : 0)), `exact approved raise ${key}`);
@@ -271,17 +272,17 @@ function table(rows: string[], costs: string[], entries: string[]): string {
     "The user approved the two nested research maximum limits on 2026-10-25.",
     "They are 227,750 bytes / 56,938 estimated tokens with publishing off and",
     "244,594 bytes / 61,149 estimated tokens with publishing on.",
-    "The safe-write allocation raises only phase-1 publishing-off ordinary by 2,430 bytes.",
+    "The safe-write allocation raises only phase-1 publishing-off ordinary by 2,593 bytes.",
     "G is the measured growth of the Manual records and safe writes section.",
-    "The section measures 13,076 bytes. G is 2,430 bytes.",
-    "The required limit is 76,071 + G = 78,501 bytes.",
-    "The conditional maximum limit is 144,707 + G = 147,137 bytes.",
-    "The child ceilings are 77,962 and 146,926 bytes.",
+    "The section measures 13,239 bytes. G is 2,593 bytes.",
+    "The required limit is 76,071 + G = 78,664 bytes.",
+    "The conditional maximum limit is 144,707 + G = 147,300 bytes.",
+    "The child ceilings are 78,125 and 147,089 bytes.",
     "Wider headroom stays exactly 539 required and 211 maximum bytes.",
     "The maximum headroom includes 209 protected bytes and 2 free bytes.",
     "The protected pool retains 187 bytes.",
     "All other 35 limits stay unchanged.",
-    "The tightest unraised headroom is 617 required and 290 maximum bytes.",
+    "The tightest unraised headroom is 454 required and 127 maximum bytes.",
     "It occurs in phases 2 to 4 with publishing off and an ordinary plan.",
     "Any final G different from the user-approved figure returns to the user before implementation.", "",
     "| Phase | Publishing | Plan | Required bytes | Estimated tokens | Byte limit | Token limit | Conditional maximum bytes | Estimated tokens | Byte limit | Token limit |",
@@ -331,7 +332,7 @@ function table(rows: string[], costs: string[], entries: string[]): string {
     `Maps use a soft guideline of about 1,500 words, with Mermaid diagrams under 40 nodes.`,
     `The worker reference is ${bytes(source("MAPS_DOC"))} bytes. See [maps.md](maps.md) for its writer and authorized checker readers.`,
     "Map text, worker reference reads and composed drafts are real excluded costs.",
-    "The safe-write section is 13,076 bytes and includes privacy rules.",
+    "The safe-write section is 13,239 bytes and includes privacy rules.",
     "Only its worker read is a separate excluded cost. Its orchestrator read enters phase totals.",
     "Whole applicable designs supplied to reviewers are excluded costs that repeat across reviewers and fix-gate rounds.",
     "Several maps can exceed fixed-row headroom. These totals do not bound the whole conversation.", "",
@@ -367,8 +368,8 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
       assert.throws(() => exactLimits(key, changed), /exact approved raise/);
     }
   }
-  assert.deepEqual(limits["1 off ordinary"], [78501, 147137]);
-  assert.deepEqual([78501 - 77962, 147137 - 146926], [539, 211]);
+  assert.deepEqual(limits["1 off ordinary"], [78664, 147300]);
+  assert.deepEqual([78664 - 78125, 147300 - 147089], [539, 211]);
   for (const delta of [-1, 1]) for (const side of [0, 1]) {
     const pair = [...limits["1 off ordinary"]];
     pair[side] += delta;
@@ -422,18 +423,18 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
     checkLimit(maximum, pair[1], `design-track maximum ${scenario}`);
     return `| ${publishing} | ${required} | ${tokens(required)} | ${maximum} | ${tokens(maximum)} | ${pair[1]} | ${tokens(pair[1])} |`;
   });
-  assert.deepEqual(measured[0], { key: "1 off ordinary", requiredBytes: 77962, maximumBytes: 146926, proposed: [81861, 154273] });
+  assert.deepEqual(measured[0], { key: "1 off ordinary", requiredBytes: 78125, maximumBytes: 147089, proposed: [82032, 154444] });
   checkChildCeiling(measured[0].requiredBytes, measured[0].maximumBytes);
   checkChildCeiling(75532, 144496);
-  assert.ok(source("CONTEXT_BUDGET_DOC").includes("ceilings are 77,962 and 146,926 bytes."));
-  assert.ok(source("CONTEXT_BUDGET_DOC").includes("G is 2,430 bytes."));
+  assert.ok(source("CONTEXT_BUDGET_DOC").includes("ceilings are 78,125 and 147,089 bytes."));
+  assert.ok(source("CONTEXT_BUDGET_DOC").includes("G is 2,593 bytes."));
   assert.ok(source("CONTEXT_BUDGET_DOC").includes("retains 187 bytes."));
-  assert.throws(() => checkChildCeiling(77963, 144496), /child required reservation/);
-  assert.throws(() => checkChildCeiling(75532, 146927), /child maximum reservation/);
+  assert.throws(() => checkChildCeiling(78126, 144496), /child required reservation/);
+  assert.throws(() => checkChildCeiling(75532, 147090), /child maximum reservation/);
   checkLimit(75856, limits["1 off ordinary"][0], "wider required control");
   checkLimit(144492, limits["1 off ordinary"][1], "wider maximum control");
-  assert.throws(() => checkChildCeiling(77963, 146926), /child required reservation/);
-  assert.throws(() => checkChildCeiling(77962, 146927), /child maximum reservation/);
+  assert.throws(() => checkChildCeiling(78126, 147089), /child required reservation/);
+  assert.throws(() => checkChildCeiling(78125, 147090), /child maximum reservation/);
   const publication = table(rows, costs, entries);
   if (process.env.SLATE_PHASE_INSPECT === "1") console.log(JSON.stringify({ measured, references: scan(sources), publication, excluded, costs }));
   assert.equal(Object.keys(limits).length, 36);
@@ -451,10 +452,10 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
   }
   assert.equal(dirname(paths.MAPS_DOC), dirname(paths.TRACK_WORKFLOW_DOC));
   const safeWriteSection = sections(source("CHANGE_RECORDS_DOC"), ["Manual records and safe writes"]);
-  assert.equal(bytes(source("CHANGE_RECORDS_DOC").slice(...safeWriteSection[0]!)), 13076);
+  assert.equal(bytes(source("CHANGE_RECORDS_DOC").slice(...safeWriteSection[0]!)), 13239);
   assert.ok(source("CONTEXT_BUDGET_DOC").includes("Only its worker read is a separate excluded cost. Its orchestrator read enters phase totals."));
   const protectedHashes: Record<string, string> = {
-    "CHANGE_RECORDS_DOC": "5f1436acf1742891c948dd91d39c00f4629dd4c6420255508d993111c1639981",
+    "CHANGE_RECORDS_DOC": "39dfcefd3e5b975acd4a83a6dd2a4849549ec5afb43c4d9eafd9567f7a2dd0c0",
     "MAPS_DOC": "9d3df9f71b5007c7fae20b961c4ece296efeb9c03ed4ee4207f85c31f89fbc75",
     "REVIEW_RULES_DOC": "2ca829f5e7b884f061e236860cd963dab9f50e57caa4a6dfd5bac53309de5d72"
   };
@@ -480,6 +481,39 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
   const noWorker = { ...exported }; delete noWorker.SAFE_RECORD_WRITE_DOC;
   assert.throws(() => membership(noWorker), /missing export/);
   assert.equal(referenceOnly.SAFE_RECORD_WRITE_DOC, "Worker-only command reference, no orchestrator read duty.");
+  const mapSource = readFileSync(new URL("../verification/workflow-context-map.mjs", import.meta.url), "utf8");
+  const classification = '  SAFE_RECORD_WRITE_DOC: "Worker-only command reference, no orchestrator read duty.",';
+  const checkClassification = (text: string) => {
+    const block = /export const referenceOnly = \{([\s\S]*?)\n\};/.exec(text)![1]!;
+    assert.equal((text.match(/^\s*SAFE_RECORD_WRITE_DOC:/gm) ?? []).length, 1, "unique source classification");
+    assert.equal(block.split(classification).length, 2, "worker-only classification");
+  };
+  checkClassification(mapSource);
+  assert.throws(() => checkClassification(mapSource.replace(classification, "")));
+  assert.throws(() => checkClassification(mapSource.replace(classification, classification + "\n" + classification)));
+  assert.throws(() => checkClassification(mapSource.replace(classification, classification.replace("no orchestrator", "required orchestrator"))));
+  assert.throws(() => checkClassification(mapSource.replace(classification, "").replace("export const reads = [", "export const reads = [\n" + classification)));
+  const commandSource = readFileSync(paths.SAFE_RECORD_WRITE, "utf8");
+  const help = spawnSync(process.execPath, [paths.SAFE_RECORD_WRITE, "--help"], { encoding: "utf8" });
+  assert.equal(help.status, 0);
+  const bounds = /help (\d+) bytes, report (\d+) bytes,\n \* standard error (\d+) bytes/.exec(commandSource)!;
+  const format = (n: number) => n.toLocaleString("en-US");
+  const checkExcluded = (published: string, worker: string, helpText: string, report: number, stderr: number) => {
+    for (const sentence of [
+      `The worker-only safe-record-write.md reference measures ${format(bytes(worker))} bytes.`,
+      `Command help measures ${bytes(helpText)} bytes within its ${format(Number(bounds[1]))}-byte bound.`,
+      `Each non-help command call has a ${format(report + stderr)}-byte output bound.`,
+      `The inactive later preservation route permits two attempts, or ${format(2 * (report + stderr))} output bytes per destination and interrupted operation across dispatches.`,
+    ]) assert.equal(published.split(sentence).length, 2, sentence);
+  };
+  const publicationSource = source("CONTEXT_BUDGET_DOC");
+  const workerSource = source("SAFE_RECORD_WRITE_DOC");
+  const reportBound = Number(bounds[2]), stderrBound = Number(bounds[3]);
+  checkExcluded(publicationSource, workerSource, help.stdout, reportBound, stderrBound);
+  assert.throws(() => checkExcluded(publicationSource, workerSource + "extra", help.stdout, reportBound, stderrBound));
+  assert.throws(() => checkExcluded(publicationSource, workerSource, help.stdout + "extra", reportBound, stderrBound));
+  assert.throws(() => checkExcluded(publicationSource, workerSource, help.stdout, reportBound + 1, stderrBound));
+  assert.throws(() => checkExcluded(publicationSource, workerSource, help.stdout, reportBound, stderrBound + 1));
   const noMap = { ...exported }; delete noMap.MAPS_DOC;
   assert.throws(() => membership(noMap), /missing export/);
   for (const name of ["root-baseline-map.md", "track-1-baseline-map.md", "track-1.2-implementation-map.md", "track-<number>-baseline-map.md", "track-<number>-implementation-map.md", "track-9007199254740991-baseline-map.md", `track-${"1.".repeat(63)}1-baseline-map.md`, `track-${"1.".repeat(63)}11-implementation-map.md`]) {
@@ -596,7 +630,8 @@ test("session entry sets, continuation, and transfer controls", { timeout: 10000
       assertEntry(actual, entry, scenario, maximum);
       const doctrine = bytes(doctrines[scenario.startsWith("on") ? 1 : 0]!.split(directory).join(""));
       assert.equal(doctrine + total(actual), acceptedStartTotals[`${entry.phase} ${scenario}`]![maximum ? 1 : 0]
-        + deliveredGrowth + (entry.phase === 1 && entry.id !== "research" && scenario.endsWith("nested") && maximum ? 29762 : 0));
+        + deliveredGrowth + (scenario.endsWith("nested") || entry.phase >= 7 && maximum ? 6 : 0)
+        + (entry.phase === 1 && entry.id !== "research" && scenario.endsWith("nested") && maximum ? 29762 : 0));
       checkLimit(doctrine + total(actual), limits[`${entry.phase} ${scenario}`][maximum ? 1 : 0], entry.id);
       // Required successor reread and conditional-read omissions must fail independently of bytes.
       assert.throws(() => assertEntry(actual.filter((r) => r[0] !== "TRACK_WORKFLOW_DOC"), entry, scenario, maximum), /entry set/);

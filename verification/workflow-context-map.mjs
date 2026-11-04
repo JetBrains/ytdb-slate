@@ -1,5 +1,5 @@
 // Reviewed source-read assignments. Initial limits were approved on 2026-10-16.
-// The safe-write allocation raises only phase-1 publishing-off ordinary by 2,430 bytes.
+// The safe-write allocation raises only phase-1 publishing-off ordinary by 2,593 bytes.
 // All other limits retain their approved literals.
 // The initial five-percent reserve rule does not apply to this approved raise.
 export const phases = ["Research", "Risk assessment", "Design validation", "Focus reconfirmation", "Adversarial design review", "Final design approval", "Track loop", "Final acceptance", "Delivery"];
@@ -60,7 +60,6 @@ export function transferReads(outcome, currentReads, entry, scenario, maximum = 
 }
 export const referenceOnly = {
   SAFE_RECORD_WRITE_DOC: "Worker-only command reference, no orchestrator read duty.",
-  SAFE_RECORD_WRITE_DOC: "Worker-only command reference, no orchestrator read duty.",
   MAPS_DOC: "Published worker-only map reference, no orchestrator read duty.",
   REVIEW_IMPLEMENTATION_INPUT_DOC: "Worker-only input. Built-in implementation review loads it for the worker, not the orchestrator.",
   MODEL_ROUTING_DOC: "Reference document, no orchestrator read duty.",
@@ -83,7 +82,7 @@ export const conditionalSets = [
   ["Manual review", ["REVIEW_COMMON_POLICY_DOC", "WRITING_GUIDANCE_DOC", ...["RI", "CN", "DU", "SE", "PF", "TQ", "PL", "LX", "NL", "CB", "GR", "UF"].map((id) => `REVIEW_${id}_DOC`)]],
 ];
 export const limits = {
-  "1 off ordinary": [78501, 147137],
+  "1 off ordinary": [78664, 147300],
   "1 off nested": [129352, 227750],
   "1 on ordinary": [92915, 161551],
   "1 on nested": [146196, 244594],
@@ -215,7 +214,7 @@ export const occurrences = [
   {"source":"recursive-workflow.md","target":"track-workflow.md","context":"bd47a83239c0c38fadea8b93d0305d5db6ec8d0f4736aedabdc7ba0f2b5ebbe3","count":1,"recipient":"orchestrator","phase":1,"condition":"always"},
   {"source":"recursive-workflow.md","target":"change-records.md","context":"97968cb3ac5d95d318752ee1e7e78ac930a16e8b61e5eb45b812c29cf170cd19","count":1,"recipient":"orchestrator","phase":1,"condition":"always"},
   {"source":"recursive-workflow.md","target":"track-workflow.md","context":"db62827ea11bc7725c194cd5f3d70e808bd1b94340f88806a0dc5691fcff6a9a","count":1,"recipient":"orchestrator","phase":1,"condition":"always"},
-  {"source":"recursive-workflow.md","target":"change-records.md","context":"a1be71a895e63bc05383cde42d5dffa93fbff83f14d1fe66c379334a924a510b","count":1,"recipient":"orchestrator","phase":1,"condition":"always"},
+  {"source":"recursive-workflow.md","target":"change-records.md","context":"2f65dfcc658a8e4e2136edf4074d1e551265d8df28ca5c910ab8b4a694221aa4","count":1,"recipient":"orchestrator","phase":1,"condition":"always"},
   {"source":"recursive-workflow.md","target":"status.md","context":"231546ffb96493c23c99a3b94737c54716103cbd03af510b7a69b3e1602c2627","count":1,"reason":"Variable private record or evidence path, excluded from fixed shipped context."},
   {"source":"recursive-workflow.md","target":"track-workflow.md","context":"3df6b5279bf4554b6fcb4d55c3758a6aab7d6fc2b59b8d1e3f2d09877f9c445a","count":1,"recipient":"orchestrator","phase":1,"condition":"always"},
   {"source":"recursive-workflow.md","target":"user-notes.md","context":"db3ca4e1938198c750bd4a89e22a4235d5e2c681e7f5a23c1185e36d8f6d0c0a","count":1,"recipient":"orchestrator","phase":7,"condition":"always"},

@@ -92,6 +92,53 @@ async function concurrent(args: string[], cwd: string) {
 
 // This fixture interpreter checks the manual reference. It grants no runtime authority.
 function checkWorkerReference(reference: string, common: string) {
+	const referenceRules = [
+		"Every success requires exit 0, code ok and stage complete.",
+		"Every success also requires expected agreed when a hash was supplied, otherwise not-supplied.",
+		"Creation requires operation create, writeState verified, equal true, equal full sourceHash and destinationHash, retainedVerified false and protections.exclusiveCreate applied.",
+		"When supplied, the expected hash must equal both reported hashes.",
+		"Comparison requires writeState not-created, equal true, equal full hashes, retainedVerified false and expected not-supplied.",
+		"Hashing requires writeState not-created, a full sourceHash, equal null, destinationHash null and retainedVerified false.",
+	];
+	const commonRules = [
+		"Pause plan edits and ask the user.",
+		"After a design/map edit passes its check, report its full hash.",
+		"Creation acceptance needs operation create, code ok, writeState verified, equal true and full destinationHash = sourceHash = expected hash when supplied.",
+	];
+	const requireRules = (source: string, rules: readonly string[]) => {
+		for (const rule of rules) assert.equal(source.split(rule).length, 2, rule);
+	};
+	for (const [source, rules] of [[reference, referenceRules], [common, commonRules]] as const) {
+		requireRules(source, rules);
+		for (const rule of rules) {
+			assert.throws(() => requireRules(source.replace(rule, "Requires no proof."), rules));
+			for (const word of rule.match(/\S+/g)!) {
+				assert.throws(() => requireRules(source.replace(rule, rule.replace(word, "")), rules));
+			}
+		}
+	}
+	const precedence = "Known exits 2, 5, 6, 8, unavailable exclusive creation and a command that cannot run take precedence.";
+	const ordered = (source: string) => {
+		requireRules(source, [precedence]);
+		assert.ok(source.indexOf(precedence) < source.indexOf("For create,"));
+	};
+	for (const source of [reference, common]) {
+		ordered(source);
+		assert.throws(() => ordered(source.replace(precedence + "\n", "") + "\n" + precedence));
+		for (const clause of ["2, ", "5, ", "6, ", "8, ", "unavailable exclusive creation", "a command that cannot run"]) {
+			assert.throws(() => ordered(source.replace(precedence, precedence.replace(clause, ""))));
+		}
+	}
+	const command = readFileSync(SAFE_RECORD_WRITE, "utf8");
+	const checkRange = (text: string, source: string) => {
+		const range = /safe-record-write\.mjs:(\d+)–(\d+)/.exec(text)!;
+		const lines = source.split("\n");
+		assert.equal(Number(range[1]), lines.findIndex(line => line === "/*") + 1);
+		assert.equal(Number(range[2]), lines.findIndex(line => line === " */") + 1);
+	};
+	checkRange(reference, command);
+	assert.throws(() => checkRange(reference.replace(":2–62", ":2–61"), command));
+	assert.throws(() => checkRange(reference, command.replace(" */", " * extra\n */")));
 	const operations = ["create", "compare", "hash", "preserve", "invalid"];
 	const exits = [0, 2, 3, 4, 5, 6, 7, 8];
 	const classes = ["accept", "retry creation", "pause occupied", "pause identity", "pause unknown"];
@@ -141,28 +188,51 @@ function checkWorkerReference(reference: string, common: string) {
 		assert.equal(accepts({ ...proof, [key]: digest.slice(0, 12) }, digest), false);
 	}
 	const codes = ["ok", "usage", "occupied", "different", "identity", "io", "changed", "unsafe-file"];
-	function route(op: string, exit: number | null, reports: Record<string, unknown>[], expected?: string) {
+	const acceptsOperation = (op: string, value: Record<string, unknown>, expected?: string) => {
+		if (op === "create") return accepts(value, expected);
+		const fullHash = typeof value.sourceHash === "string" && /^[a-f0-9]{64}$/.test(value.sourceHash);
+		const base = value.operation === op && value.code === "ok" && value.stage === "complete"
+			&& value.writeState === "not-created" && value.retainedVerified === false && fullHash
+			&& value.expected === (expected ? "agreed" : "not-supplied")
+			&& (!expected || expected === value.sourceHash);
+		return base && (op === "hash" ? value.equal === null && value.destinationHash === null
+			: op === "compare" && !expected && value.equal === true && value.sourceHash === value.destinationHash);
+	};
+	function route(op: string, exit: number | null, reports: Record<string, unknown>[], expected?: string, canRun = true, exclusive = true) {
 		if (op === "preserve") return "pause unknown";
 		if (exit === 5 && op === "create") return "pause identity";
-		if (exit === 8 && op === "create" || exit === 2) return "pause unknown";
+		if (!canRun || !exclusive || [2, 6, 8].includes(exit!)) return "pause unknown";
 		const index = exits.indexOf(exit!);
 		const report = reports[0];
 		if (reports.length !== 1 || !report || report.operation !== op || report.code !== codes[index] || index < 0) {
 			return op === "create" ? "retry creation" : "pause unknown";
 		}
 		const selected = routes.get(op)?.[index] ?? "pause unknown";
-		return selected === "accept" && op === "create" && !accepts(report, expected) ? "pause unknown" : selected;
+		return selected === "accept" && !acceptsOperation(op, report, expected) ? "pause unknown" : selected;
 	}
 	for (const op of operations) for (const [i, exit] of exits.entries()) {
-		const report = { ...proof, operation: op, code: codes[i] };
-		assert.equal(route(op, exit, [report], digest), expected[operations.indexOf(op)]![i]);
+		const report = { ...proof, operation: op, code: codes[i],
+			...(op === "hash" ? { writeState: "not-created", equal: null, destinationHash: null } : {}),
+			...(op === "compare" ? { writeState: "not-created", expected: "not-supplied" } : {}) };
+		assert.equal(route(op, exit, [report], op === "compare" ? undefined : digest), expected[operations.indexOf(op)]![i]);
 	}
 	for (const bad of [[], [proof, proof], [{ ...proof, code: "bad" }]]) assert.equal(route("create", 0, bad, digest), "retry creation");
 	assert.equal(route("create", null, [], digest), "retry creation");
 	assert.equal(route("create", 3, [{ ...proof, code: "occupied" }], digest), "pause occupied");
-	for (const bad of [[], ["accept", "pause unknown"], ["invented"]]) assert.equal(bad.length === 1 && classes.includes(bad[0]!), false);
+	for (const exit of [2, 5, 6, 8]) for (const reports of [[], [proof, proof], [{ ...proof, code: "bad" }]]) {
+		assert.equal(route("create", exit, reports, digest), exit === 5 ? "pause identity" : "pause unknown");
+	}
+	assert.equal(route("create", 127, [], digest, false), "pause unknown");
+	assert.equal(route("create", null, [], digest, true, false), "pause unknown");
+	const workerRoute = (reported: string[], op: string, value: Record<string, unknown>) =>
+		reported.length !== 1 || !classes.includes(reported[0]!)
+			|| reported[0] === "accept" && !acceptsOperation(op, value, digest) ? "pause unknown" : reported[0];
+	for (const bad of [[], ["accept", "pause unknown"], ["invented"]]) assert.equal(workerRoute(bad, "create", proof), "pause unknown");
+	assert.equal(workerRoute(["accept"], "create", proof), "accept");
+	for (const key of Object.keys(proof)) assert.equal(workerRoute(["accept"], "create", { ...proof, [key]: null }), "pause unknown", key);
+	for (const op of ["hash", "compare"]) assert.equal(route(op, 0, [{ operation: op, code: "ok" }]), "pause unknown");
 	for (const verb of ["deleted", "moved", "renamed", "truncated", "overwritten"]) {
-		const ban = "An occupied name is never deleted, moved, renamed, truncated or overwritten as a repair.";
+		const ban = "For creation, an occupied name is never deleted, moved, renamed, truncated or overwritten as a repair.";
 		assert.ok(common.includes(ban));
 		assert.equal(common.replace(verb, "").includes(ban), false, verb);
 	}
@@ -186,6 +256,11 @@ function checkWorkerReference(reference: string, common: string) {
 			{ log: "other", path, entry: 6, kind: "adoption", hash: "other-log" },
 			{ log: "owner", path, entry: 8, kind: "adoption", hash: "later" });
 		assert.equal(select("owner", path, 0), undefined);
+		for (const [entry, before, at] of [[1, undefined, "old"], [2, "old", digest], [8, digest, "later"]] as const) {
+			assert.equal(select("owner", path, entry - 1), before);
+			assert.equal(select("owner", path, entry), at);
+			assert.equal(select("owner", path, entry + 1), entry === 1 ? digest : at);
+		}
 		assert.equal(select("owner", path, 6), digest);
 		assert.notEqual(select("owner", path, 6), "old");
 		assert.equal(select("owner", path, 8), "later");
@@ -463,6 +538,8 @@ describe("safe record command", { timeout: 60000 }, () => {
 		copyFileSync(SAFE_RECORD_WRITE_DOC, join(root, "installed space", "docs", "safe-record-write.md"));
 		const relocatedDoc = join(root, "installed space", "docs", "safe-record-write.md");
 		const relocatedLink = /\[safe-record-write\.mjs\]\(([^)]+)\)/.exec(readFileSync(relocatedDoc, "utf8"))![1]!;
+		const commandRelative = /COMMAND is (\S+) relative to this reference\./.exec(readFileSync(relocatedDoc, "utf8"))![1]!;
+		assert.equal(commandRelative, relocatedLink);
 		const expectedLink = fileURLToPath(new URL(relocatedLink, pathToFileURL(relocatedDoc)));
 		assert.equal(expectedLink, join(relocated, "safe-record-write.mjs"));
 		const resolver = join(root, "resolve.mjs");
