@@ -92,6 +92,8 @@ async function concurrent(args: string[], cwd: string) {
 
 // This fixture interpreter checks the manual reference. It grants no runtime authority.
 function checkWorkerReference(reference: string, common: string) {
+	reference = reference.replace(/\r\n/g, "\n");
+	common = common.replace(/\r\n/g, "\n");
 	const referenceRules = [
 		"Every success requires exit 0, code ok and stage complete.",
 		"Every success also requires expected agreed when a hash was supplied, otherwise not-supplied.",
@@ -132,13 +134,16 @@ function checkWorkerReference(reference: string, common: string) {
 	const command = readFileSync(SAFE_RECORD_WRITE, "utf8");
 	const checkRange = (text: string, source: string) => {
 		const range = /safe-record-write\.mjs:(\d+)–(\d+)/.exec(text)!;
-		const lines = source.split("\n");
+		const lines = source.split(/\r?\n/);
 		assert.equal(Number(range[1]), lines.findIndex(line => line === "/*") + 1);
 		assert.equal(Number(range[2]), lines.findIndex(line => line === " */") + 1);
 	};
-	checkRange(reference, command);
-	assert.throws(() => checkRange(reference.replace(":2–62", ":2–61"), command));
-	assert.throws(() => checkRange(reference, command.replace(" */", " * extra\n */")));
+	for (const newline of ["\n", "\r\n"]) {
+		const source = command.replace(/\r?\n/g, newline);
+		checkRange(reference, source);
+		assert.throws(() => checkRange(reference.replace(":2–62", ":2–61"), source));
+		assert.throws(() => checkRange(reference, source.replace(" */", ` * extra${newline} */`)));
+	}
 	const operations = ["create", "compare", "hash", "preserve", "invalid"];
 	const exits = [0, 2, 3, 4, 5, 6, 7, 8];
 	const classes = ["accept", "retry creation", "pause occupied", "pause identity", "pause unknown"];
@@ -476,7 +481,10 @@ describe("safe record command", { timeout: 60000 }, () => {
 		const reference = readFileSync(SAFE_RECORD_WRITE_DOC, "utf8");
 		const link = /\[safe-record-write\.mjs\]\(([^)]+)\)/.exec(reference)![1]!;
 		assert.equal(fileURLToPath(new URL(link, pathToFileURL(SAFE_RECORD_WRITE_DOC))), SAFE_RECORD_WRITE);
-		checkWorkerReference(reference, readFileSync(CHANGE_RECORDS_DOC, "utf8"));
+		const common = readFileSync(CHANGE_RECORDS_DOC, "utf8");
+		for (const newline of ["\n", "\r\n"]) {
+			checkWorkerReference(reference.replace(/\r?\n/g, newline), common.replace(/\r?\n/g, newline));
+		}
 		for (const name of ["create", "preserve", "compare", "hash"]) assert.match(help, new RegExp(name + ":"));
 		for (const code of [0, 2, 3, 4, 5, 6, 7, 8]) assert.match(help, new RegExp("\\b" + code + " "));
 		for (const args of [[], ["replace"], ["--help", "extra"], ["hash", "--", ""], ["hash", "--", source, source],

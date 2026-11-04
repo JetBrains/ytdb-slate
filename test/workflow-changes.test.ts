@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, sep } from "node:path";
 import { CHANGE_RECORDS_DOC, SAFE_RECORD_WRITE_DOC } from "../extension/paths.ts";
 import { test } from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -414,10 +414,10 @@ test("implementer receives its report path and approved method with and without 
     }
     task = originalTask;
     const rendered = task!.slice(call.task.length + 2);
-    const prefix = dirname(CHANGE_RECORDS_DOC) + "/";
+    const prefix = dirname(CHANGE_RECORDS_DOC) + sep;
     assert.ok(rendered.includes(`<${CHANGE_RECORDS_DOC}> § Manual records and safe writes`));
     const portable = rendered.split(prefix).join("");
-    for (const testPrefix of ["/opt/slate/docs/", "/tmp/slate checkout/docs/", "/tmp/映射 é/docs/"]) {
+    for (const testPrefix of ["/opt/slate/docs/", "/tmp/slate checkout/docs/", "/tmp/映射 é/docs/", "C:\\slate checkout\\docs\\"]) {
       const relocated = portable.replace("<change-records.md>", `<${testPrefix}change-records.md>`).replace("<safe-record-write.md>", `<${testPrefix}safe-record-write.md>`);
       assert.equal(Buffer.byteLength(relocated), Buffer.byteLength(portable) + 2 * Buffer.byteLength(testPrefix));
       assert.equal(relocated.split(testPrefix).join(""), portable);

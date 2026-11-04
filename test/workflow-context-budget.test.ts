@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync, statSync, mkdtempSync, rmSync } from "node:fs";
-import { dirname, relative, resolve, join } from "node:path";
+import { dirname, relative, resolve, join, sep } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
@@ -17,13 +17,17 @@ import { phases, lifecycle, scenarios, reads, referenceOnly, dependencies, condi
 
 const scratch = mkdtempSync(join(tmpdir(), "slate-phase-"));
 after(() => rmSync(scratch, { recursive: true, force: true }));
-const directory = `${dirname(paths.TRACK_WORKFLOW_DOC)}/`;
+const directory = `${dirname(paths.TRACK_WORKFLOW_DOC)}${sep}`;
+// Published sizes and hashes use tracked LF text, not checkout line endings.
+const trackedText = (text: string) => text.replace(/\r\n/g, "\n");
+const readText = (path: string | URL) => trackedText(readFileSync(path, "utf8"));
+const documentName = (path: string) => relative(directory, path).split(sep).join("/");
 const exported = Object.fromEntries(Object.entries(paths).filter(([id]) => id.endsWith("_DOC")));
 const bytes = (text: string) => Buffer.byteLength(text, "utf8");
 const tokens = (size: number) => Math.ceil(size / 4);
 const documentTexts = new Map<string, string>();
 function source(id: string): string {
-  if (!documentTexts.has(id)) documentTexts.set(id, readFileSync(exported[id]!, "utf8"));
+  if (!documentTexts.has(id)) documentTexts.set(id, readText(exported[id]!));
   return documentTexts.get(id)!;
 }
 type Read = [string, number, string, string, string[]];
@@ -230,7 +234,7 @@ function coverage(actual: any[], roster = occurrences): void {
   for (const [id, phase, condition, recipient] of reads as Read[]) assert.ok(roster.some((r: any) =>
     !r.reason && join(directory, r.target) === exported[id] && r.phase === phase && r.condition === condition && r.recipient === recipient),
     `unbacked read ${id} phase ${phase} condition ${condition}`);
-  for (const [from, to] of dependencies) assert.ok(roster.some((r: any) => r.source === relative(directory, exported[from]!) && r.target === relative(directory, exported[to]!) && !r.reason), `unclassified dependency ${from} -> ${to}`);
+  for (const [from, to] of dependencies) assert.ok(roster.some((r: any) => r.source === documentName(exported[from]!) && r.target === documentName(exported[to]!) && !r.reason), `unclassified dependency ${from} -> ${to}`);
 }
 const expectedKeys = phases.flatMap((_: string, i: number) => scenarios.map((scenario: string) => `${i + 1} ${scenario}`));
 function validateLimitKeys(values: Record<string, number[]>): void {
@@ -356,7 +360,7 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
   const sources: Record<string, string> = {};
   for (const id of new Set((reads as Read[]).map((r) => r[0]))) {
     const entries = (reads as Read[]).filter((r) => r[0] === id);
-    sources[relative(directory, exported[id]!)] = union(entries.flatMap((r) => sections(source(id), r[4]))).map(([a, b]) => source(id).slice(a, b)).join("");
+    sources[documentName(exported[id]!)] = union(entries.flatMap((r) => sections(source(id), r[4]))).map(([a, b]) => source(id).slice(a, b)).join("");
   }
   const doctrines = await Promise.all([render(false), render(true)]);
   doctrines.forEach((text, i) => { sources[`doctrine-${i}`] = text; });
@@ -481,19 +485,19 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
   const noWorker = { ...exported }; delete noWorker.SAFE_RECORD_WRITE_DOC;
   assert.throws(() => membership(noWorker), /missing export/);
   assert.equal(referenceOnly.SAFE_RECORD_WRITE_DOC, "Worker-only command reference, no orchestrator read duty.");
-  const mapSource = readFileSync(new URL("../verification/workflow-context-map.mjs", import.meta.url), "utf8");
+  const mapSource = readText(new URL("../verification/workflow-context-map.mjs", import.meta.url));
   const classification = '  SAFE_RECORD_WRITE_DOC: "Worker-only command reference, no orchestrator read duty.",';
   const checkClassification = (text: string) => {
     const block = /export const referenceOnly = \{([\s\S]*?)\n\};/.exec(text)![1]!;
     assert.equal((text.match(/^\s*SAFE_RECORD_WRITE_DOC:/gm) ?? []).length, 1, "unique source classification");
     assert.equal(block.split(classification).length, 2, "worker-only classification");
   };
-  checkClassification(mapSource);
+  for (const newline of ["\n", "\r\n"]) checkClassification(trackedText(mapSource.replace(/\n/g, newline)));
   assert.throws(() => checkClassification(mapSource.replace(classification, "")));
   assert.throws(() => checkClassification(mapSource.replace(classification, classification + "\n" + classification)));
   assert.throws(() => checkClassification(mapSource.replace(classification, classification.replace("no orchestrator", "required orchestrator"))));
   assert.throws(() => checkClassification(mapSource.replace(classification, "").replace("export const reads = [", "export const reads = [\n" + classification)));
-  const commandSource = readFileSync(paths.SAFE_RECORD_WRITE, "utf8");
+  const commandSource = readText(paths.SAFE_RECORD_WRITE);
   const help = spawnSync(process.execPath, [paths.SAFE_RECORD_WRITE, "--help"], { encoding: "utf8" });
   assert.equal(help.status, 0);
   const bounds = /help (\d+) bytes, report (\d+) bytes,\n \* standard error (\d+) bytes/.exec(commandSource)!;
@@ -509,7 +513,9 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
   const publicationSource = source("CONTEXT_BUDGET_DOC");
   const workerSource = source("SAFE_RECORD_WRITE_DOC");
   const reportBound = Number(bounds[2]), stderrBound = Number(bounds[3]);
-  checkExcluded(publicationSource, workerSource, help.stdout, reportBound, stderrBound);
+  for (const newline of ["\n", "\r\n"]) {
+    checkExcluded(trackedText(publicationSource.replace(/\n/g, newline)), trackedText(workerSource.replace(/\n/g, newline)), help.stdout, reportBound, stderrBound);
+  }
   assert.throws(() => checkExcluded(publicationSource, workerSource + "extra", help.stdout, reportBound, stderrBound));
   assert.throws(() => checkExcluded(publicationSource, workerSource, help.stdout + "extra", reportBound, stderrBound));
   assert.throws(() => checkExcluded(publicationSource, workerSource, help.stdout, reportBound + 1, stderrBound));
@@ -541,8 +547,9 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
     assert.throws(() => coverage(scan(second), controlRoster), /unknown reference/);
     assert.equal(references(`Read ${use}.\n${definition}`, origin).length, 3);
   }
-  const spacedPrefix = "/tmp/slate checkout/docs/";
-  assert.deepEqual(references(`Read <${spacedPrefix}track-workflow.md>.`, "doctrine-0", spacedPrefix), references(`Read <${directory}track-workflow.md>.`, "doctrine-0"));
+  for (const prefix of ["/tmp/slate checkout/docs/", "C:\\slate checkout\\docs\\"]) {
+    assert.deepEqual(references(`Read <${prefix}track-workflow.md>.`, "doctrine-0", prefix), references(`Read <${directory}track-workflow.md>.`, "doctrine-0"));
+  }
   for (const condition of ["ordinary split proposal", "early note or owner triage"]) {
     const withoutBacking = occurrences.map((r: any) => r.condition === condition ? { ...r, reason: "Control exclusion." } : r);
     assert.throws(() => coverage(scan(sources), withoutBacking), /unbacked read/);
@@ -702,7 +709,7 @@ test("session entry sets, continuation, and transfer controls", { timeout: 10000
 test("both original-base Git helpers isolate German parent settings", { timeout: 10000 }, () => {
   assert.equal(spawnSync("git", ["init", scratch], { encoding: "utf8" }).status, 0);
   for (const file of ["test/doctrine-contract.test.ts", "verification/resolver-checks.mjs"]) {
-    const text = readFileSync(file, "utf8");
+    const text = readText(file);
     const helper = text.match(/const git = \(\.\.\.args(?:: string\[\])?\)(?:: string)? => \{[\s\S]*?\n\s*\};/)![0].replaceAll(": string[]", "").replaceAll(": string", "");
     const exercise = (code: string) => {
       let environment: NodeJS.ProcessEnv = {};
