@@ -946,21 +946,26 @@ test("entry configuration validates request pacing and reports the removed shard
 
 
 // @ts-ignore Shared closed record-contract roster.
-import { safeWriteDuties, safeWriteAttacks, acceptsSafeWriteDuty, writerFieldAttacks, writerFieldIds, safeWriteMutationIds, createMutationAudit } from "../verification/record-mutation-roster.mjs";
+import { safeWriteDuties, safeWriteAttacks, acceptsSafeWriteDuty, acceptsDutyRoster, recordWriterApplications, writerFieldAttacks, writerFieldIds, safeWriteMutationIds, createMutationAudit } from "../verification/record-mutation-roster.mjs";
 
+const cachedDutyAttacks = safeWriteAttacks(readFileSync(new URL("../docs/change-records.md", import.meta.url), "utf8"));
 for (const [id, sentences] of safeWriteDuties as [string, string[]][]) {
   test(`safe-write duty ${id} retains every clause`, () => {
     const source = read("change-records");
     assert.ok(acceptsSafeWriteDuty(source, sentences));
     assert.ok(acceptsSafeWriteDuty("Benign framing.\n" + source, sentences));
-    const attacks = safeWriteAttacks(source).filter((a: any) => a.id.startsWith(id + "/"));
+    const attacks = cachedDutyAttacks.filter((a: any) => a.id.startsWith(id + "/"));
     assert.ok(attacks.length > 0);
     for (const attack of attacks) assert.ok(attack.changed && attack.rejected, attack.id);
   });
 }
 test("record writer fields have exactly-once fail-closed accounting", () => {
   const source = read("change-records");
-  const rows = [...safeWriteAttacks(source), ...writerFieldAttacks(source)];
+  const rows = [...cachedDutyAttacks, ...writerFieldAttacks(source)];
+  assert.ok(acceptsDutyRoster());
+  assert.equal(acceptsDutyRoster(safeWriteDuties.slice(1)), false);
+  assert.equal(acceptsDutyRoster(safeWriteDuties.map(([id, clauses]: any) => [id, id === "S09" ? clauses.slice(1) : clauses])), false);
+  assert.ok(writerFieldAttacks(source).every((row: any) => row.isolated));
   const expected = { "record-contract": [...safeWriteMutationIds, ...writerFieldIds] };
   const check = (entries: any[]) => {
     const audit = createMutationAudit(expected);
@@ -968,6 +973,8 @@ test("record writer fields have exactly-once fail-closed accounting", () => {
     return audit.inspect().ok;
   };
   assert.ok(check(rows));
+  assert.equal(check([...safeWriteAttacks(source, safeWriteDuties.slice(1)), ...writerFieldAttacks(source)]), false);
+  assert.equal(check([...cachedDutyAttacks, ...writerFieldAttacks(source, recordWriterApplications.slice(1))]), false);
   assert.equal(check(rows.slice(1)), false);
   assert.equal(check([...rows, rows[0]]), false);
   assert.equal(check(rows.map((row, i) => i ? row : { ...row, rejected: false })), false);
@@ -1006,31 +1013,31 @@ const policies: Record<string, Record<string, string>> = {
     writers: "Implementers write only their own reports and assigned implementation maps. Fixers append their reports and edit assigned maps. Neither writes logs.",
     workflowScope: "For changes started under or migrated to this workflow, SHA-256 (Secure Hash Algorithm, 256-bit) identifies complete design and map bytes.",
     fullHash: "Only all 64 hex characters identify a version. Prefixes, filenames and sequence numbers do not.",
-    loggedEvidence: "A retained version is evidence or a restore source only if its bytes match its owning log's full hash.",
+    loggedEvidence: "A retained version is evidence or a restore source only if its bytes match a full hash in its owning log.",
     afterWrite: "A record-only worker logs each verified write's full hash and checks the entry before further edits or evidence use.",
-    baselineIdentity: "Baseline entries record path and source commit.",
+    baselineIdentity: "Baseline entries also record path and source commit.",
     noApproval: "Storage identity grants no approval.",
     logDispatch: "The orchestrator dispatches every hash-log write.",
     editBarrier: "For these changes, before editing a design or map, match its last logged full hash. Without that identity, do not edit.",
     preserve: "Preserve a separate copy with `cp -n` at an unused versioned name, such as `track-<number>-implementation-map.vN.md`. The command leaves occupied destinations unchanged.",
     copyStatus: "Verify equality with `cmp` regardless of copy exit status.",
-    preservationLog: "A record-only worker logs the preserved identity and checks the entry before editing. Split these tasks as writer permissions require.",
-    adoption: "Adopt a retained copy only after a record-only worker verifies equality with a copy identified by a logged full hash and logs the adopted hash.",
+    preservationLog: "A record-only worker then logs the preserved identity and checks the entry before editing. Split these tasks as writer permissions require.",
+    adoption: "Adopt a retained copy only after a record-only worker verifies equality with a copy already identified by a logged full hash and logs the adopted hash.",
     adoptionExclusions: "An unlogged draft or filename hash cannot establish adoption.",
     unrelatedCopies: "Other copies stay retained, are not evidence and never block work.",
     compatibility: "Recorded changes keep recorded authority and evidence rules until user-authorized migration. Opening another track does not migrate a change. Recorded `versions/` copies must match their filename hash in complete bytes. Recorded `.vN.md` copies must match the hash in their owning log.",
     firstWrite: "Retry failed or unclear `status.md` writes as whole rewrites. Retry a failed or unclear first design or map write as a new write from its source, checked by `cmp`.",
-    retention: "Drafts, designs, and records outlive the action. Write records with built-in tools.",
+    retention: "Drafts, designs and records outlive the action. Write records with built-in tools.",
     immutableCopies: "No worker changes or deletes a versioned copy.",
     missingCopy: "If a preservation copy is missing or differs, leave the current file unchanged. Retry `cp -n` at the next unused versioned name, then `cmp`.",
-    recoveryIdentity: "After a failed or unclear design or map edit, use `cmp` against the intended retained version matching its logged full hash.",
+    recoveryIdentity: "After a failed or unclear design or map edit, use `cmp` against the intended retained version whose bytes match its logged full hash.",
     recoveryOrder: "If unchanged, retry only the edit. Otherwise restore with `cp`, prove equality with `cmp`, then retry.",
-    recoveryPause: "If recovery identity cannot be verified, pause the affected replacement. Do not guess another numbered copy.",
+    recoveryPause: "If that recovery version cannot be verified, pause the affected replacement. Never guess another numbered copy.",
     successorSource: "Keep successor designs' and maps' source folder read-only. Name the direct source and preserve its source chain and recorded read boundary.",
     successorLog: "Before a successor folder's first worker record write, a record-only worker checks the source hash against a source-log entry inside that boundary, then logs it.",
     successorBoundary: "Later entries supply no identity. A failed check gives no identity and pauses affected reliance.",
-    handoff: "A handoff retaining the trusted folder creates no fork.",
-    retainedPrivacy: "Retained copies keep record privacy and reviewer-input restrictions.",
+    handoff: "A trusted handoff retaining the folder creates no fork.",
+    retainedPrivacy: "All retained copies keep record privacy and reviewer-input restrictions.",
   },
   "track-workflow": {
     focusedContext: "Research log: `slate-changes/<change>/research-log.md`. Report: `slate-changes/<change>/track-<number>-implementer-report.md`.",
@@ -1088,7 +1095,7 @@ test("record policy rejects unsafe copy, identity, adoption and migration scenar
     ["change-records", "successor logs before checking", "then logs it.", "log it before checking."],
     ["change-records", "failed successor check supplies identity", "A failed check gives no identity and pauses affected reliance.", "A failed check still supplies identity."],
     ["change-records", "versioned map form removed", "such as `track-<number>-implementation-map.vN.md`", "with any name"],
-    ["change-records", "retention ends with action", "Drafts, designs, and records outlive the action.", "Delete drafts and records after the action."],
+    ["change-records", "retention ends with action", "Drafts, designs and records outlive the action.", "Delete drafts and records after the action."],
     ["track-workflow", "recorded approved design omitted", "(standalone or log-held)", "(standalone only)"],
     ["track-workflow", "map depth assigned to orchestrator", "Implementers map final source per [maps.md](maps.md).", "For map reading depth, use [maps.md](maps.md)."],
     ["track-workflow", "focused block instructs orchestrator", "Research log:", "Name the research log:"],
@@ -1098,11 +1105,11 @@ test("record policy rejects unsafe copy, identity, adoption and migration scenar
     ["change-records", "failed preservation log check", "checks the entry before editing", "edits before checking the entry"],
     ["change-records", "failed resulting log check", "checks the entry before further edits or evidence use", "permits reliance after a failed log check"],
     ["change-records", "short hash", "Only all 64 hex characters identify a version.", "A 12-character prefix identifies a version."],
-    ["change-records", "sequence-only recovery", "Do not guess another numbered copy.", "Recover the highest numbered copy."],
-    ["change-records", "unverified recovery", "If recovery identity cannot be verified, pause the affected replacement.", "Restore an unverified recovery copy."],
+    ["change-records", "sequence-only recovery", "Never guess another numbered copy.", "Recover the highest numbered copy."],
+    ["change-records", "unverified recovery", "If that recovery version cannot be verified, pause the affected replacement.", "Restore an unverified recovery copy."],
     ["change-records", "unchanged retry", "If unchanged, retry only the edit.", "If unchanged, overwrite the preserved copy."],
     ["change-records", "partial edit restoration", "Otherwise restore with `cp`, prove equality with `cmp`, then retry.", "Retry the partial edit before checking restoration."],
-    ["change-records", "adoption without identified equal bytes", "equality with a copy identified by a logged full hash", "equality with any unlogged copy"],
+    ["change-records", "adoption without identified equal bytes", "equality with a copy already identified by a logged full hash", "equality with any unlogged copy"],
     ["change-records", "unlogged draft adoption", "An unlogged draft or filename hash cannot establish adoption.", "An unlogged draft establishes adoption."],
     ["change-records", "filename-only adoption", "An unlogged draft or filename hash cannot establish adoption.", "A filename hash establishes adoption."],
     ["change-records", "unrelated retained copy", "Other copies stay retained, are not evidence and never block work.", "An unrelated retained copy blocks every edit."],

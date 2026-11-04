@@ -1,46 +1,47 @@
+import { createHash } from "node:crypto";
 // Independent accepted mutation identities and fail-closed execution accounting.
 // Literal duties keep clause checks independent of document digest updates.
 export const safeWriteDuties = [
  ["S01",["A **change record** is a research log, status file, implementer report, design or map.","The current `root-design.md` or `track-<number>-design.md` is authoritative for its root or design-track node.","In changes started under or migrated to this workflow, a multi-track code track uses `code-track-<number>-design.md`, authoritative only while its node is code and its owning log names it current.","Logs retain decisions, approval identities, links and accounting, not authoritative design copies.","A change without a design gains no plan record.","A design track has no implementer report or implementation commit.","Use `root-baseline-map.md`, `track-<number>-baseline-map.md` and `track-<number>-implementation-map.md` for factual source explanation, not requirements.","The root baseline serves single-track work at code-track detail.","Map changes grant no approval and change no design identity."]],
- ["S02",["A design track or review-fix child track triggers the manual status file.","The **status file**, `status.md`, shows plans, pending gates and log paths.","It grants no completion or gate authority.","A change without a design track or review-fix child has no `status.md`.","A user-chosen split then creates review-fix children, loads [recursive-workflow.md](recursive-workflow.md), and creates `status.md`."]],
- ["S03",["Its plain-text **repair state** column shows each code track and review-fix child's repair use.","Each cell shows rounds used of 2, stuck-fix consultations used/budget and pending gates.","No fixed machine format required.","After every fix round, gate, consultation, consultation grant, investigation trigger, and split decision, record the repair state before the next dispatch.","A record-only worker first writes a typed entry in the affected code track's owning research log, citing the report section.","Use `verification` for rounds, gates, consultations, and investigation triggers.","Use `decision` for consultation grants and split decisions.","The worker updates the `status.md` entry and cell second, before the next dispatch.","The typed log entries are the evidence for each count.","A cell grants no round.","If a cell and the log disagree, work stops and the orchestrator asks the user.","Automatic correction never lowers a count."]],
- ["S04",["Create `track-<number>-research-log.md` when entering a design track.","`<number>` is the canonical path number.","Each log owns its subtree's decisions and accepted history bindings.","Parents keep context and links, not copies of child history.","Root-wide decisions belong in `research-log.md`.","Cross-subtree effects belong in their owning parent.","Review-fix subtrees use the affected code track's records.","Its research log is the nearest enclosing design-track log, else the root log."]],
+ ["S02",["A design track or review-fix child track triggers the manual status file.","The **status file**, `status.md`, shows plans, pending gates and log paths.","It grants no completion or gate authority.","A change without a design track or review-fix child has no `status.md`.","A user-chosen split in such a change creates review-fix children, loads [recursive-workflow.md](recursive-workflow.md), and creates `status.md`."]],
+ ["S03",["Its plain-text **repair state** column shows each code track and review-fix child's repair use.","Each cell shows rounds used of 2, stuck-fix consultations used/budget and pending gates.","No fixed machine format required.","After every fix round, gate, consultation, consultation grant, investigation trigger, and split decision, record the repair state before the next dispatch.","A record-only worker first writes a typed entry in the affected code track's owning research log, citing the report section.","Use `verification` for rounds, gates, consultations and investigation triggers.","Use `decision` for consultation grants and split decisions.","The worker updates the `status.md` entry and cell second, before the next dispatch.","The typed log entries are the evidence for each count.","A cell grants no round.","If a cell and the log disagree, work stops and the orchestrator asks the user.","Automatic correction lowers no count."]],
+ ["S04",["Create `track-<number>-research-log.md` when entering a design track.","`<number>` is the canonical path number.","Each log owns its subtree's decisions and accepted history bindings.","Parents keep context and links, not copies of child history.","Root-wide decisions belong in `research-log.md`.","Cross-subtree effects belong in their owning parent.","Review-fix subtrees use the affected code track's existing records.","Its owning research log is the nearest enclosing design-track log, else the root log."]],
  ["S05",["Record-only workers write logs and status, and store assigned designs and baseline maps from drafts.","They compare stored bytes with the draft.","Record-only workers have no track number.","Implementers write only their own reports and assigned implementation maps.","Fixers append their reports and edit assigned maps.","Neither writes logs."]],
- ["S06",["Every record and map writer's task names destinations, creation or edit, explicit write and check methods, and read-only sources.","Pause if creation or edit is absent."]],
- ["S07",["Under `slate-changes/`, write only assigned records and action scratch.","Follow preamble placement, no-change and missing-path rules.","Required outside-checkout folders take precedence under project, verification and tool retention rules.","They are not start-copy or payload destinations.","Drafts, designs, and records outlive the action. Write records with built-in tools."]],
+ ["S06",["Classification grants no replacement and lifts no edit barrier."]],
+ ["S07",["Under `slate-changes/`, write only assigned records and action scratch.","Follow preamble placement, no-change and missing-path rules.","Required outside-checkout folders take precedence under project, verification and tool retention rules.","They are not start-copy or payload destinations.","Drafts, designs and records outlive the action. Write records with built-in tools."]],
  ["S08",["Never write in a fork's read-only source, `slate-changes/<source>/`.","The successor log starts: `Read-only earlier log: ...`."]],
- ["S09",["Logs and reports are append-only, including their first write.","Append each temporary file with `>>`, as in `cat temporary-file >> file`.","Never use `>`, write or edit tools, or `sed -i` on an existing log or report.","Never change or delete earlier text.","Append corrections as entries."]],
+ ["S09",["Logs and reports are append-only, including their first write.","Append each temporary file with `>>`, as in `cat temporary-file >> file`.","Never use `>`, write or edit tools, or `sed -i` on an existing log or report.","Never change or delete earlier text.","Append corrections as new entries."]],
  ["S10",["A worker may fully rewrite `status.md`."]],
- ["S11",["For changes started under or migrated to this workflow, SHA-256 (Secure Hash Algorithm, 256-bit) identifies complete design and map bytes.","Only all 64 hex characters identify a version.","Prefixes, filenames and sequence numbers do not.","A retained version is evidence or a restore source only if its bytes match its owning log's full hash."]],
- ["S12",["A record-only worker logs each verified write's full hash and checks the entry before further edits or evidence use.","Baseline entries record path and source commit.","Storage identity grants no approval.","The orchestrator dispatches every hash-log write."]],
+ ["S11",["For changes started under or migrated to this workflow, SHA-256 (Secure Hash Algorithm, 256-bit) identifies complete design and map bytes.","Only all 64 hex characters identify a version.","Prefixes, filenames and sequence numbers do not.","A retained version is evidence or a restore source only if its bytes match a full hash in its owning log."]],
+ ["S12",["A record-only worker logs each verified write's full hash and checks the entry before further edits or evidence use.","Baseline entries also record path and source commit.","Storage identity grants no approval.","The orchestrator dispatches every hash-log write."]],
  ["S13",["For these changes, before editing a design or map, match its last logged full hash.","Without that identity, do not edit."]],
  ["S14",["Preserve a separate copy with `cp -n` at an unused versioned name, such as `track-<number>-implementation-map.vN.md`.","The command leaves occupied destinations unchanged.","Verify equality with `cmp` regardless of copy exit status."]],
- ["S15",["A record-only worker logs the preserved identity and checks the entry before editing.","Split these tasks as writer permissions require."]],
- ["S16",["Adopt a retained copy only after a record-only worker verifies equality with a copy identified by a logged full hash and logs the adopted hash.","An unlogged draft or filename hash cannot establish adoption.","Other copies stay retained, are not evidence and never block work."]],
+ ["S15",["A record-only worker then logs the preserved identity and checks the entry before editing.","Split these tasks as writer permissions require."]],
+ ["S16",["Adopt a retained copy only after a record-only worker verifies equality with a copy already identified by a logged full hash and logs the adopted hash.","An unlogged draft or filename hash cannot establish adoption.","Other copies stay retained, are not evidence and never block work."]],
  ["S17",["Recorded changes keep recorded authority and evidence rules until user-authorized migration.","Opening another track does not migrate a change. Recorded `versions/` copies must match their filename hash in complete bytes. Recorded `.vN.md` copies must match the hash in their owning log."]],
- ["S18",["Retained copies keep record privacy and reviewer-input restrictions.","No worker changes or deletes a versioned copy."]],
+ ["S18",["All retained copies keep record privacy and reviewer-input restrictions.","No worker changes or deletes a versioned copy."]],
  ["S19",["Allow one writer per record. Do not start or close a change while a record writer runs."]],
  ["S20",["Slate does not enforce these destination, write-mode or hash duties."]],
  ["S21",["Before the action's first record write, copy it to a temporary start file in the supplied action folder.","Use an empty file for a new record.","Write each payload to its own temporary file there before the record write."]],
- ["S22",["Append temporary files with `>>`.","For status creation or rewrites and new designs or maps, copy the payload.","Creation: first log/report append, new status/design/map. Edit: later append, status rewrite, design/map change.","Create drafts from payloads, checked with `cmp`. Never edit drafts. Each revision is a new file.","After the last write, check the whole record once.","Delete your record-write files only after checks pass.","Otherwise, keep evidence and report failure.","Delete scratch files without a record before finishing.","On shutdown, Slate removes only empty action folders and reports retained paths."]],
+ ["S22",["Append temporary files with `>>`.","For status creation or rewrites and new designs or maps, copy the temporary file.","Creation: first log/report append, new status/design/map. Edit: later append, status rewrite, design/map change.","Create drafts from payloads, checked with `cmp`. Never edit drafts. Each revision is a new file.","After the last write, check the whole record once.","Delete your record-write files only after checks pass.","Otherwise, keep evidence and report failure.","Delete scratch files without a record before finishing.","On shutdown, Slate removes only empty action folders and reports retained paths."]],
  ["S23",["A log or report must equal the start copy followed by every appended temporary file in order.","The worker checks this with `cat` and `cmp`."]],
- ["S24",["Check a status file or new design or map against its last temporary file with `cmp`.","For design/map edits, use `diff` against the verified versioned copy and confirm every difference is intended."]],
- ["S25",["Report each record's exact task path, comparison and result in the final response.","Only those three episode parts count as a check."]],
- ["S26",["Before writing again, read assigned records lacking a counted check.","A failed check follows the retry rules.","These reads supplement required retry reads."]],
- ["S27",["Before retrying a failed or unclear log or report write, the orchestrator reads its end.","A failed final check requires whole-record inspection.","If text is absent, retry the write.","If present, do not resend it.","For partial text, append a correction naming the cut-off entry."]],
+ ["S24",["Check a status file or new design or map against its last temporary file with `cmp`.","For design/map edits, use `diff` against the verified versioned copy and confirm each difference is intended."]],
+ ["S25",["Report each record's exact task path, comparison and result in the final response.","Only all three episode parts count as a check."]],
+ ["S26",["Before writing again, read assigned records lacking a counted check.","Failed checks follow the retry rules.","These reads supplement required retry reads."]],
+ ["S27",["Before retrying a failed or unclear log or report write, the orchestrator reads its end.","Failed final checks require whole-record inspection.","If text is absent, retry the write.","If present, do not resend it.","For partial text, append a correction naming the cut-off entry."]],
  ["S28",["Retry failed or unclear `status.md` writes as whole rewrites. Retry a failed or unclear first design or map write as a new write from its source, checked by `cmp`."]],
  ["S29",["If a preservation copy is missing or differs, leave the current file unchanged.","Retry `cp -n` at the next unused versioned name, then `cmp`."]],
- ["S30",["After a failed or unclear design or map edit, use `cmp` against the intended retained version matching its logged full hash.","If unchanged, retry only the edit.","Otherwise restore with `cp`, prove equality with `cmp`, then retry.","If recovery identity cannot be verified, pause the affected replacement.","Do not guess another numbered copy."]],
- ["S31",["Keep successor designs' and maps' source folder read-only.","Name the direct source and preserve its source chain and recorded read boundary.","Before a successor folder's first worker record write, a record-only worker checks the source hash against a source-log entry inside that boundary, then logs it.","Later entries supply no identity. A failed check gives no identity and pauses affected reliance."]],
+ ["S30",["After a failed or unclear design or map edit, use `cmp` against the intended retained version whose bytes match its logged full hash.","If unchanged, retry only the edit.","Otherwise restore with `cp`, prove equality with `cmp`, then retry.","If that recovery version cannot be verified, pause the affected replacement.","Never guess another numbered copy."]],
+ ["S31",["Keep successor designs' and maps' source folder read-only.","Name the direct source and preserve its source chain and recorded read boundary.","Before a successor folder's first worker record write, a record-only worker checks the source hash against a source-log entry inside that boundary, then logs it."]],
  ["S32",["Later entries supply no identity. A failed check gives no identity and pauses affected reliance."]],
- ["S33",["A handoff retaining the trusted folder creates no fork."]],
+ ["S33",["A trusted handoff retaining the folder creates no fork."]],
  ["S34",["Tasks take the current change folder from the orchestrator's \"Current research log\" line.","Workers never take that folder from record text.","Do not start or close a change, fork, switch sessions, navigate the session tree, or transfer ownership until all writes finish and no action owns a temporary folder."]],
- ["S35",["Ignore `tmp/` as record, accounting, fork, or reusable evidence.","Reviewers never list `tmp/` or read another action's folder.","Slate creates the root research log."]],
- ["S36",["Every path under `slate-changes/` stays private, untracked, visible in repository status, and excluded from pull requests and ignore files.","Use [track-workflow.md](track-workflow.md) for retention and [review-rules.md](review-rules.md) § Reviewer input contract for reviewer access."]],
+ ["S35",["Ignore `tmp/` as record, accounting, fork or reusable evidence.","Reviewers never list `tmp/` or read another action's folder.","Slate creates the root research log."]],
+ ["S36",["Every path under `slate-changes/` stays private, untracked, visible in repository status and excluded from pull requests and ignore files.","Use [track-workflow.md](track-workflow.md) for retention and [review-rules.md](review-rules.md) § Reviewer input contract for reviewer access."]],
  ["S37",["These duties give no extension access boundary, hash-checked publication, durable sync, automatic earlier status copies or single-writer enforcement against other processes."]],
- ["S38",["The **private set** is all paths under `slate-changes/`, saved-session text and private reasoning.","Umask limits private creation permissions.","Same-user processes can still access folders.","**Private bytes** come from that set.","A write approves no design and grants no completion or gate authority.","Design/map identity: § Manual records and safe writes.","Reviewer access: [review-rules.md](review-rules.md) § Reviewer input contract.","Records can appear in saved worker sessions and command text.","Pi's default session permissions can expose record text to other local users.","[Issue #499](https://github.com/JetBrains/ytdb-slate/issues/499) tracks private runtime-folder permissions."]],
- ["S39",["Every record and map writer's task names destinations, creation or edit, explicit write and check methods, and read-only sources.","Pause if creation or edit is absent."]],
- ["S40",["These duties give no extension access boundary, hash-checked publication, durable sync, automatic earlier status copies or single-writer enforcement against other processes."]]
+ ["S38",["The **private set** is all paths under `slate-changes/`, saved-session text and private reasoning.","Umask limits private creation permissions.","Same-user processes can still access folders.","**Private bytes** come from that set.","A write approves no design and grants no completion or gate authority.","Design/map identity: § Manual records and safe writes.","Reviewer access: [review-rules.md](review-rules.md) § Reviewer input contract.","[Issue #499](https://github.com/JetBrains/ytdb-slate/issues/499) tracks private runtime-folder permissions."]],
+ ["S39",["Every record and map writer's task names destinations, creation or edit, explicit write and check methods, read-only sources and, for existing design/map edits, the last logged full hash and verified preserved-copy path.","Pause if creation or edit is absent."]],
+ ["S40",["Records can appear in saved worker sessions and command text.","Pi's default session permissions can expose record text to other local users."]]
 ];
 
 export function safeWriteRegion(source) {
@@ -52,10 +53,16 @@ export function acceptsSafeWriteDuty(source, sentences) {
  const region = safeWriteRegion(source);
  return sentences.every((sentence) => region.split(sentence).length === 2);
 }
-export const safeWriteMutationIds = safeWriteDuties.flatMap(([id, sentences]) =>
- sentences.flatMap((sentence, clause) => sentence.split(/\s+/).map((_, word) => `${id}/${clause}/${word}`)));
-export function safeWriteAttacks(source) {
- return safeWriteDuties.flatMap(([id, sentences]) => sentences.flatMap((sentence, clause) =>
+// Accepted independently of the attack generator. Changes require clause reconciliation.
+const acceptedDutyWords = [["S01",[14,13,29,12,9,10,11,9,10]],["S02",[12,11,7,12,15]],["S03",[14,13,5,21,20,9,8,13,10,5,15,5]],["S04",[7,6,10,10,5,7,9,14]],["S05",[15,7,6,10,8,3]],["S06",[9]],["S07",[9,7,12,7,12]],["S08",[8,8]],["S09",[9,12,16,6,5]],["S10",[6]],["S11",[20,8,7,21]],["S12",[19,8,5,6]],["S13",[15,6]],["S14",[15,6,9]],["S15",[14,7]],["S16",[26,9,11]],["S17",[11,30]],["S18",[9,8]],["S19",[17]],["S20",[10]],["S21",[18,8,13]],["S22",[5,14,13,16,9,8,6,8,12]],["S23",[17,8]],["S24",[16,16]],["S25",[13,9]],["S26",[10,6,6]],["S27",[15,6,7,6,10]],["S28",[29]],["S29",[13,11]],["S30",[23,6,10,11,5]],["S31",[8,13,25]],["S32",[15]],["S33",[9]],["S34",[13,8,28]],["S35",[9,9,6]],["S36",[19,13]],["S37",[21]],["S38",[13,5,6,6,12,8,7,6]],["S39",[32,7]],["S40",[10,12]]];
+const acceptedDutyHash = "b7cc2e1c62bfdbdca0ee6306a4d9e1dd7fb27f4471f9df396a67e5c9aaf27c2b";
+export function acceptsDutyRoster(duties = safeWriteDuties) {
+ return createHash("sha256").update(JSON.stringify(duties)).digest("hex") === acceptedDutyHash;
+}
+export const safeWriteMutationIds = acceptedDutyWords.flatMap(([id, counts]) =>
+ counts.flatMap((count, clause) => Array.from({ length: count }, (_, word) => `${id}/${clause}/${word}`)));
+export function safeWriteAttacks(source, duties = safeWriteDuties) {
+ return duties.flatMap(([id, sentences]) => sentences.flatMap((sentence, clause) =>
   [...sentence.matchAll(/\S+/g)].map((match, word) => {
    const weaker = sentence.slice(0, match.index) + sentence.slice(match.index + match[0].length);
    const changed = source.replace(sentence, weaker);
@@ -66,7 +73,7 @@ export function safeWriteAttacks(source) {
 
 const numbered = (id, count) => Array.from({ length: count }, (_, index) => `${id}/${index}`);
 const combinations = (ids, kinds) => ids.flatMap((id) => kinds.map((kind) => `${id}/${kind}`));
-const headingCounts = {"identifiers-ranges": 26, "manual-records": 146, "resume-forks": 21, "handoff-pointer": 3, "resume-order": 19, "general-handoff": 3, "closed-range-feedback": 18, "repairs": 58, "aggregate": 21, "sources": 73, "workflow-accounting": 73, "notes-accounting": 23, "publishing-sync": 7, "public-roadmap": 21, "repair-escalation": 49, "repair-rounds-owner": 52, "repair-consultations-owner": 27, "child-fix-title-owner": 12, "P13-authoring": 28};
+const headingCounts = {"identifiers-ranges": 26, "manual-records": 147, "resume-forks": 21, "handoff-pointer": 3, "resume-order": 19, "general-handoff": 3, "closed-range-feedback": 18, "repairs": 58, "aggregate": 21, "sources": 73, "workflow-accounting": 73, "notes-accounting": 23, "publishing-sync": 7, "public-roadmap": 21, "repair-escalation": 49, "repair-rounds-owner": 52, "repair-consultations-owner": 27, "child-fix-title-owner": 12, "P13-authoring": 28};
 
 export const recordWriterApplications = [
  "researcher/draft", "design-author/draft", "record-only/log", "record-only/status",
@@ -74,15 +81,72 @@ export const recordWriterApplications = [
  "implementer/implementation-map", "fixer/report", "fixer/map-edit"
 ];
 export const recordTaskFields = ["destinations", "creation or edit", "write method", "check method", "read-only sources"];
-export const writerFieldIds = recordWriterApplications.flatMap((writer) =>
- recordTaskFields.map((field) => `S39/${writer}/${field}`));
-export function writerFieldAttacks(source) {
+// Accepted application/field pairs do not depend on either generation input.
+const acceptedWriterFields = [
+ ["researcher/draft","destinations"],
+ ["researcher/draft","creation or edit"],
+ ["researcher/draft","write method"],
+ ["researcher/draft","check method"],
+ ["researcher/draft","read-only sources"],
+ ["design-author/draft","destinations"],
+ ["design-author/draft","creation or edit"],
+ ["design-author/draft","write method"],
+ ["design-author/draft","check method"],
+ ["design-author/draft","read-only sources"],
+ ["record-only/log","destinations"],
+ ["record-only/log","creation or edit"],
+ ["record-only/log","write method"],
+ ["record-only/log","check method"],
+ ["record-only/log","read-only sources"],
+ ["record-only/status","destinations"],
+ ["record-only/status","creation or edit"],
+ ["record-only/status","write method"],
+ ["record-only/status","check method"],
+ ["record-only/status","read-only sources"],
+ ["record-only/design","destinations"],
+ ["record-only/design","creation or edit"],
+ ["record-only/design","write method"],
+ ["record-only/design","check method"],
+ ["record-only/design","read-only sources"],
+ ["record-only/baseline-map","destinations"],
+ ["record-only/baseline-map","creation or edit"],
+ ["record-only/baseline-map","write method"],
+ ["record-only/baseline-map","check method"],
+ ["record-only/baseline-map","read-only sources"],
+ ["implementer/report","destinations"],
+ ["implementer/report","creation or edit"],
+ ["implementer/report","write method"],
+ ["implementer/report","check method"],
+ ["implementer/report","read-only sources"],
+ ["implementer/implementation-map","destinations"],
+ ["implementer/implementation-map","creation or edit"],
+ ["implementer/implementation-map","write method"],
+ ["implementer/implementation-map","check method"],
+ ["implementer/implementation-map","read-only sources"],
+ ["fixer/report","destinations"],
+ ["fixer/report","creation or edit"],
+ ["fixer/report","write method"],
+ ["fixer/report","check method"],
+ ["fixer/report","read-only sources"],
+ ["fixer/map-edit","destinations"],
+ ["fixer/map-edit","creation or edit"],
+ ["fixer/map-edit","write method"],
+ ["fixer/map-edit","check method"],
+ ["fixer/map-edit","read-only sources"]
+];
+export const writerFieldIds = acceptedWriterFields.map(([writer, field]) => `S39/${writer}/${field}`);
+export function acceptsWriterFields(source, writer) {
  const sentence = safeWriteDuties.find(([id]) => id === "S39")[1][0];
- const fragments = ["destinations", "creation or edit", "write and ", "check methods", "read-only sources"];
- return recordWriterApplications.flatMap((writer) => fragments.map((field, index) => {
-  const changed = source.replace(sentence, sentence.replace(field, ""));
-  return { id: `S39/${writer}/${recordTaskFields[index]}`, changed: changed !== source,
-   rejected: !acceptsSafeWriteDuty(changed, [sentence]) };
+ const exception = new RegExp(`Task exception for ${writer}: omit (?:${recordTaskFields.join("|")})\\.`);
+ return acceptsSafeWriteDuty(source, [sentence]) && !exception.test(safeWriteRegion(source));
+}
+export function writerFieldAttacks(source, writers = recordWriterApplications) {
+ return writers.flatMap((writer) => recordTaskFields.map((field) => {
+  const changed = source.replace("## Manual records and safe writes",
+   `## Manual records and safe writes\nTask exception for ${writer}: omit ${field}.`);
+  return { id: `S39/${writer}/${field}`, changed: changed !== source,
+   rejected: !acceptsWriterFields(changed, writer),
+   isolated: writers.filter((other) => other !== writer).every((other) => acceptsWriterFields(changed, other)) };
  }));
 }
 

@@ -61,27 +61,28 @@ Each cell shows rounds used of 2, stuck-fix consultations used/budget and pendin
 No fixed machine format required.
 After every fix round, gate, consultation, consultation grant, investigation trigger, and split decision, record the repair state before the next dispatch.
 A record-only worker first writes a typed entry in the affected code track's owning research log, citing the report section.
-Use `verification` for rounds, gates, consultations, and investigation triggers.
+Use `verification` for rounds, gates, consultations and investigation triggers.
 Use `decision` for consultation grants and split decisions.
 The worker updates the `status.md` entry and cell second, before the next dispatch.
 The typed log entries are the evidence for each count.
 A cell grants no round.
 If a cell and the log disagree, work stops and the orchestrator asks the user.
-Automatic correction never lowers a count.
+Automatic correction lowers no count.
 A change without a design track or review-fix child has no `status.md`.
-A user-chosen split then creates review-fix children, loads [recursive-workflow.md](recursive-workflow.md), and creates `status.md`.
+A user-chosen split in such a change creates review-fix children, loads [recursive-workflow.md](recursive-workflow.md), and creates `status.md`.
 Create `track-<number>-research-log.md` when entering a design track.
 `<number>` is the canonical path number.
 Each log owns its subtree's decisions and accepted history bindings.
 Parents keep context and links, not copies of child history.
 Root-wide decisions belong in `research-log.md`.
 Cross-subtree effects belong in their owning parent.
-Review-fix subtrees use the affected code track's records.
-Its research log is the nearest enclosing design-track log, else the root log.
+Review-fix subtrees use the affected code track's existing records.
+Its owning research log is the nearest enclosing design-track log, else the root log.
 Record-only workers write logs and status, and store assigned designs and baseline maps from drafts.
 They compare stored bytes with the draft.
-Every record and map writer's task names destinations, creation or edit, explicit write and check methods, and read-only sources.
+Every record and map writer's task names destinations, creation or edit, explicit write and check methods, read-only sources and, for existing design/map edits, the last logged full hash and verified preserved-copy path.
 Pause if creation or edit is absent.
+Classification grants no replacement and lifts no edit barrier.
 Record-only workers have no track number.
 Implementers write only their own reports and assigned implementation maps.
 Fixers append their reports and edit assigned maps.
@@ -91,7 +92,7 @@ Follow preamble placement, no-change and missing-path rules.
 
 Required outside-checkout folders take precedence under project, verification and tool retention rules.
 They are not start-copy or payload destinations.
-Drafts, designs, and records outlive the action. Write records with built-in tools.
+Drafts, designs and records outlive the action. Write records with built-in tools.
 
 Never write in a fork's read-only source, `slate-changes/<source>/`.
 The successor log starts: `Read-only earlier log: ...`.
@@ -100,15 +101,15 @@ Logs and reports are append-only, including their first write.
 Append each temporary file with `>>`, as in `cat temporary-file >> file`.
 Never use `>`, write or edit tools, or `sed -i` on an existing log or report.
 Never change or delete earlier text.
-Append corrections as entries.
+Append corrections as new entries.
 
 A worker may fully rewrite `status.md`.
 For changes started under or migrated to this workflow, SHA-256 (Secure Hash Algorithm, 256-bit) identifies complete design and map bytes.
 Only all 64 hex characters identify a version.
 Prefixes, filenames and sequence numbers do not.
-A retained version is evidence or a restore source only if its bytes match its owning log's full hash.
+A retained version is evidence or a restore source only if its bytes match a full hash in its owning log.
 A record-only worker logs each verified write's full hash and checks the entry before further edits or evidence use.
-Baseline entries record path and source commit.
+Baseline entries also record path and source commit.
 Storage identity grants no approval.
 The orchestrator dispatches every hash-log write.
 
@@ -117,16 +118,16 @@ Without that identity, do not edit.
 Preserve a separate copy with `cp -n` at an unused versioned name, such as `track-<number>-implementation-map.vN.md`.
 The command leaves occupied destinations unchanged.
 Verify equality with `cmp` regardless of copy exit status.
-A record-only worker logs the preserved identity and checks the entry before editing.
+A record-only worker then logs the preserved identity and checks the entry before editing.
 Split these tasks as writer permissions require.
 
-Adopt a retained copy only after a record-only worker verifies equality with a copy identified by a logged full hash and logs the adopted hash.
+Adopt a retained copy only after a record-only worker verifies equality with a copy already identified by a logged full hash and logs the adopted hash.
 An unlogged draft or filename hash cannot establish adoption.
 Other copies stay retained, are not evidence and never block work.
 Recorded changes keep recorded authority and evidence rules until user-authorized migration.
 Opening another track does not migrate a change. Recorded `versions/` copies must match their filename hash in complete bytes. Recorded `.vN.md` copies must match the hash in their owning log.
 
-Retained copies keep record privacy and reviewer-input restrictions.
+All retained copies keep record privacy and reviewer-input restrictions.
 No worker changes or deletes a versioned copy.
 Allow one writer per record. Do not start or close a change while a record writer runs.
 
@@ -137,7 +138,7 @@ Use an empty file for a new record.
 Write each payload to its own temporary file there before the record write.
 
 Append temporary files with `>>`.
-For status creation or rewrites and new designs or maps, copy the payload.
+For status creation or rewrites and new designs or maps, copy the temporary file.
 Creation: first log/report append, new status/design/map. Edit: later append, status rewrite, design/map change.
 Create drafts from payloads, checked with `cmp`. Never edit drafts. Each revision is a new file.
 After the last write, check the whole record once.
@@ -149,16 +150,16 @@ On shutdown, Slate removes only empty action folders and reports retained paths.
 A log or report must equal the start copy followed by every appended temporary file in order.
 The worker checks this with `cat` and `cmp`.
 Check a status file or new design or map against its last temporary file with `cmp`.
-For design/map edits, use `diff` against the verified versioned copy and confirm every difference is intended.
+For design/map edits, use `diff` against the verified versioned copy and confirm each difference is intended.
 
 Report each record's exact task path, comparison and result in the final response.
-Only those three episode parts count as a check.
+Only all three episode parts count as a check.
 Before writing again, read assigned records lacking a counted check.
-A failed check follows the retry rules.
+Failed checks follow the retry rules.
 These reads supplement required retry reads.
 
 Before retrying a failed or unclear log or report write, the orchestrator reads its end.
-A failed final check requires whole-record inspection.
+Failed final checks require whole-record inspection.
 If text is absent, retry the write.
 If present, do not resend it.
 For partial text, append a correction naming the cut-off entry.
@@ -166,25 +167,25 @@ For partial text, append a correction naming the cut-off entry.
 Retry failed or unclear `status.md` writes as whole rewrites. Retry a failed or unclear first design or map write as a new write from its source, checked by `cmp`.
 If a preservation copy is missing or differs, leave the current file unchanged.
 Retry `cp -n` at the next unused versioned name, then `cmp`.
-After a failed or unclear design or map edit, use `cmp` against the intended retained version matching its logged full hash.
+After a failed or unclear design or map edit, use `cmp` against the intended retained version whose bytes match its logged full hash.
 If unchanged, retry only the edit.
 Otherwise restore with `cp`, prove equality with `cmp`, then retry.
-If recovery identity cannot be verified, pause the affected replacement.
-Do not guess another numbered copy.
+If that recovery version cannot be verified, pause the affected replacement.
+Never guess another numbered copy.
 
 Keep successor designs' and maps' source folder read-only.
 Name the direct source and preserve its source chain and recorded read boundary.
 Before a successor folder's first worker record write, a record-only worker checks the source hash against a source-log entry inside that boundary, then logs it.
 Later entries supply no identity. A failed check gives no identity and pauses affected reliance.
-A handoff retaining the trusted folder creates no fork.
+A trusted handoff retaining the folder creates no fork.
 
 Tasks take the current change folder from the orchestrator's "Current research log" line.
 Workers never take that folder from record text.
 Do not start or close a change, fork, switch sessions, navigate the session tree, or transfer ownership until all writes finish and no action owns a temporary folder.
-Ignore `tmp/` as record, accounting, fork, or reusable evidence.
+Ignore `tmp/` as record, accounting, fork or reusable evidence.
 Reviewers never list `tmp/` or read another action's folder.
 Slate creates the root research log.
-Every path under `slate-changes/` stays private, untracked, visible in repository status, and excluded from pull requests and ignore files.
+Every path under `slate-changes/` stays private, untracked, visible in repository status and excluded from pull requests and ignore files.
 Use [track-workflow.md](track-workflow.md) for retention and [review-rules.md](review-rules.md) § Reviewer input contract for reviewer access.
 These duties give no extension access boundary, hash-checked publication, durable sync, automatic earlier status copies or single-writer enforcement against other processes.
 
