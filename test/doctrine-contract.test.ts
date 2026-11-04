@@ -345,7 +345,7 @@ test("project startup settings merge causally and select Opus 5.5 at high when u
     defaultProvider: "anthropic",
     defaultModel: "claude-opus-5-5",
     defaultThinkingLevel: "high",
-    packages: ["../../main", "npm:pi-smart-fetch@0.3.17", "npm:pi-web-search@1.6.0"],
+    packages: ["../../main", "npm:pi-smart-fetch@0.3.23", "npm:pi-web-search@1.7.0"],
   });
   const agentDir = join(scratch, "startup-agent");
   mkdirSync(agentDir, { recursive: true });

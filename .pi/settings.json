@@ -4,7 +4,7 @@
   "defaultThinkingLevel": "high",
   "packages": [
     "../../main",
-    "npm:pi-smart-fetch@0.3.17",
-    "npm:pi-web-search@1.6.0"
+    "npm:pi-smart-fetch@0.3.23",
+    "npm:pi-web-search@1.7.0"
   ]
 }
