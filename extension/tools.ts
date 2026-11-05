@@ -164,9 +164,9 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 				? implementerReportName(params.trackNumber) : undefined;
 			const reportTask = reportName !== undefined
 				? `${params.task}\n\nImplementer report: slate-changes/${store.currentChange}/${reportName}. ` +
-					"A new report starts with a `>>` append. Later appends use only `>>`. " +
+					"Start reports with `>>`. Later appends use only `>>`. " +
 					"Never use `>`, write, edit or `sed -i` on an existing report. " +
-					"Under `slate-changes/`, write only this report, assigned maps and action scratch. " +
+					"Under `slate-changes/`, write only this report, assigned implementation maps and action scratch. " +
 					"Before each action’s first report write, copy the report to a temporary file. " +
 					"For a new report, use an empty copy. " +
 					"Write each new text to its own temporary file. " +

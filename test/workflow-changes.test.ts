@@ -314,8 +314,9 @@ test("folder grammar rejects malformed, calendar-invalid, traversal and runtime 
 });
 
 const reportMethodGroups = [
-  ["destination", ["Under `slate-changes/`, write only this report, assigned maps and action scratch."]],
+  ["destination", ["Under `slate-changes/`, write only this report, assigned implementation maps and action scratch."]],
   ["start copy", ["Before each action’s first report write, copy the report to a temporary file.", "For a new report, use an empty copy."]],
+  ["first append", ["Start reports with `>>`. Later appends use only `>>`."]],
   ["append", ["Write each new text to its own temporary file.", "Create reports with the first `>>` append.", "Append each temporary file with `>>`."]],
   ["final check", ["After its last write, the implementer checks the whole report once with `cat` and `cmp`.", "The report must equal the start copy followed by every appended temporary file in order."]],
   ["report", ["Report the path, comparison and result in the final response.", "Report a failed or unclear append or check and stop. Never retry that append."]],
@@ -385,6 +386,8 @@ test("implementer receives its report path and approved method with and without 
     assertMapMethod(task!);
     if (source) assert.ok(task!.includes("If an assigned map exists only in the source folder, pause map writing until a record-only worker creates its successor copy. Do not create a replacement map from scratch."));
     const originalTask = task!;
+    assert.throws(() => assertReportMethod(originalTask.replace("assigned implementation maps", "assigned maps")));
+    assert.ok(readFileSync(CHANGE_RECORDS_DOC, "utf8").includes("Implementers write only their own reports and assigned implementation maps."));
     for (const rule of [...mapRules, ...reportMethodGroups.flatMap(([, rules]) => [...rules])]) {
       const mutated = originalTask.replace(rule, "");
       assert.notEqual(mutated, originalTask);

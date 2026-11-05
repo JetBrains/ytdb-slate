@@ -959,6 +959,37 @@ for (const [id, sentences] of safeWriteDuties as [string, string[]][]) {
     for (const attack of attacks) assert.ok(attack.changed && attack.rejected, attack.id);
   });
 }
+test("exception triggers and worker stop retain independent common ownership", () => {
+  const clauses = safeWriteDuties.find(([id]: any) => id === "S26")[1];
+  assert.equal(clauses.length, 10);
+  for (let clause = 2; clause < 10; clause++) {
+    const attacks = cachedDutyAttacks.filter((attack: any) => attack.id.startsWith(`S26/${clause}/`));
+    for (const kind of ["remove", "duplicate", "owner-W", "owner-E", "copy-W", "copy-E"]) {
+      assert.ok(attacks.some((attack: any) => attack.id.endsWith("/" + kind) && attack.changed && attack.rejected), `S26/${clause}/${kind}`);
+    }
+    assert.equal(attacks.filter((attack: any) => /\/\d+$/.test(attack.id)).length, clauses[clause].split(/\s+/).length);
+    assert.ok(attacks.every((attack: any) => attack.changed && attack.rejected));
+  }
+});
+
+test("cross-owner duplicates expose an owner-only acceptor", async () => {
+  const source = readFileSync(new URL("../verification/record-mutation-roster.mjs", import.meta.url), "utf8");
+  const predicate = "return Object.entries(regions).every(([key, text]) => text.split(sentence).length - 1 === (key === owner ? 1 : 0));";
+  assert.equal(source.split(predicate).length, 2);
+  const weakened = source.replace(predicate, "return regions[owner].split(sentence).length - 1 === 1;");
+  const faulty = await import("data:text/javascript;base64," + Buffer.from(weakened).toString("base64"));
+  const attacks = faulty.safeWriteAttacks(dutySources);
+  const copies = attacks.filter((attack: any) => /\/copy-[CWE]$/.test(attack.id));
+  const clauseCount = safeWriteDuties.reduce((count: number, [, clauses]: any) => count + clauses.length, 0);
+  assert.equal(copies.length, 2 * clauseCount);
+  assert.ok(copies.every((attack: any) => attack.changed && !attack.rejected));
+  assert.ok(attacks.filter((attack: any) => !/\/copy-[CWE]$/.test(attack.id)).every((attack: any) => attack.changed && attack.rejected));
+  assert.ok(cachedDutyAttacks.every((attack: any) => attack.changed && attack.rejected));
+  const audit = createMutationAudit({ duties: safeWriteMutationIds });
+  audit.record("duties", attacks);
+  assert.equal(audit.inspect().ok, false);
+});
+
 test("record writer fields have exactly-once fail-closed accounting", () => {
   const source = read("change-records");
   const rows = [...cachedDutyAttacks, ...writerFieldAttacks(source)];
