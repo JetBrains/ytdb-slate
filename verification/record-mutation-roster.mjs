@@ -57,15 +57,42 @@ export function safeWriteRegion(source) {
  return source.split(heading)[1].split(/\n## /)[0].replace(/\s+/g, " ").trim();
 }
 function ownedRegions(source) {
+ const worker = source.W ?? "";
+ const heading = "## Record preparation and recovery execution\n";
  return { C: safeWriteRegion(source.C ?? ""),
-  W: (source.W ?? "").split("## Record preparation and recovery execution\n")[1]?.replace(/\s+/g, " ").trim() ?? "",
+  W: worker.split(heading).length === 2 ? worker.split(heading)[1].split(/\n## /)[0].replace(/\s+/g, " ").trim() : "",
   E: (source.E ?? "").replace(/\s+/g, " ").trim() };
 }
+// Each outside section has separate single-copy and double-copy controls.
+const outsideParts = [
+ ["C-introduction", "C", ""],
+ ["C-before", "C", "## Identifiers, code ranges, and design markers\n"],
+ ["C-after", "C", null],
+ ["W-introduction", "W", ""],
+ ["W-command-contract", "W", "## Command contract\n"],
+ ["W-invocation", "W", "## Invocation\n"],
+ ["W-reports", "W", "## Reports and proof\n"],
+ ["W-routes", "W", "## Operation and exit routes\n"],
+ ["W-bounds", "W", "## Protection observations and bounds\n"],
+ ["W-after", "W", null],
+ ["E-whole", "E", ""],
+];
+// Accepted identities do not depend on the insertion targets.
+const outsideKinds = [
+ "copy-C-introduction", "duplicate-C-introduction",
+ "copy-C-before", "duplicate-C-before", "copy-C-after", "duplicate-C-after",
+ "copy-W-introduction", "duplicate-W-introduction", "copy-W-command-contract", "duplicate-W-command-contract",
+ "copy-W-invocation", "duplicate-W-invocation", "copy-W-reports", "duplicate-W-reports",
+ "copy-W-routes", "duplicate-W-routes", "copy-W-bounds", "duplicate-W-bounds",
+ "copy-W-after", "duplicate-W-after", "copy-E-whole", "duplicate-E-whole",
+];
 export function acceptsSafeWriteDuty(source, sentences) {
- const regions = ownedRegions(source);
+ const owners = ownedRegions(source);
+ const regions = Object.fromEntries(["C", "W", "E"].map((key) => [key, (source[key] ?? "").replace(/\s+/g, " ").trim()]));
  const id = safeWriteDuties.find(([, clauses]) => clauses === sentences)?.[0];
  return !!id && sentences.every((sentence, clause) => {
   const owner = dutyOwners[id]?.[clause] ?? "C";
+  if (owners[owner].split(sentence).length - 1 !== 1) return false;
   return Object.entries(regions).every(([key, text]) => text.split(sentence).length - 1 === (key === owner ? 1 : 0));
  });
 }
@@ -75,7 +102,8 @@ export function acceptsDutyRoster(duties = safeWriteDuties) {
 const acceptedDutyWords = [["S01",[15,10,29,11,7,15,12,7,7,7,9,11,6,10]],["S02",[9,11,7,12,15]],["S03",[22,5,21,19,9,8,11,9,11,5]],["S04",[7,6,10,10,5,7,9,14]],["S05",[6,14,10,6,10,8,3]],["S06",[9]],["S07",[9,7,19,12]],["S08",[8,8]],["S09",[9,12,16,6,5]],["S10",[6]],["S11",[14,13,21]],["S12",[17,12,8,5,6]],["S13",[17]],["S14",[15,4,9]],["S15",[13,7]],["S16",[26,9,9]],["S17",[9,22]],["S18",[8,7]],["S19",[17]],["S20",[10]],["S21",[19,9]],["S22",[3,19,13,16,9,13,8,12]],["S23",[17,20]],["S24",[16,16,11]],["S25",[13,9]],["S26",[14,10,8,6,7,6,6,3,3,6]],["S27",[11,7,6,9]],["S28",[8,12,8,12,52,15,13,14,27,21,8,6,20,3,9,8,13,8,7,11,13,5,17,6,9,10]],["S29",[8,8]],["S30",[16,6,17,14,10,13,10,11,7,17,6,34,13,25,13,10]],["S31",[9,14,22,6,20,7,10]],["S32",[15]],["S33",[9]],["S34",[13,8,28]],["S35",[9,9,6]],["S36",[18,13]],["S37",[21]],["S38",[13,5,6,6,12,8,7,6]],["S39",[15,14,7]],["S40",[10,12]]];
 const acceptedDutyHash = "5bcb0921359b30f399a92a9a432a61b3073a830efda784fdb6fd4e6682ecdc5e";
 export const safeWriteMutationIds = acceptedDutyWords.flatMap(([id, counts]) =>
- counts.flatMap((count, clause) => [...Array.from({ length: count }, (_, word) => `${id}/${clause}/${word}`),
+ counts.flatMap((count, clause) => [...outsideKinds.map((kind) => `${id}/${clause}/${kind}`),
+  ...Array.from({ length: count }, (_, word) => `${id}/${clause}/${word}`),
   ...["remove", "duplicate", ...["C", "W", "E"].filter((owner) => owner !== (dutyOwners[id]?.[clause] ?? "C")).flatMap((owner) => ["owner-" + owner, "copy-" + owner])].map((kind) => `${id}/${clause}/${kind}`)]));
 export function safeWriteAttacks(source, duties = safeWriteDuties) {
  return duties.flatMap(([id, sentences]) => sentences.flatMap((sentence, clause) => {
@@ -84,7 +112,15 @@ export function safeWriteAttacks(source, duties = safeWriteDuties) {
    String(word), sentence.slice(0, match.index) + sentence.slice(match.index + match[0].length)]);
   attacks.push(["remove", ""], ["duplicate", sentence + " " + sentence],
    ...["C", "W", "E"].filter((key) => key !== owner).flatMap((key) => [["owner-" + key, ""], ["copy-" + key, sentence]]));
-  return attacks.map(([kind, replacement]) => {
+  const outside = outsideParts.flatMap(([part, key, heading]) => ["copy", "duplicate"].map((kind) => {
+   const payload = "\n" + (kind === "copy" ? sentence : sentence + "\n" + sentence) + "\n";
+   const raw = source[key];
+   const changed = { ...source, [key]: heading === null ? raw + "\n## Outside owner\n" + payload :
+    heading === "" ? payload + raw : raw.replace(heading, heading + payload) };
+   return { id: `${id}/${clause}/${kind}-${part}`, changed: changed[key] !== raw,
+    rejected: !acceptsSafeWriteDuty(changed, sentences) };
+  }));
+  return [...outside, ...attacks.map(([kind, replacement]) => {
    const raw = source[owner];
    const offset = owner === "W" ? raw.indexOf("## Record preparation and recovery execution\n") : 0;
    const pattern = new RegExp(sentence.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+"));
@@ -92,7 +128,7 @@ export function safeWriteAttacks(source, duties = safeWriteDuties) {
    if (kind.startsWith("owner-") || kind.startsWith("copy-")) changed[kind.split("-")[1]] += "\n" + sentence;
    return { id: `${id}/${clause}/${kind}`, changed: Object.keys(source).some((key) => changed[key] !== source[key]),
     rejected: !acceptsSafeWriteDuty(changed, sentences) };
-  });
+  })];
  }));
 }
 

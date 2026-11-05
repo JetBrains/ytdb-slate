@@ -983,8 +983,45 @@ test("cross-owner duplicates expose an owner-only acceptor", async () => {
   const clauseCount = safeWriteDuties.reduce((count: number, [, clauses]: any) => count + clauses.length, 0);
   assert.equal(copies.length, 2 * clauseCount);
   assert.ok(copies.every((attack: any) => attack.changed && !attack.rejected));
-  assert.ok(attacks.filter((attack: any) => !/\/copy-[CWE]$/.test(attack.id)).every((attack: any) => attack.changed && attack.rejected));
+  assert.ok(attacks.filter((attack: any) => !/\/(?:copy-[CWE]|(?:copy|duplicate)-[CWE]-.+)$/.test(attack.id)).every((attack: any) => attack.changed && attack.rejected));
   assert.ok(cachedDutyAttacks.every((attack: any) => attack.changed && attack.rejected));
+  const audit = createMutationAudit({ duties: safeWriteMutationIds });
+  audit.record("duties", attacks);
+  assert.equal(audit.inspect().ok, false);
+});
+
+test("outside-owner copies expose the narrow scan in every uncovered section", async () => {
+  const source = readFileSync(new URL("../verification/record-mutation-roster.mjs", import.meta.url), "utf8");
+  const wholeScan = 'const regions = Object.fromEntries(["C", "W", "E"].map((key) => [key, (source[key] ?? "").replace(/\\s+/g, " ").trim()]));';
+  assert.equal(source.split(wholeScan).length, 2);
+  const narrowScan = `const regions = { ...owners, W: (source.W ?? "").split("## Record preparation and recovery execution\\n")[1]?.replace(/\\s+/g, " ").trim() ?? "" };`;
+  const faulty = await import("data:text/javascript;base64," + Buffer.from(source.replace(wholeScan, narrowScan)).toString("base64"));
+  const attacks = faulty.safeWriteAttacks(dutySources);
+  const outside = (rows: any[]) => rows.filter((attack: any) => /\/(?:copy|duplicate)-[CWE]-.+$/.test(attack.id));
+  const parts = ["C-introduction", "C-before", "C-after", "W-introduction", "W-command-contract", "W-invocation",
+    "W-reports", "W-routes", "W-bounds", "W-after", "E-whole"];
+  assert.equal(safeWriteDuties.length, 40);
+  assert.equal(safeWriteDuties.reduce((count: number, [, clauses]: any) => count + clauses.length, 0), 186);
+  assert.equal(outside(attacks).length, 4092);
+  assert.equal(outside(cachedDutyAttacks).length, 4092);
+  for (const [id, clauses] of safeWriteDuties) {
+    for (let clause = 0; clause < clauses.length; clause++) {
+      for (const part of parts) for (const kind of ["copy", "duplicate"]) {
+        const identity = `${id}/${clause}/${kind}-${part}`;
+        const old = attacks.find((attack: any) => attack.id === identity);
+        const fixed = cachedDutyAttacks.find((attack: any) => attack.id === identity);
+        assert.ok(old.changed, identity);
+        assert.equal(old.rejected, part === "W-after" || part === "E-whole", identity);
+        assert.ok(fixed.changed && fixed.rejected, identity);
+      }
+    }
+  }
+  assert.equal(outside(attacks).filter((attack: any) => !attack.rejected).length, 3348);
+  assert.ok(safeWriteDuties.every(([, clauses]: any) => acceptsSafeWriteDuty(dutySources, clauses)));
+  for (const key of ["C", "W", "E"]) {
+    assert.ok(safeWriteDuties.every(([, clauses]: any) =>
+      acceptsSafeWriteDuty({ ...dutySources, [key]: dutySources[key] + "\n## Benign ending\nNo extra duty." }, clauses)));
+  }
   const audit = createMutationAudit({ duties: safeWriteMutationIds });
   audit.record("duties", attacks);
   assert.equal(audit.inspect().ok, false);

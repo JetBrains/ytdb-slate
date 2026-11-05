@@ -128,7 +128,10 @@ function checkWorkerReference(reference: string, common: string, recovery: strin
 		assert.ok(source.indexOf(precedence) < source.indexOf("For create,"));
 	};
 	assert.equal(common.split(precedence).length, 1, "precedence belongs to recovery, not common rules");
-	for (const source of [reference, recovery]) {
+	const workerPrecedence = "Known exits 2, 5, 6, 8, a command that cannot run and unavailable exclusive creation take precedence.";
+	assert.equal(reference.split(workerPrecedence).length, 2);
+	assert.equal(reference.split(precedence).length, 1);
+	for (const source of [reference.replace(workerPrecedence, precedence), recovery]) {
 		ordered(source);
 		assert.throws(() => ordered(source.replace(precedence + "\n", "") + "\n" + precedence));
 		for (const clause of ["2, ", "5, ", "6, ", "8, ", "unavailable exclusive creation", "a command that cannot run"]) {

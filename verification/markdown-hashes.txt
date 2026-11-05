@@ -60,7 +60,7 @@ a527dcd58276be7808e0a284add5f1dc08036ee9a522db85a4d5aeab3dd7b2f2  docs/review-pe
 
 6d747d45d7b680b7d7c91ff6158cd8d312c520ab2ae19ded16f4e2d6c77aa675  docs/roadmap.md
 
-afd2f8058d6d2490d255a2880d334be176f74e4c07f547b384157d74ffecf90d  docs/safe-record-write.md
+ce0623055334123dc402ed22df7049ab64a2d5e6985c4378ad2d5dad0da26433  docs/safe-record-write.md
 
 0a5e32799a1b0dc786b32ad2b01a2b363162ce73e75c0fac86896159daa47e52  docs/safety-and-trust.md
 

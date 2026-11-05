@@ -17,7 +17,7 @@ Command source and help are not required reads.
 ## Invocation
 
 Run `node COMMAND create -- SOURCE DESTINATION` for assigned new designs, maps and plans.
-COMMAND is ../extension/safe-record-write.mjs relative to this reference.
+COMMAND is ../extension/safe-record-write.mjs, relative to this document.
 SOURCE is the assigned payload or verified successor source.
 DESTINATION is the exact assigned record path.
 For the first creation and every retry, add `--expected HASH` before `--` when the task holds a logged or approval hash of SOURCE.
@@ -81,7 +81,7 @@ Check that every operation and exit key occurs exactly once and only defined cla
 Use only accept, retry creation, pause occupied, pause identity and pause unknown.
 Report exactly one class and the operation’s proof fields.
 Accept requires all operation-specific proof above, not exit 0 alone.
-Known exits 2, 5, 6, 8, unavailable exclusive creation and a command that cannot run take precedence.
+Known exits 2, 5, 6, 8, a command that cannot run and unavailable exclusive creation take precedence.
 For create, a missing or invalid command report or a signal means retry creation with the same expected hash.
 Other unclear command results mean pause unknown.
 A worker report with no defined class, several classes or accept without the required proof means pause unknown.
@@ -109,7 +109,7 @@ Occupied equality never proves creation. Never log exit 3 as a write identity.
 Preserve is pending and inactive. Every preserve cell means pause unknown.
 Pending grants no classification or next-name permission.
 Only later preservation has bounded next-name retry.
-A logged interrupted edit stays an edit even when the destination vanishes.
+A logged interrupted edit remains an edit even if the destination vanishes.
 Keep explicit edit prerequisites and methods.
 Without an earlier failure, exit 7 also covers a changed comparison-pass source hash or a vanished created name.
 Report-output failure selects exit 6 and attempts a fixed I/O diagnostic.
