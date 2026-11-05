@@ -8,11 +8,11 @@ a662990ad131898b265a18e14e4499b1977774b0c35027a4dc8bd34616fd4512  README-GUIDELI
 
 c3ec46232ae59a874141e6528bebf5a079f492e72048f86474166fde53d58d20  docs/blast-radius.md
 
-39dfcefd3e5b975acd4a83a6dd2a4849549ec5afb43c4d9eafd9567f7a2dd0c0  docs/change-records.md
+f7a2dde2dfc9429d44f8ed2060d564cb33c09cb76d6c644163c54d4612c3d17b  docs/change-records.md
 
 84dcfbeb2f215665c7562f6d7fe37857ceb8438cfc4f7dc80eb9a94296eae517  docs/configuration.md
 
-7206f5153a39fd1ba4a23d0ea4ee854502ba53deb92d3a22921fcad684d81b64  docs/context-budget.md
+3e7fa26500b35a5784a125bf36e85f0e50d30e30ee963963d3481ef90315cfd8  docs/context-budget.md
 
 a19eef7bf9a86c2cf57f5f510534791c02320b6ce2259eabc3a9e7099d8254c5  docs/delivery-packages.md
 
@@ -23,6 +23,8 @@ a19eef7bf9a86c2cf57f5f510534791c02320b6ce2259eabc3a9e7099d8254c5  docs/delivery-
 5e2395fcc77c07d89326faaae1a2be687b3a8e8a95fe3bc36703f6776f3ce11f  docs/model-routing.md
 
 0fae4450d2f24b44919521a210a39a694be0873a29ae1fb0dd124398d9859f15  docs/pr-publishing.md
+
+70e2f95e8f0cd50c5393e93542b0bbcb735b1c7e7aa2d8b92134f1a57c571cca  docs/record-write-recovery.md
 
 c61c06c2dd17236f91fdeb06d943224e37b7cf105ae893dd60f9ca534f4b37c8  docs/recursive-workflow.md
 
@@ -58,11 +60,11 @@ a527dcd58276be7808e0a284add5f1dc08036ee9a522db85a4d5aeab3dd7b2f2  docs/review-pe
 
 6d747d45d7b680b7d7c91ff6158cd8d312c520ab2ae19ded16f4e2d6c77aa675  docs/roadmap.md
 
-04bbc7afc94af2fd2b4feef440b84995e73d6cc1c45af54dde7a23098c870eeb  docs/safe-record-write.md
+afd2f8058d6d2490d255a2880d334be176f74e4c07f547b384157d74ffecf90d  docs/safe-record-write.md
 
 0a5e32799a1b0dc786b32ad2b01a2b363162ce73e75c0fac86896159daa47e52  docs/safety-and-trust.md
 
-955e4f307bd53a08c458282a9c17d68cd7233dead8594d21b7f2789ac34c4a5f  docs/track-workflow.md
+cf086f4f3090c8d0e53d0db225b9109cde7cea789aa18d42c42c5bd14534cf48  docs/track-workflow.md
 
 f18298e3a2b41c6c77fb92e7410618df557e494374e4392b5085a626d00f01c8  docs/user-notes.md
 

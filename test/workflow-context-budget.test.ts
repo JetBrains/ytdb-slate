@@ -167,17 +167,66 @@ const acceptedStartLimits: Record<string, [number, number]> = {
   "9 on ordinary": [180443, 319984],
   "9 on nested": [233724, 319984],
 };
-const deliveredGrowth = bytes(source("CHANGE_RECORDS_DOC").slice(...sections(source("CHANGE_RECORDS_DOC"), ["Manual records and safe writes"])[0]!)) - 10646;
-assert.ok(deliveredGrowth === 2593, "funded safe-write growth");
+const deliveredGrowth = 2593;
+const placementDelta = [-1394, 81];
 const phaseTotals = Object.fromEntries(Object.entries(acceptedStartTotals)
   .map(([key, pair]) => [key, pair.map((value, side) => value + deliveredGrowth
+    + placementDelta[side]!
     + (key.endsWith("nested") || Number(key.split(" ")[0]) >= 7 && side === 1 ? 6 : 0))]));
+
+test("placement keeps exception membership, phase shares and literal worker ceilings", async () => {
+  const has = (set: Read[]) => set.some(([id]) => id === "RECORD_WRITE_RECOVERY_DOC");
+  const checkMembership = (entries: Read[]) => {
+    for (let phase = 1; phase <= 9; phase++) for (const scenario of scenarios) {
+      const [publishing, nesting] = scenario.split(" ");
+      const applicable = entries.filter((r) => r[1] <= phase && (r[2] !== "publishing" || publishing === "on") && (r[2] !== "nested" || nesting === "nested"));
+      assert.ok(has(applicable), `maximum exception from phase one: ${phase} ${scenario}`);
+      assert.equal(has(applicable.filter((r) => ["always", "publishing", "nested"].includes(r[2]))), false);
+    }
+  };
+  checkMembership(reads);
+  assert.throws(() => checkMembership(reads.filter(([id]: Read) => id !== "RECORD_WRITE_RECOVERY_DOC")));
+  assert.throws(() => checkMembership(reads.map((r: Read) => r[0] === "RECORD_WRITE_RECOVERY_DOC" ? [r[0], 2, ...r.slice(2)] as Read : r)));
+  const doctrine = await Promise.all([render(false), render(true)]);
+  for (let phase = 1; phase <= 9; phase++) for (const scenario of scenarios) {
+    const size = bytes(doctrine[scenario.startsWith("on") ? 1 : 0]!.split(directory).join(""));
+    const pair = [size + total(accumulatedReads(phase, scenario)), size + total(accumulatedReads(phase, scenario, true))];
+    const key = `${phase} ${scenario}`, previous = phaseTotals[key]!.map((n, side) => n - placementDelta[side]!);
+    assert.deepEqual(pair, phaseTotals[key]);
+    assert.ok(pair[0]! <= previous[0]! - 1364 && pair[1]! <= previous[1]! + 255, key);
+    pair.forEach((n, side) => checkLimit(n, limits[key][side], key));
+  }
+  for (const entry of sessionEntries) for (const scenario of scenarios.filter((s: string) => entry.plans.includes(s.split(" ")[1]))) {
+    for (let through = entry.phase; through <= 9; through++) {
+      const required = sessionReads(entry, scenario, false, through), maximum = sessionReads(entry, scenario, true, through);
+      assert.equal(has(required), false);
+      assert.ok(has(maximum));
+    }
+  }
+  const common = total([["CHANGE_RECORDS_DOC", 1, "worker", "worker", ["Manual records and safe writes"]]]);
+  const worker = source("SAFE_RECORD_WRITE_DOC"), introEnd = worker.indexOf("## Command contract");
+  const narrow = bytes(worker.slice(0, introEnd)) + total([["SAFE_RECORD_WRITE_DOC", 1, "worker", "worker", ["Record preparation and recovery execution"]]]);
+  assert.equal(common, 11776);
+  assert.equal(bytes(worker), 11152);
+  assert.equal(narrow, 2271);
+  assert.equal(bytes(source("RECORD_WRITE_RECOVERY_DOC")), 1475);
+  const ceiling = (value: number, limit: number) => assert.ok(value <= limit);
+  const cases = [[common, 11783], [narrow, 2277], [bytes(worker), 11158], [common + narrow, 14060],
+    [common + narrow + 3766, 17826], [common + bytes(worker), 22941], [common + bytes(worker) + 3766, 26707]];
+  for (const [value, limit] of cases) {
+    ceiling(value!, limit!);
+    ceiling(limit! - 1, limit!);
+    ceiling(limit!, limit!);
+    assert.throws(() => ceiling(limit! + 1, limit!));
+  }
+});
+
 const checkChildCeiling = (required: number, maximum: number) => {
-  checkLimit(required, 78125, "child required reservation");
-  checkLimit(maximum, 147089, "child maximum reservation");
+  checkLimit(required, 76761, "child required reservation");
+  checkLimit(maximum, 147344, "child maximum reservation");
 };
 function exactLimits(key: string, pair: number[]): void {
-  assert.deepEqual(pair, acceptedStartLimits[key]!.map((n) => n + (key === "1 off ordinary" ? deliveredGrowth : 0)), `exact approved raise ${key}`);
+  assert.deepEqual(pair, acceptedStartLimits[key]!.map((n, side) => n + (key === "1 off ordinary" ? deliveredGrowth : 0) + (side === 1 && /^[1-6] off ordinary$/.test(key) ? 255 : 0)), `exact approved raise ${key}`);
 }
 function checkLimit(value: number, limit: number, label: string): void {
   assert.ok(Number.isInteger(limit) && value <= limit, `${label}: total ${value}, limit ${limit}, excess ${value - limit}`);
@@ -248,26 +297,32 @@ function validatePublication(text: string, expected: string): void {
   assert.equal(blocks[0]![0], expected, "publication content");
 }
 function table(rows: string[], costs: string[], entries: string[]): string {
-  return ["<!-- workflow-phase:start -->", "## Workflow context by phase", "",
+  return [
+    "<!-- workflow-phase:start -->",
+    "## Workflow context by phase",
+    "",
     "The doctrine is the workflow guidance rendered for the orchestrator. Each row",
     "adds cumulative required document reads to that guidance. Earlier reads stay",
     "in later rows. A later whole-file read replaces section ranges. Overlapping",
     "ranges count once. Section ranges include headings, subsections, separators,",
     "and final line feeds up to the next heading of the same or higher level.",
-    "The phase rows preserve accumulation for single-track work without a handoff.", "",
+    "The phase rows preserve accumulation for single-track work without a handoff.",
+    "",
     "Each fixture uses trusted shipped policy, no worker extensions, and one open",
     "change with a 56-character name. It has no source change. Deferred issues and",
     "routing recommendations are off. Ordinary plans have no nested trigger.",
     "Nested plans read the recursive workflow during research. Publishing adds",
     "the publishing document during research. These are allowed compositions,",
-    "not maximum configurations. The 36 rows follow the lifecycle order, with four scenarios for each phase.", "",
+    "not maximum configurations. The 36 rows follow the lifecycle order, with four scenarios for each phase.",
+    "",
     "UTF-8 means Unicode Transformation Format, 8-bit. Bytes use UTF-8 source text.",
     "Only the installed documentation-directory prefix is removed from doctrine.",
     "Filenames and all other text remain. Estimated tokens equal ceil(bytes / 4)",
     "for each complete total. This estimate is not a tokenizer result.",
     "The excluded installed path cost is 5 times the prefix byte length with",
     "publishing off and 6 times that length with publishing on. Tests measure",
-    "this cost separately. It depends on the installation path.", "",
+    "this cost separately. It depends on the installation path.",
+    "",
     "The user approved these limits on 2026-10-16. Each initial byte limit",
     "is ceil(baseline bytes * 1.05). Tests enforce total <= stored literal limit.",
     "The token limit is ceil(byte limit / 4). Reserve is checked at approval,",
@@ -276,32 +331,33 @@ function table(rows: string[], costs: string[], entries: string[]): string {
     "The user approved the two nested research maximum limits on 2026-10-25.",
     "They are 227,750 bytes / 56,938 estimated tokens with publishing off and",
     "244,594 bytes / 61,149 estimated tokens with publishing on.",
-    "The safe-write allocation raises only phase-1 publishing-off ordinary by 2,593 bytes.",
-    "G is the measured growth of the Manual records and safe writes section.",
-    "The section measures 13,239 bytes. G is 2,593 bytes.",
-    "The required limit is 76,071 + G = 78,664 bytes.",
-    "The conditional maximum limit is 144,707 + G = 147,300 bytes.",
-    "The child ceilings are 78,125 and 147,089 bytes.",
-    "Wider headroom stays exactly 539 required and 211 maximum bytes.",
-    "The maximum headroom includes 209 protected bytes and 2 free bytes.",
-    "The protected pool retains 187 bytes.",
-    "All other 35 limits stay unchanged.",
-    "The tightest unraised headroom is 454 required and 127 maximum bytes.",
-    "It occurs in phases 2 to 4 with publishing off and an ordinary plan.",
-    "Any final G different from the user-approved figure returns to the user before implementation.", "",
+    "The fixed historical safe-write raise G is 2,593 bytes.",
+    "The fixed cumulative recovery raise F is 255 bytes.",
+    "Only phases 1 through 6 with publishing off and ordinary planning add F to their stored maximum limits.",
+    "All required limits and other maximum limits retain their stored literals.",
+    "Research candidate ceilings are 76,761 required and 147,344 maximum bytes.",
+    "Actual research totals are 76,731 required and 147,170 maximum bytes.",
+    "Every phase and session row must reduce required context by at least 1,364 bytes and increase maximum context by at most 255 bytes.",
+    "The protected pool retains 187 bytes. Unused share moves only by recorded user decision.",
+    "",
     "| Phase | Publishing | Plan | Required bytes | Estimated tokens | Byte limit | Token limit | Conditional maximum bytes | Estimated tokens | Byte limit | Token limit |",
-    "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |", ...rows, "",
-    "### Session starts", "",
+    "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+    ...rows,
+    "",
+    "### Session starts",
+    "",
     "A session runs between actual handoff transfers. A failed or cancelled transfer",
     "and resume without transfer keep the current session. Single-track work has",
-    "no mandatory handoff. Reads continue accumulating inside each session.", "",
+    "no mandatory handoff. Reads continue accumulating inside each session.",
+    "",
     "Each start rereads the accumulated fixed-document set for its phase and plan.",
     "Nested phase-1 resume starts include design-track entry and optional handoffs.",
     "Their required sets cover unchanged-record reconciliation without added definitions.",
     "Their conditional maxima add focus and coverage definitions for renewed focus judgment.",
     "These two ranges in [blast-radius.md](blast-radius.md) add 29,762 bytes.",
     "Root research starts add neither range, including with a nested plan.",
-    "From phase 2, the whole [blast-radius.md](blast-radius.md) already contains both ranges.", "",
+    "From phase 2, the whole [blast-radius.md](blast-radius.md) already contains both ranges.",
+    "",
     "| Session start | Entry phase | Plan | Added required reads | Added conditional reads |",
     "| --- | --- | --- | --- | --- |",
     "| Root research | 1 | ordinary or nested | none | none |",
@@ -309,22 +365,28 @@ function table(rows: string[], costs: string[], entries: string[]): string {
     "| Design track or optional handoff | 1 | nested | none | [Focus areas and their gates](blast-radius.md#focus-areas-and-their-gates), including Judged proof and risk record, plus [Review coverage and the coverage register](blast-radius.md#review-coverage-and-the-coverage-register) |",
     "| Code track, including the second boundary | 7 | ordinary or nested | none | none |",
     "| Parent return | continuing phase 2–9 | ordinary or nested | none | none |",
-    "| Optional handoff | continuing phase 2–9 | ordinary or nested | none | none |", "",
+    "| Optional handoff | continuing phase 2–9 | ordinary or nested | none | none |",
+    "",
     "All starts use the corresponding phase limits. Only nested phase-1 resume maxima",
-    "differ from the phase totals. Their measured entry totals follow.", "",
+    "differ from the phase totals. Their measured entry totals follow.",
+    "",
     "| Publishing | Required bytes | Estimated tokens | Conditional maximum bytes | Estimated tokens | Byte limit | Token limit |",
-    "| --- | ---: | ---: | ---: | ---: | ---: | ---: |", ...entries, "",
+    "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+    ...entries,
+    "",
     "The doctrine requires common change records at every start. Nested planning",
     "and resume load recursive workflow. Fresh sessions cannot reuse prior context",
     "to skip review rules, rationale, or unusual-prose guidance when applicable.",
     "Resume reconciles records, accepted history, focus, coverage, and the live difference.",
     "Variable records remain required evidence but are outside fixed-document bytes.",
     "Tests compare document identities, conditions, and selected range unions.",
-    "Current source rules release no fixed-document read at a handoff.", "",
+    "Current source rules release no fixed-document read at a handoff.",
+    "",
     "A handoff saves retained conversation content, including messages, episodes,",
     "and variable records. It does not save required fixed-document reads.",
     "These tables exclude that conversation content and repeated reads.",
-    "They do not measure the total context saving from a handoff.", "",
+    "They do not measure the total context saving from a handoff.",
+    "",
     "Conditional sets have the following whole-document costs. Early notes cost",
     "zero extra after required notes enter phase 7. Unusual prose costs zero extra",
     "when manual review already includes writing guidance. Nested plans already",
@@ -332,14 +394,18 @@ function table(rows: string[], costs: string[], entries: string[]): string {
     "phase 7 before a split proposal. Manual review includes common policy, writing",
     "guidance, and all twelve charters from phase 5. Built-in review loads its",
     "implementation input for workers only. It adds no orchestrator read.",
-    "| Conditional set | Bytes | Estimated tokens |", "| --- | ---: | ---: |", ...costs, "",
-    `Maps use a soft guideline of about 1,500 words, with Mermaid diagrams under 40 nodes.`,
-    `The worker reference is ${bytes(source("MAPS_DOC"))} bytes. See [maps.md](maps.md) for its writer and authorized checker readers.`,
+    "| Conditional set | Bytes | Estimated tokens |",
+    "| --- | ---: | ---: |",
+    ...costs,
+    "",
+    "Maps use a soft guideline of about 1,500 words, with Mermaid diagrams under 40 nodes.",
+    "The worker reference is 3766 bytes. See [maps.md](maps.md) for its writer and authorized checker readers.",
     "Map text, worker reference reads and composed drafts are real excluded costs.",
-    "The safe-write section is 13,239 bytes and includes privacy rules.",
+    "The safe-write section is 11,776 bytes and includes privacy rules.",
     "Only its worker read is a separate excluded cost. Its orchestrator read enters phase totals.",
     "Whole applicable designs supplied to reviewers are excluded costs that repeat across reviewers and fix-gate rounds.",
-    "Several maps can exceed fixed-row headroom. These totals do not bound the whole conversation.", "",
+    "Several maps can exceed fixed-row headroom. These totals do not bound the whole conversation.",
+    "",
     "Private evidence, designs, reports, source chains, project additions, configured",
     "prompt documents, provider framing, tools, results, message wrappers, repeated",
     "reads, and the incoming system prompt are excluded. These variable costs can",
@@ -350,9 +416,9 @@ function table(rows: string[], costs: string[], entries: string[]): string {
     "assignments against source duties even when tests pass. Follow",
     "[Workflow-phase context maintenance](../verification/README.md#workflow-phase-context-maintenance)",
     "and record either the updated assignments, expectations, and publication or a no-change decision.",
-    "<!-- workflow-phase:end -->"].join("\n");
+    "<!-- workflow-phase:end -->"
+  ].join("\n");
 }
-
 test("workflow phase budgets, reference coverage, and exact publication", { timeout: 10000 }, async () => {
   membership(exported);
   const spine = source("TRACK_WORKFLOW_DOC").split("The mandatory phases run in this order:\n\n")[1]!.split("\n\n")[0]!.replace(/\n   /g, " ").split("\n").map((line) => line.replace(/^\d+\. /, ""));
@@ -372,8 +438,18 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
       assert.throws(() => exactLimits(key, changed), /exact approved raise/);
     }
   }
-  assert.deepEqual(limits["1 off ordinary"], [78664, 147300]);
-  assert.deepEqual([78664 - 78125, 147300 - 147089], [539, 211]);
+  const fundedMaximums: Record<string, number> = {
+    "1 off ordinary": 147555, "2 off ordinary": 183508, "3 off ordinary": 183508,
+    "4 off ordinary": 183508, "5 off ordinary": 237032, "6 off ordinary": 237032,
+  };
+  for (const [key, approved] of Object.entries(fundedMaximums)) {
+    assert.equal(limits[key][1], approved, key);
+    checkLimit(approved - 1, limits[key][1], key);
+    checkLimit(approved, limits[key][1], key);
+    assert.throws(() => checkLimit(approved + 1, limits[key][1], key));
+  }
+  assert.deepEqual(limits["1 off ordinary"], [78664, 147555]);
+  assert.deepEqual([78664 - 76731, 147555 - 147170], [1933, 385]);
   for (const delta of [-1, 1]) for (const side of [0, 1]) {
     const pair = [...limits["1 off ordinary"]];
     pair[side] += delta;
@@ -427,19 +503,20 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
     checkLimit(maximum, pair[1], `design-track maximum ${scenario}`);
     return `| ${publishing} | ${required} | ${tokens(required)} | ${maximum} | ${tokens(maximum)} | ${pair[1]} | ${tokens(pair[1])} |`;
   });
-  assert.deepEqual(measured[0], { key: "1 off ordinary", requiredBytes: 78125, maximumBytes: 147089, proposed: [82032, 154444] });
+  assert.deepEqual(measured[0], { key: "1 off ordinary", requiredBytes: 76731, maximumBytes: 147170, proposed: [80568, 154529] });
   checkChildCeiling(measured[0].requiredBytes, measured[0].maximumBytes);
   checkChildCeiling(75532, 144496);
-  assert.ok(source("CONTEXT_BUDGET_DOC").includes("ceilings are 78,125 and 147,089 bytes."));
+  assert.ok(source("CONTEXT_BUDGET_DOC").includes("ceilings are 76,761 required and 147,344 maximum bytes."));
   assert.ok(source("CONTEXT_BUDGET_DOC").includes("G is 2,593 bytes."));
   assert.ok(source("CONTEXT_BUDGET_DOC").includes("retains 187 bytes."));
-  assert.throws(() => checkChildCeiling(78126, 144496), /child required reservation/);
-  assert.throws(() => checkChildCeiling(75532, 147090), /child maximum reservation/);
+  assert.throws(() => checkChildCeiling(76762, 144496), /child required reservation/);
+  assert.throws(() => checkChildCeiling(75532, 147345), /child maximum reservation/);
   checkLimit(75856, limits["1 off ordinary"][0], "wider required control");
   checkLimit(144492, limits["1 off ordinary"][1], "wider maximum control");
-  assert.throws(() => checkChildCeiling(78126, 147089), /child required reservation/);
-  assert.throws(() => checkChildCeiling(78125, 147090), /child maximum reservation/);
+  assert.throws(() => checkChildCeiling(76762, 147344), /child required reservation/);
+  assert.throws(() => checkChildCeiling(76761, 147345), /child maximum reservation/);
   const publication = table(rows, costs, entries);
+  assert.equal(bytes(publication), 11912, "approved publication bytes");
   if (process.env.SLATE_PHASE_INSPECT === "1") console.log(JSON.stringify({ measured, references: scan(sources), publication, excluded, costs }));
   assert.equal(Object.keys(limits).length, 36);
   assert.equal(rows.length, 36);
@@ -456,10 +533,9 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
   }
   assert.equal(dirname(paths.MAPS_DOC), dirname(paths.TRACK_WORKFLOW_DOC));
   const safeWriteSection = sections(source("CHANGE_RECORDS_DOC"), ["Manual records and safe writes"]);
-  assert.equal(bytes(source("CHANGE_RECORDS_DOC").slice(...safeWriteSection[0]!)), 13239);
+  assert.equal(bytes(source("CHANGE_RECORDS_DOC").slice(...safeWriteSection[0]!)), 11776);
   assert.ok(source("CONTEXT_BUDGET_DOC").includes("Only its worker read is a separate excluded cost. Its orchestrator read enters phase totals."));
   const protectedHashes: Record<string, string> = {
-    "CHANGE_RECORDS_DOC": "39dfcefd3e5b975acd4a83a6dd2a4849549ec5afb43c4d9eafd9567f7a2dd0c0",
     "MAPS_DOC": "9d3df9f71b5007c7fae20b961c4ece296efeb9c03ed4ee4207f85c31f89fbc75",
     "REVIEW_RULES_DOC": "2ca829f5e7b884f061e236860cd963dab9f50e57caa4a6dfd5bac53309de5d72"
   };
@@ -637,7 +713,7 @@ test("session entry sets, continuation, and transfer controls", { timeout: 10000
       assertEntry(actual, entry, scenario, maximum);
       const doctrine = bytes(doctrines[scenario.startsWith("on") ? 1 : 0]!.split(directory).join(""));
       assert.equal(doctrine + total(actual), acceptedStartTotals[`${entry.phase} ${scenario}`]![maximum ? 1 : 0]
-        + deliveredGrowth + (scenario.endsWith("nested") || entry.phase >= 7 && maximum ? 6 : 0)
+        + deliveredGrowth + placementDelta[maximum ? 1 : 0]! + (scenario.endsWith("nested") || entry.phase >= 7 && maximum ? 6 : 0)
         + (entry.phase === 1 && entry.id !== "research" && scenario.endsWith("nested") && maximum ? 29762 : 0));
       checkLimit(doctrine + total(actual), limits[`${entry.phase} ${scenario}`][maximum ? 1 : 0], entry.id);
       // Required successor reread and conditional-read omissions must fail independently of bytes.

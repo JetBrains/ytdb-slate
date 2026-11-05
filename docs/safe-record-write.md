@@ -1,12 +1,16 @@
 # Safe record-write command
 
-Read this reference when a task uses [safe-record-write.mjs](../extension/safe-record-write.mjs).
+Appends, status creation/rewrite, design/map edits, preservation retry and restoration with edit retry read this introduction and § Record preparation and recovery execution. Command creation, hash logging and successor checks read all. Drafts read only common rules. Reports use generated guidance plus map reads.
+The task supplies record permissions and explicit methods under the common change-record rules.
+This reference grants no record permission.
+
+## Command contract
+
+Use [safe-record-write.mjs](../extension/safe-record-write.mjs) when the task requires the command.
 Only the assigned worker runs the command.
 Orchestrator mode has no shell tool.
 The comment block at extension/safe-record-write.mjs:2–62 owns the command contract.
 This reference maps that contract to the common record rules.
-The task supplies record permissions and explicit methods under the common change-record rules.
-This reference grants no record permission.
 Preservation remains inactive until replacement and recovery are delivered.
 Command source and help are not required reads.
 
@@ -99,7 +103,7 @@ A retry keeps any supplied expected hash.
 There is no creation-retry cap.
 Usage, unavailable exclusive creation, I/O and unsafe leaves pause rather than retry.
 A command that cannot run also pauses.
-For pause occupied and pause unknown, follow change-records.md.
+For pause occupied and pause unknown, report the result for the common exception triggers.
 Log appends, status rewrites, `cp -n` copies and existing edit retries keep their own rules.
 Occupied equality never proves creation. Never log exit 3 as a write identity.
 Preserve is pending and inactive. Every preserve cell means pause unknown.
@@ -131,3 +135,25 @@ Partial bytes remain.
 Help is bounded at 1,024 bytes.
 A report is bounded at 2,048 bytes and standard error at 256 bytes, including line endings.
 Reports contain no paths or operating-system text.
+
+## Record preparation and recovery execution
+
+Before an action’s first record write, copy current bytes to an action-folder start file, empty for a new record.
+Write each payload to a separate temporary file there.
+Append with `>>`.
+Copy the temporary file for status creation or rewrites.
+Use the assigned command for new designs, maps and plans.
+With `cat` and `cmp`, require the log/report to equal its start copy followed by every appended temporary file in order.
+
+Authorized preservation retry: `cp -n` at the next unused versioned name, then `cmp`.
+Failed or unclear design/map edit: `cmp` against the intended retained version matching its logged full hash.
+The orchestrator decides restoration under recovery, not the pre-edit barrier.
+Immediately before copying, run `node COMMAND hash --expected HASH -- SOURCE`.
+COMMAND is ../extension/safe-record-write.mjs relative to this reference.
+SOURCE is the intended restore source. HASH is its logged full lowercase SHA-256 hash (64 hexadecimal digits).
+Quote paths and escape embedded quotes.
+Agreement requires exactly one valid JavaScript Object Notation (JSON) report, process exit 0, operation hash, code ok, stage complete, writeState not-created, expected agreed, sourceHash equal to HASH, equal null, destinationHash null and retainedVerified false.
+protections has exactly exclusiveCreate, noFollowOpen, nonblockingOpen and mode0600, each applied, unavailable or not-applicable.
+No report or HASH: pause unknown. Else report accept on agreement, pause identity on identity mismatch (exit 5), else pause unknown. Copy only on agreement.
+On agreement, `cp`, check complete equality with `cmp`, then retry the authorized edit.
+If the intended copy cannot be verified, pause replacement. Never guess another numbered copy.

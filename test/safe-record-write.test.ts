@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { createHash } from "node:crypto";
 import { requiredCase } from "./required-case.ts";
 import { createBashTool } from "@earendil-works/pi-coding-agent";
-import { CHANGE_RECORDS_DOC, SAFE_RECORD_WRITE_DOC, SAFE_RECORD_WRITE } from "../extension/paths.ts";
+import { CHANGE_RECORDS_DOC, RECORD_WRITE_RECOVERY_DOC, SAFE_RECORD_WRITE_DOC, SAFE_RECORD_WRITE } from "../extension/paths.ts";
 
 const names = [
 	"safe record writes preserve exclusive creation and complete byte identity",
@@ -90,10 +90,13 @@ async function concurrent(args: string[], cwd: string) {
 	});
 }
 
+const precedenceRule = "Known exits 2, 5, 6, 8, unavailable exclusive creation and a command that cannot run take precedence.";
+
 // This fixture interpreter checks the manual reference. It grants no runtime authority.
-function checkWorkerReference(reference: string, common: string) {
+function checkWorkerReference(reference: string, common: string, recovery: string) {
 	reference = reference.replace(/\r\n/g, "\n");
 	common = common.replace(/\r\n/g, "\n");
+	recovery = recovery.replace(/\r\n/g, "\n");
 	const referenceRules = [
 		"Every success requires exit 0, code ok and stage complete.",
 		"Every success also requires expected agreed when a hash was supplied, otherwise not-supplied.",
@@ -119,12 +122,13 @@ function checkWorkerReference(reference: string, common: string) {
 			}
 		}
 	}
-	const precedence = "Known exits 2, 5, 6, 8, unavailable exclusive creation and a command that cannot run take precedence.";
+	const precedence = precedenceRule;
 	const ordered = (source: string) => {
 		requireRules(source, [precedence]);
 		assert.ok(source.indexOf(precedence) < source.indexOf("For create,"));
 	};
-	for (const source of [reference, common]) {
+	assert.equal(common.split(precedence).length, 1, "precedence belongs to recovery, not common rules");
+	for (const source of [reference, recovery]) {
 		ordered(source);
 		assert.throws(() => ordered(source.replace(precedence + "\n", "") + "\n" + precedence));
 		for (const clause of ["2, ", "5, ", "6, ", "8, ", "unavailable exclusive creation", "a command that cannot run"]) {
@@ -236,18 +240,18 @@ function checkWorkerReference(reference: string, common: string) {
 	assert.equal(workerRoute(["accept"], "create", proof), "accept");
 	for (const key of Object.keys(proof)) assert.equal(workerRoute(["accept"], "create", { ...proof, [key]: null }), "pause unknown", key);
 	for (const op of ["hash", "compare"]) assert.equal(route(op, 0, [{ operation: op, code: "ok" }]), "pause unknown");
-	for (const verb of ["deleted", "moved", "renamed", "truncated", "overwritten"]) {
-		const ban = "For creation, an occupied name is never deleted, moved, renamed, truncated or overwritten as a repair.";
+	for (const verb of ["delete", "move", "rename", "truncate", "overwrite"]) {
+		const ban = "Never delete, move, rename, truncate or overwrite an occupied creation name as repair.";
 		assert.ok(common.includes(ban));
-		assert.equal(common.replace(verb, "").includes(ban), false, verb);
+		assert.equal(common.replace(ban, ban.replace(verb, "")).includes(ban), false, verb);
 	}
-	for (const rule of [
-		"The first creation and every retry supply the source’s logged or approval hash as expected when the task holds one.",
-		"The worker logs only that agreed full hash and checks the entry.",
-		"A logged interrupted edit stays an edit even if its destination vanishes.",
+	for (const [source, rule] of [
+		[common, "The first creation and every retry supply the source’s logged or approval hash as expected when the task holds one."],
+		[common, "The worker logs only that agreed full hash and checks the entry."],
+		[recovery, "A logged interrupted edit stays an edit even when the destination vanishes."],
 	]) {
-		assert.equal(common.split(rule).length, 2);
-		assert.equal(common.replace(rule, "").includes(rule), false);
+		assert.equal(source!.split(rule!).length, 2);
+		assert.equal(source!.replace(rule!, "").includes(rule!), false);
 	}
 	type Identity = { log: string; path: string; entry: number; kind: string; hash: string };
 	const identities: Identity[] = [];
@@ -482,8 +486,11 @@ describe("safe record command", { timeout: 60000 }, () => {
 		const link = /\[safe-record-write\.mjs\]\(([^)]+)\)/.exec(reference)![1]!;
 		assert.equal(fileURLToPath(new URL(link, pathToFileURL(SAFE_RECORD_WRITE_DOC))), SAFE_RECORD_WRITE);
 		const common = readFileSync(CHANGE_RECORDS_DOC, "utf8");
+		const recovery = readFileSync(RECORD_WRITE_RECOVERY_DOC, "utf8");
 		for (const newline of ["\n", "\r\n"]) {
-			checkWorkerReference(reference.replace(/\r?\n/g, newline), common.replace(/\r?\n/g, newline));
+			checkWorkerReference(reference.replace(/\r?\n/g, newline), common.replace(/\r?\n/g, newline), recovery.replace(/\r?\n/g, newline));
+			assert.throws(() => checkWorkerReference(reference, common + "\n" + precedenceRule, recovery));
+			assert.throws(() => checkWorkerReference(reference, common, recovery.replace(precedenceRule, "")));
 		}
 		for (const name of ["create", "preserve", "compare", "hash"]) assert.match(help, new RegExp(name + ":"));
 		for (const code of [0, 2, 3, 4, 5, 6, 7, 8]) assert.match(help, new RegExp("\\b" + code + " "));

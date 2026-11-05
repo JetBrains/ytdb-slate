@@ -1,12 +1,14 @@
 // Reviewed source-read assignments. Initial limits were approved on 2026-10-16.
 // The safe-write allocation raises only phase-1 publishing-off ordinary by 2,593 bytes.
-// All other limits retain their approved literals.
+// Recovery adds 255 bytes only to ordinary publishing-off maxima in phases 1–6.
+// All required limits and other maximum limits retain their approved literals.
 // The initial five-percent reserve rule does not apply to this approved raise.
 export const phases = ["Research", "Risk assessment", "Design validation", "Focus reconfirmation", "Adversarial design review", "Final design approval", "Track loop", "Final acceptance", "Delivery"];
 export const lifecycle = ["research.", "assess and record all eleven risk lines.", "design and validate for a multi-track change, a proved DESIGN-TRIGGERING area, or a per-track estimate above 100 counted lines.", "when a design exists, reconfirm the focus list against the validated design.", "when a design exists, run one adversarial design review for each proved DESIGN-TRIGGERING area that has not reviewed the applicable design.", "when a design exists, obtain final design approval.", "run the track loop.", "obtain blocking final acceptance.", "deliver."];
 export const scenarios = ["off ordinary", "off nested", "on ordinary", "on nested"];
 // Each entry gives exported identity, first phase, condition, recipient, selectors.
 export const reads = [
+  ["RECORD_WRITE_RECOVERY_DOC", 1, "record-write exception", "orchestrator", []],
   ["TRACK_WORKFLOW_DOC", 1, "always", "orchestrator", []],
   ["CHANGE_RECORDS_DOC", 1, "always", "orchestrator", ["Identifiers, code ranges, and design markers", "Manual records and safe writes"]],
   ["RECURSIVE_WORKFLOW_DOC", 1, "nested", "orchestrator", []],
@@ -69,6 +71,7 @@ export const referenceOnly = {
   ROADMAP_DOC: "Reference document, no orchestrator read duty.",
 };
 export const dependencies = [
+  ["CHANGE_RECORDS_DOC", "RECORD_WRITE_RECOVERY_DOC"],
   ["TRACK_WORKFLOW_DOC", "CHANGE_RECORDS_DOC"], ["TRACK_WORKFLOW_DOC", "BLAST_RADIUS_DOC"],
   ["TRACK_WORKFLOW_DOC", "REVIEW_RULES_DOC"], ["TRACK_WORKFLOW_DOC", "DELIVERY_PACKAGES_DOC"],
   ["TRACK_WORKFLOW_DOC", "USER_NOTES_DOC"], ["DELIVERY_PACKAGES_DOC", "USER_NOTES_DOC"],
@@ -80,29 +83,30 @@ export const conditionalSets = [
   ["Rationale", ["DESIGN_PRINCIPLES_DOC"]], ["Unusual prose", ["WRITING_GUIDANCE_DOC"]],
   ["Early notes", ["USER_NOTES_DOC"]], ["Ordinary split", ["RECURSIVE_WORKFLOW_DOC"]],
   ["Manual review", ["REVIEW_COMMON_POLICY_DOC", "WRITING_GUIDANCE_DOC", ...["RI", "CN", "DU", "SE", "PF", "TQ", "PL", "LX", "NL", "CB", "GR", "UF"].map((id) => `REVIEW_${id}_DOC`)]],
+  ["Record exception", ["RECORD_WRITE_RECOVERY_DOC"]],
 ];
 export const limits = {
-  "1 off ordinary": [78664, 147300],
+  "1 off ordinary": [78664, 147555],
   "1 off nested": [129352, 227750],
   "1 on ordinary": [92915, 161551],
   "1 on nested": [146196, 244594],
-  "2 off ordinary": [114616, 183253],
+  "2 off ordinary": [114616, 183508],
   "2 off nested": [167897, 236534],
   "2 on ordinary": [131460, 200097],
   "2 on nested": [184741, 253378],
-  "3 off ordinary": [114616, 183253],
+  "3 off ordinary": [114616, 183508],
   "3 off nested": [167897, 236534],
   "3 on ordinary": [131460, 200097],
   "3 on nested": [184741, 253378],
-  "4 off ordinary": [114616, 183253],
+  "4 off ordinary": [114616, 183508],
   "4 off nested": [167897, 236534],
   "4 on ordinary": [131460, 200097],
   "4 on nested": [184741, 253378],
-  "5 off ordinary": [138968, 236777],
+  "5 off ordinary": [138968, 237032],
   "5 off nested": [192249, 290059],
   "5 on ordinary": [155812, 253621],
   "5 on nested": [209093, 306903],
-  "6 off ordinary": [138968, 236777],
+  "6 off ordinary": [138968, 237032],
   "6 off nested": [192249, 290059],
   "6 on ordinary": [155812, 253621],
   "6 on nested": [209093, 306903],
@@ -121,11 +125,14 @@ export const limits = {
 };
 // Exact line-context SHA-256 and occurrence counts. Each entry classifies one reviewed context.
 export const occurrences = [
-  {"source":"change-records.md","target":"safe-record-write.md","context":"ee5b3f8ab1c937681d6522d285b5897ab30987a3057e9075816fc960ca5bc691","count":1,"reason":"Worker-only command reference, no orchestrator read duty."},
+  {"source":"record-write-recovery.md","target":"status.md","context":"33593bf59e2832a2fa360e85a6a7c0c96b69650b976a8ae4f00abb652cd78618","count":1,"reason":"Variable private record or evidence path, excluded from fixed shipped context."},
+  {"source":"track-workflow.md","target":"record-write-recovery.md","context":"2c91f5c492593c0c54de7b8b9c168bbbaa1ae9752b2b630ba3fa92e30bd87b87","count":1,"recipient":"orchestrator","phase":1,"condition":"record-write exception"},
+  {"source":"change-records.md","target":"record-write-recovery.md","context":"e1b5be8d576b3c1e9b8f8929902b4fff7ef30780dec28a8a244dcbe0d514699d","count":1,"recipient":"orchestrator","phase":1,"condition":"record-write exception"},
+  {"source":"change-records.md","target":"safe-record-write.md","context":"70488757355a3be27f929f3a0923d5527cf928c2f0e4e09467e22f721d7050ad","count":1,"reason":"Worker-only command reference, no orchestrator read duty."},
   {"source":"track-workflow.md","target":"review-rules.md","context":"ae99448e4763fb0c9be87bae1bc18b23ae7e5d3dc9c751ccd8ef61f745b99ce1","count":1,"recipient":"orchestrator","phase":5,"condition":"always"},
   {"source": "track-workflow.md", "target": "maps.md", "context": "d40cf828debe08b81c6a3bb11a33b9d5a40e1c2b89f799bcb0ca5bc88c5676d3", "count": 1, "reason": "Published worker-only map reference, no orchestrator read duty."},
   {"reason":"Private versioned record name.","source":"change-records.md","target":"variable:track-<number>-implementation-map.vN.md","context":"856703106d3a7bd611758fd2e244b110b6f804e5a0a43d6b0629a5a1db8ae5ce","count":1},
-  {"reason":"Private versioned record name.","source":"change-records.md","target":"variable:.vN.md","context":"9df837dd8afe3b103473b045c5b550e4ff6a71036e6190e7247643e486e09c95","count":1},
+  {"reason":"Private versioned record name.","source":"change-records.md","target":"variable:.vN.md","context":"86ff5a842056958b5039a0878f6fc77b841206f86ccec1e2e1a740621a7ba213","count":1},
   {"source":"track-workflow.md","target":"blast-radius.md","context":"df113123e95b50a0473c8ab0a8634672a9c6a76e4ed0da0c656d6051cb1cbd5b","count":1,"recipient":"orchestrator","phase":2,"condition":"always"},
   {"source":"track-workflow.md","target":"review-rules.md","context":"6ef01ec4562b42c918502c459115953a8b317baa7c9b171b7c2f23b8c842c763","count":1,"recipient":"orchestrator","phase":5,"condition":"always"},
   {"source":"track-workflow.md","target":"delivery-packages.md","context":"3d8ceb4457d78077d8556e70d5436f66f65d6b6f7e3bd88b216ec0100b64c246","count":1,"recipient":"orchestrator","phase":7,"condition":"always"},
@@ -157,7 +164,7 @@ export const occurrences = [
   {"reason":"Variable private record or evidence path, excluded from fixed shipped context.","source":"track-workflow.md","target":"variable:track-<number>-implementer-report.md","context":"a30f9ffa9df941080dacebbdac7b362f4df0f6f125f6cf202cc8840af1b340dc","count":1},
   {"source":"track-workflow.md","target":"variable:slate-changes/<change>/research-log.md","context":"565a1277a5baddc7b5fa34d748e13a6369b6e236733e30031c86a163296a75e2","count":1,"reason":"Variable private record or evidence path, excluded from fixed shipped context."},
   {"source":"track-workflow.md","target":"change-records.md","context":"1346ffd010ee6950cb34145675f047889754cfaf8a11a88486cd58c0e453232c","count":1,"recipient":"orchestrator","phase":1,"condition":"always"},
-  {"source":"track-workflow.md","target":"change-records.md","context":"641c1f87cb877de2c1d0069f5140f03054cb1e69699443cf25101c227fcd38f0","count":1,"recipient":"orchestrator","phase":1,"condition":"always"},
+  {"source":"track-workflow.md","target":"change-records.md","context":"2c91f5c492593c0c54de7b8b9c168bbbaa1ae9752b2b630ba3fa92e30bd87b87","count":1,"recipient":"orchestrator","phase":1,"condition":"always"},
   {"source":"track-workflow.md","target":"variable:research-log.md","context":"36a6e808306c9b939768a585ce6683cd9c8a8dca1324cb7a280cdfd3ce897c95","count":1,"reason":"Variable private record or evidence path, excluded from fixed shipped context."},
   {"source":"track-workflow.md","target":"recursive-workflow.md","context":"86f583bd07271b29f0b0b1f84ed80442d65e72f72e16c82e9ec6bcfd7cc20a28","count":1,"recipient":"orchestrator","phase":1,"condition":"nested"},
   {"source":"track-workflow.md","target":"delivery-packages.md","context":"6ef9e6910add745dfe9624aeb3a862b4410217e468fb6beb2a24f626051589a8","count":1,"recipient":"orchestrator","phase":7,"condition":"always"},
@@ -178,21 +185,19 @@ export const occurrences = [
   {"source":"change-records.md","target":"user-notes.md","context":"f0e997a473b1f427e5f16bde91247bec21f41614fb33530c9b2499e776669e8f","count":1,"recipient":"orchestrator","phase":7,"condition":"always"},
   {"source":"change-records.md","target":"pr-publishing.md","context":"e9da7c4c1e514d74a686a4d9ccefe3cd98cb8ada4cd69185f8ac3ddc1008803e","count":1,"recipient":"orchestrator","phase":1,"condition":"publishing"},
   {"source":"change-records.md","target":"track-workflow.md","context":"5116259fc258e0f43f0f2c8960d4f92a27947ddfc3d1a68ff56aa3ab7d20f958","count":1,"recipient":"orchestrator","phase":1,"condition":"always"},
-  {"reason":"Variable private record or evidence path, excluded from fixed shipped context.","source":"change-records.md","target":"variable:root-design.md","context":"bf954d09affe305417a1ef75845777f4ee397f2c4814a640cd7cb10c68a8a6b0","count":1},
-  {"reason":"Variable private record or evidence path, excluded from fixed shipped context.","source":"change-records.md","target":"variable:track-<number>-design.md","context":"bf954d09affe305417a1ef75845777f4ee397f2c4814a640cd7cb10c68a8a6b0","count":1},
+  {"reason":"Variable private record or evidence path, excluded from fixed shipped context.","source":"change-records.md","target":"variable:root-design.md","context":"0c8c5f4b32173a6fd961aedc1a23af9426996ffdefc73787a6500f46e76c040e","count":1},
+  {"reason":"Variable private record or evidence path, excluded from fixed shipped context.","source":"change-records.md","target":"variable:track-<number>-design.md","context":"0c8c5f4b32173a6fd961aedc1a23af9426996ffdefc73787a6500f46e76c040e","count":1},
   {"reason":"Variable private record or evidence path, excluded from fixed shipped context.","source":"change-records.md","target":"variable:code-track-<number>-design.md","context":"7ad15916f7e882c09169ff9294e202d018ed491c7008ebf40dcc1668ed4aaccf","count":1},
   {"reason":"Variable private record or evidence path, excluded from fixed shipped context.","source":"change-records.md","target":"variable:root-baseline-map.md","context":"18900bfb373aa09b5f681c6eb45264f3334ccaa353c112b5b21c9a253ae3d64e","count":1},
   {"reason":"Variable private record or evidence path, excluded from fixed shipped context.","source":"change-records.md","target":"variable:track-<number>-baseline-map.md","context":"18900bfb373aa09b5f681c6eb45264f3334ccaa353c112b5b21c9a253ae3d64e","count":1},
   {"reason":"Variable private record or evidence path, excluded from fixed shipped context.","source":"change-records.md","target":"variable:track-<number>-implementation-map.md","context":"18900bfb373aa09b5f681c6eb45264f3334ccaa353c112b5b21c9a253ae3d64e","count":1},
   {"source":"change-records.md","target":"status.md","context":"1cfd6fbed0692872b107ef5ffdacf47b8f8e736e7a43e6da825dcb281b088791","count":1,"reason":"Variable private record or evidence path, excluded from fixed shipped context."},
-  {"source":"change-records.md","target":"status.md","context":"eb0d4ee6dd58214a1c297ca3a66ea919b9246701068234fbde08cbd94cd0746d","count":1,"reason":"Variable private record or evidence path, excluded from fixed shipped context."},
   {"source":"change-records.md","target":"status.md","context":"417289845d006b2067bba67b393e096f8790d36f4fabe13929bcf87592a8d644","count":1,"reason":"Variable private record or evidence path, excluded from fixed shipped context."},
   {"source":"change-records.md","target":"recursive-workflow.md","context":"557f49045765850fbc7249ee84eaf606c4b80cba13c8c9c94ce698397043d181","count":1,"recipient":"orchestrator","phase":1,"condition":"nested"},
   {"source":"change-records.md","target":"status.md","context":"557f49045765850fbc7249ee84eaf606c4b80cba13c8c9c94ce698397043d181","count":1,"reason":"Variable private record or evidence path, excluded from fixed shipped context."},
   {"reason":"Variable private record or evidence path, excluded from fixed shipped context.","source":"change-records.md","target":"variable:track-<number>-research-log.md","context":"09986521fb8814b54e2c5dba430de7405757bc547cad5565c6d2996b6a9f0ff0","count":1},
   {"source":"change-records.md","target":"variable:research-log.md","context":"86debc1659ecf4832f208e7a841e6893262ba241f2918fc1bb2f83e6c85a135c","count":1,"reason":"Variable private record or evidence path, excluded from fixed shipped context."},
   {"source":"change-records.md","target":"status.md","context":"27fa42dbd3c9f32ac06a9980660e354fbab34cacbd5def01b830fcddeec2087a","count":1,"reason":"Variable private record or evidence path, excluded from fixed shipped context."},
-  {"source":"change-records.md","target":"status.md","context":"5f11a00140913faaf63536631d09c64f1afecacceabe2fbe5c1a01167d6043c9","count":1,"reason":"Variable private record or evidence path, excluded from fixed shipped context."},
   {"source":"change-records.md","target":"track-workflow.md","context":"751161b0c02269fef82f9a85de6bab0ff9559b2f40a284dd9e1a0cdd0ec2027d","count":1,"recipient":"orchestrator","phase":1,"condition":"always"},
   {"source":"recursive-workflow.md","target":"track-workflow.md","context":"91a053ac346c223faca81867cd26aa3ebfe630854e44131e7211d0c00228b060","count":1,"recipient":"orchestrator","phase":1,"condition":"always"},
   {"source":"recursive-workflow.md","target":"track-workflow.md","context":"7f21d093741b0225643a68201caeae8ed44bc654d7275e173887e2978fcf65d9","count":1,"recipient":"orchestrator","phase":1,"condition":"always"},

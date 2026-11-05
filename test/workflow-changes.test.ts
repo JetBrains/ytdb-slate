@@ -314,30 +314,20 @@ test("folder grammar rejects malformed, calendar-invalid, traversal and runtime 
 });
 
 const reportMethodGroups = [
-  ["destination", ["Under `slate-changes/`, write only this report, assigned implementation maps and action scratch."]],
-  ["start copy", [
-    "Before its first report write in each action, the implementer copies the report to a temporary file.",
-    "For a new report, that copy is an empty file.",
-  ]],
-  ["append", [
-    "The implementer writes each new text to its own temporary file.",
-    "It creates a new report by appending its first temporary file with `>>`.",
-    "It appends each temporary file to the report with `>>`.",
-  ]],
-  ["final check", [
-    "After its last write, the implementer checks the whole report once with `cat` and `cmp`.",
-    "The report must equal the start copy followed by every appended temporary file in order.",
-  ]],
-  ["report", ["In the final response, report the check with the report path, comparison, and result.", "Report a failed record check as a failure."]],
+  ["destination", ["Under `slate-changes/`, write only this report, assigned maps and action scratch."]],
+  ["start copy", ["Before each action’s first report write, copy the report to a temporary file.", "For a new report, use an empty copy."]],
+  ["append", ["Write each new text to its own temporary file.", "Create reports with the first `>>` append.", "Append each temporary file with `>>`."]],
+  ["final check", ["After its last write, the implementer checks the whole report once with `cat` and `cmp`.", "The report must equal the start copy followed by every appended temporary file in order."]],
+  ["report", ["Report the path, comparison and result in the final response.", "Report a failed or unclear append or check and stop. Never retry that append."]],
 ] as const;
 
 const mapRules = [
-  "Map duties apply to changes started under or migrated to this workflow.",
+  "Map duties apply in new or migrated changes.",
   `For assigned maps, read <${CHANGE_RECORDS_DOC}> § Manual records and safe writes before writing.`,
-  "Maps explain committed source at the end of the implementation action.",
-  "Fixers update affected statements and the named commit for each delivered source commit, even if no statement changes.",
-  `Create assigned new maps only with the installed safe-record-write command. For command use, name <${SAFE_RECORD_WRITE_DOC}> as the worker reference.`,
-  "Keep interrupted edits on the edit route even if their destination vanishes.",
+  "Maps explain committed source at implementation end.",
+  "For each delivered source commit, fixers update affected statements and the named commit, even if no statement changes.",
+  `Create assigned new maps only with the installed safe-record-write command. Read <${SAFE_RECORD_WRITE_DOC}>: introduction and § Record preparation and recovery execution for edits, preservation retry and restoration with edit retry, all for map creation by command. Hash logging and successor checks: record-only.`,
+  "Keep interrupted edits as edits even when their destinations vanish.",
   "Pause map writes unless the task names the destination, creation or edit, write and check methods, read-only sources and, for edits, the last logged full hash and verified preserved-copy path.",
 ] as const;
 function assertMapMethod(task: string) {
@@ -404,7 +394,7 @@ test("implementer receives its report path and approved method with and without 
     for (const field of ["destination", "creation or edit", "read-only sources", "write and check methods", "write and ", "check methods", "last logged full hash", "verified preserved-copy path"]) {
       assert.throws(() => assertMapMethod(originalTask.replace(pause, pause.replace(field, ""))), field);
     }
-    for (const duty of ["affected statements", "named commit", "even if no statement changes", "committed source", "at the end of the implementation action", "Manual records and safe writes"]) {
+    for (const duty of ["affected statements", "named commit", "even if no statement changes", "committed source", "at implementation end", "Manual records and safe writes"]) {
       assert.throws(() => assertMapMethod(originalTask.replace(duty, "")), duty);
     }
     for (const fix of ["Agentic-review fix", "User-review fix"]) {
@@ -425,7 +415,17 @@ test("implementer receives its report path and approved method with and without 
     assert.equal(Buffer.byteLength(rendered), Buffer.byteLength(portable) + 2 * Buffer.byteLength(prefix));
     guidanceBytes.push(Buffer.byteLength(portable));
   }
-  assert.deepEqual(guidanceBytes, [1787, 2341], "portable production-rendered guidance bytes, source absent and present");
+  const resultAfterUnclearAppend = (guidance: string, appends: number) => {
+    assertReportMethod(guidance);
+    assert.ok(appends <= 1, "an unclear append cannot be retried");
+  };
+  const duplicate = "payload" + "payload";
+  assert.equal(duplicate, ["payload", "payload"].join(""), "reconstructed concatenation alone accepts a duplicate retry");
+  assert.throws(() => resultAfterUnclearAppend(task!, 2));
+  for (const removed of ["and stop.", "Never retry that append."]) {
+    assert.throws(() => resultAfterUnclearAppend(task!.replace(removed, ""), 1));
+  }
+  assert.deepEqual(guidanceBytes, [1782, 2336], "portable production-rendered guidance bytes, source absent and present");
   const published = readFileSync(new URL("../docs/context-budget.md", import.meta.url), "utf8");
   const format = (bytes: number) => bytes.toLocaleString("en-US");
   assert.ok(published.includes(`Its generated guidance is ${format(guidanceBytes[0]!)} UTF-8 bytes without a source folder.`));
@@ -433,6 +433,100 @@ test("implementer receives its report path and approved method with and without 
   for (const trusted of [false, true]) {
     const preambleBytes = Buffer.byteLength(workerPreamble(trusted, false));
     assert.ok(published.includes(`| ${trusted ? "On" : "Off"} | ${format(preambleBytes)} | ${guidanceBytes.map(format).join(" / ")} | ${guidanceBytes.map((bytes) => format(bytes + preambleBytes)).join(" / ")} |`));
+  }
+});
+
+test("all worker task identities retain literal totals and accepted growth", { timeout: 10000 }, async () => {
+  const expected: Array<[string, number, number, number, number]> = [
+    ["append", 13239, 14047, 808, 14060],
+    ["status creation", 13239, 14047, 808, 14060],
+    ["status rewrite", 13239, 14047, 808, 14060],
+    ["preservation retry", 13239, 14047, 808, 14060],
+    ["map preservation retry", 17005, 17813, 808, 17826],
+    ["draft creation", 13239, 11776, -1463, 11783],
+    ["plan edit pause", 13239, 11776, -1463, 11783],
+    ["design edit", 13239, 14047, 808, 14060],
+    ["restoration and edit retry", 13239, 14047, 808, 14060],
+    ["map edit", 17005, 17813, 808, 17826],
+    ["map restoration and retry", 17005, 17813, 808, 17826],
+    ["map command creation/hash/successor", 26004, 26694, 690, 26707],
+    ["command creation", 22238, 22928, 690, 22941],
+    ["hash logging", 22238, 22928, 690, 22941],
+    ["successor checks", 22238, 22928, 690, 22941],
+    ["Implementer report", 1787, 1782, -5, 1783],
+    ["Implementer report/map edit", 18792, 19595, 803, 19609],
+    ["Implementer report/map retry", 18792, 19595, 803, 19609],
+    ["Implementer report/map creation", 27791, 28476, 685, 28490],
+    ["Fixer report", 1787, 1782, -5, 1783],
+    ["Fixer report/map edit", 18792, 19595, 803, 19609],
+    ["Fixer report/map retry", 18792, 19595, 803, 19609],
+    ["Fixer report/map creation", 27791, 28476, 685, 28490],
+    ["Implementer report source", 2341, 2336, -5, 2337],
+    ["Implementer report/map edit source", 19346, 20149, 803, 20163],
+    ["Implementer report/map retry source", 19346, 20149, 803, 20163],
+    ["Implementer report/map creation source", 28345, 29030, 685, 29044],
+    ["Fixer report source", 2341, 2336, -5, 2337],
+    ["Fixer report/map edit source", 19346, 20149, 803, 20163],
+    ["Fixer report/map retry source", 19346, 20149, 803, 20163],
+    ["Fixer report/map creation source", 28345, 29030, 685, 29044],
+  ];
+  const text = (path: string | URL) => readFileSync(path, "utf8").replace(/\r\n/g, "\n");
+  const size = (value: string) => Buffer.byteLength(value);
+  const common = text(CHANGE_RECORDS_DOC);
+  const c = size(common.slice(common.indexOf("## Manual records and safe writes")));
+  const worker = text(SAFE_RECORD_WRITE_DOC);
+  const n = size(worker.slice(0, worker.indexOf("## Command contract"))) + size(worker.slice(worker.indexOf("## Record preparation and recovery execution")));
+  const m = size(text(new URL("../docs/maps.md", import.meta.url)));
+  const actual: Array<[string, number]> = [
+    ["append", c+n], ["status creation", c+n], ["status rewrite", c+n],
+    ["preservation retry", c+n], ["map preservation retry", c+n+m],
+    ["draft creation", c], ["plan edit pause", c], ["design edit", c+n],
+    ["restoration and edit retry", c+n], ["map edit", c+n+m], ["map restoration and retry", c+n+m],
+    ["map command creation/hash/successor", c+size(worker)+m],
+    ["command creation", c+size(worker)], ["hash logging", c+size(worker)], ["successor checks", c+size(worker)],
+  ];
+  let thread: Tool | undefined, rendered = "";
+  const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
+  store.currentChange = "change-20261004T000000Z-" + "c".repeat(32);
+  registerSlateTools({ registerTool(tool: Tool & { name: string }) { if (tool.name === "thread") thread = tool; } } as unknown as ExtensionAPI,
+    store, () => ({ async dispatch(opts: { task: string }) {
+      rendered = opts.task;
+      return { thread: { id: "t1", type: "implementer" }, episode: { id: "t1.e1", status: "ok", file: "/unused" }, episodeText: "done", warnings: [], usage: {} };
+    } }) as unknown as ThreadManager);
+  for (const source of [false, true]) for (const role of ["Implementer", "Fixer"]) {
+    store.sourceChange = source ? "change-20261004T000000Z-" + "d".repeat(32) : undefined;
+    const task = role === "Fixer" ? "Agentic-review fix" : "Make the fix";
+    await thread!.execute("id", { type: "implementer", task, trackNumber: 3, model: "sol-6.1", reason: "routine" }, undefined, undefined, {});
+    assertMapMethod(rendered);
+    assertReportMethod(rendered);
+    const guidance = size(rendered.slice(task.length + 2).split(dirname(CHANGE_RECORDS_DOC) + sep).join(""));
+    const suffix = source ? " source" : "";
+    actual.push([role+" report"+suffix, guidance], [role+" report/map edit"+suffix, guidance+c+n+m],
+      [role+" report/map retry"+suffix, guidance+c+n+m], [role+" report/map creation"+suffix, guidance+c+size(worker)+m]);
+    for (const replacement of ["Hash logging and successor checks: implementer.", "Hash logging and successor checks: fixer."]) {
+      assert.throws(() => assertMapMethod(rendered.replace("Hash logging and successor checks: record-only.", replacement)));
+    }
+  }
+  const check = (entries: Array<[string, number]>) => {
+    assert.equal(new Set(entries.map(([id]) => id)).size, entries.length, "duplicate task identity");
+    assert.deepEqual(entries.map(([id]) => id).sort(), expected.map(([id]) => id).sort(), "task identity roster");
+    for (const [id, value] of entries) {
+      const [, before, measured, delta, limit] = expected.find(([key]) => key === id)!;
+      assert.equal(value, measured, id);
+      assert.equal(value-before, delta, id);
+      assert.ok(value <= limit, id);
+    }
+  };
+  check(actual);
+  assert.equal(actual.length, 31);
+  assert.throws(() => check(actual.slice(1)));
+  assert.throws(() => check([...actual, actual[0]!]));
+  assert.throws(() => check([["unexpected task", actual[0]![1]], ...actual.slice(1)]));
+  for (const [id, , , , limit] of expected) {
+    const ceiling = (value: number) => assert.ok(value <= limit, id);
+    ceiling(limit-1);
+    ceiling(limit);
+    assert.throws(() => ceiling(limit+1));
   }
 });
 

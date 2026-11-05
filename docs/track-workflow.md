@@ -596,7 +596,7 @@ Do not copy secrets, credentials, private user data, or unnecessary personal
 data into the log. Record a privacy exception as a typed ruling. State what was
 omitted and why.
 
-Use [change-records.md](change-records.md) § Manual records and safe writes for append-only logs and reports, correction entries, checks and retry inspection.
+Use [change-records.md](change-records.md) § Manual records and safe writes for append-only logs, reports, corrections and checks. The orchestrator uses [record-write-recovery.md](record-write-recovery.md) for retry inspection.
 Slate checks the folder chain when it creates the change.
 Keep all manual records and leftover temporary files untracked and visible in repository status.
 Do not add them to an ignore file or a pull request.
