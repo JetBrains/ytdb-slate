@@ -8,6 +8,8 @@ An antipattern is concretely harmful only when evidence links it to an adverse e
 
 Reviewer I does not absorb an absent specialist charter. Reviewer I does not judge or reject area proofs. Reviewer I does not justify an area's absence. Reviewer I does not search for missing focus areas. Reviewer I does not add gates. Reviewer I does not replace a specialist. The shared evidence standards apply to Reviewer I and every specialist. Specialists retain consumer compatibility, failure reporting, rule agreement, and every other duty in their charters.
 
+Review the range independently first, then check facts in any supplied implementation map.
+
 **Design-quality questions**
 
 1. Does each changed component own a coherent responsibility, or does the change place work where ownership cannot remain clear?

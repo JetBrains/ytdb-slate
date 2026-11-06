@@ -16,6 +16,17 @@ export const requiredRoster: RequiredFile[] = [{
 	file: fileURLToPath(new URL("../test/notification-native-windows-readback.test.ts", import.meta.url)),
 	names: ["Windows native notification retains exact unique text in operating system toast history"],
 	platforms: ["win32"],
+}, {
+	file: fileURLToPath(new URL("../test/safe-record-write.test.ts", import.meta.url)),
+	names: [
+		"safe record writes preserve exclusive creation and complete byte identity",
+		"safe record writes reject unsafe leaves and retention aliases",
+		"safe record writes report platform protections and checked fallback",
+		"safe record writes detect changed identities before payload writes",
+		"safe record writes retain partial bytes and primary failures",
+		"safe record writes bound reports and guard the production interface"
+	],
+	platforms: ["win32"],
 }];
 
 /** Validate the whole roster before platform selection. Names are globally unique. */
