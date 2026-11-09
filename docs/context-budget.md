@@ -683,6 +683,9 @@ Command source and optional help reads are also excluded costs.
 Each non-help command call has a 2,304-byte output bound.
 That bound includes a 2,048-byte report and 256 standard-error bytes.
 Uncapped creation retries have no cumulative output bound.
-The inactive later preservation route permits two attempts, or 4,608 output bytes per destination and interrupted operation across dispatches.
-That bound grants no active preservation permission.
+The inactive preservation route allows two ordinary attempts and two recovery attempts per record operation across dispatches.
+Those four attempts have a 9,216-byte output bound.
+Accepted occupied fresh checks consume no attempt and each adds at most 2,304 output bytes.
+Repeated fresh checks have no cumulative output bound.
+These bounds grant no active preservation permission.
 Command help measures 999 bytes within its 1,024-byte bound.

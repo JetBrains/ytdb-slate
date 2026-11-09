@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFileSync, readdirSync, mkdtempSync, writeFileSync, rmSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { test } from "node:test";
 // @ts-ignore Shared independent contract checks.
-import { pendingDuties, pendingAttacks, pendingMutationIds, pendingContractChecks, acceptsPending, acceptsNoPendingReader, safeWriteDuties, acceptsSafeWriteDuty, createMutationAudit } from "../verification/record-mutation-roster.mjs";
+import { pendingDuties, pendingAttacks, pendingMutationIds, pendingContractChecks, pendingRegions, acceptsPendingRegions, acceptsPendingMutationRoster, safeWriteRegion, acceptsPending, acceptsNoPendingReader, safeWriteDuties, acceptsSafeWriteDuty, createMutationAudit } from "../verification/record-mutation-roster.mjs";
 // @ts-ignore Data-only read assignments.
 import { reads, resumeReads, dependencies, conditionalSets, sessionEntries, scenarios, accumulatedReads, sessionReads } from "../verification/workflow-context-map.mjs";
 import { RECORD_WRITE_PENDING_DOC } from "../extension/paths.ts";
@@ -24,6 +25,15 @@ test("pending owners retain clauses with closed mutation accounting", () => {
   return audit.inspect().ok;
  };
  assert.ok(check(rows));
+ assert.equal(rows.length, 2144);
+ assert.ok(acceptsPendingMutationRoster());
+ assert.equal(acceptsPendingMutationRoster(pendingMutationIds.slice(1)), false);
+ for (const kind of ["remove", "24"]) {
+  assert.equal(acceptsPendingMutationRoster(pendingMutationIds.filter((id: string) => !id.endsWith("/" + kind))), false);
+ }
+ // Omit generation inputs before attacks exist, not rows after generation.
+ assert.equal(check(pendingAttacks(sources, { omitKind: "remove" })), false);
+ assert.equal(check(pendingAttacks(sources, { omitWord: "24" })), false);
  for (const bad of [rows.slice(1), [...rows, rows[0]], [...rows, { ...rows[0], id: "unexpected" }],
   rows.map((r: any, i: number) => i ? r : { ...r, rejected: false }),
   rows.map((r: any, i: number) => i ? r : { ...r, changed: false })]) assert.equal(check(bad), false);
@@ -35,6 +45,40 @@ test("pending owners retain clauses with closed mutation accounting", () => {
  }
  for (const [, clauses] of safeWriteDuties) for (const clause of clauses) {
   assert.equal(acceptsSafeWriteDuty({ ...sources, P: sources.P + "\n" + clause }, clauses), false);
+ }
+});
+
+test("pending ownership excludes relocated duties and pins complete regions", () => {
+ const headings = { PW: "## Pending worker contract", PE: "## Pending history decisions" };
+ for (const [owner, clauses] of pendingDuties) {
+  const clause = clauses[4];
+  const offset = sources.P!.indexOf(headings[owner as keyof typeof headings]);
+  const removed = sources.P!.slice(0, offset) + sources.P!.slice(offset).replace(clause, "");
+  const end = owner === "PW" ? removed.indexOf(headings.PE) : removed.length;
+  for (const heading of ["## Outside", "# Outside", "Outside\n-------", "Outside\n======="]) {
+   const text = removed.slice(0, end) + "\n" + heading + "\n" + clause + "\n" + removed.slice(end);
+   assert.equal(acceptsPending({ ...sources, P: text }, owner, clause), false);
+   assert.equal(pendingContractChecks({ ...sources, P: text }), false);
+  }
+  for (const fence of ["```", "~~~~"]) {
+   const text = removed.slice(0, offset) + removed.slice(offset).replace("\n", "\n" + fence + "text\n" + clause + "\n" + fence + "\n");
+   assert.equal(acceptsPending({ ...sources, P: text }, owner, clause), false);
+   assert.equal(pendingContractChecks({ ...sources, P: text }), false);
+  }
+  for (const added of ["A retry may omit its expected identity.",
+   "A symlink or nonregular final component is acceptable when bytes are equal.",
+   "Exit 0 with exclusiveCreate applied also satisfies a fresh check."]) {
+   const contradiction = removed.replace(headings[owner as keyof typeof headings],
+    headings[owner as keyof typeof headings] + "\n" + clause + "\n" + added);
+   assert.equal(acceptsPending({ ...sources, P: contradiction }, owner, clause), true);
+   assert.equal(acceptsPendingRegions(contradiction), false);
+   assert.equal(pendingContractChecks({ ...sources, P: contradiction }), false);
+  }
+ }
+ for (const fence of ["```", "~~~"]) {
+  const text = sources.P!.replace("### Pending preservation contract",
+   fence + "text\n## Outside\n" + fence + "\n### Pending preservation contract");
+  assert.deepEqual(pendingRegions(text), pendingRegions(sources.P));
  }
 });
 
@@ -75,12 +119,15 @@ test("common command permission excludes bounded retries after every other class
  assert.ok(common.includes(rule));
  assert.ok(common.includes("Report one: accept, retry creation, pause occupied, pause identity, pause unknown."));
  assert.ok(common.includes("Command preservation and attempt history are pending."));
- const permits = (text: string, result: string) => text.includes(rule) && result === "retry creation";
- for (const [result, allowed] of [["accept", false], ["retry creation", true], ["pause occupied", false],
-  ["pause identity", false], ["pause unknown", false]] as const) {
-  assert.equal(permits(common, result), allowed);
-  const weakened = common.replace(rule, "Only retry creation permits uncapped command retries.");
-  assert.equal(weakened.includes(rule), false, result);
+ // Pin the reviewed permission owner, including added policy, independently of clause presence.
+ const acceptsPermission = (text: string) => createHash("sha256").update(safeWriteRegion(text)).digest("hex") ===
+  "99ddccb0ffb505299daf5509a37b3a3c53a54ec9a6e7cf4d98a41c171a8306c2";
+ assert.ok(acceptsPermission(common));
+ assert.equal(acceptsPermission(common.replace(rule, "Only retry creation permits uncapped command retries.")), false);
+ for (const result of ["Accept", "Pause occupied", "Pause identity", "Pause unknown"]) {
+  const widened = common.replace(rule, rule + "\n" + result + " also allows next-name retries.");
+  assert.ok(widened.includes(rule));
+  assert.equal(acceptsPermission(widened), false, result);
  }
  assert.ok(sources.W!.includes("| preserve | pause unknown | pause unknown | pause unknown | pause unknown | pause unknown | pause unknown | pause unknown | pause unknown |"));
 });

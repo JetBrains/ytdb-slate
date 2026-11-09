@@ -12,7 +12,7 @@ fe7ef736e1e2eae60a4738805f21f44e0e1bac4597ef07ba2af7b8c8605334c2  docs/change-re
 
 84dcfbeb2f215665c7562f6d7fe37857ceb8438cfc4f7dc80eb9a94296eae517  docs/configuration.md
 
-5e972c36836ea81013eaffe59a0482e2b21ca805a9b6bf4e6ea18949d33a443c  docs/context-budget.md
+54e8f021b303c7900c837ea6c911bdbb7db877a13d510c22d85fdeb4d6e40d08  docs/context-budget.md
 
 a19eef7bf9a86c2cf57f5f510534791c02320b6ce2259eabc3a9e7099d8254c5  docs/delivery-packages.md
 

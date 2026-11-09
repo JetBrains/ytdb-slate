@@ -241,9 +241,47 @@ export const pendingDuties = [
 const pendingHeadings = ["## Pending worker contract\n", "## Pending history decisions\n"];
 const normalizePending = (s) => s.replace(/\s+/g, " ").trim();
 export function pendingRegions(text) {
- if (pendingHeadings.some((h) => text.split(h).length !== 2)) return {};
- return { PW: normalizePending(text.split(pendingHeadings[0])[1].split(pendingHeadings[1])[0]),
-  PE: normalizePending(text.split(pendingHeadings[1])[1]) };
+ const lines = text.replace(/\r\n/g, "\n").split("\n");
+ const regions = {}, seen = new Set();
+ let owner, fence;
+ for (let i = 0; i < lines.length; i++) {
+  const line = lines[i];
+  if (fence) {
+   const close = /^ {0,3}(`{3,}|~{3,})\s*$/.exec(line);
+   if (close && close[1][0] === fence[0] && close[1].length >= fence.length) fence = undefined;
+   continue;
+  }
+  const open = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+  if (open && !(open[1][0] === "`" && open[2].includes("`"))) {
+   fence = open[1];
+   continue;
+  }
+  const atx = /^ {0,3}(#{1,6})(?:\s+|$)(.*)$/.exec(line);
+  const setext = i + 1 < lines.length && line.trim() && /^ {0,3}(=+|-+)\s*$/.exec(lines[i + 1]);
+  const level = atx ? atx[1].length : setext ? (setext[1][0] === "=" ? 1 : 2) : 0;
+  if (level && level <= 2) {
+   owner = undefined;
+   const title = atx ? atx[2].replace(/\s+#+\s*$/, "").trim() : line.trim();
+   const key = level !== 2 ? undefined : title === "Pending worker contract" ? "PW" : title === "Pending history decisions" ? "PE" : undefined;
+   if (key) {
+    if (seen.has(key)) return {};
+    seen.add(key);
+    owner = key;
+    regions[key] = [];
+   }
+   if (setext) i++;
+   continue;
+  }
+  if (owner) regions[owner].push(line);
+ }
+ if (seen.size !== 2) return {};
+ return Object.fromEntries(Object.entries(regions).map(([key, body]) => [key, normalizePending(body.join("\n"))]));
+}
+const pendingRegionDigests = { PW: "bf89327dbfd1808e9e34454c3dff928c498cc43a00d29872cafc1aa8f608c401", PE: "b493e36f4f1de6c2456d7f10a12a2ede4079887159bb2ac61979e01b1bad7450" };
+export function acceptsPendingRegions(text) {
+ const regions = pendingRegions(text);
+ return Object.entries(pendingRegionDigests).every(([owner, expected]) =>
+  typeof regions[owner] === "string" && createHash("sha256").update(regions[owner]).digest("hex") === expected);
 }
 export function acceptsPending(source, owner, clause) {
  const regions = pendingRegions(source.P ?? "");
@@ -255,21 +293,31 @@ export function acceptsPending(source, owner, clause) {
    (key === "W" && clause === "The protections object has exactly exclusiveCreate, noFollowOpen, nonblockingOpen and mode0600." ? 1 : 0));
 }
 const pendingKinds = ["remove", "duplicate", "owner-PW", "owner-PE", "copy-PW", "copy-PE",
- "copy-C", "copy-W", "copy-E", "before", "after"];
+ "copy-C", "copy-W", "copy-E", "before", "after",
+ "relocate-peer", "relocate-trailing", "relocate-fence"];
 const pendingWordCounts = [["PW",[12,14,13,10,25,12,23,12,14,10,8,13,16,8,16,14,13,16,7,13,13,15,10,15,11,10,12,9,8,11,14,8,10,14,9,13,17,12,9,8,8,20,19,11,14,9,12,11]],["PE",[9,11,8,14,13,12,9,7,16,7,8,6,6,12,14,6,12,14,11,8,11,11,7,11,13,6,9,5,10,14,13,13,10,7,9,11,7,9,12,11,9,8,14,6]]];
 export const pendingMutationIds = pendingWordCounts.flatMap(([owner, counts]) => counts.flatMap((count, i) =>
  [...pendingKinds.filter((kind) => !kind.endsWith(owner)),
  ...Array.from({ length: count }, (_, n) => String(n))].map((kind) => owner + "/" + i + "/" + kind)));
-export function pendingAttacks(source) {
+// This literal digest also pins the expected identities independently of their construction.
+export function acceptsPendingMutationRoster(ids = pendingMutationIds) {
+ return createHash("sha256").update(JSON.stringify(ids)).digest("hex") === "270f6005f828a57de0c927f2e72f59a23552883913c21a1d573694972ea5c12c";
+}
+export function pendingAttacks(source, { omitKind, omitWord } = {}) {
  return pendingDuties.flatMap(([owner, clauses]) => clauses.flatMap((clause, i) => {
   const offset = source.P.indexOf(pendingHeadings[owner === "PW" ? 0 : 1]);
-  return pendingMutationIds.filter((id) => id.startsWith(owner + "/" + i + "/")).map((id) => {
-   const kind = id.split("/")[2], changed = { ...source };
+  // Generate from executable attack kinds and actual clause words, not expected identities.
+  const kinds = ["remove", "duplicate", "owner-PW", "owner-PE", "copy-PW", "copy-PE",
+   "copy-C", "copy-W", "copy-E", "before", "after", "relocate-peer", "relocate-trailing", "relocate-fence"]
+   .filter((kind) => !kind.endsWith(owner) && kind !== omitKind);
+  const positions = [...clause.matchAll(/\S+/g)].map((_, n) => String(n)).filter((n) => n !== omitWord);
+  return [...kinds, ...positions].map((kind) => {
+   const id = owner + "/" + i + "/" + kind, changed = { ...source };
    let replacement = clause;
    if (/^\d+$/.test(kind)) {
     const words = [...clause.matchAll(/\S+/g)], word = words[Number(kind)];
     replacement = clause.slice(0, word.index) + clause.slice(word.index + word[0].length);
-   } else if (kind === "remove" || kind.startsWith("owner-")) replacement = "";
+   } else if (kind === "remove" || kind.startsWith("owner-") || kind.startsWith("relocate-")) replacement = "";
    else if (kind === "duplicate") replacement += "\n" + clause;
    changed.P = source.P.slice(0, offset) + source.P.slice(offset).replace(clause, replacement);
    if (/^(owner|copy)-P/.test(kind)) {
@@ -277,7 +325,13 @@ export function pendingAttacks(source) {
     changed.P = changed.P.replace(pendingHeadings[target], pendingHeadings[target] + clause + "\n");
    } else if (kind.startsWith("copy-")) changed[kind.slice(5)] += "\n" + clause;
    else if (kind === "before") changed.P = clause + "\n" + changed.P;
-   else if (kind === "after") changed.P += "\n## Outside\n" + clause;
+   else if (kind === "after" || kind === "relocate-trailing") changed.P += "\n## Outside\n" + clause;
+   else if (kind === "relocate-peer") {
+    const end = owner === "PW" ? changed.P.indexOf(pendingHeadings[1]) : changed.P.length;
+    changed.P = changed.P.slice(0, end) + "\n## Unrelated appendix\n" + clause + "\n" + changed.P.slice(end);
+   } else if (kind === "relocate-fence") {
+    changed.P = changed.P.slice(0, offset) + changed.P.slice(offset).replace("\n", "\n\n```text\n" + clause + "\n```\n");
+   }
    return { id, changed: Object.keys(source).some((key) => source[key] !== changed[key]),
     rejected: !acceptsPending(changed, owner, clause) };
   });
@@ -291,6 +345,7 @@ export function pendingContractChecks(source) {
  const audit = createMutationAudit({ pending: pendingMutationIds });
  audit.record("pending", rows);
  return createHash("sha256").update(JSON.stringify(pendingDuties)).digest("hex") === "db55b63967f778b8591b1beb3420889d4eebf77db83ecf3fef57706145627146"
+  && acceptsPendingMutationRoster() && acceptsPendingRegions(source.P ?? "")
   && audit.inspect().ok && pendingDuties.every(([owner, clauses]) => clauses.every((s) => acceptsPending(source, owner, s)));
 }
 

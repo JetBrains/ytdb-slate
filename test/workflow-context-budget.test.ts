@@ -684,15 +684,15 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
   });
   assert.deepEqual(measured[0], { key: "1 off ordinary", requiredBytes: 76730, maximumBytes: 147169, proposed: [80567, 154528] });
   checkChildCeiling(measured[0].requiredBytes, measured[0].maximumBytes);
-  checkChildCeiling(75532, 144496);
+  checkChildCeiling(76731, 147770);
   assert.ok(source("CONTEXT_BUDGET_DOC").includes("ceilings are 76,731 required and 147,770 maximum bytes."));
   assert.ok(source("CONTEXT_BUDGET_DOC").includes("G is 2,593 bytes."));
   assert.ok(source("CONTEXT_BUDGET_DOC").includes("retains 187 bytes."));
-  assert.throws(() => checkChildCeiling(76762, 144496), /child required reservation/);
+  assert.throws(() => checkChildCeiling(76732, 144496), /child required reservation/);
   assert.throws(() => checkChildCeiling(75532, 147771), /child maximum reservation/);
   checkLimit(75856, limits["1 off ordinary"][0], "wider required control");
   checkLimit(144492, limits["1 off ordinary"][1], "wider maximum control");
-  assert.throws(() => checkChildCeiling(76762, 147344), /child required reservation/);
+  assert.throws(() => checkChildCeiling(76732, 147344), /child required reservation/);
   assert.throws(() => checkChildCeiling(76731, 147771), /child maximum reservation/);
   const publication = table(rows, costs, entries);
   assert.equal(bytes(publication), 11910, "approved publication bytes");
@@ -762,7 +762,10 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
       `The worker-only safe-record-write.md reference measures ${format(bytes(worker))} bytes.`,
       `Command help measures ${bytes(helpText)} bytes within its ${format(Number(bounds[1]))}-byte bound.`,
       `Each non-help command call has a ${format(report + stderr)}-byte output bound.`,
-      `The inactive later preservation route permits two attempts, or ${format(2 * (report + stderr))} output bytes per destination and interrupted operation across dispatches.`,
+      `The inactive preservation route allows two ordinary attempts and two recovery attempts per record operation across dispatches.`,
+      `Those four attempts have a ${format(4 * (report + stderr))}-byte output bound.`,
+      `Accepted occupied fresh checks consume no attempt and each adds at most ${format(report + stderr)} output bytes.`,
+      `Repeated fresh checks have no cumulative output bound.`,
     ]) assert.equal(published.split(sentence).length, 2, sentence);
   };
   const publicationSource = source("CONTEXT_BUDGET_DOC");
