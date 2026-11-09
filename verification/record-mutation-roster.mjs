@@ -241,7 +241,12 @@ export const pendingDuties = [
 const pendingHeadings = ["## Pending worker contract\n", "## Pending history decisions\n"];
 const normalizePending = (s) => s.replace(/\s+/g, " ").trim();
 export function pendingRegions(text) {
- const lines = text.replace(/\r\n/g, "\n").split("\n");
+ // Pin complete LF-normalized bytes before extracting owners. Whitespace can change Markdown meaning.
+ // This independent expectation rejects non-prose duties, hidden headings and added policy anywhere.
+ const normalized = text.replace(/\r\n/g, "\n");
+ if (createHash("sha256").update(normalized).digest("hex") !==
+  "fb9fad4fd9272ef2b777d43621dd0fae815eb145b3d51fc3cb1c68d179c4bddf") return {};
+ const lines = normalized.split("\n");
  const regions = {}, seen = new Set();
  let owner, fence;
  for (let i = 0; i < lines.length; i++) {
@@ -294,21 +299,23 @@ export function acceptsPending(source, owner, clause) {
 }
 const pendingKinds = ["remove", "duplicate", "owner-PW", "owner-PE", "copy-PW", "copy-PE",
  "copy-C", "copy-W", "copy-E", "before", "after",
- "relocate-peer", "relocate-trailing", "relocate-fence"];
+ "relocate-peer", "relocate-trailing", "relocate-fence", "indent-space", "indent-tab", "html-comment", "html-block"];
 const pendingWordCounts = [["PW",[12,14,13,10,25,12,23,12,14,10,8,13,16,8,16,14,13,16,7,13,13,15,10,15,11,10,12,9,8,11,14,8,10,14,9,13,17,12,9,8,8,20,19,11,14,9,12,11]],["PE",[9,11,8,14,13,12,9,7,16,7,8,6,6,12,14,6,12,14,11,8,11,11,7,11,13,6,9,5,10,14,13,13,10,7,9,11,7,9,12,11,9,8,14,6]]];
 export const pendingMutationIds = pendingWordCounts.flatMap(([owner, counts]) => counts.flatMap((count, i) =>
  [...pendingKinds.filter((kind) => !kind.endsWith(owner)),
  ...Array.from({ length: count }, (_, n) => String(n))].map((kind) => owner + "/" + i + "/" + kind)));
 // This literal digest also pins the expected identities independently of their construction.
 export function acceptsPendingMutationRoster(ids = pendingMutationIds) {
- return createHash("sha256").update(JSON.stringify(ids)).digest("hex") === "270f6005f828a57de0c927f2e72f59a23552883913c21a1d573694972ea5c12c";
+ return createHash("sha256").update(JSON.stringify(ids)).digest("hex") === "afa96921678afd929fc8f90fbfe52948b819730e8f380e9c160a391d32babcd6";
 }
 export function pendingAttacks(source, { omitKind, omitWord } = {}) {
+ source = { ...source, P: source.P.replace(/\r\n/g, "\n") };
  return pendingDuties.flatMap(([owner, clauses]) => clauses.flatMap((clause, i) => {
   const offset = source.P.indexOf(pendingHeadings[owner === "PW" ? 0 : 1]);
   // Generate from executable attack kinds and actual clause words, not expected identities.
   const kinds = ["remove", "duplicate", "owner-PW", "owner-PE", "copy-PW", "copy-PE",
-   "copy-C", "copy-W", "copy-E", "before", "after", "relocate-peer", "relocate-trailing", "relocate-fence"]
+   "copy-C", "copy-W", "copy-E", "before", "after", "relocate-peer", "relocate-trailing", "relocate-fence",
+   "indent-space", "indent-tab", "html-comment", "html-block"]
    .filter((kind) => !kind.endsWith(owner) && kind !== omitKind);
   const positions = [...clause.matchAll(/\S+/g)].map((_, n) => String(n)).filter((n) => n !== omitWord);
   return [...kinds, ...positions].map((kind) => {
@@ -319,6 +326,10 @@ export function pendingAttacks(source, { omitKind, omitWord } = {}) {
     replacement = clause.slice(0, word.index) + clause.slice(word.index + word[0].length);
    } else if (kind === "remove" || kind.startsWith("owner-") || kind.startsWith("relocate-")) replacement = "";
    else if (kind === "duplicate") replacement += "\n" + clause;
+   else if (kind === "indent-space") replacement = "\n    " + clause + "\n";
+   else if (kind === "indent-tab") replacement = "\n\t" + clause + "\n";
+   else if (kind === "html-comment") replacement = "\n<!--\n" + clause + "\n-->\n";
+   else if (kind === "html-block") replacement = "\n<div>\n" + clause + "\n</div>\n";
    changed.P = source.P.slice(0, offset) + source.P.slice(offset).replace(clause, replacement);
    if (/^(owner|copy)-P/.test(kind)) {
     const target = kind.endsWith("PW") ? 0 : 1;

@@ -25,14 +25,15 @@ test("pending owners retain clauses with closed mutation accounting", () => {
   return audit.inspect().ok;
  };
  assert.ok(check(rows));
- assert.equal(rows.length, 2144);
+ assert.equal(rows.length, 2512);
  assert.ok(acceptsPendingMutationRoster());
  assert.equal(acceptsPendingMutationRoster(pendingMutationIds.slice(1)), false);
- for (const kind of ["remove", "24"]) {
+ for (const kind of ["remove", "24", "indent-space", "indent-tab", "html-comment", "html-block"]) {
   assert.equal(acceptsPendingMutationRoster(pendingMutationIds.filter((id: string) => !id.endsWith("/" + kind))), false);
  }
  // Omit generation inputs before attacks exist, not rows after generation.
- assert.equal(check(pendingAttacks(sources, { omitKind: "remove" })), false);
+ for (const kind of ["remove", "indent-space", "indent-tab", "html-comment", "html-block"])
+  assert.equal(check(pendingAttacks(sources, { omitKind: kind })), false);
  assert.equal(check(pendingAttacks(sources, { omitWord: "24" })), false);
  for (const bad of [rows.slice(1), [...rows, rows[0]], [...rows, { ...rows[0], id: "unexpected" }],
   rows.map((r: any, i: number) => i ? r : { ...r, rejected: false }),
@@ -70,7 +71,7 @@ test("pending ownership excludes relocated duties and pins complete regions", ()
    "Exit 0 with exclusiveCreate applied also satisfies a fresh check."]) {
    const contradiction = removed.replace(headings[owner as keyof typeof headings],
     headings[owner as keyof typeof headings] + "\n" + clause + "\n" + added);
-   assert.equal(acceptsPending({ ...sources, P: contradiction }, owner, clause), true);
+   assert.equal(acceptsPending({ ...sources, P: contradiction }, owner, clause), false);
    assert.equal(acceptsPendingRegions(contradiction), false);
    assert.equal(pendingContractChecks({ ...sources, P: contradiction }), false);
   }
@@ -78,7 +79,39 @@ test("pending ownership excludes relocated duties and pins complete regions", ()
  for (const fence of ["```", "~~~"]) {
   const text = sources.P!.replace("### Pending preservation contract",
    fence + "text\n## Outside\n" + fence + "\n### Pending preservation contract");
-  assert.deepEqual(pendingRegions(text), pendingRegions(sources.P));
+  assert.deepEqual(pendingRegions(text), {});
+ }
+});
+
+test("pending byte identity rejects non-prose duties, hidden owners and added policy", () => {
+ assert.ok(acceptsPendingRegions(sources.P));
+ assert.ok(pendingContractChecks({ ...sources, P: sources.P!.replace(/\n/g, "\r\n") }));
+ for (const [owner, clauses] of pendingDuties) {
+  const clause = clauses[4];
+  const heading = owner === "PW" ? "## Pending worker contract" : "## Pending history decisions";
+  const offset = sources.P!.indexOf(heading);
+  const replaceOwned = (replacement: string) =>
+   sources.P!.slice(0, offset) + sources.P!.slice(offset).replace(clause, replacement);
+  // These controls construct their bytes independently of pendingAttacks.
+  const attacks = [
+   replaceOwned("\n    " + clause + "\n"),
+   replaceOwned("\n\t" + clause + "\n"),
+   replaceOwned("\n<!--\n" + clause + "\n-->\n"),
+   replaceOwned("\n<div>\n" + clause + "\n</div>\n"),
+   "<!--\n" + sources.P + "\n## End\n-->",
+   "<div>\n" + sources.P + "\n</div>",
+   sources.P!.replace(heading, "    " + heading),
+   sources.P!.replace(heading, "\t" + heading),
+   sources.P!.replace(heading, "<!--\n" + heading + "\n-->"),
+   sources.P + "\n## Pending override\nA retry may omit its expected identity.\n",
+   sources.P + "\nA retry may omit its expected identity.\n",
+  ];
+  for (const P of attacks) {
+   assert.deepEqual(pendingRegions(P), {});
+   assert.equal(acceptsPending({ ...sources, P }, owner, clause), false);
+   assert.equal(acceptsPendingRegions(P), false);
+   assert.equal(pendingContractChecks({ ...sources, P }), false);
+  }
  }
 });
 
