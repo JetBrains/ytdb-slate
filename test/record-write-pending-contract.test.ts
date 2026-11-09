@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { test } from "node:test";
 // @ts-ignore Shared independent contract checks.
-import { pendingDuties, pendingAttacks, pendingMutationIds, pendingContractChecks, pendingRegions, acceptsPendingRegions, acceptsPendingMutationRoster, safeWriteRegion, acceptsPending, acceptsNoPendingReader, safeWriteDuties, acceptsSafeWriteDuty, createMutationAudit } from "../verification/record-mutation-roster.mjs";
+import { pendingDuties, pendingAttacks, pendingMutationIds, pendingContractChecks, pendingRegions, acceptsPendingDocument, acceptsPendingRegions, acceptsPendingMutationRoster, safeWriteRegion, acceptsPending, acceptsNoPendingReader, safeWriteDuties, acceptsSafeWriteDuty, createMutationAudit } from "../verification/record-mutation-roster.mjs";
 // @ts-ignore Data-only read assignments.
 import { reads, resumeReads, dependencies, conditionalSets, sessionEntries, scenarios, accumulatedReads, sessionReads } from "../verification/workflow-context-map.mjs";
 import { RECORD_WRITE_PENDING_DOC } from "../extension/paths.ts";
@@ -71,7 +71,7 @@ test("pending ownership excludes relocated duties and pins complete regions", ()
    "Exit 0 with exclusiveCreate applied also satisfies a fresh check."]) {
    const contradiction = removed.replace(headings[owner as keyof typeof headings],
     headings[owner as keyof typeof headings] + "\n" + clause + "\n" + added);
-   assert.equal(acceptsPending({ ...sources, P: contradiction }, owner, clause), false);
+   assert.equal(acceptsPending({ ...sources, P: contradiction }, owner, clause), true);
    assert.equal(acceptsPendingRegions(contradiction), false);
    assert.equal(pendingContractChecks({ ...sources, P: contradiction }), false);
   }
@@ -83,36 +83,99 @@ test("pending ownership excludes relocated duties and pins complete regions", ()
  }
 });
 
-test("pending byte identity rejects non-prose duties, hidden owners and added policy", () => {
+test("pending regions reject non-prose duties and hidden owners independently of byte identity", () => {
  assert.ok(acceptsPendingRegions(sources.P));
  assert.ok(pendingContractChecks({ ...sources, P: sources.P!.replace(/\n/g, "\r\n") }));
  for (const [owner, clauses] of pendingDuties) {
-  const clause = clauses[4];
-  const heading = owner === "PW" ? "## Pending worker contract" : "## Pending history decisions";
-  const offset = sources.P!.indexOf(heading);
-  const replaceOwned = (replacement: string) =>
-   sources.P!.slice(0, offset) + sources.P!.slice(offset).replace(clause, replacement);
-  // These controls construct their bytes independently of pendingAttacks.
-  const attacks = [
-   replaceOwned("\n    " + clause + "\n"),
-   replaceOwned("\n\t" + clause + "\n"),
-   replaceOwned("\n<!--\n" + clause + "\n-->\n"),
-   replaceOwned("\n<div>\n" + clause + "\n</div>\n"),
-   "<!--\n" + sources.P + "\n## End\n-->",
-   "<div>\n" + sources.P + "\n</div>",
-   sources.P!.replace(heading, "    " + heading),
-   sources.P!.replace(heading, "\t" + heading),
-   sources.P!.replace(heading, "<!--\n" + heading + "\n-->"),
-   sources.P + "\n## Pending override\nA retry may omit its expected identity.\n",
-   sources.P + "\nA retry may omit its expected identity.\n",
-  ];
-  for (const P of attacks) {
-   assert.deepEqual(pendingRegions(P), {});
-   assert.equal(acceptsPending({ ...sources, P }, owner, clause), false);
-   assert.equal(acceptsPendingRegions(P), false);
-   assert.equal(pendingContractChecks({ ...sources, P }), false);
+  for (const clause of clauses) {
+   const heading = owner === "PW" ? "## Pending worker contract" : "## Pending history decisions";
+   const offset = sources.P!.indexOf(heading);
+   const replaceOwned = (replacement: string) =>
+    sources.P!.slice(0, offset) + sources.P!.slice(offset).replace(clause, replacement);
+   // These controls construct their bytes independently of pendingAttacks.
+   const attacks = [
+    replaceOwned("\n    " + clause + "\n"),
+    replaceOwned("\n\t" + clause + "\n"),
+    replaceOwned("\n<!--\n" + clause + "\n-->\n"),
+    replaceOwned("\n<div>\n" + clause + "\n</div>\n"),
+    replaceOwned("\n```text\n" + clause + "\n```\n"),
+    replaceOwned("\n~~~text\n" + clause + "\n~~~\n"),
+    replaceOwned("\n- " + clause + "\n"),
+    replaceOwned("\n1. " + clause + "\n"),
+    replaceOwned("\n| " + clause + " |\n"),
+    replaceOwned("\n> " + clause + "\n"),
+    "<!--\n" + sources.P + "\n## End\n-->",
+    "<div>\n" + sources.P + "\n</div>",
+    sources.P!.replace(heading, "    " + heading),
+    sources.P!.replace(heading, "\t" + heading),
+    sources.P!.replace(heading, "<!--\n" + heading + "\n-->"),
+   ];
+   for (const P of attacks) {
+    assert.deepEqual(pendingRegions(P), {});
+    assert.equal(acceptsPending({ ...sources, P }, owner, clause), false);
+    assert.equal(acceptsPendingRegions(P), false);
+    if (clause === clauses[4]) assert.equal(pendingContractChecks({ ...sources, P }), false);
+   }
   }
  }
+});
+
+test("pending byte guard and region guard protect different changes", () => {
+ assert.ok(acceptsPendingDocument(sources.P));
+ assert.ok(acceptsPendingDocument(sources.P!.replace(/\n/g, "\r\n")));
+ const section = sources.P + "\n## Pending override\nA retry may omit its expected identity.\n";
+ const bare = sources.P + "\nA retry may omit its expected identity.\n";
+ const outside = "Outside prose.\n" + sources.P;
+ for (const P of [section, bare, outside]) {
+  assert.equal(acceptsPendingDocument(P), false);
+  assert.equal(pendingContractChecks({ ...sources, P }), false);
+  for (const [owner, clauses] of pendingDuties)
+   for (const clause of clauses) assert.ok(acceptsPending({ ...sources, P }, owner, clause));
+ }
+ assert.ok(acceptsPendingRegions(section));
+ assert.ok(acceptsPendingRegions(outside));
+ assert.equal(acceptsPendingRegions(bare), false);
+});
+
+test("pending owner boundaries accept outside prose at each supported heading form", () => {
+ for (const [owner] of pendingDuties) {
+  const end = owner === "PW" ? sources.P!.indexOf("## Pending history decisions") : sources.P!.length;
+  for (const heading of ["# Outside", "## Outside", "Outside\n=======", "Outside\n-------"]) {
+   const P = sources.P!.slice(0, end) + "\n" + heading + "\nOutside prose.\n" + sources.P!.slice(end);
+   assert.ok(acceptsPendingRegions(P), owner + ": " + heading);
+   for (const [key, clauses] of pendingDuties)
+    for (const clause of clauses) assert.ok(acceptsPending({ ...sources, P }, key, clause));
+   assert.equal(acceptsPendingDocument(P), false);
+  }
+ }
+ for (const heading of ["## Pending worker contract", "## Pending history decisions"])
+  assert.deepEqual(pendingRegions(sources.P + "\n" + heading + "\n"), {});
+});
+
+test("pending mutation audit detects broken occurrence and boundary predicates", { timeout: 30_000 }, async () => {
+ const original = read("verification/record-mutation-roster.mjs");
+ const loadMutant = async (before: string, after: string) => {
+  assert.equal(original.split(before).length, 2, "one mutation target");
+  return import("data:text/javascript;base64," + Buffer.from(original.replace(before, after)).toString("base64"));
+ };
+ for (const [before, after] of [
+  ['if ((regions[owner] ?? "").split(clause).length - 1 !== 1) return false;', 'if (!regions[owner]) return false;'],
+  ["   owner = undefined;", "   // Boundary reset omitted by the test mutant."],
+ ]) {
+  const mutant = await loadMutant(before!, after!);
+  const rows = mutant.pendingAttacks(sources);
+  assert.ok(rows.some((row: any) => !row.rejected), "broken checker must admit an attack");
+  const audit = createMutationAudit({ pending: pendingMutationIds });
+  audit.record("pending", rows);
+  assert.equal(audit.inspect().ok, false);
+  assert.equal(mutant.pendingContractChecks(sources), false);
+ }
+ const P = sources.P!.replace("## Pending history decisions",
+  "## Pending history decisions\nA retry may omit its expected identity.");
+ assert.equal(acceptsPendingRegions(P), false);
+ const bypass = await loadMutant("export function acceptsPendingRegions(text) {",
+  "export function acceptsPendingRegions(text) { return true;");
+ assert.equal(bypass.acceptsPendingRegions(P), true, "direct region control detects a bypass");
 });
 
 const walk = (dir: string): string[] => readdirSync(new URL("../" + dir, import.meta.url), { withFileTypes: true })

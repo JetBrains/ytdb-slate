@@ -240,27 +240,19 @@ export const pendingDuties = [
 ];
 const pendingHeadings = ["## Pending worker contract\n", "## Pending history decisions\n"];
 const normalizePending = (s) => s.replace(/\s+/g, " ").trim();
+// Complete bytes and clause ownership have separate checks and mutation controls.
+export function acceptsPendingDocument(text) {
+ return createHash("sha256").update(text.replace(/\r\n/g, "\n")).digest("hex") ===
+  "fb9fad4fd9272ef2b777d43621dd0fae815eb145b3d51fc3cb1c68d179c4bddf";
+}
 export function pendingRegions(text) {
- // Pin complete LF-normalized bytes before extracting owners. Whitespace can change Markdown meaning.
- // This independent expectation rejects non-prose duties, hidden headings and added policy anywhere.
- const normalized = text.replace(/\r\n/g, "\n");
- if (createHash("sha256").update(normalized).digest("hex") !==
-  "fb9fad4fd9272ef2b777d43621dd0fae815eb145b3d51fc3cb1c68d179c4bddf") return {};
- const lines = normalized.split("\n");
+ const lines = text.replace(/\r\n/g, "\n").split("\n");
  const regions = {}, seen = new Set();
- let owner, fence;
+ let owner;
  for (let i = 0; i < lines.length; i++) {
   const line = lines[i];
-  if (fence) {
-   const close = /^ {0,3}(`{3,}|~{3,})\s*$/.exec(line);
-   if (close && close[1][0] === fence[0] && close[1].length >= fence.length) fence = undefined;
-   continue;
-  }
-  const open = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
-  if (open && !(open[1][0] === "`" && open[2].includes("`"))) {
-   fence = open[1];
-   continue;
-  }
+  // This prose subset rejects unsupported Markdown globally, including hidden owner headings.
+  if (/^(?: {4}|\t)|^ {0,3}(?:`{3,}|~{3,}|>|[-+*]\s|\d+[.)]\s)|[<>|]/.test(line)) return {};
   const atx = /^ {0,3}(#{1,6})(?:\s+|$)(.*)$/.exec(line);
   const setext = i + 1 < lines.length && line.trim() && /^ {0,3}(=+|-+)\s*$/.exec(lines[i + 1]);
   const level = atx ? atx[1].length : setext ? (setext[1][0] === "=" ? 1 : 2) : 0;
@@ -356,7 +348,7 @@ export function pendingContractChecks(source) {
  const audit = createMutationAudit({ pending: pendingMutationIds });
  audit.record("pending", rows);
  return createHash("sha256").update(JSON.stringify(pendingDuties)).digest("hex") === "db55b63967f778b8591b1beb3420889d4eebf77db83ecf3fef57706145627146"
-  && acceptsPendingMutationRoster() && acceptsPendingRegions(source.P ?? "")
+  && acceptsPendingMutationRoster() && acceptsPendingDocument(source.P ?? "") && acceptsPendingRegions(source.P ?? "")
   && audit.inspect().ok && pendingDuties.every(([owner, clauses]) => clauses.every((s) => acceptsPending(source, owner, s)));
 }
 
