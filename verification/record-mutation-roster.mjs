@@ -246,7 +246,10 @@ export function acceptsPendingDocument(text) {
   "fb9fad4fd9272ef2b777d43621dd0fae815eb145b3d51fc3cb1c68d179c4bddf";
 }
 export function pendingRegions(text) {
- const lines = text.replace(/\r\n/g, "\n").split("\n");
+ const normalized = text.replace(/\r\n/g, "\n");
+ // This prose subset permits only spaces and LF as whitespace after CRLF normalization.
+ if (/[^\S \n]/.test(normalized)) return {};
+ const lines = normalized.split("\n");
  const regions = {}, seen = new Set();
  let owner;
  for (let i = 0; i < lines.length; i++) {

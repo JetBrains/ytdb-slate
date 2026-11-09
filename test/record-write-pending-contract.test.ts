@@ -96,6 +96,7 @@ test("pending regions reject non-prose duties and hidden owners independently of
    const attacks = [
     replaceOwned("\n    " + clause + "\n"),
     replaceOwned("\n\t" + clause + "\n"),
+    ...[" \t", "  \t", "   \t"].map((prefix) => replaceOwned("\n" + prefix + clause + "\n")),
     replaceOwned("\n<!--\n" + clause + "\n-->\n"),
     replaceOwned("\n<div>\n" + clause + "\n</div>\n"),
     replaceOwned("\n```text\n" + clause + "\n```\n"),
@@ -176,6 +177,42 @@ test("pending mutation audit detects broken occurrence and boundary predicates",
  const bypass = await loadMutant("export function acceptsPendingRegions(text) {",
   "export function acceptsPendingRegions(text) { return true;");
  assert.equal(bypass.acceptsPendingRegions(P), true, "direct region control detects a bypass");
+});
+
+test("pending prose rejects unsupported whitespace on duties, headings and blank lines", () => {
+ const prefixes = [" \t", "  \t", "   \t", "\t", "    ", "     ",
+  "\u00a0", "\f", "\v", "\u2028", "\u2029", "\ufeff"];
+ for (const ending of ["\n", "\r\n"]) {
+  const clean = sources.P!.replace(/\n/g, ending);
+  assert.ok(acceptsPendingDocument(clean));
+  assert.ok(acceptsPendingRegions(clean));
+  for (const [owner, clauses] of pendingDuties) {
+   const heading = owner === "PW" ? "## Pending worker contract" : "## Pending history decisions";
+   const clause = clauses[4];
+   for (const prefix of [" ", "  ", "   "]) {
+    assert.ok(acceptsPendingRegions(clean.replace(clause, ending + prefix + clause + ending)));
+    assert.ok(acceptsPendingRegions(clean.replace(heading, prefix + heading)));
+    assert.ok(acceptsPendingRegions(clean.replace(heading, heading + ending + prefix + ending)));
+   }
+   for (const target of [clause, heading, "### Pending preservation contract"])
+    assert.deepEqual(pendingRegions(clean.replace(target, "\r" + target)), {});
+   for (const prefix of prefixes) {
+    for (const P of [
+     clean.replace(clause, ending + prefix + clause + ending),
+     clean.replace(heading, prefix + heading),
+     clean.replace(heading, heading + ending + prefix + ending),
+     clean.replace("### Pending preservation contract", prefix + "### Pending preservation contract"),
+     clean.replace(heading, heading.slice(3) + ending + prefix + "-------"),
+    ]) {
+     assert.deepEqual(pendingRegions(P), {}, JSON.stringify({ ending, owner, prefix }));
+     assert.equal(acceptsPendingRegions(P), false);
+     assert.equal(acceptsPending({ ...sources, P }, owner, clause), false);
+    }
+   }
+  }
+ }
+ for (const ending of ["\r", "\u2028", "\u2029", "\f", "\v"])
+  assert.deepEqual(pendingRegions(sources.P!.replace(/\n/g, ending)), {});
 });
 
 const walk = (dir: string): string[] => readdirSync(new URL("../" + dir, import.meta.url), { withFileTypes: true })
