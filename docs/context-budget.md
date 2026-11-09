@@ -552,49 +552,49 @@ The fixed historical safe-write raise G is 2,593 bytes.
 The fixed cumulative recovery raise F is 255 bytes.
 Only phases 1 through 6 with publishing off and ordinary planning add F to their stored maximum limits.
 All required limits and other maximum limits retain their stored literals.
-Research candidate ceilings are 76,761 required and 147,344 maximum bytes.
-Actual research totals are 76,731 required and 147,170 maximum bytes.
-Every phase and session row must reduce required context by at least 1,364 bytes and increase maximum context by at most 255 bytes.
+Research candidate ceilings are 76,731 required and 147,770 maximum bytes.
+Actual research totals are 76,730 required and 147,169 maximum bytes.
+This child permits no required increase and at most 600 maximum bytes per phase and session row. The 600-byte share stays unused.
 The protected pool retains 187 bytes. Unused share moves only by recorded user decision.
 
 | Phase | Publishing | Plan | Required bytes | Estimated tokens | Byte limit | Token limit | Conditional maximum bytes | Estimated tokens | Byte limit | Token limit |
 | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1. Research | off | ordinary | 76731 | 19183 | 78664 | 19666 | 147170 | 36793 | 147555 | 36889 |
-| 1. Research | off | nested | 91971 | 22993 | 129352 | 32338 | 162410 | 40603 | 227750 | 56938 |
-| 1. Research | on | ordinary | 88243 | 22061 | 92915 | 23229 | 158682 | 39671 | 161551 | 40388 |
-| 1. Research | on | nested | 103483 | 25871 | 146196 | 36549 | 173922 | 43481 | 244594 | 61149 |
-| 2. Risk assessment | off | ordinary | 112768 | 28192 | 114616 | 28654 | 183207 | 45802 | 183508 | 45877 |
-| 2. Risk assessment | off | nested | 128008 | 32002 | 167897 | 41975 | 198447 | 49612 | 236534 | 59134 |
-| 2. Risk assessment | on | ordinary | 124280 | 31070 | 131460 | 32865 | 194719 | 48680 | 200097 | 50025 |
-| 2. Risk assessment | on | nested | 139520 | 34880 | 184741 | 46186 | 209959 | 52490 | 253378 | 63345 |
-| 3. Design validation | off | ordinary | 112768 | 28192 | 114616 | 28654 | 183207 | 45802 | 183508 | 45877 |
-| 3. Design validation | off | nested | 128008 | 32002 | 167897 | 41975 | 198447 | 49612 | 236534 | 59134 |
-| 3. Design validation | on | ordinary | 124280 | 31070 | 131460 | 32865 | 194719 | 48680 | 200097 | 50025 |
-| 3. Design validation | on | nested | 139520 | 34880 | 184741 | 46186 | 209959 | 52490 | 253378 | 63345 |
-| 4. Focus reconfirmation | off | ordinary | 112768 | 28192 | 114616 | 28654 | 183207 | 45802 | 183508 | 45877 |
-| 4. Focus reconfirmation | off | nested | 128008 | 32002 | 167897 | 41975 | 198447 | 49612 | 236534 | 59134 |
-| 4. Focus reconfirmation | on | ordinary | 124280 | 31070 | 131460 | 32865 | 194719 | 48680 | 200097 | 50025 |
-| 4. Focus reconfirmation | on | nested | 139520 | 34880 | 184741 | 46186 | 209959 | 52490 | 253378 | 63345 |
-| 5. Adversarial design review | off | ordinary | 136921 | 34231 | 138968 | 34742 | 235236 | 58809 | 237032 | 59258 |
-| 5. Adversarial design review | off | nested | 152161 | 38041 | 192249 | 48063 | 250476 | 62619 | 290059 | 72515 |
-| 5. Adversarial design review | on | ordinary | 148433 | 37109 | 155812 | 38953 | 246748 | 61687 | 253621 | 63406 |
-| 5. Adversarial design review | on | nested | 163673 | 40919 | 209093 | 52274 | 261988 | 65497 | 306903 | 76726 |
-| 6. Final design approval | off | ordinary | 136921 | 34231 | 138968 | 34742 | 235236 | 58809 | 237032 | 59258 |
-| 6. Final design approval | off | nested | 152161 | 38041 | 192249 | 48063 | 250476 | 62619 | 290059 | 72515 |
-| 6. Final design approval | on | ordinary | 148433 | 37109 | 155812 | 38953 | 246748 | 61687 | 253621 | 63406 |
-| 6. Final design approval | on | nested | 163673 | 40919 | 209093 | 52274 | 261988 | 65497 | 306903 | 76726 |
-| 7. Track loop | off | ordinary | 160033 | 40009 | 163599 | 40900 | 262940 | 65735 | 303139 | 75785 |
-| 7. Track loop | off | nested | 175273 | 43819 | 216880 | 54220 | 262940 | 65735 | 303139 | 75785 |
-| 7. Track loop | on | ordinary | 171545 | 42887 | 180443 | 45111 | 274452 | 68613 | 319984 | 79996 |
-| 7. Track loop | on | nested | 186785 | 46697 | 233724 | 58431 | 274452 | 68613 | 319984 | 79996 |
-| 8. Final acceptance | off | ordinary | 160033 | 40009 | 163599 | 40900 | 262940 | 65735 | 303139 | 75785 |
-| 8. Final acceptance | off | nested | 175273 | 43819 | 216880 | 54220 | 262940 | 65735 | 303139 | 75785 |
-| 8. Final acceptance | on | ordinary | 171545 | 42887 | 180443 | 45111 | 274452 | 68613 | 319984 | 79996 |
-| 8. Final acceptance | on | nested | 186785 | 46697 | 233724 | 58431 | 274452 | 68613 | 319984 | 79996 |
-| 9. Delivery | off | ordinary | 160033 | 40009 | 163599 | 40900 | 262940 | 65735 | 303139 | 75785 |
-| 9. Delivery | off | nested | 175273 | 43819 | 216880 | 54220 | 262940 | 65735 | 303139 | 75785 |
-| 9. Delivery | on | ordinary | 171545 | 42887 | 180443 | 45111 | 274452 | 68613 | 319984 | 79996 |
-| 9. Delivery | on | nested | 186785 | 46697 | 233724 | 58431 | 274452 | 68613 | 319984 | 79996 |
+| 1. Research | off | ordinary | 76730 | 19183 | 78664 | 19666 | 147169 | 36793 | 147555 | 36889 |
+| 1. Research | off | nested | 91970 | 22993 | 129352 | 32338 | 162409 | 40603 | 227750 | 56938 |
+| 1. Research | on | ordinary | 88242 | 22061 | 92915 | 23229 | 158681 | 39671 | 161551 | 40388 |
+| 1. Research | on | nested | 103482 | 25871 | 146196 | 36549 | 173921 | 43481 | 244594 | 61149 |
+| 2. Risk assessment | off | ordinary | 112767 | 28192 | 114616 | 28654 | 183206 | 45802 | 183508 | 45877 |
+| 2. Risk assessment | off | nested | 128007 | 32002 | 167897 | 41975 | 198446 | 49612 | 236534 | 59134 |
+| 2. Risk assessment | on | ordinary | 124279 | 31070 | 131460 | 32865 | 194718 | 48680 | 200097 | 50025 |
+| 2. Risk assessment | on | nested | 139519 | 34880 | 184741 | 46186 | 209958 | 52490 | 253378 | 63345 |
+| 3. Design validation | off | ordinary | 112767 | 28192 | 114616 | 28654 | 183206 | 45802 | 183508 | 45877 |
+| 3. Design validation | off | nested | 128007 | 32002 | 167897 | 41975 | 198446 | 49612 | 236534 | 59134 |
+| 3. Design validation | on | ordinary | 124279 | 31070 | 131460 | 32865 | 194718 | 48680 | 200097 | 50025 |
+| 3. Design validation | on | nested | 139519 | 34880 | 184741 | 46186 | 209958 | 52490 | 253378 | 63345 |
+| 4. Focus reconfirmation | off | ordinary | 112767 | 28192 | 114616 | 28654 | 183206 | 45802 | 183508 | 45877 |
+| 4. Focus reconfirmation | off | nested | 128007 | 32002 | 167897 | 41975 | 198446 | 49612 | 236534 | 59134 |
+| 4. Focus reconfirmation | on | ordinary | 124279 | 31070 | 131460 | 32865 | 194718 | 48680 | 200097 | 50025 |
+| 4. Focus reconfirmation | on | nested | 139519 | 34880 | 184741 | 46186 | 209958 | 52490 | 253378 | 63345 |
+| 5. Adversarial design review | off | ordinary | 136920 | 34230 | 138968 | 34742 | 235235 | 58809 | 237032 | 59258 |
+| 5. Adversarial design review | off | nested | 152160 | 38040 | 192249 | 48063 | 250475 | 62619 | 290059 | 72515 |
+| 5. Adversarial design review | on | ordinary | 148432 | 37108 | 155812 | 38953 | 246747 | 61687 | 253621 | 63406 |
+| 5. Adversarial design review | on | nested | 163672 | 40918 | 209093 | 52274 | 261987 | 65497 | 306903 | 76726 |
+| 6. Final design approval | off | ordinary | 136920 | 34230 | 138968 | 34742 | 235235 | 58809 | 237032 | 59258 |
+| 6. Final design approval | off | nested | 152160 | 38040 | 192249 | 48063 | 250475 | 62619 | 290059 | 72515 |
+| 6. Final design approval | on | ordinary | 148432 | 37108 | 155812 | 38953 | 246747 | 61687 | 253621 | 63406 |
+| 6. Final design approval | on | nested | 163672 | 40918 | 209093 | 52274 | 261987 | 65497 | 306903 | 76726 |
+| 7. Track loop | off | ordinary | 160032 | 40008 | 163599 | 40900 | 262939 | 65735 | 303139 | 75785 |
+| 7. Track loop | off | nested | 175272 | 43818 | 216880 | 54220 | 262939 | 65735 | 303139 | 75785 |
+| 7. Track loop | on | ordinary | 171544 | 42886 | 180443 | 45111 | 274451 | 68613 | 319984 | 79996 |
+| 7. Track loop | on | nested | 186784 | 46696 | 233724 | 58431 | 274451 | 68613 | 319984 | 79996 |
+| 8. Final acceptance | off | ordinary | 160032 | 40008 | 163599 | 40900 | 262939 | 65735 | 303139 | 75785 |
+| 8. Final acceptance | off | nested | 175272 | 43818 | 216880 | 54220 | 262939 | 65735 | 303139 | 75785 |
+| 8. Final acceptance | on | ordinary | 171544 | 42886 | 180443 | 45111 | 274451 | 68613 | 319984 | 79996 |
+| 8. Final acceptance | on | nested | 186784 | 46696 | 233724 | 58431 | 274451 | 68613 | 319984 | 79996 |
+| 9. Delivery | off | ordinary | 160032 | 40008 | 163599 | 40900 | 262939 | 65735 | 303139 | 75785 |
+| 9. Delivery | off | nested | 175272 | 43818 | 216880 | 54220 | 262939 | 65735 | 303139 | 75785 |
+| 9. Delivery | on | ordinary | 171544 | 42886 | 180443 | 45111 | 274451 | 68613 | 319984 | 79996 |
+| 9. Delivery | on | nested | 186784 | 46696 | 233724 | 58431 | 274451 | 68613 | 319984 | 79996 |
 
 ### Session starts
 
@@ -624,8 +624,8 @@ differ from the phase totals. Their measured entry totals follow.
 
 | Publishing | Required bytes | Estimated tokens | Conditional maximum bytes | Estimated tokens | Byte limit | Token limit |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| off | 91971 | 22993 | 192172 | 48043 | 227750 | 56938 |
-| on | 103483 | 25871 | 203684 | 50921 | 244594 | 61149 |
+| off | 91970 | 22993 | 192171 | 48043 | 227750 | 56938 |
+| on | 103482 | 25871 | 203683 | 50921 | 244594 | 61149 |
 
 The doctrine requires common change records at every start. Nested planning
 and resume load recursive workflow. Fresh sessions cannot reuse prior context
@@ -659,7 +659,7 @@ implementation input for workers only. It adds no orchestrator read.
 Maps use a soft guideline of about 1,500 words, with Mermaid diagrams under 40 nodes.
 The worker reference is 3766 bytes. See [maps.md](maps.md) for its writer and authorized checker readers.
 Map text, worker reference reads and composed drafts are real excluded costs.
-The safe-write section is 11,776 bytes and includes privacy rules.
+The safe-write section is 11,775 bytes and includes privacy rules.
 Only its worker read is a separate excluded cost. Its orchestrator read enters phase totals.
 Whole applicable designs supplied to reviewers are excluded costs that repeat across reviewers and fix-gate rounds.
 Several maps can exceed fixed-row headroom. These totals do not bound the whole conversation.

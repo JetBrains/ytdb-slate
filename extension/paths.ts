@@ -15,6 +15,7 @@ const DOCS_DIR = join(EXTENSION_DIR, "..", "docs");
 
 export const SAFE_RECORD_WRITE_DOC = join(DOCS_DIR, "safe-record-write.md");
 export const RECORD_WRITE_RECOVERY_DOC = join(DOCS_DIR, "record-write-recovery.md");
+export const RECORD_WRITE_PENDING_DOC = join(DOCS_DIR, "record-write-pending.md");
 export const SAFE_RECORD_WRITE = join(EXTENSION_DIR, "safe-record-write.mjs");
 export const WRITING_CHECKER = join(EXTENSION_DIR, "writing-check.mjs");
 // Dynamic import specifiers must be file URLs: raw paths break on Windows and

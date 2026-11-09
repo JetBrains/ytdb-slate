@@ -61,6 +61,7 @@ export function transferReads(outcome, currentReads, entry, scenario, maximum = 
   return startsSession(outcome) ? sessionReads(entry, scenario, maximum) : currentReads;
 }
 export const referenceOnly = {
+  RECORD_WRITE_PENDING_DOC: "Pending reference-only inventory, no reader duty.",
   SAFE_RECORD_WRITE_DOC: "Worker-only command reference, no orchestrator read duty.",
   MAPS_DOC: "Published worker-only map reference, no orchestrator read duty.",
   REVIEW_IMPLEMENTATION_INPUT_DOC: "Worker-only input. Built-in implementation review loads it for the worker, not the orchestrator.",

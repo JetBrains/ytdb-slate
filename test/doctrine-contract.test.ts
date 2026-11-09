@@ -948,7 +948,7 @@ test("entry configuration validates request pacing and reports the removed shard
 // @ts-ignore Shared closed record-contract roster.
 import { safeWriteDuties, safeWriteAttacks, acceptsSafeWriteDuty, acceptsDutyRoster, recordWriterApplications, writerFieldAttacks, writerFieldIds, safeWriteMutationIds, createMutationAudit } from "../verification/record-mutation-roster.mjs";
 
-const dutySources = Object.fromEntries([["C", "change-records"], ["W", "safe-record-write"], ["E", "record-write-recovery"]].map(([owner, file]) => [owner, readFileSync(new URL(`../docs/${file}.md`, import.meta.url), "utf8")]));
+const dutySources = Object.fromEntries([["C", "change-records"], ["W", "safe-record-write"], ["E", "record-write-recovery"], ["P", "record-write-pending"]].map(([owner, file]) => [owner, readFileSync(new URL(`../docs/${file}.md`, import.meta.url), "utf8")]));
 const cachedDutyAttacks = safeWriteAttacks(dutySources);
 for (const [id, sentences] of safeWriteDuties as [string, string[]][]) {
   test(`safe-write duty ${id} retains every clause`, () => {
@@ -992,7 +992,7 @@ test("cross-owner duplicates expose an owner-only acceptor", async () => {
 
 test("outside-owner copies expose the narrow scan in every uncovered section", async () => {
   const source = readFileSync(new URL("../verification/record-mutation-roster.mjs", import.meta.url), "utf8");
-  const wholeScan = 'const regions = Object.fromEntries(["C", "W", "E"].map((key) => [key, (source[key] ?? "").replace(/\\s+/g, " ").trim()]));';
+  const wholeScan = 'const regions = Object.fromEntries(["C", "W", "E", "P"].map((key) => [key, (source[key] ?? "").replace(/\\s+/g, " ").trim()]));';
   assert.equal(source.split(wholeScan).length, 2);
   const narrowScan = `const regions = { ...owners, W: (source.W ?? "").split("## Record preparation and recovery execution\\n")[1]?.replace(/\\s+/g, " ").trim() ?? "" };`;
   const faulty = await import("data:text/javascript;base64," + Buffer.from(source.replace(wholeScan, narrowScan)).toString("base64"));
@@ -1001,9 +1001,9 @@ test("outside-owner copies expose the narrow scan in every uncovered section", a
   const parts = ["C-introduction", "C-before", "C-after", "W-introduction", "W-command-contract", "W-invocation",
     "W-reports", "W-routes", "W-bounds", "W-after", "E-whole"];
   assert.equal(safeWriteDuties.length, 40);
-  assert.equal(safeWriteDuties.reduce((count: number, [, clauses]: any) => count + clauses.length, 0), 186);
-  assert.equal(outside(attacks).length, 4092);
-  assert.equal(outside(cachedDutyAttacks).length, 4092);
+  assert.equal(safeWriteDuties.reduce((count: number, [, clauses]: any) => count + clauses.length, 0), 187);
+  assert.equal(outside(attacks).length, 4114);
+  assert.equal(outside(cachedDutyAttacks).length, 4114);
   for (const [id, clauses] of safeWriteDuties) {
     for (let clause = 0; clause < clauses.length; clause++) {
       for (const part of parts) for (const kind of ["copy", "duplicate"]) {
@@ -1016,7 +1016,7 @@ test("outside-owner copies expose the narrow scan in every uncovered section", a
       }
     }
   }
-  assert.equal(outside(attacks).filter((attack: any) => !attack.rejected).length, 3348);
+  assert.equal(outside(attacks).filter((attack: any) => !attack.rejected).length, 3366);
   assert.ok(safeWriteDuties.every(([, clauses]: any) => acceptsSafeWriteDuty(dutySources, clauses)));
   for (const key of ["C", "W", "E"]) {
     assert.ok(safeWriteDuties.every(([, clauses]: any) =>

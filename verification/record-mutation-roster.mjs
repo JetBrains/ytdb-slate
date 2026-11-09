@@ -29,7 +29,7 @@ export const safeWriteDuties = [
  ["S25",["Report each record's exact task path, comparison and result in the final response.","Only all three episode parts count as a check."]],
  ["S26",["Before writing again, read assigned records lacking a counted check, plus required retry reads.","Failed check: worker reports and stops. Orchestrator applies exception rules.","The orchestrator reads [record-write-recovery.md](record-write-recovery.md) with these rules for:","- failed or unclear record results","- failed, missing or incomplete record checks","- missing or malformed worker summaries","- failed identity or retention proof","- interrupted edits","- occupied creation.","Workers report these triggers and stop."]],
  ["S27",["Failed or unclear log/report write: orchestrator reads its end before retry.","Failed final check: inspect the whole record.","Retry absent text, never present text.","Partial text: append a correction naming the cut-off entry."]],
- ["S28",["Failed or unclear `status.md`: retry a whole rewrite.","A logged interrupted edit stays an edit even when the destination vanishes.","Failed or unclear creation: only common command-result retries.","Only workers run the command because orchestrator mode has no shell tool.","Tasks name [safe-record-write.md](safe-record-write.md): introduction and § Record preparation and recovery execution for appends, status creation/rewrite, design/map edits, preservation retry and restoration with edit retry. Command creation, hash logging and successor checks read all. Draft creation needs only these common rules. Reports use generated guidance plus common and applicable worker rules for maps.","Workers report exactly one class: accept, retry creation, pause occupied, pause identity or pause unknown.","For command results, only retry creation permits another attempt, with no added cap.","Log appends, status rewrites, `cp -n` copies and edit retries keep their own rules.","A worker report with no defined class, several classes or accept without creation proof below or restoration hash proof in the named worker section means pause unknown.","Creation acceptance needs operation create, code ok, writeState verified, equal true and full destinationHash = sourceHash = expected hash when supplied.","Without expected, both full hashes must still agree.","Exit 0 alone is not proof.","The first creation and every retry supply the source’s logged or approval hash as expected when the task holds one.","Identity failure pauses.","New designs, maps and plans allow no non-exclusive creation.","Unavailable exclusive creation or an unrun command pauses.","Never delete, move, rename, truncate or overwrite an occupied creation name as repair.","Occupied creation, even equal: pause for record-only classification.","Until recovery delivers classification, ask the user.","An exit 3 result is never logged as a write identity.","For create, missing/invalid report or signal: retry creation with the same expected hash.","Then occupied means pause occupied.","Known exits 2, 5, 6, 8, unavailable exclusive creation and a command that cannot run take precedence.","Other unclear command results: pause unknown.","Inactive preservation: all preserve operation-and-exit pairs mean pause unknown.","Command proof grants no file authority. Keep explicit edit methods."]],
+ ["S28",["Failed or unclear `status.md`: retry a whole rewrite.","A logged interrupted edit stays an edit even when the destination vanishes.","Failed or unclear creation: only common command-result retries.","Only workers run the command because orchestrator mode has no shell tool.","Tasks name [safe-record-write.md](safe-record-write.md): introduction and § Record preparation and recovery execution for appends, status creation/rewrite, design/map edits, preservation retry and restoration with edit retry. Command creation, hash logging and successor checks read all. Draft creation needs only these common rules. Reports use generated guidance plus common and applicable worker rules for maps.","Report one: accept, retry creation, pause occupied, pause identity, pause unknown.","Only retry creation allows command retries, uncapped.","Command preservation and attempt history are pending.","Log appends, status rewrites, `cp -n` copies and edit retries keep their own rules.","A worker report with no defined class, several classes or accept without creation proof below or restoration hash proof in the named worker section means pause unknown.","Creation acceptance needs operation create, code ok, writeState verified, equal true and full destinationHash = sourceHash = expected hash when supplied.","Without expected, both full hashes must still agree.","Exit 0 alone is not proof.","The first creation and every retry supply the source’s logged or approval hash as expected when the task holds one.","Identity failure pauses.","New designs, maps and plans allow no non-exclusive creation.","Unavailable exclusive creation or an unrun command pauses.","Never delete, move, rename, truncate or overwrite an occupied creation name as repair.","Occupied creation, even equal: pause for record-only classification.","Until recovery delivers classification, ask the user.","An exit 3 result is never logged as a write identity.","For create, missing/invalid report or signal: retry creation with the same expected hash.","Then occupied means pause occupied.","Known exits 2, 5, 6, 8, unavailable exclusive creation and a command that cannot run take precedence.","Other unclear command results: pause unknown.","Inactive preservation: all preserve operation-and-exit pairs mean pause unknown.","Command proof grants no file authority. Keep explicit edit methods."]],
  ["S29",["Missing or different preservation copy: leave current unchanged.","Retry preservation at the next unused versioned name."]],
  ["S30",["Failed or unclear design/map edit: `cmp` against the intended retained version matching its logged full hash.","If unchanged, retry only the edit.","Otherwise the orchestrator decides restoration under recovery, outside the pre-edit barrier. Require verified restore-source hash before copying.","If the intended copy cannot be verified, pause replacement. Never guess another numbered copy.","Unverifiable intended copy: pause replacement. Never guess another numbered copy.","Authorized preservation retry: `cp -n` at the next unused versioned name, then `cmp`.","The orchestrator decides restoration under recovery, not the pre-edit barrier.","Immediately before copying, run `node COMMAND hash --expected HASH -- SOURCE`.","COMMAND is ../extension/safe-record-write.mjs relative to this reference.","SOURCE is the intended restore source. HASH is its logged full lowercase SHA-256 hash (64 hexadecimal digits).","Quote paths and escape embedded quotes.","Agreement requires exactly one valid JavaScript Object Notation (JSON) report, process exit 0, operation hash, code ok, stage complete, writeState not-created, expected agreed, sourceHash equal to HASH, equal null, destinationHash null and retainedVerified false.","protections has exactly exclusiveCreate, noFollowOpen, nonblockingOpen and mode0600, each applied, unavailable or not-applicable.","No report or HASH: pause unknown. Else report accept on agreement, pause identity on identity mismatch (exit 5), else pause unknown. Copy only on agreement.","On agreement, `cp`, check complete equality with `cmp`, then retry the authorized edit.","Failed or unclear design/map edit: use the worker’s intended-logged-copy comparison."]],
  ["S31",["Keep successor designs’, maps’ and plans’ source folder read-only.","Name the direct source, its source chain and each owning log’s recorded read boundary.","The applicable identity is the last verified-write, successor or adoption identity of the same record path inside its owning log’s read boundary.","Exclude recovery-only, preserved-copy-only and approval-only entries.","Before a successor folder’s first worker record write, a record-only worker checks the source against that identity, then logs it.","Use that expected identity for successor creation.","Check full destination equality and its logged identity before reliance."]],
@@ -48,7 +48,7 @@ export const safeWriteDuties = [
 const dutyOwners = {
  S21: ["W", "W"], S22: ["W", "W", "C", "C", "C", "C", "C", "C"],
  S23: ["C", "W"], S27: ["E", "E", "E", "E"],
- S28: ["E", "E", "E", ...Array(14).fill("C"), ...Array(8).fill("E"), "C"],
+ S28: ["E", "E", "E", ...Array(15).fill("C"), ...Array(8).fill("E"), "C"],
  S29: ["E", "E"], S30: ["W", "E", "E", "W", "E", ...Array(10).fill("W"), "E"],
 };
 export function safeWriteRegion(source) {
@@ -88,7 +88,7 @@ const outsideKinds = [
 ];
 export function acceptsSafeWriteDuty(source, sentences) {
  const owners = ownedRegions(source);
- const regions = Object.fromEntries(["C", "W", "E"].map((key) => [key, (source[key] ?? "").replace(/\s+/g, " ").trim()]));
+ const regions = Object.fromEntries(["C", "W", "E", "P"].map((key) => [key, (source[key] ?? "").replace(/\s+/g, " ").trim()]));
  const id = safeWriteDuties.find(([, clauses]) => clauses === sentences)?.[0];
  return !!id && sentences.every((sentence, clause) => {
   const owner = dutyOwners[id]?.[clause] ?? "C";
@@ -99,8 +99,8 @@ export function acceptsSafeWriteDuty(source, sentences) {
 export function acceptsDutyRoster(duties = safeWriteDuties) {
  return createHash("sha256").update(JSON.stringify(duties)).digest("hex") === acceptedDutyHash;
 }
-const acceptedDutyWords = [["S01",[15,10,29,11,7,15,12,7,7,7,9,11,6,10]],["S02",[9,11,7,12,15]],["S03",[22,5,21,19,9,8,11,9,11,5]],["S04",[7,6,10,10,5,7,9,14]],["S05",[6,14,10,6,10,8,3]],["S06",[9]],["S07",[9,7,19,12]],["S08",[8,8]],["S09",[9,12,16,6,5]],["S10",[6]],["S11",[14,13,21]],["S12",[17,12,8,5,6]],["S13",[17]],["S14",[15,4,9]],["S15",[13,7]],["S16",[26,9,9]],["S17",[9,22]],["S18",[8,7]],["S19",[17]],["S20",[10]],["S21",[19,9]],["S22",[3,19,13,16,9,13,8,12]],["S23",[17,20]],["S24",[16,16,11]],["S25",[13,9]],["S26",[14,10,8,6,7,6,6,3,3,6]],["S27",[11,7,6,9]],["S28",[8,12,8,12,52,15,13,14,27,21,8,6,20,3,9,8,13,8,7,11,13,5,17,6,9,10]],["S29",[8,8]],["S30",[16,6,17,14,10,13,10,11,7,17,6,34,13,25,13,10]],["S31",[9,14,22,6,20,7,10]],["S32",[15]],["S33",[9]],["S34",[13,8,28]],["S35",[9,9,6]],["S36",[18,13]],["S37",[21]],["S38",[13,5,6,6,12,8,7,6]],["S39",[15,14,7]],["S40",[10,12]]];
-const acceptedDutyHash = "5bcb0921359b30f399a92a9a432a61b3073a830efda784fdb6fd4e6682ecdc5e";
+const acceptedDutyWords = [["S01",[15,10,29,11,7,15,12,7,7,7,9,11,6,10]],["S02",[9,11,7,12,15]],["S03",[22,5,21,19,9,8,11,9,11,5]],["S04",[7,6,10,10,5,7,9,14]],["S05",[6,14,10,6,10,8,3]],["S06",[9]],["S07",[9,7,19,12]],["S08",[8,8]],["S09",[9,12,16,6,5]],["S10",[6]],["S11",[14,13,21]],["S12",[17,12,8,5,6]],["S13",[17]],["S14",[15,4,9]],["S15",[13,7]],["S16",[26,9,9]],["S17",[9,22]],["S18",[8,7]],["S19",[17]],["S20",[10]],["S21",[19,9]],["S22",[3,19,13,16,9,13,8,12]],["S23",[17,20]],["S24",[16,16,11]],["S25",[13,9]],["S26",[14,10,8,6,7,6,6,3,3,6]],["S27",[11,7,6,9]],["S28",[8,12,8,12,52,11,7,7,14,27,21,8,6,20,3,9,8,13,8,7,11,13,5,17,6,9,10]],["S29",[8,8]],["S30",[16,6,17,14,10,13,10,11,7,17,6,34,13,25,13,10]],["S31",[9,14,22,6,20,7,10]],["S32",[15]],["S33",[9]],["S34",[13,8,28]],["S35",[9,9,6]],["S36",[18,13]],["S37",[21]],["S38",[13,5,6,6,12,8,7,6]],["S39",[15,14,7]],["S40",[10,12]]];
+const acceptedDutyHash = "262d9f9dcbb3193f41a27425bc37427b0c038a50ad673bf646f40958f0a70d8a";
 export const safeWriteMutationIds = acceptedDutyWords.flatMap(([id, counts]) =>
  counts.flatMap((count, clause) => [...outsideKinds.map((kind) => `${id}/${clause}/${kind}`),
   ...Array.from({ length: count }, (_, word) => `${id}/${clause}/${word}`),
@@ -132,9 +132,171 @@ export function safeWriteAttacks(source, duties = safeWriteDuties) {
  }));
 }
 
+
+// Independent pending clauses are not read from the document under test.
+export const pendingDuties = [
+ [
+  "PW",
+  [
+   "This contract grants no caller permission. Existing shell routes keep their rules.",
+   "After activation, use command preservation at an unused versioned name directly beside the record.",
+   "Subfolders, temporary start copies, payloads and outside-checkout copies do not count as retention.",
+   "Never modify or delete versioned copies. Leave occupied names unchanged.",
+   "Fresh success needs operation preserve, exit 0, code ok, stage complete, writeState verified, equal true, equal full sourceHash and destinationHash, retainedVerified true and protections.exclusiveCreate applied.",
+   "The command must also complete its stable separate-file checks and successful closes.",
+   "Occupied retention needs operation preserve, exit 3, code occupied, stage compare, writeState not-created, equal true, equal full sourceHash and destinationHash and retainedVerified true.",
+   "Occupied retention also requires the command's stable separate-file checks and successful closes.",
+   "Both forms require exactly one valid report with matching operation, code and process exit.",
+   "The protections object has exactly exclusiveCreate, noFollowOpen, nonblockingOpen and mode0600.",
+   "Each protection value is applied, unavailable or not-applicable.",
+   "These proofs cover distinct unchanged regular non-link files at the final path component.",
+   "They do not prove that no third path shares a retained file through a hard link.",
+   "Parent links do not form an access boundary.",
+   "Windows ordinary opens can miss a same-user link swap and have weaker open and mode protection.",
+   "These are accepted limits under the parent non-goal on protection from every file substitution.",
+   "Any supplied expected hash must agree with both full hashes and expected agreed.",
+   "Ordinary pre-edit preservation supplies the logged stored-bytes identity as the expected hash on its first attempt.",
+   "Missing that logged identity pauses ordinary preservation.",
+   "Recovery retention of unknown current bytes uses expected not-supplied on its first attempt.",
+   "Record the observed full sourceHash from that first attempt as its recovery-only identity.",
+   "Before any retry, a record-only worker checks and records that identity in the owning log.",
+   "If the first attempt supplies no reliable full identity, pause.",
+   "Every next-name retry supplies the identity recorded for its first attempt as its expected hash.",
+   "A retry without that identity or with a different identity pauses.",
+   "Recovery-only identity grants no stored-write, restoration, successor or content authority.",
+   "Unknown current bytes need complete retention before an explicit edit decision acts.",
+   "Occupied retention proves no creation, approval or replacement authority.",
+   "Neither cmp nor command comparison proves separate retention.",
+   "Pending report class retry preservation permits only a bounded next-name attempt.",
+   "Known fatal results take precedence. Malformed, absent, duplicate or mismatched reports mean pause unknown.",
+   "All active preserve table cells stay pause unknown.",
+   "Operation and creation, edit and preservation attempt entries remain inactive.",
+   "After activation, wait for a record-only worker to append and check the operation entry.",
+   "Wait for a checked attempt entry before each attempt.",
+   "Each writer performs at most one attempt per entry and reports its result.",
+   "Entries name the record, operation identity, attempt kind and number, method, destination and expected hash when known.",
+   "Keep ordinary preservation and recovery retention counts separate within the same operation.",
+   "Each permits one first attempt and one next-name retry.",
+   "A missing result consumes an attempt as unclear.",
+   "Redispatch and a new session reset neither count.",
+   "A fresh check uses command preserve with the existing retained name and that copy's own logged identity as expected hash.",
+   "It accepts only exit 3 with the complete occupied proof and both full hashes equal to that logged identity.",
+   "Every other result, including exit 0 after a copy vanishes, pauses.",
+   "Leave any created bytes unchanged and report them without claiming an attempt-free retention check.",
+   "Only an accepted occupied check consumes no preservation attempt.",
+   "Only the same interrupted creation's checked expected-hash field supplies its occupied-creation hash.",
+   "Never infer that hash from a later task, approval or report."
+  ]
+ ],
+ [
+  "PE",
+  [
+   "These rules activate only with replacement and recovery callers.",
+   "Operation entries and creation, edit and preservation attempt entries remain inactive.",
+   "Existing shell routes stay outside this history contract.",
+   "An operation identity joins the record path and its logged creation or edit entry.",
+   "A record-only worker appends and checks the operation entry before the operation starts.",
+   "That worker appends and checks each attempt entry before its writer runs.",
+   "Implementers, fixers and the orchestrator gain no log permission.",
+   "Attempt-entry appends require no recursive attempt entries.",
+   "Each entry names operation identity, attempt kind and number, method, destination and expected hash when known.",
+   "Each entry authorizes at most one attempt.",
+   "Read the owning log across actions and sessions.",
+   "Missing results consume attempts as unclear.",
+   "A new request resets no count.",
+   "Allow one preservation attempt and one next-name retry for ordinary pre-edit preservation.",
+   "Give recovery retention its own first attempt and next-name retry under the same operation.",
+   "Ordinary exhaustion leaves recovery capacity intact.",
+   "A fresh check follows the occupied-only method in the pending worker contract.",
+   "Only complete occupied proof agreeing with the copy's own logged identity consumes no attempt.",
+   "Every other result pauses, including creation after the existing copy vanishes.",
+   "Ordinary first attempts require the logged stored-bytes identity.",
+   "Recovery first attempts record their observed identity before any next-name retry.",
+   "Every retry keeps its first attempt's recorded identity as expected hash.",
+   "A missing or different retry identity pauses.",
+   "Unknown current bytes require retention before an explicit edit decision acts.",
+   "Observed change, including preserve exit 7, pauses and voids any earlier stop evidence.",
+   "No next-name retry follows that result.",
+   "Unclear or exhausted history and known fatal failure pause.",
+   "Exclusive creation retry remains uncapped.",
+   "Ordinary log appends and status writes keep their own rules.",
+   "Before any new operation or attempt, account for every earlier operation on the record.",
+   "An earlier operation lacking a recorded result or stop evidence blocks new work.",
+   "No recovery observation, copy, classification or write precedes proof that earlier writers stopped.",
+   "A termination request or tool return is not stop evidence.",
+   "Unavailable evidence pauses, including an in-process writer.",
+   "User confirmation that the earlier session ended permits continuation.",
+   "Only overlapping exclusive command creations may use the narrow creation exemption.",
+   "An occupant ends that exemption before classification.",
+   "Pre-activation operations or missing attempt entries mean unclear history.",
+   "Continuation requires a recorded user decision that cannot waive the stopped-writer rule.",
+   "The pending retry preservation class permits only an available next-name attempt.",
+   "After complete retained proof, accept retention without claiming creation.",
+   "Known fatal results precede retry. Unknown reports pause.",
+   "Only the checked expected-hash field of the same interrupted creation supplies its occupied-creation hash.",
+   "Identity alone grants no content authority."
+  ]
+ ]
+];
+const pendingHeadings = ["## Pending worker contract\n", "## Pending history decisions\n"];
+const normalizePending = (s) => s.replace(/\s+/g, " ").trim();
+export function pendingRegions(text) {
+ if (pendingHeadings.some((h) => text.split(h).length !== 2)) return {};
+ return { PW: normalizePending(text.split(pendingHeadings[0])[1].split(pendingHeadings[1])[0]),
+  PE: normalizePending(text.split(pendingHeadings[1])[1]) };
+}
+export function acceptsPending(source, owner, clause) {
+ const regions = pendingRegions(source.P ?? "");
+ if ((regions[owner] ?? "").split(clause).length - 1 !== 1) return false;
+ // Some clauses have independently declared identical duties in both regions.
+ const expected = pendingDuties.reduce((n, [, clauses]) => n + clauses.filter((s) => s === clause).length, 0);
+ return normalizePending(source.P ?? "").split(clause).length - 1 === expected
+  && ["C", "W", "E"].every((key) => normalizePending(source[key] ?? "").split(clause).length - 1 ===
+   (key === "W" && clause === "The protections object has exactly exclusiveCreate, noFollowOpen, nonblockingOpen and mode0600." ? 1 : 0));
+}
+const pendingKinds = ["remove", "duplicate", "owner-PW", "owner-PE", "copy-PW", "copy-PE",
+ "copy-C", "copy-W", "copy-E", "before", "after"];
+const pendingWordCounts = [["PW",[12,14,13,10,25,12,23,12,14,10,8,13,16,8,16,14,13,16,7,13,13,15,10,15,11,10,12,9,8,11,14,8,10,14,9,13,17,12,9,8,8,20,19,11,14,9,12,11]],["PE",[9,11,8,14,13,12,9,7,16,7,8,6,6,12,14,6,12,14,11,8,11,11,7,11,13,6,9,5,10,14,13,13,10,7,9,11,7,9,12,11,9,8,14,6]]];
+export const pendingMutationIds = pendingWordCounts.flatMap(([owner, counts]) => counts.flatMap((count, i) =>
+ [...pendingKinds.filter((kind) => !kind.endsWith(owner)),
+ ...Array.from({ length: count }, (_, n) => String(n))].map((kind) => owner + "/" + i + "/" + kind)));
+export function pendingAttacks(source) {
+ return pendingDuties.flatMap(([owner, clauses]) => clauses.flatMap((clause, i) => {
+  const offset = source.P.indexOf(pendingHeadings[owner === "PW" ? 0 : 1]);
+  return pendingMutationIds.filter((id) => id.startsWith(owner + "/" + i + "/")).map((id) => {
+   const kind = id.split("/")[2], changed = { ...source };
+   let replacement = clause;
+   if (/^\d+$/.test(kind)) {
+    const words = [...clause.matchAll(/\S+/g)], word = words[Number(kind)];
+    replacement = clause.slice(0, word.index) + clause.slice(word.index + word[0].length);
+   } else if (kind === "remove" || kind.startsWith("owner-")) replacement = "";
+   else if (kind === "duplicate") replacement += "\n" + clause;
+   changed.P = source.P.slice(0, offset) + source.P.slice(offset).replace(clause, replacement);
+   if (/^(owner|copy)-P/.test(kind)) {
+    const target = kind.endsWith("PW") ? 0 : 1;
+    changed.P = changed.P.replace(pendingHeadings[target], pendingHeadings[target] + clause + "\n");
+   } else if (kind.startsWith("copy-")) changed[kind.slice(5)] += "\n" + clause;
+   else if (kind === "before") changed.P = clause + "\n" + changed.P;
+   else if (kind === "after") changed.P += "\n## Outside\n" + clause;
+   return { id, changed: Object.keys(source).some((key) => source[key] !== changed[key]),
+    rejected: !acceptsPending(changed, owner, clause) };
+  });
+ }));
+}
+export function acceptsNoPendingReader(text, installed = "") {
+ return !["record-write-pending.md", "RECORD_WRITE_PENDING_DOC", installed].filter(Boolean).some((s) => text.includes(s));
+}
+export function pendingContractChecks(source) {
+ const rows = pendingAttacks(source);
+ const audit = createMutationAudit({ pending: pendingMutationIds });
+ audit.record("pending", rows);
+ return createHash("sha256").update(JSON.stringify(pendingDuties)).digest("hex") === "db55b63967f778b8591b1beb3420889d4eebf77db83ecf3fef57706145627146"
+  && audit.inspect().ok && pendingDuties.every(([owner, clauses]) => clauses.every((s) => acceptsPending(source, owner, s)));
+}
+
 const numbered = (id, count) => Array.from({ length: count }, (_, index) => `${id}/${index}`);
 const combinations = (ids, kinds) => ids.flatMap((id) => kinds.map((kind) => `${id}/${kind}`));
-const headingCounts = {"identifiers-ranges": 26, "manual-records": 157, "resume-forks": 21, "handoff-pointer": 3, "resume-order": 19, "general-handoff": 3, "closed-range-feedback": 18, "repairs": 58, "aggregate": 21, "sources": 73, "workflow-accounting": 73, "notes-accounting": 23, "publishing-sync": 7, "public-roadmap": 21, "repair-escalation": 49, "repair-rounds-owner": 52, "repair-consultations-owner": 27, "child-fix-title-owner": 12, "P13-authoring": 28};
+const headingCounts = {"identifiers-ranges": 26, "manual-records": 158, "resume-forks": 21, "handoff-pointer": 3, "resume-order": 19, "general-handoff": 3, "closed-range-feedback": 18, "repairs": 58, "aggregate": 21, "sources": 73, "workflow-accounting": 73, "notes-accounting": 23, "publishing-sync": 7, "public-roadmap": 21, "repair-escalation": 49, "repair-rounds-owner": 52, "repair-consultations-owner": 27, "child-fix-title-owner": 12, "P13-authoring": 28};
 
 export const recordWriterApplications = [
  "researcher/draft", "design-author/draft", "record-only/log", "record-only/status",

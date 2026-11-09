@@ -72,7 +72,7 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
             assert.equal(mutationCounts(output)["one-branch-rules"], 32);
             assert.equal(mutationCounts(output)["ordering"], 4);
             assert.deepEqual([...output.matchAll(/^CHECK +(\S+) +EXCLUDED\b/gm)].map((match) => match[1]), excluded);
-            assert.match(output, /^== summary: 247 pass, 0 fail, 0 not run, 2 excluded \(249 result lines = 248 expected checks \+ this roster audit\) ==$/m);
+            assert.match(output, /^== summary: 248 pass, 0 fail, 0 not run, 2 excluded \(250 result lines = 249 expected checks \+ this roster audit\) ==$/m);
           } else if (!["contract-escalation-routing", "contract-level-publishing"].includes(contract)) selectedOutput(output, contract, accepted, auditAccepted);
         } finally {
           for (const [path, original] of originals) {
@@ -96,8 +96,8 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
         assert.equal(output.match(verdict)?.[1], cleanOutput.match(verdict)?.[1], output);
         assert.match(output, /^CHECK +roster +PASS\b/m);
         selectedOutput(output, contract, true);
-        assert.deepEqual(mutationCounts(output), contract === "contract-heading-regions" ? { "heading-policy": 900 } : {});
-        if (contract === "contract-heading-regions") assert.equal(mutationCounts(cleanOutput)["heading-policy"], 900);
+        assert.deepEqual(mutationCounts(output), contract === "contract-heading-regions" ? { "heading-policy": 901 } : {});
+        if (contract === "contract-heading-regions") assert.equal(mutationCounts(cleanOutput)["heading-policy"], 901);
       }
     });
     const resolverFile = "verification/resolver-checks.mjs";

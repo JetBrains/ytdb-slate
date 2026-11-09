@@ -441,37 +441,37 @@ test("implementer receives its report path and approved method with and without 
 
 test("all worker task identities retain literal totals and accepted growth", { timeout: 10000 }, async () => {
   const expected: Array<[string, number, number, number, number]> = [
-    ["append", 13239, 14047, 808, 14060],
-    ["status creation", 13239, 14047, 808, 14060],
-    ["status rewrite", 13239, 14047, 808, 14060],
-    ["preservation retry", 13239, 14047, 808, 14060],
-    ["map preservation retry", 17005, 17813, 808, 17826],
-    ["draft creation", 13239, 11776, -1463, 11783],
-    ["plan edit pause", 13239, 11776, -1463, 11783],
-    ["design edit", 13239, 14047, 808, 14060],
-    ["restoration and edit retry", 13239, 14047, 808, 14060],
-    ["map edit", 17005, 17813, 808, 17826],
-    ["map restoration and retry", 17005, 17813, 808, 17826],
-    ["map command creation/hash/successor", 26004, 26694, 690, 26707],
-    ["command creation", 22238, 22928, 690, 22941],
-    ["hash logging", 22238, 22928, 690, 22941],
-    ["successor checks", 22238, 22928, 690, 22941],
+    ["append", 13239, 14046, 807, 14060],
+    ["status creation", 13239, 14046, 807, 14060],
+    ["status rewrite", 13239, 14046, 807, 14060],
+    ["preservation retry", 13239, 14046, 807, 14060],
+    ["map preservation retry", 17005, 17812, 807, 17826],
+    ["draft creation", 13239, 11775, -1464, 11783],
+    ["plan edit pause", 13239, 11775, -1464, 11783],
+    ["design edit", 13239, 14046, 807, 14060],
+    ["restoration and edit retry", 13239, 14046, 807, 14060],
+    ["map edit", 17005, 17812, 807, 17826],
+    ["map restoration and retry", 17005, 17812, 807, 17826],
+    ["map command creation/hash/successor", 26004, 26693, 689, 26707],
+    ["command creation", 22238, 22927, 689, 22941],
+    ["hash logging", 22238, 22927, 689, 22941],
+    ["successor checks", 22238, 22927, 689, 22941],
     ["Implementer report", 1787, 1782, -5, 1783],
-    ["Implementer report/map edit", 18792, 19595, 803, 19609],
-    ["Implementer report/map retry", 18792, 19595, 803, 19609],
-    ["Implementer report/map creation", 27791, 28476, 685, 28490],
+    ["Implementer report/map edit", 18792, 19594, 802, 19609],
+    ["Implementer report/map retry", 18792, 19594, 802, 19609],
+    ["Implementer report/map creation", 27791, 28475, 684, 28490],
     ["Fixer report", 1787, 1782, -5, 1783],
-    ["Fixer report/map edit", 18792, 19595, 803, 19609],
-    ["Fixer report/map retry", 18792, 19595, 803, 19609],
-    ["Fixer report/map creation", 27791, 28476, 685, 28490],
+    ["Fixer report/map edit", 18792, 19594, 802, 19609],
+    ["Fixer report/map retry", 18792, 19594, 802, 19609],
+    ["Fixer report/map creation", 27791, 28475, 684, 28490],
     ["Implementer report source", 2341, 2336, -5, 2337],
-    ["Implementer report/map edit source", 19346, 20149, 803, 20163],
-    ["Implementer report/map retry source", 19346, 20149, 803, 20163],
-    ["Implementer report/map creation source", 28345, 29030, 685, 29044],
+    ["Implementer report/map edit source", 19346, 20148, 802, 20163],
+    ["Implementer report/map retry source", 19346, 20148, 802, 20163],
+    ["Implementer report/map creation source", 28345, 29029, 684, 29044],
     ["Fixer report source", 2341, 2336, -5, 2337],
-    ["Fixer report/map edit source", 19346, 20149, 803, 20163],
-    ["Fixer report/map retry source", 19346, 20149, 803, 20163],
-    ["Fixer report/map creation source", 28345, 29030, 685, 29044],
+    ["Fixer report/map edit source", 19346, 20148, 802, 20163],
+    ["Fixer report/map retry source", 19346, 20148, 802, 20163],
+    ["Fixer report/map creation source", 28345, 29029, 684, 29044],
   ];
   const text = (path: string | URL) => readFileSync(path, "utf8").replace(/\r\n/g, "\n");
   const size = (value: string) => Buffer.byteLength(value);
@@ -502,6 +502,7 @@ test("all worker task identities retain literal totals and accepted growth", { t
     await thread!.execute("id", { type: "implementer", task, trackNumber: 3, model: "sol-6.1", reason: "routine" }, undefined, undefined, {});
     assertMapMethod(rendered);
     assertReportMethod(rendered);
+    assert.doesNotMatch(rendered, /record-write-pending\.md|RECORD_WRITE_PENDING_DOC/);
     const guidance = size(rendered.slice(task.length + 2).split(dirname(CHANGE_RECORDS_DOC) + sep).join(""));
     const suffix = source ? " source" : "";
     actual.push([role+" report"+suffix, guidance], [role+" report/map edit"+suffix, guidance+c+n+m],

@@ -185,8 +185,9 @@ Use [track-workflow.md](track-workflow.md) for retention and [review-rules.md](r
 These duties give no extension access boundary, hash-checked publication, durable sync, automatic earlier status copies or single-writer enforcement against other processes.
 
 Only workers run the command because orchestrator mode has no shell tool.
-Workers report exactly one class: accept, retry creation, pause occupied, pause identity or pause unknown.
-For command results, only retry creation permits another attempt, with no added cap.
+Report one: accept, retry creation, pause occupied, pause identity, pause unknown.
+Only retry creation allows command retries, uncapped.
+Command preservation and attempt history are pending.
 Log appends, status rewrites, `cp -n` copies and edit retries keep their own rules.
 A worker report with no defined class, several classes or accept without creation proof below or restoration hash proof in the named worker section means pause unknown.
 Creation acceptance needs operation create, code ok, writeState verified, equal true and full destinationHash = sourceHash = expected hash when supplied.

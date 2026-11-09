@@ -30,7 +30,7 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { dirname, join, sep } from "node:path";
 import { pathToFileURL } from "node:url";
-import { EXPECTED_MUTATIONS, createMutationAudit, loadWithMutationAudit, mutationAuditControls, safeWriteDuties, acceptsSafeWriteDuty, acceptsDutyRoster, safeWriteAttacks, writerFieldAttacks } from "./record-mutation-roster.mjs";
+import { EXPECTED_MUTATIONS, createMutationAudit, loadWithMutationAudit, mutationAuditControls, safeWriteDuties, acceptsSafeWriteDuty, acceptsDutyRoster, safeWriteAttacks, writerFieldAttacks, pendingContractChecks, acceptsNoPendingReader } from "./record-mutation-roster.mjs";
 
 const [, , REPO, JITI, WORK, ...OPTIONS] = process.argv;
 function refuse(reason) {
@@ -407,6 +407,7 @@ const DOCTRINE_CONTRACT_IDS = [
 	"contract-recursive-owner-agreement",
 	"contract-recursive-records",
 	...Array.from({ length: 40 }, (_, i) => `contract-duty-S${String(i + 1).padStart(2, "0")}`),
+	"contract-pending",
 	"contract-recursive-split-pointers",
 	"contract-recursive-delivery",
 	"contract-heading-regions",
@@ -3497,7 +3498,7 @@ Use its § Session handoff and the research log for ownership.`);
 			const resumeOrderExpected = normalizeText(`Resume in this fixed order: 1. Read the initial request and latest state summary. Before relying on a summary, check that its named subtree entry exists. An older summary without a subtree reference still resumes under its recorded workflow. 2. Read later decisions and the active subtree's records. When the summary names an existing current implementer report, read it there. Use [recursive-workflow.md](recursive-workflow.md) § Resume and folder forks for tree reconciliation and read-only source boundaries. Before resuming a paused subtree, read its typed \`decision\` entry in the owning parent research log. Check that its unfinished sibling dependency has completed and its recorded resume condition holds. Confirm the decision records a boundary between code-track ranges, with no open range. A status entry alone authorizes neither pause nor resume. 3. Inspect marker commits and the current branch state. 4. Reconcile the declared file list, track table, coverage register, proved focus areas, risk record, and live diff. 5. Re-run any stale precondition check. 6. Apply the user-decision reuse rule before asking any question. 7. Continue only after answering: **What changed since the last state summary, and does it change focus, scope, or required gates?** A mismatch pauses work. Reconcile it in the log. Use marker commits and Git history as boundary authority. The track table is display-only.`);
 			const recursiveRecordUnits = [
 				{ id: "identifiers-ranges", source: commonRecords, start: "## Identifiers, code ranges, and design markers", extract: headingUnit("## Identifiers, code ranges, and design markers"), expected: "0d995abc7711561bde6f3b397106a7c4957559453f5d45320352cfd1bfc52ffb" },
-				{ id: "tool-records-and-recovery", source: commonRecords, start: "## Manual records and safe writes", extract: headingUnit("## Manual records and safe writes"), expected: "94c95f90b813087ed09cad531b0ce64433a9687b8346a3ccd7d5b80a72185875" },
+				{ id: "tool-records-and-recovery", source: commonRecords, start: "## Manual records and safe writes", extract: headingUnit("## Manual records and safe writes"), expected: "99ddccb0ffb505299daf5509a37b3a3c53a54ec9a6e7cf4d98a41c171a8306c2" },
 				{ id: "resume-forks", source: recursive, start: "## Resume and folder forks", extract: headingUnit("## Resume and folder forks"), expected: "953d25a6c6cf11abdf8fc12aeea4db0223480331fb6c199e507c9e87ac0e5fc7" },
 				{ id: "handoff-pointer", source: recursive, start: "## Handoff boundaries", extract: headingUnit("## Handoff boundaries"), expected: "225c24f843fa607d5ebfd489e574e16641953dab064546450ea0082463bf48d0" },
 				{ id: "marker-identity", source: workflow, extract: markedUnit("marker-identity-policy"), expected: "ae24e23298695b323c803f31515c87ee8de5777cd0b0a13dba90d747c9df4308" },
@@ -3527,7 +3528,7 @@ Use its § Session handoff and the research log for ownership.`);
 			// Independent reviewed pins protect the common owner.
 			commonUnits = [
 				{ id: "identifiers", start: "## Identifiers, code ranges, and design markers", expected: "0d995abc7711561bde6f3b397106a7c4957559453f5d45320352cfd1bfc52ffb" },
-				{ id: "records", start: "## Manual records and safe writes", expected: "94c95f90b813087ed09cad531b0ce64433a9687b8346a3ccd7d5b80a72185875" },
+				{ id: "records", start: "## Manual records and safe writes", expected: "99ddccb0ffb505299daf5509a37b3a3c53a54ec9a6e7cf4d98a41c171a8306c2" },
 			];
 			const acceptsCommon = (source) => commonUnits.every(({ start, expected }) => {
 				const region = headingUnit(start)(source);
@@ -3535,7 +3536,7 @@ Use its § Session handoff and the research log for ownership.`);
 			});
 			privacyHeading = "### Design authority and privacy";
 			const commonHeadings = [...commonUnits.map(({ start }) => start), privacyHeading];
-			const completeCommonDigest = "f7a2dde2dfc9429d44f8ed2060d564cb33c09cb76d6c644163c54d4612c3d17b";
+			const completeCommonDigest = "fe7ef736e1e2eae60a4738805f21f44e0e1bac4597ef07ba2af7b8c8605334c2";
 			const acceptsCompleteCommon = (source) => createHash("sha256").update(source).digest("hex") === completeCommonDigest;
 			const completeCommonAttacks = [
 				["title", commonRecords.replace("# Common change records", "# Nested change records")],
@@ -3766,8 +3767,15 @@ Use [change-records.md](change-records.md) § Design authority and privacy.`) },
 				["direct-write-block-duplicate", recursive.replace(directWriteBlock, `${directWriteBlock}\n\n${directWriteBlock}`)],
 				["omit-transcript-limit", recursive.replace("Records can appear in saved worker sessions and command text.", "Record contents never appear in saved worker sessions or command text.")],
 			].map(([id, source]) => ({ id, changed: source !== recursive, rejected: !acceptsRecordUnit(recordPolicy, source) })))(commonRecords), ...namedAttacks];
-			const dutySources = { C: commonRecords, W: readFileSync(join(REPO, "docs/safe-record-write.md"), "utf8"), E: readFileSync(join(REPO, "docs/record-write-recovery.md"), "utf8") };
+			const dutySources = { C: commonRecords, W: readFileSync(join(REPO, "docs/safe-record-write.md"), "utf8"), E: readFileSync(join(REPO, "docs/record-write-recovery.md"), "utf8"), P: readFileSync(join(REPO, "docs/record-write-pending.md"), "utf8") };
 			const dutyAttacks = safeWriteAttacks(dutySources);
+            const pendingSurfaces = [commonRecords, workflow, recursive, toolsSource];
+            checkAll("contract-pending", "pending owners reject mutations and active sources name no pending reader", [
+             ["complete pending owner and mutation audit", pendingContractChecks(dutySources)],
+             ["no active source pointer", pendingSurfaces.every((s) => acceptsNoPendingReader(s))],
+             ["each spelling is rejected", ["record-write-pending.md", "RECORD_WRITE_PENDING_DOC"].every((s) =>
+              pendingSurfaces.every((text) => !acceptsNoPendingReader(text + s)))],
+            ]);
 			for (const [id, sentences] of safeWriteDuties) {
 				const attacks = dutyAttacks.filter((attack) => attack.id.startsWith(id + "/"));
 				checkAll(`contract-duty-${id}`, "each retained clause rejects independent word removal", [
@@ -5767,7 +5775,7 @@ verbatim retention of every tool result.`);
 			const privacyMutation = commonRecords.replace(privacyRule, "Session permissions need no attention.");
 			checkAll("contract-heading-regions", "all 19 heading-owned regions retain complete independent content protection and fence-aware same-level or higher boundaries", [
 				["independent history safeguards reject weakening without relying on the mixed accounting fingerprint", acceptsSurvivingAccounting(accountingOwner.source) && survivingAccountingControls.length === 3 && survivingAccountingControls.every(({ changed, rejected }) => changed && rejected), survivingAccountingControls],
-				["surviving and mixed heading groups exhaust the independent mutation roster", new Set([...survivingHeadingIds, ...mixedHeadingIds]).size === 19 && survivingHeadingIds.length + mixedHeadingIds.length === 19 && headingOwnedUnits.every(({ id }) => [...survivingHeadingIds, ...mixedHeadingIds].includes(id)) && survivingHeadingAttacks.length + mixedHeadingAttacks.length === 900, { surviving: survivingHeadingAttacks.length, mixed: mixedHeadingAttacks.length }],
+				["surviving and mixed heading groups exhaust the independent mutation roster", new Set([...survivingHeadingIds, ...mixedHeadingIds]).size === 19 && survivingHeadingIds.length + mixedHeadingIds.length === 19 && headingOwnedUnits.every(({ id }) => [...survivingHeadingIds, ...mixedHeadingIds].includes(id)) && survivingHeadingAttacks.length + mixedHeadingAttacks.length === 901, { surviving: survivingHeadingAttacks.length, mixed: mixedHeadingAttacks.length }],
 				["surviving heading safeguards reject every existing violation", survivingHeadingAttacks.length > 0 && survivingHeadingAttacks.every(({ changed, rejected, intended }) => changed && rejected && intended), survivingHeadingAttacks],
 				["mixed heading regions keep every current safeguard active", mixedHeadingAttacks.length > 0 && mixedHeadingAttacks.every(({ changed, rejected, intended }) => changed && rejected && intended), mixedHeadingAttacks],
 				["the exact region roster resolves once and matches independent expectations", JSON.stringify(headingOwnedUnits.map((unit) => unit.id)) === JSON.stringify(expectedHeadingRegionIds) && headingOwnedUnits.every((unit) => acceptsRecordUnit(unit, unit.source)), headingOwnedUnits.map((unit) => ({ id: unit.id, result: unit.extract(unit.source).reason }))],
