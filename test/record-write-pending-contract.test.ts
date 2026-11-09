@@ -141,7 +141,7 @@ test("pending byte guard and region guard protect different changes", () => {
 test("pending owner boundaries accept outside prose at each supported heading form", () => {
  for (const [owner] of pendingDuties) {
   const end = owner === "PW" ? sources.P!.indexOf("## Pending history decisions") : sources.P!.length;
-  for (const heading of ["# Outside", "## Outside", "Outside\n=======", "Outside\n-------"]) {
+  for (const heading of ["# Outside", "## Outside"]) {
    const P = sources.P!.slice(0, end) + "\n" + heading + "\nOutside prose.\n" + sources.P!.slice(end);
    assert.ok(acceptsPendingRegions(P), owner + ": " + heading);
    for (const [key, clauses] of pendingDuties)
@@ -151,6 +151,47 @@ test("pending owner boundaries accept outside prose at each supported heading fo
  }
  for (const heading of ["## Pending worker contract", "## Pending history decisions"])
   assert.deepEqual(pendingRegions(sources.P + "\n" + heading + "\n"), {});
+});
+
+test("pending setext attacks fail with refreshed byte identity", { timeout: 30_000 }, async () => {
+ const original = read("verification/record-mutation-roster.mjs");
+ const digest = createHash("sha256").update(sources.P!).digest("hex");
+ assert.equal(original.split(digest).length, 2);
+ assert.equal(/^ {0,3}(?:=+|-+) *$/m.test(sources.P!), false);
+ for (const ending of ["\n", "\r\n"]) for (const marker of ["-", "="])
+  for (const indent of ["", " ", "  ", "   "]) for (const suffix of ["", " ", "  "]) {
+   const P = sources.P!.replace("Never infer that hash from a later task, approval or report.",
+    "Never infer that hash from a later task, approval or report.\nOutside\n" + indent + marker.repeat(7) + suffix)
+    .replace(/\n/g, ending);
+   const refreshedDigest = createHash("sha256").update(P.replace(/\r\n/g, "\n")).digest("hex");
+   const refreshed = await import("data:text/javascript;base64," +
+    Buffer.from(original.replace(digest, refreshedDigest)).toString("base64"));
+   assert.ok(refreshed.acceptsPendingDocument(P), "byte guard must accept the refreshed identity");
+   assert.deepEqual(refreshed.pendingRegions(P), {});
+   assert.equal(refreshed.acceptsPendingRegions(P), false);
+   for (const [owner, clauses] of pendingDuties)
+    for (const clause of clauses) assert.equal(refreshed.acceptsPending({ ...sources, P }, owner, clause), false);
+   assert.equal(refreshed.pendingContractChecks({ ...sources, P }), false);
+  }
+});
+
+test("pending prose subset rejects other Markdown forms globally", () => {
+ const forms = ["=", "==", "-", "--", "---", "----", "* * *", "___", "~~~", "```",
+  "- ", "+", "1.", "2)", ": definition", "> quote", "<div>", "| cell |",
+  "[target]: destination", "[link](target)", "![image](target)", "\\# escaped",
+  "&num; heading", "*emphasis*", "_emphasis_", "`code`", "~~deleted~~", "####### Outside", "Hard break  "];
+ for (const ending of ["\n", "\r\n"]) for (const indent of ["", " ", "  ", "   "])
+  for (const form of forms) for (const position of ["before", "inside", "after"]) {
+   const line = indent + form;
+   let P = position === "before" ? line + "\n" + sources.P :
+    position === "after" ? sources.P + "\n" + line :
+     sources.P!.replace("### Pending attempt execution", line + "\n### Pending attempt execution");
+   P = P.replace(/\n/g, ending);
+   assert.deepEqual(pendingRegions(P), {}, JSON.stringify({ ending, indent, form, position }));
+   assert.equal(acceptsPendingRegions(P), false);
+   for (const [owner, clauses] of pendingDuties)
+    assert.equal(acceptsPending({ ...sources, P }, owner, clauses[4]), false);
+  }
 });
 
 test("pending mutation audit detects broken occurrence and boundary predicates", { timeout: 30_000 }, async () => {

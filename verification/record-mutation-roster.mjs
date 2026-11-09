@@ -254,14 +254,16 @@ export function pendingRegions(text) {
  let owner;
  for (let i = 0; i < lines.length; i++) {
   const line = lines[i];
-  // This prose subset rejects unsupported Markdown globally, including hidden owner headings.
-  if (/^(?: {4}|\t)|^ {0,3}(?:`{3,}|~{3,}|>|[-+*]\s|\d+[.)]\s)|[<>|]/.test(line)) return {};
-  const atx = /^ {0,3}(#{1,6})(?:\s+|$)(.*)$/.exec(line);
-  const setext = i + 1 < lines.length && line.trim() && /^ {0,3}(=+|-+)\s*$/.exec(lines[i + 1]);
-  const level = atx ? atx[1].length : setext ? (setext[1][0] === "=" ? 1 : 2) : 0;
+  // "It accepts a closed subset of plain paragraphs and `#` headings, and it rejects every other form."
+  // Reject indentation, setext underlines, lists, quotes, fences, HTML, tables,
+  // links, references, escapes, entities, inline formatting and hard line breaks.
+  if (/^ {4}|^ {0,3}(?:=+ *$|-+ *$|[-+](?: |$)|\d+[.)](?: |$)|: )|[<>|\[\]\\&*_\x60~]/.test(line)) return {};
+  const atx = /^ {0,3}(#{1,6})(?: +|$)(.*)$/.exec(line);
+  if ((/^ {0,3}#/.test(line) && !atx) || /[^ ] {2,}$/.test(line)) return {};
+  const level = atx ? atx[1].length : 0;
   if (level && level <= 2) {
    owner = undefined;
-   const title = atx ? atx[2].replace(/\s+#+\s*$/, "").trim() : line.trim();
+   const title = atx[2].replace(/ +#+ *$/, "").trim();
    const key = level !== 2 ? undefined : title === "Pending worker contract" ? "PW" : title === "Pending history decisions" ? "PE" : undefined;
    if (key) {
     if (seen.has(key)) return {};
@@ -269,7 +271,6 @@ export function pendingRegions(text) {
     owner = key;
     regions[key] = [];
    }
-   if (setext) i++;
    continue;
   }
   if (owner) regions[owner].push(line);
