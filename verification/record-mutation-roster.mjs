@@ -255,9 +255,9 @@ export function pendingRegions(text) {
  for (let i = 0; i < lines.length; i++) {
   const line = lines[i];
   // "It accepts a closed subset of plain paragraphs and `#` headings, and it rejects every other form."
-  // Reject indentation, setext underlines, lists, quotes, fences, HTML, tables,
+  // Reject symbol-only lines, indentation, lists, quotes, fences, HTML, tables,
   // links, references, escapes, entities, inline formatting and hard line breaks.
-  if (/^ {4}|^ {0,3}(?:=+ *$|-+ *$|[-+](?: |$)|\d+[.)](?: |$)|: )|[<>|\[\]\\&*_\x60~]/.test(line)) return {};
+  if (/^ *[-=*_][ =*_-]*$|^ {4}|^ {0,3}(?:[-+](?: |$)|\d+[.)](?: |$)|: )|[<>|\[\]\\&*_\x60~]/.test(line)) return {};
   const atx = /^ {0,3}(#{1,6})(?: +|$)(.*)$/.exec(line);
   if ((/^ {0,3}#/.test(line) && !atx) || /[^ ] {2,}$/.test(line)) return {};
   const level = atx ? atx[1].length : 0;

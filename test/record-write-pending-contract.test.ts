@@ -175,8 +175,36 @@ test("pending setext attacks fail with refreshed byte identity", { timeout: 30_0
   }
 });
 
+test("pending symbol-only lines fail with refreshed byte identity", { timeout: 30_000 }, async () => {
+ const original = read("verification/record-mutation-roster.mjs");
+ const digest = createHash("sha256").update(sources.P!).digest("hex");
+ assert.equal(original.split(digest).length, 2);
+ assert.equal(/^ *[-=*_][ =*_-]*$/m.test(sources.P!), false);
+ for (const ending of ["\n", "\r\n"]) {
+  const unchanged = sources.P!.replace(/\n/g, ending);
+  assert.ok(acceptsPendingDocument(unchanged));
+  assert.ok(acceptsPendingRegions(unchanged));
+  assert.ok(pendingContractChecks({ ...sources, P: unchanged }));
+  for (const form of ["-- --", "- - -", "-  -  -", "* * *", "_ _ _", "= =", "- = * _"])
+   for (const indent of ["", " ", "  ", "   "]) for (const suffix of ["", " ", "  "])
+    for (const position of ["before", "inside"]) {
+     const line = indent + form + suffix + "\n";
+     const P = (position === "before" ? line + sources.P :
+      sources.P!.replace("### Pending attempt execution", line + "### Pending attempt execution"))
+      .replace(/\n/g, ending);
+     const refreshedDigest = createHash("sha256").update(P.replace(/\r\n/g, "\n")).digest("hex");
+     const refreshed = await import("data:text/javascript;base64," +
+      Buffer.from(original.replace(digest, refreshedDigest)).toString("base64"));
+     assert.ok(refreshed.acceptsPendingDocument(P), "byte guard must accept the refreshed identity");
+     assert.deepEqual(refreshed.pendingRegions(P), {});
+     assert.equal(refreshed.acceptsPendingRegions(P), false);
+     assert.equal(refreshed.pendingContractChecks({ ...sources, P }), false);
+    }
+ }
+});
+
 test("pending prose subset rejects other Markdown forms globally", () => {
- const forms = ["=", "==", "-", "--", "---", "----", "* * *", "___", "~~~", "```",
+ const forms = ["=", "==", "-", "--", "---", "----", "-- --", "- - -", "-  -  -", "* * *", "_ _ _", "= =", "___", "~~~", "```",
   "- ", "+", "1.", "2)", ": definition", "> quote", "<div>", "| cell |",
   "[target]: destination", "[link](target)", "![image](target)", "\\# escaped",
   "&num; heading", "*emphasis*", "_emphasis_", "`code`", "~~deleted~~", "####### Outside", "Hard break  "];
