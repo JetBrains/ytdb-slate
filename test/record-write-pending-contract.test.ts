@@ -175,22 +175,24 @@ test("pending setext attacks fail with refreshed byte identity", { timeout: 30_0
   }
 });
 
-test("pending symbol-only lines fail with refreshed byte identity", { timeout: 30_000 }, async () => {
+test("pending symbol-only lines fail with refreshed byte identity", { timeout: 60_000 }, async () => {
  const original = read("verification/record-mutation-roster.mjs");
  const digest = createHash("sha256").update(sources.P!).digest("hex");
  assert.equal(original.split(digest).length, 2);
- assert.equal(/^ *[-=*_][ =*_-]*$/m.test(sources.P!), false);
+ assert.equal(/^ *[-=*_:][ =*_:-]*$/m.test(sources.P!), false);
  for (const ending of ["\n", "\r\n"]) {
   const unchanged = sources.P!.replace(/\n/g, ending);
   assert.ok(acceptsPendingDocument(unchanged));
   assert.ok(acceptsPendingRegions(unchanged));
   assert.ok(pendingContractChecks({ ...sources, P: unchanged }));
-  for (const form of ["-- --", "- - -", "-  -  -", "* * *", "_ _ _", "= =", "- = * _"])
+  for (const form of ["-- --", "- - -", "-  -  -", "* * *", "_ _ _", "= =", "- = * _",
+   "-:", "--:", "---:", ":-", ":--", ":-:", " -:"])
    for (const indent of ["", " ", "  ", "   "]) for (const suffix of ["", " ", "  "])
-    for (const position of ["before", "inside"]) {
+    for (const position of ["before", "paragraph", "inside"]) {
      const line = indent + form + suffix + "\n";
      const P = (position === "before" ? line + sources.P :
-      sources.P!.replace("### Pending attempt execution", line + "### Pending attempt execution"))
+      position === "paragraph" ? "Outside prose.\n" + line + sources.P :
+       sources.P!.replace("### Pending attempt execution", line + "### Pending attempt execution"))
       .replace(/\n/g, ending);
      const refreshedDigest = createHash("sha256").update(P.replace(/\r\n/g, "\n")).digest("hex");
      const refreshed = await import("data:text/javascript;base64," +
@@ -204,14 +206,15 @@ test("pending symbol-only lines fail with refreshed byte identity", { timeout: 3
 });
 
 test("pending prose subset rejects other Markdown forms globally", () => {
- const forms = ["=", "==", "-", "--", "---", "----", "-- --", "- - -", "-  -  -", "* * *", "_ _ _", "= =", "___", "~~~", "```",
+ const forms = ["=", "==", "-", "--", "---", "----", "-- --", "- - -", "-  -  -", "* * *", "_ _ _", "= =", "-:", "--:", "---:", ":-", ":--", ":-:", " -:", "___", "~~~", "```",
   "- ", "+", "1.", "2)", ": definition", "> quote", "<div>", "| cell |",
   "[target]: destination", "[link](target)", "![image](target)", "\\# escaped",
   "&num; heading", "*emphasis*", "_emphasis_", "`code`", "~~deleted~~", "####### Outside", "Hard break  "];
  for (const ending of ["\n", "\r\n"]) for (const indent of ["", " ", "  ", "   "])
-  for (const form of forms) for (const position of ["before", "inside", "after"]) {
+  for (const form of forms) for (const position of ["before", "paragraph", "inside", "after"]) {
    const line = indent + form;
    let P = position === "before" ? line + "\n" + sources.P :
+    position === "paragraph" ? "Outside prose.\n" + line + "\n" + sources.P :
     position === "after" ? sources.P + "\n" + line :
      sources.P!.replace("### Pending attempt execution", line + "\n### Pending attempt execution");
    P = P.replace(/\n/g, ending);
