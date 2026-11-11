@@ -800,7 +800,10 @@ directory.
 
 The resolver harness borrows pi's jiti TypeScript transpiler and marked Markdown parser.
 It selects pi through `PI_BIN`, then checkout-local `node_modules/.bin/pi`, then `PATH`.
-Parser resolution uses that selected physical launcher, not another installation.
+Parser resolution uses only that conveyed physical launcher, not another installation.
+Without `SLATE_ACTIVE_PI`, active checks fail with instructions to use either wrapper or supply the physical launcher path.
+`SLATE_ACTIVE_REPO` binds the document tree and pi pin.
+A selected tree with different roster source refuses startup with a source-mismatch diagnostic.
 The selected pi manifest must match the repository's exact pi devDependency pin.
 The parser must be marked 18.0.11 with the required exports and token shapes.
 Native active-owner tests use the same selected parser origin through the peer linker's verified selection binding.
@@ -810,12 +813,17 @@ Neither path starts a pi session to obtain the parser.
 Parser contract tests check the version and the heading, block and inline token shapes used by ownership checks.
 Active-owner checks enforce unique headings, region boundaries and independent clause occurrences.
 Code blocks and hidden text cannot satisfy a clause.
+Active documents reject block and inline HTML tokens, including containers separated by blank lines.
+Ordered, nested and task lists cannot supply clause prose.
+The six unordered recovery triggers retain their required list markers.
 Whole-document byte guards remain separate from structural ownership checks.
 Count-preserving moves and separate occurrence and boundary mutants test the mutation audit without byte-guard masking.
 
 Missing tooling, a mismatched version, unsupported tokens, parse failures and transpilation failures fail visibly with a nonzero result.
 No tooling failure may report an empty successful check set.
 A missing or mismatched installation reports the remedy `npm ci --ignore-scripts`.
+The resolver wrapper checks these prerequisites before running checks and refuses with exit 2.
+The in-suite parser contract remains a second check.
 
 It also checks the workflow contract for requirement-level investigation after
 two same-requirement repair rounds (`contract-requirement-investigation`). The
@@ -1552,11 +1560,12 @@ the driver, which reads that line. `L5` and `T1` turn an absent line or an
 empty line into a failure, and not into a quiet pass.
 
 The harness takes the pi CLI from the order that it shares with the resolver
-checks (`AGENTS.md` § CI), with two deliberate differences. It accepts
+checks (`AGENTS.md` § CI), with one selection difference. It accepts
 **no** pi from `PATH`: after `PI_BIN` and `node_modules/.bin/pi` in the checkout,
-it refuses to start. It also requires the same version from `pi --version` as the
-`@earendil-works/pi-coding-agent` pin in `devDependencies`. Both rules have one
-reason: this harness asserts on pi's rpc output shapes, so it must exercise the
+it refuses to start. Both wrappers require the selected pi version to match the
+`@earendil-works/pi-coding-agent` pin in `devDependencies`.
+The load check reads `pi --version`. The resolver checks read its package manifest.
+The load check asserts on pi's rpc output shapes, so it must exercise the
 same pi that the typecheck pins.
 
 The harness prints `PI_BIN` loudly in its output. `PI_BIN` is an override for an

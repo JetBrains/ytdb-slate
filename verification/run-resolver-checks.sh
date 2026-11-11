@@ -140,6 +140,19 @@ else
 fi
 [ -x "$PI" ] || die "the pi CLI '$PI' is not executable"
 
+# Refuse an unsupported parser or a different roster before any check runs.
+SLATE_ACTIVE_REPO="$REPO" SLATE_ACTIVE_PI="$PI" node --input-type=module - "$(dirname "$0")/record-mutation-roster.mjs" <<'NODE' || die "active owner prerequisites failed — run 'npm ci --ignore-scripts' in $REPO and use that tree's resolver wrapper"
+import { pathToFileURL } from "node:url";
+const roster = await import(pathToFileURL(process.argv[2]).href);
+try {
+ roster.assertActiveRosterSource();
+ roster.resolveActiveParser();
+} catch (error) {
+ console.error(error.message);
+ process.exitCode = 1;
+}
+NODE
+
 # Locate the jiti bundled with that pi, the way pi's own module graph resolves
 # it, so this works regardless of where pi is installed or how deps are hoisted.
 # The pi launcher is usually a symlink; node's realpathSync canonicalises it

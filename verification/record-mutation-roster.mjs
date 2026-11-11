@@ -2,11 +2,10 @@ import { createHash } from "node:crypto";
 import { readFileSync, realpathSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
-import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
 // Pending-only data URL imports do not resolve or load active tooling.
-let activeParser;
+const activeParsers = new Map();
 const normalized = (text) => text.replace(/\s+/g, " ").trim();
 function namedManifest(file, name) {
  for (let dir = dirname(file); ; dir = dirname(dir)) {
@@ -18,12 +17,9 @@ function namedManifest(file, name) {
  }
 }
 export function resolveActiveParser(repo = process.env.SLATE_ACTIVE_REPO ?? process.cwd(),
- launcher = process.env.SLATE_ACTIVE_PI ?? process.env.PI_BIN) {
+ launcher = process.env.SLATE_ACTIVE_PI) {
  try {
-  if (!launcher) {
-   try { launcher = realpathSync(join(repo, "node_modules/.bin/pi")); }
-   catch { launcher = execFileSync("which", ["pi"], { encoding: "utf8" }).trim(); }
-  }
+  if (!launcher) throw new Error("missing SLATE_ACTIVE_PI. Run npm test or bash verification/run-resolver-checks.sh --repo <tree>, or set SLATE_ACTIVE_PI to the physical pi launcher path");
   const physical = realpathSync(launcher);
   const pin = JSON.parse(readFileSync(join(repo, "package.json"), "utf8")).devDependencies["@earendil-works/pi-coding-agent"];
   if (namedManifest(physical, "@earendil-works/pi-coding-agent").version !== pin) throw new Error("pi version differs from repository pin");
@@ -38,7 +34,7 @@ export function resolveActiveParser(repo = process.env.SLATE_ACTIVE_REPO ?? proc
   throw new Error(`active owner parser prerequisite: ${error.message}. Run npm ci --ignore-scripts`);
  }
 }
-const blockTypes = new Set(["space", "heading", "paragraph", "list", "text", "table", "code", "html", "blockquote", "hr", "def"]);
+const blockTypes = new Set(["space", "heading", "paragraph", "list", "text", "table", "code", "html", "blockquote", "hr", "def", "checkbox"]);
 const inlineTypes = new Set(["text", "escape", "codespan", "link", "image", "strong", "em", "del", "br", "html"]);
 function validateTokens(tokens, inline = false) {
  if (!Array.isArray(tokens)) throw new Error("missing token array");
@@ -48,6 +44,7 @@ function validateTokens(tokens, inline = false) {
   if (token.type === "list") {
    if (!Array.isArray(token.items) || typeof token.ordered !== "boolean" || typeof token.loose !== "boolean") throw new Error("invalid list");
    for (const item of token.items) {
+    if (typeof item.task !== "boolean") throw new Error("invalid list task flag");
     if (typeof item.raw !== "string") throw new Error("invalid list item");
     validateTokens(item.tokens);
    }
@@ -60,15 +57,18 @@ function validateTokens(tokens, inline = false) {
   } else if (token.tokens) validateTokens(token.tokens, token.type !== "blockquote");
   if (["paragraph", "heading", "codespan", "link", "strong"].includes(token.type) && typeof token.text !== "string") throw new Error("missing token text");
   if (["paragraph", "heading", "link", "strong"].includes(token.type) && !Array.isArray(token.tokens)) throw new Error("missing inline tokens");
+  if (token.type === "checkbox" && typeof token.checked !== "boolean") throw new Error("invalid checkbox");
   if (token.type === "link" && typeof token.href !== "string") throw new Error("invalid link");
  }
 }
 export const activeParserContractIds = ["version", "headings", "blocks", "inline", "crlf"];
 export function assertActiveParserContract(parser) {
  if (parser.version !== "18.0.11" || typeof parser.lex !== "function") throw new Error("expected marked 18.0.11 lexer");
- const fixture = "# ATX\n\nSetext\n---\n\nParagraph `code` [link](target) **strong**.\n\n- outer\n  - inner\n\n| a | b |\n|---|---|\n| x | y |\n\n> quote\n\n<!-- hidden -->\n\n<div>hidden</div>\n\n~~~text\n## fake\n~~~\n\n```\n## fake\n```\n\n    ## fake\n";
+ const fixture = "# ATX\n\nSetext\n---\n\nParagraph `code` [link](target) **strong**.\n\n- outer\n  - inner\n\n1) ordered\n\n- [ ] task\n\n| a | b |\n|---|---|\n| x | y |\n\n> quote\n\n<!-- hidden -->\n\n<div>hidden</div>\n\n~~~text\n## fake\n~~~\n\n```\n## fake\n```\n\n    ## fake\n";
  const tokens = parser.lex(fixture);
  validateTokens(tokens);
+ const lists = tokens.filter((t) => t.type === "list");
+ if (!lists.some((t) => t.ordered) || !lists.some((t) => t.items.some((item) => item.task && item.tokens.some((part) => part.type === "checkbox")))) throw new Error("list contract");
  const paragraph = tokens.find((t) => t.type === "paragraph");
  for (const kind of ["codespan", "link", "strong"]) if (!paragraph.tokens.some((t) => t.type === kind)) throw new Error(`inline contract ${kind}`);
  const headings = tokens.filter((t) => t.type === "heading");
@@ -78,7 +78,23 @@ export function assertActiveParserContract(parser) {
  if (JSON.stringify(parser.lex(fixture.replace(/\n/g, "\r\n"))) !== JSON.stringify(tokens)) throw new Error("CRLF contract");
  return activeParserContractIds;
 }
-function parser() { return activeParser ??= resolveActiveParser(); }
+export function assertActiveRosterSource(repo = process.env.SLATE_ACTIVE_REPO ?? process.cwd()) {
+ const selected = readFileSync(join(repo, "verification/record-mutation-roster.mjs"), "utf8");
+ if (selected !== readFileSync(new URL(import.meta.url), "utf8")) {
+  throw new Error("active owner roster source differs from --repo. Run the resolver wrapper from the selected tree");
+ }
+}
+function parser(repo = process.env.SLATE_ACTIVE_REPO ?? process.cwd()) {
+ const key = realpathSync(repo);
+ if (!activeParsers.has(key)) activeParsers.set(key, resolveActiveParser(key));
+ return activeParsers.get(key);
+}
+// HTML can split into separate block and inline tokens around live-looking prose.
+function containsHtml(tokens) {
+ return tokens.some((t) => t.type === "html" || (t.tokens && containsHtml(t.tokens))
+  || (t.items && t.items.some((item) => containsHtml(item.tokens)))
+  || (t.type === "table" && [...t.header, ...t.rows.flat()].some((cell) => containsHtml(cell.tokens))));
+}
 const baselineOwners = new Map();
 const baselineBlocks = new Map();
 const ownerHeadings = { C: "Manual records and safe writes", W: "Record preparation and recovery execution" };
@@ -88,6 +104,7 @@ export function activeOwnerBlocks(source, owner) {
  if (cached?.text === text) return cached.body;
  const tokens = parser().lex(text);
  validateTokens(tokens);
+ if (containsHtml(tokens)) return "";
  if (tokens.map((t) => t.raw).join("") !== text) throw new Error("parser raw spans do not cover source. Run npm ci --ignore-scripts");
  let body = tokens;
  if (owner !== "E") {
@@ -121,8 +138,8 @@ function parsedOwner(source, owner) {
      });
      segments.push({ raw: marker + normalized(t.raw), protectedSpans: protectedSpans.map(([start, raw]) => [start + marker.length, raw]) });
     }
-   } else if (t.type === "list" && marker === "") {
-    for (const item of t.items) prose(item.tokens, /^\s*[-+*] /.test(item.raw) ? "- " : "");
+   } else if (t.type === "list" && marker === "" && !t.ordered) {
+    for (const item of t.items) if (!item.task) prose(item.tokens, "- ");
    }
   }
  };
@@ -247,15 +264,15 @@ export function acceptsSafeWriteDuty(source, sentences) {
  });
 }
 // This bounded family has an independent accepted roster and never retains tokens.
-const activeAcceptedKinds = ["fence", "tilde", "indent", "comment", "html", "quote", "table", "inline", "link", "escape", "entity", "break", "reference", "unrelated-list"];
+const activeAcceptedKinds = ["fence", "tilde", "indent", "comment", "html", "quote", "table", "inline", "link", "escape", "entity", "break", "reference", "unrelated-list", "html-blank", "inline-html", "comment-blank", "ordered-dot", "ordered-paren", "ordered-nested", "ordered-loose", "task-list", "nested-list", "loose-list"];
 export const activeOwnerMutationIds = [
  ...["C", "W", "E"].flatMap((owner) => [
   ...activeAcceptedKinds.map((kind) => `${owner}/${kind}`),
-  ...(owner === "E" ? [] : ["intro", "earlier", "later", "h1", "setext", "indented-heading"].map((kind) => `${owner}/${kind}`)),
+  ...(owner === "E" ? [] : ["intro", "earlier", "later", "h1", "setext", "indented-heading", "heading-html-blank", "heading-comment-blank", "heading-inline-html"].map((kind) => `${owner}/${kind}`)),
  ]),
 ];
 const activeSubjects = [["C", "S01"], ["W", "S21"], ["E", "S27"]];
-export function activeOwnerAttacks(source, kinds = ["fence", "tilde", "indent", "comment", "html", "quote", "table", "inline", "link", "escape", "entity", "break", "reference", "unrelated-list"]) {
+export function activeOwnerAttacks(source, kinds = ["fence", "tilde", "indent", "comment", "html", "quote", "table", "inline", "link", "escape", "entity", "break", "reference", "unrelated-list", "html-blank", "inline-html", "comment-blank", "ordered-dot", "ordered-paren", "ordered-nested", "ordered-loose", "task-list", "nested-list", "loose-list"]) {
  for (const owner of ["C", "W", "E"]) ownerText(source, owner);
  return activeSubjects.flatMap(([owner, id]) => {
   const clauses = safeWriteDuties.find(([key]) => key === id)[1], clause = clauses[0];
@@ -268,6 +285,18 @@ export function activeOwnerAttacks(source, kinds = ["fence", "tilde", "indent", 
    entity: clause.replace(" ", "&#32;"), break: clause.replace(" ", "  \n"),
    reference: "\n\n[hidden]: https://example.invalid \"" + clause + "\"\n\n", "unrelated-list": "\n\n- " + clause + "\n\n",
   };
+  Object.assign(wrappers, {
+   "html-blank": "\n\n<div hidden>\n\n" + clause + "\n\n</div>\n\n",
+   "inline-html": "<span hidden>" + clause + "</span>",
+   "comment-blank": "\n\n<!--\n\n" + clause + "\n\n-->\n\n",
+   "ordered-dot": "\n\n1. Unrelated examples:\n\n   " + clause + "\n\n",
+   "ordered-paren": "\n\n1) Unrelated examples:\n\n   " + clause + "\n\n",
+   "ordered-nested": "\n\n- Examples:\n  1. " + clause + "\n\n",
+   "ordered-loose": "\n\n1. Example\n\n2. " + clause + "\n\n",
+   "task-list": "\n\n- [ ] " + clause + "\n\n",
+   "nested-list": "\n\n- Examples:\n  - " + clause + "\n\n",
+   "loose-list": "\n\n- Unrelated examples:\n\n  " + clause + "\n\n",
+  });
   const rows = kinds.map((kind) => [kind, { ...source, [owner]: source[owner].replace(clause, wrappers[kind]) }]);
   if (owner !== "E") for (const kind of ["intro", "earlier", "later", "h1", "setext", "indented-heading"]) {
    const removed = source[owner].replace(clause, "");
@@ -276,6 +305,14 @@ export function activeOwnerAttacks(source, kinds = ["fence", "tilde", "indent", 
     ? removed.replace(owner === "C" ? "## Identifiers, code ranges, and design markers" : "## Command contract", (heading) => heading + "\n\n" + clause + "\n")
     : removed + "\n\n" + boundary + "\n\n" + clause;
    rows.push([kind, { ...source, [owner]: raw }]);
+  }
+  if (owner !== "E") for (const [kind, wrap] of [
+   ["heading-html-blank", (title) => "<div hidden>\n\n" + title + "\n\n</div>"],
+   ["heading-comment-blank", (title) => "<!--\n\n" + title + "\n\n-->"],
+   ["heading-inline-html", (title) => "## <span hidden>" + title.slice(3) + "</span>"],
+  ]) {
+   const title = "## " + ownerHeadings[owner];
+   rows.push([kind, { ...source, [owner]: source[owner].replace(title, wrap(title)) }]);
   }
   return rows.map(([kind, changed]) => ({ id: `${owner}/${kind}`, changed: changed[owner] !== source[owner],
    rejected: !acceptsSafeWriteDuty(changed, clauses) }));
@@ -288,6 +325,8 @@ export const activeOwnerControlIds = [
  "occurrence-mutant", "boundary-mutant", "benign-C", "benign-W", "legacy-boundary", "legacy-pending-pin", "legacy-writer-search",
 ];
 export async function activeOwnerControls(source, repo = process.env.SLATE_ACTIVE_REPO ?? process.cwd()) {
+ assertActiveRosterSource(repo);
+ if (realpathSync(repo) !== realpathSync(process.env.SLATE_ACTIVE_REPO ?? process.cwd())) throw new Error("active owner repository differs from SLATE_ACTIVE_REPO. Set SLATE_ACTIVE_REPO to --repo");
  const results = [];
  const record = (id, passed) => results.push({ id, passed });
  record("parser", JSON.stringify(assertActiveParserContract(parser())) === JSON.stringify(activeParserContractIds));
