@@ -104,7 +104,7 @@ The five Linux checks follow. Each command reproduces its check on a Linux machi
 1. `PI_BIN`, when you set it. The harness prints `NOTE` lines for this case. `PI_BIN` is an override for an expert user, and it is not a security boundary.
 2. `node_modules/.bin/pi` in the checkout. The install above creates it, and a CI runner has no other pi.
 
-The three harnesses then differ on purpose. The **resolver checks** and **peer linker** accept a pi from `PATH` as a last choice, and they apply no version guard. The resolver checks borrow only the jiti transpiler inside pi; an old jiti can only fail to transpile the sources, and then the run stops with no summary. The peer linker instead imports the SDK copies bundled with that pi, so choosing the checkout-local exact pin before `PATH` is load-bearing: CI has both paths available through npm, and must not silently take another global installation. A `PI_BIN` override remains explicit and prints a note.
+The three harnesses then differ on purpose. The **resolver checks** and **peer linker** accept a pi from `PATH` as a last choice. The peer linker imports the SDK copies bundled with that pi, so choosing the checkout-local exact pin before `PATH` is load-bearing: CI has both paths available through npm, and must not silently take another global installation. A `PI_BIN` override remains explicit and prints a note.
 
 The **load check** accepts no pi from `PATH`, and it also requires the same version from `pi --version` as the `@earendil-works/pi-coding-agent` pin. pi's rpc output shapes are the evidence for its checks, and a new shape can look like "no events" and pass in silence. The verification ladder keeps its own rule: it needs `pi` on `PATH`.
 

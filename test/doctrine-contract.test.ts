@@ -959,6 +959,13 @@ for (const [id, sentences] of safeWriteDuties as [string, string[]][]) {
     for (const attack of attacks) assert.ok(attack.changed && attack.rejected, attack.id);
   });
 }
+test("active owner predicates reject the count-preserving issue 587 relocation", () => {
+  const clauses = safeWriteDuties[0][1];
+  const changed = { ...dutySources, C: dutySources.C.replace(clauses[0], "") + "\n## Outside owner\n" + clauses[0] };
+  assert.equal(changed.C.split(clauses[0]).length, dutySources.C.split(clauses[0]).length);
+  assert.equal(acceptsSafeWriteDuty(changed, clauses), false);
+});
+
 test("exception triggers and worker stop retain independent common ownership", () => {
   const clauses = safeWriteDuties.find(([id]: any) => id === "S26")[1];
   assert.equal(clauses.length, 10);

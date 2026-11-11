@@ -83,7 +83,11 @@ if [ -z "$base" ]; then
   base="$(git -C "$repo" merge-base "$main_ref" HEAD)" || fail "cannot find merge-base with $main_ref"
 fi
 
-bash "$repo/verification/link-peers.sh"
+peer_output="$(bash "$repo/verification/link-peers.sh")" || fail "peer linker failed"
+printf '%s\n' "$peer_output"
+export SLATE_ACTIVE_PI="${peer_output##*SLATE_ACTIVE_PI=}"
+[ -f "$SLATE_ACTIVE_PI" ] || fail "peer linker supplied no physical parser origin"
+export SLATE_ACTIVE_REPO="$repo"
 work="$(mktemp -d "$physical_tmp_root/slate-node-test.XXXXXX")" || fail "cannot create temporary directory"
 cleanup() {
   status=$?

@@ -798,6 +798,25 @@ objects. A shallow clone without those objects fails the default comparisons.
 It starts no Pi session, uses no network, and writes only to its disposable work
 directory.
 
+The resolver harness borrows pi's jiti TypeScript transpiler and marked Markdown parser.
+It selects pi through `PI_BIN`, then checkout-local `node_modules/.bin/pi`, then `PATH`.
+Parser resolution uses that selected physical launcher, not another installation.
+The selected pi manifest must match the repository's exact pi devDependency pin.
+The parser must be marked 18.0.11 with the required exports and token shapes.
+Native active-owner tests use the same selected parser origin through the peer linker's verified selection binding.
+The peer linker selects pi in the same order and links its bundled SDK packages into checkout `node_modules`.
+Neither path starts a pi session to obtain the parser.
+
+Parser contract tests check the version and the heading, block and inline token shapes used by ownership checks.
+Active-owner checks enforce unique headings, region boundaries and independent clause occurrences.
+Code blocks and hidden text cannot satisfy a clause.
+Whole-document byte guards remain separate from structural ownership checks.
+Count-preserving moves and separate occurrence and boundary mutants test the mutation audit without byte-guard masking.
+
+Missing tooling, a mismatched version, unsupported tokens, parse failures and transpilation failures fail visibly with a nonzero result.
+No tooling failure may report an empty successful check set.
+A missing or mismatched installation reports the remedy `npm ci --ignore-scripts`.
+
 It also checks the workflow contract for requirement-level investigation after
 two same-requirement repair rounds (`contract-requirement-investigation`). The
 check proves policy text and mutation resistance only. It does not enforce live

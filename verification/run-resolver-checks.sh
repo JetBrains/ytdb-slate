@@ -118,17 +118,9 @@ NODE
 # is NOT a security boundary and is not treated as one (anyone who can set it can
 # edit this script).
 #
-# Where this DOES differ from the load check: a PATH pi is an acceptable last
-# resort here, and no version-drift guard is applied. All this script borrows
-# from pi is the bundled jiti TypeScript loader; it starts no session and asserts
-# nothing about pi's own behaviour, and the module graph it loads
-# (worker-extensions.ts, mode.ts and their runtime imports) imports no pi SDK
-# package at all — the SDK imports in both entry modules are `import type` and
-# are erased at transpile time. A jiti old enough to matter cannot make a check
-# pass wrongly either: it can only fail to transpile, which crashes this driver
-# with a non-zero exit and no summary line. The load check has the opposite
-# exposure (pi's rpc output shapes ARE its evidence, and a shape change reads as
-# "no events"), which is why the pinned-version guard lives there and not here.
+# A PATH pi is an acceptable last resort. The selected launcher supplies jiti
+# and the active-owner Markdown parser. The parser contract checks the pi pin,
+# marked version and consumed token shapes. This harness starts no pi session.
 PI=""
 if [ -n "${PI_BIN:-}" ]; then
 	PI="$PI_BIN"
@@ -165,7 +157,7 @@ trap 'rm -rf "$WORK"' EXIT
 trap 'rm -rf "$WORK"; exit 130' INT
 trap 'rm -rf "$WORK"; exit 143' TERM
 
-node --no-warnings "$(dirname "$0")/resolver-checks.mjs" "$REPO" "$JITI" "$WORK" "$STRICT" "${EXCLUDE_ARGS[@]}" "${ONLY_ARGS[@]}"
+SLATE_ACTIVE_REPO="$REPO" SLATE_ACTIVE_PI="$PI" node --no-warnings "$(dirname "$0")/resolver-checks.mjs" "$REPO" "$JITI" "$WORK" "$STRICT" "${EXCLUDE_ARGS[@]}" "${ONLY_ARGS[@]}"
 status=$?
 [ "$status" -ne 2 ] || die "resolver driver rejected options or prerequisites (see diagnostic above)"
 exit "$status"

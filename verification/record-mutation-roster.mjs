@@ -1,4 +1,152 @@
 import { createHash } from "node:crypto";
+import { readFileSync, realpathSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
+import { execFileSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
+
+// Pending-only data URL imports do not resolve or load active tooling.
+let activeParser;
+const normalized = (text) => text.replace(/\s+/g, " ").trim();
+function namedManifest(file, name) {
+ for (let dir = dirname(file); ; dir = dirname(dir)) {
+  try {
+   const manifest = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
+   if (manifest.name === name) return manifest;
+  } catch {}
+  if (dir === dirname(dir)) throw new Error(`missing ${name} manifest`);
+ }
+}
+export function resolveActiveParser(repo = process.env.SLATE_ACTIVE_REPO ?? process.cwd(),
+ launcher = process.env.SLATE_ACTIVE_PI ?? process.env.PI_BIN) {
+ try {
+  if (!launcher) {
+   try { launcher = realpathSync(join(repo, "node_modules/.bin/pi")); }
+   catch { launcher = execFileSync("which", ["pi"], { encoding: "utf8" }).trim(); }
+  }
+  const physical = realpathSync(launcher);
+  const pin = JSON.parse(readFileSync(join(repo, "package.json"), "utf8")).devDependencies["@earendil-works/pi-coding-agent"];
+  if (namedManifest(physical, "@earendil-works/pi-coding-agent").version !== pin) throw new Error("pi version differs from repository pin");
+  const require = createRequire(physical);
+  const entry = require.resolve("marked");
+  const version = namedManifest(entry, "marked").version;
+  const { Lexer } = require(entry);
+  const parser = { version, lex: (source) => Lexer.lex(source.replace(/\r\n/g, "\n"), { gfm: true, breaks: false, pedantic: false }) };
+  assertActiveParserContract(parser);
+  return parser;
+ } catch (error) {
+  throw new Error(`active owner parser prerequisite: ${error.message}. Run npm ci --ignore-scripts`);
+ }
+}
+const blockTypes = new Set(["space", "heading", "paragraph", "list", "text", "table", "code", "html", "blockquote", "hr", "def"]);
+const inlineTypes = new Set(["text", "escape", "codespan", "link", "image", "strong", "em", "del", "br", "html"]);
+function validateTokens(tokens, inline = false) {
+ if (!Array.isArray(tokens)) throw new Error("missing token array");
+ for (const token of tokens) {
+  if (!(inline ? inlineTypes : blockTypes).has(token.type) || typeof token.raw !== "string") throw new Error(`unsupported token ${token.type}. Restore supported Markdown or run npm ci --ignore-scripts`);
+  if (token.type === "heading" && (!Number.isInteger(token.depth) || typeof token.text !== "string")) throw new Error("invalid heading");
+  if (token.type === "list") {
+   if (!Array.isArray(token.items) || typeof token.ordered !== "boolean" || typeof token.loose !== "boolean") throw new Error("invalid list");
+   for (const item of token.items) {
+    if (typeof item.raw !== "string") throw new Error("invalid list item");
+    validateTokens(item.tokens);
+   }
+  } else if (token.type === "table") {
+   if (!Array.isArray(token.align) || !Array.isArray(token.rows)) throw new Error("invalid table");
+   for (const cell of [...token.header, ...token.rows.flat()]) {
+    if (typeof cell.text !== "string") throw new Error("invalid table cell");
+    validateTokens(cell.tokens, true);
+   }
+  } else if (token.tokens) validateTokens(token.tokens, token.type !== "blockquote");
+  if (["paragraph", "heading", "codespan", "link", "strong"].includes(token.type) && typeof token.text !== "string") throw new Error("missing token text");
+  if (["paragraph", "heading", "link", "strong"].includes(token.type) && !Array.isArray(token.tokens)) throw new Error("missing inline tokens");
+  if (token.type === "link" && typeof token.href !== "string") throw new Error("invalid link");
+ }
+}
+export const activeParserContractIds = ["version", "headings", "blocks", "inline", "crlf"];
+export function assertActiveParserContract(parser) {
+ if (parser.version !== "18.0.11" || typeof parser.lex !== "function") throw new Error("expected marked 18.0.11 lexer");
+ const fixture = "# ATX\n\nSetext\n---\n\nParagraph `code` [link](target) **strong**.\n\n- outer\n  - inner\n\n| a | b |\n|---|---|\n| x | y |\n\n> quote\n\n<!-- hidden -->\n\n<div>hidden</div>\n\n~~~text\n## fake\n~~~\n\n```\n## fake\n```\n\n    ## fake\n";
+ const tokens = parser.lex(fixture);
+ validateTokens(tokens);
+ const paragraph = tokens.find((t) => t.type === "paragraph");
+ for (const kind of ["codespan", "link", "strong"]) if (!paragraph.tokens.some((t) => t.type === kind)) throw new Error(`inline contract ${kind}`);
+ const headings = tokens.filter((t) => t.type === "heading");
+ if (JSON.stringify(headings.map((t) => [t.depth, t.text])) !== '[[1,"ATX"],[2,"Setext"]]') throw new Error("heading contract");
+ for (const kind of ["paragraph", "list", "table", "blockquote", "html", "code"]) if (!tokens.some((t) => t.type === kind)) throw new Error(`missing ${kind} fixture`);
+ if (tokens.filter((t) => t.type === "code").length !== 3) throw new Error("code contract");
+ if (JSON.stringify(parser.lex(fixture.replace(/\n/g, "\r\n"))) !== JSON.stringify(tokens)) throw new Error("CRLF contract");
+ return activeParserContractIds;
+}
+function parser() { return activeParser ??= resolveActiveParser(); }
+const baselineOwners = new Map();
+const baselineBlocks = new Map();
+const ownerHeadings = { C: "Manual records and safe writes", W: "Record preparation and recovery execution" };
+export function activeOwnerBlocks(source, owner) {
+ const text = source.replace(/\r\n/g, "\n");
+ const cached = baselineBlocks.get(owner);
+ if (cached?.text === text) return cached.body;
+ const tokens = parser().lex(text);
+ validateTokens(tokens);
+ if (tokens.map((t) => t.raw).join("") !== text) throw new Error("parser raw spans do not cover source. Run npm ci --ignore-scripts");
+ let body = tokens;
+ if (owner !== "E") {
+  const starts = tokens.flatMap((t, i) => t.type === "heading" && t.text === ownerHeadings[owner] ? [i] : []);
+  if (starts.length !== 1 || tokens[starts[0]].depth !== 2) return "";
+  const start = starts[0] + 1;
+  let end = tokens.findIndex((t, i) => i >= start && t.type === "heading" && t.depth <= 2);
+  if (end < 0) end = tokens.length;
+  body = tokens.slice(start, end);
+ }
+ if (!cached) baselineBlocks.set(owner, { text, body });
+ return body;
+}
+function parsedOwner(source, owner) {
+ const body = activeOwnerBlocks(source, owner);
+ if (body === "") return "";
+ const segments = [];
+ const prose = (blocks, marker = "") => {
+  for (const t of blocks) {
+   if (t.type === "paragraph" || t.type === "text") {
+    // Preserve inline spelling and exclude HTML, examples and concealed prose.
+    const safeInline = (items) => items.every((i) => !["html", "br", "escape"].includes(i.type) && (!i.tokens || safeInline(i.tokens)));
+    if (safeInline(t.tokens ?? [])) {
+     // Non-text tokens retain their delimiters, so a whole-clause wrapper is not prose.
+     let cursor = 0;
+     const protectedSpans = (t.tokens ?? []).flatMap((token) => {
+      const start = t.raw.indexOf(token.raw, cursor);
+      if (start < cursor) throw new Error("inline raw span mismatch");
+      cursor = start + token.raw.length;
+      return token.type === "text" ? [] : [[t.raw.slice(0, start).replace(/\s+/g, " ").trimStart().length, normalized(token.raw)]];
+     });
+     segments.push({ raw: marker + normalized(t.raw), protectedSpans: protectedSpans.map(([start, raw]) => [start + marker.length, raw]) });
+    }
+   } else if (t.type === "list" && marker === "") {
+    for (const item of t.items) prose(item.tokens, /^\s*[-+*] /.test(item.raw) ? "- " : "");
+   }
+  }
+ };
+ prose(body);
+ return { split(sentence) {
+  let count = 0;
+  for (const { raw, protectedSpans } of segments) {
+   for (let at = raw.indexOf(sentence); at >= 0; at = raw.indexOf(sentence, at + sentence.length)) {
+    if (raw.startsWith("- ") && at === 2 && !sentence.startsWith("- ")) continue;
+    if (protectedSpans.every(([start, text]) => start >= at + sentence.length || start + text.length <= at
+      || (start >= at && start + text.length <= at + sentence.length))) count++;
+   }
+  }
+  return Array(count + 1).fill("");
+ } };
+}
+function ownerText(source, key) {
+ const raw = source[key] ?? "";
+ const cached = baselineOwners.get(key);
+ if (cached?.raw === raw) return cached.text;
+ const text = parsedOwner(raw, key);
+ if (!cached) baselineOwners.set(key, { raw, text });
+ return text;
+}
 // Independent accepted mutation identities and fail-closed execution accounting.
 // Literal duties keep clause checks independent of document digest updates.
 export const safeWriteDuties = [
@@ -57,11 +205,10 @@ export function safeWriteRegion(source) {
  return source.split(heading)[1].split(/\n## /)[0].replace(/\s+/g, " ").trim();
 }
 function ownedRegions(source) {
- const worker = source.W ?? "";
- const heading = "## Record preparation and recovery execution\n";
- return { C: safeWriteRegion(source.C ?? ""),
-  W: worker.split(heading).length === 2 ? worker.split(heading)[1].split(/\n## /)[0].replace(/\s+/g, " ").trim() : "",
-  E: (source.E ?? "").replace(/\s+/g, " ").trim() };
+ return Object.fromEntries(["C", "W", "E"].map((key) => {
+  let text;
+  return [key, { split(sentence) { text ??= ownerText(source, key); return text.split(sentence); } }];
+ }));
 }
 // Each outside section has separate single-copy and double-copy controls.
 const outsideParts = [
@@ -92,9 +239,119 @@ export function acceptsSafeWriteDuty(source, sentences) {
  const id = safeWriteDuties.find(([, clauses]) => clauses === sentences)?.[0];
  return !!id && sentences.every((sentence, clause) => {
   const owner = dutyOwners[id]?.[clause] ?? "C";
-  if (owners[owner].split(sentence).length - 1 !== 1) return false;
   return Object.entries(regions).every(([key, text]) => text.split(sentence).length - 1 === (key === owner ? 1 : 0));
+ }) && sentences.every((sentence, clause) => {
+  const owner = dutyOwners[id]?.[clause] ?? "C";
+  if (owners[owner].split(sentence).length - 1 !== 1) return false;
+  return true;
  });
+}
+// This bounded family has an independent accepted roster and never retains tokens.
+const activeAcceptedKinds = ["fence", "tilde", "indent", "comment", "html", "quote", "table", "inline", "link", "escape", "entity", "break", "reference", "unrelated-list"];
+export const activeOwnerMutationIds = [
+ ...["C", "W", "E"].flatMap((owner) => [
+  ...activeAcceptedKinds.map((kind) => `${owner}/${kind}`),
+  ...(owner === "E" ? [] : ["intro", "earlier", "later", "h1", "setext", "indented-heading"].map((kind) => `${owner}/${kind}`)),
+ ]),
+];
+const activeSubjects = [["C", "S01"], ["W", "S21"], ["E", "S27"]];
+export function activeOwnerAttacks(source, kinds = ["fence", "tilde", "indent", "comment", "html", "quote", "table", "inline", "link", "escape", "entity", "break", "reference", "unrelated-list"]) {
+ for (const owner of ["C", "W", "E"]) ownerText(source, owner);
+ return activeSubjects.flatMap(([owner, id]) => {
+  const clauses = safeWriteDuties.find(([key]) => key === id)[1], clause = clauses[0];
+  const wrappers = {
+   fence: `\n\n\`\`\`text\n${clause}\n\`\`\`\n\n`, tilde: `\n\n~~~\n${clause}\n~~~\n\n`,
+   indent: "\n\n    " + clause + "\n\n", comment: "\n\n<!--\n" + clause + "\n-->\n\n",
+   html: "\n\n<div>\n" + clause + "\n</div>\n\n", quote: "\n\n> " + clause + "\n\n",
+   table: "\n\n| rule |\n|---|\n| " + clause + " |\n\n", inline: "`" + clause + "`",
+   link: "[" + clause + "](unrelated)", escape: clause.replace(".", "\\."),
+   entity: clause.replace(" ", "&#32;"), break: clause.replace(" ", "  \n"),
+   reference: "\n\n[hidden]: https://example.invalid \"" + clause + "\"\n\n", "unrelated-list": "\n\n- " + clause + "\n\n",
+  };
+  const rows = kinds.map((kind) => [kind, { ...source, [owner]: source[owner].replace(clause, wrappers[kind]) }]);
+  if (owner !== "E") for (const kind of ["intro", "earlier", "later", "h1", "setext", "indented-heading"]) {
+   const removed = source[owner].replace(clause, "");
+   const boundary = { later: "## Outside owner", h1: "# Outside owner", setext: "Outside owner\n---", "indented-heading": "   ## Outside owner   " }[kind];
+   const raw = kind === "intro" ? clause + "\n\n" + removed : kind === "earlier"
+    ? removed.replace(owner === "C" ? "## Identifiers, code ranges, and design markers" : "## Command contract", (heading) => heading + "\n\n" + clause + "\n")
+    : removed + "\n\n" + boundary + "\n\n" + clause;
+   rows.push([kind, { ...source, [owner]: raw }]);
+  }
+  return rows.map(([kind, changed]) => ({ id: `${owner}/${kind}`, changed: changed[owner] !== source[owner],
+   rejected: !acceptsSafeWriteDuty(changed, clauses) }));
+ });
+}
+export const activeOwnerControlIds = [
+ "parser", "attacks", "heading-shapes-C", "heading-shapes-W", "wrong-version", "unknown-token", "parse-failure",
+ "omitted-kind", "short-expected", "missing", "duplicate", "unexpected", "unchanged", "accepted", "crashed",
+ "omitted-word", "byte-C", "byte-W", "byte-E", "contradiction-byte", "contradiction-clause",
+ "occurrence-mutant", "boundary-mutant", "benign-C", "benign-W", "legacy-boundary", "legacy-pending-pin", "legacy-writer-search",
+];
+export async function activeOwnerControls(source, repo = process.env.SLATE_ACTIVE_REPO ?? process.cwd()) {
+ const results = [];
+ const record = (id, passed) => results.push({ id, passed });
+ record("parser", JSON.stringify(assertActiveParserContract(parser())) === JSON.stringify(activeParserContractIds));
+ const rows = activeOwnerAttacks(source);
+ const audit = (entries, ids = activeOwnerMutationIds) => {
+  const a = createMutationAudit({ active: ids }); a.record("active", entries); return a.inspect().ok;
+ };
+ record("attacks", audit(rows));
+ for (const owner of ["C", "W"]) {
+  const title = "## " + ownerHeadings[owner];
+  const clauses = safeWriteDuties.find(([id]) => id === (owner === "C" ? "S01" : "S21"))[1];
+  const fake = [
+   "", "#" + title, title + "\n\n" + title,
+   "\`\`\`\n" + title + "\n\`\`\`", "~~~\n" + title + "\n~~~", "    " + title,
+   "> " + title, "<!--\n" + title + "\n-->", "<div>\n" + title + "\n</div>",
+   "- nested\n  " + title, "| " + title + " |\n|---|",
+  ];
+  record("heading-shapes-" + owner, fake.every((replacement) => !acceptsSafeWriteDuty({ ...source, [owner]: source[owner].replace(title, replacement) }, clauses)));
+ }
+ for (const [id, fake] of [
+  ["wrong-version", { ...parser(), version: "wrong" }],
+  ["unknown-token", { ...parser(), lex: () => [{ type: "unknown", raw: "" }] }],
+  ["parse-failure", { ...parser(), lex: () => { throw new Error("fixture parse failure"); } }],
+ ]) {
+  let failed = false;
+  try { assertActiveParserContract(fake); } catch { failed = true; }
+  record(id, failed);
+ }
+ record("omitted-kind", !audit(activeOwnerAttacks(source, activeAcceptedKinds.slice(1))));
+ record("short-expected", !audit(rows, activeOwnerMutationIds.slice(1)));
+ for (const [id, entries] of Object.entries({
+  missing: rows.slice(1), duplicate: [...rows, rows[0]], unexpected: [...rows, { ...rows[0], id: "unknown" }],
+  unchanged: rows.map((r, i) => i ? r : { ...r, changed: false }),
+  accepted: rows.map((r, i) => i ? r : { ...r, rejected: false }), crashed: [undefined, ...rows.slice(1)],
+ })) record(id, !audit(entries));
+ const wordAudit = createMutationAudit({ words: safeWriteMutationIds.filter((id) => id.startsWith("S06/")) });
+ wordAudit.record("words", safeWriteAttacks(source, safeWriteDuties.filter(([id]) => id === "S06"), (word) => word !== 0));
+ record("omitted-word", !wordAudit.inspect().ok);
+ const { digest, parseHashes } = await import(pathToFileURL(join(repo, "verification/markdown-hashes.ts")).href);
+ const hashes = parseHashes(readFileSync(join(repo, "verification/markdown-hashes.txt"), "utf8"));
+ for (const [owner, file] of [["C", "change-records"], ["W", "safe-record-write"], ["E", "record-write-recovery"]]) {
+  record("byte-" + owner, digest(Buffer.from(source[owner])) === hashes.get("docs/" + file + ".md"));
+ }
+ const contradiction = { ...source, E: source.E + "\nAll exceptions are optional.\n" };
+ record("contradiction-byte", digest(Buffer.from(contradiction.E)) !== hashes.get("docs/record-write-recovery.md"));
+ record("contradiction-clause", safeWriteDuties.every(([, clauses]) => acceptsSafeWriteDuty(contradiction, clauses)));
+ const code = readFileSync(join(repo, "verification/record-mutation-roster.mjs"), "utf8");
+ for (const [id, target, replacement] of [
+  ["occurrence-mutant", "if (owners[owner].split(sentence)" + ".length - 1 !== 1) return false;", ""],
+  ["boundary-mutant", 'if (end < 0) ' + 'end = tokens.length;', 'end = tokens.length;'],
+ ]) {
+  if (code.split(target).length !== 2) throw new Error(`nonunique active mutant ${id}`);
+  const mutant = await import("data:text/javascript;base64," + Buffer.from(code.replace(target, replacement)).toString("base64"));
+  const attacks = mutant.activeOwnerAttacks(source);
+  record(id, attacks.some((r) => r.id === "C/later" && !r.rejected) && !audit(attacks));
+ }
+ for (const owner of ["C", "W"]) {
+  const benign = { ...source, [owner]: source[owner] + "\n## Harmless appendix\nNo duty here.\n" };
+  record("benign-" + owner, safeWriteDuties.every(([, clauses]) => acceptsSafeWriteDuty(benign, clauses)));
+ }
+ record("legacy-boundary", normalized(activeOwnerBlocks(source.C, "C").map((t) => t.raw).join("")) === safeWriteRegion(source.C));
+ record("legacy-pending-pin", createHash("sha256").update(safeWriteRegion(source.C)).digest("hex") === "99ddccb0ffb505299daf5509a37b3a3c53a54ec9a6e7cf4d98a41c171a8306c2");
+ record("legacy-writer-search", writerFieldAttacks(source.C).every((r) => r.changed && r.rejected && r.isolated));
+ return results;
 }
 export function acceptsDutyRoster(duties = safeWriteDuties) {
  return createHash("sha256").update(JSON.stringify(duties)).digest("hex") === acceptedDutyHash;
@@ -105,11 +362,12 @@ export const safeWriteMutationIds = acceptedDutyWords.flatMap(([id, counts]) =>
  counts.flatMap((count, clause) => [...outsideKinds.map((kind) => `${id}/${clause}/${kind}`),
   ...Array.from({ length: count }, (_, word) => `${id}/${clause}/${word}`),
   ...["remove", "duplicate", ...["C", "W", "E"].filter((owner) => owner !== (dutyOwners[id]?.[clause] ?? "C")).flatMap((owner) => ["owner-" + owner, "copy-" + owner])].map((kind) => `${id}/${clause}/${kind}`)]));
-export function safeWriteAttacks(source, duties = safeWriteDuties) {
+export function safeWriteAttacks(source, duties = safeWriteDuties, includeWord = () => true) {
+ for (const owner of ["C", "W", "E"]) ownerText(source, owner);
  return duties.flatMap(([id, sentences]) => sentences.flatMap((sentence, clause) => {
   const owner = dutyOwners[id]?.[clause] ?? "C";
-  const attacks = [...sentence.matchAll(/\S+/g)].map((match, word) => [
-   String(word), sentence.slice(0, match.index) + sentence.slice(match.index + match[0].length)]);
+  const attacks = [...sentence.matchAll(/\S+/g)].flatMap((match, word) => includeWord(word) ? [[
+   String(word), sentence.slice(0, match.index) + sentence.slice(match.index + match[0].length)]] : []);
   attacks.push(["remove", ""], ["duplicate", sentence + " " + sentence],
    ...["C", "W", "E"].filter((key) => key !== owner).flatMap((key) => [["owner-" + key, ""], ["copy-" + key, sentence]]));
   const outside = outsideParts.flatMap(([part, key, heading]) => ["copy", "duplicate"].map((kind) => {

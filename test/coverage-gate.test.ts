@@ -13,6 +13,8 @@ import test from "node:test";
 const GATE = fileURLToPath(new URL("../verification/coverage-gate.mjs", import.meta.url));
 const RUNNER = fileURLToPath(new URL("../verification/run-tests.sh", import.meta.url));
 const CHECKOUT = realpathSync(join(dirname(RUNNER), ".."));
+const PEER_LINKER_FIXTURE = "#!/bin/sh\nprintf '%s\\n' " +
+  JSON.stringify("SLATE_ACTIVE_PI=" + realpathSync(join(CHECKOUT, "node_modules/.bin/pi"))) + "\n";
 
 interface RunResult { status: number | null; stdout: string; stderr: string }
 
@@ -592,7 +594,7 @@ test("run-tests rejects direct, nested, and aliased checkout scratch roots befor
   const repo = join(harness, "copied-checkout");
   mkdirSync(join(repo, "verification"), { recursive: true });
   cpSync(RUNNER, join(repo, "verification/run-tests.sh"));
-  writeFileSync(join(repo, "verification/link-peers.sh"), "#!/bin/sh\nexit 0\n");
+  writeFileSync(join(repo, "verification/link-peers.sh"), PEER_LINKER_FIXTURE);
   const alias = join(harness, "checkout-alias");
   const nested = join(repo, "nested", "tmp");
   const nestedAlias = join(harness, "nested-alias");
@@ -626,7 +628,7 @@ test("run-tests makes native and real-Pi host processes mandatory, isolated, exh
   mkdirSync(join(repo, "test", "new"), { recursive: true });
   mkdirSync(outerTmp);
   cpSync(RUNNER, join(repo, "verification/run-tests.sh"));
-  writeFileSync(join(repo, "verification/link-peers.sh"), "#!/bin/sh\nexit 0\n");
+  writeFileSync(join(repo, "verification/link-peers.sh"), PEER_LINKER_FIXTURE);
   writeFileSync(join(repo, "verification/coverage-gate.mjs"), "// invoked through the fake node fixture\n");
   writeFileSync(join(repo, "test/smoke.test.ts"), "// native fixture\n");
   writeFileSync(join(repo, "test/new/discovered.test.ts"), "// newly discovered native fixture\n");
@@ -704,7 +706,7 @@ test("run-tests roster audit rejects omitted, overlapping, and duplicate partiti
   mkdirSync(join(repo, "verification"), { recursive: true });
   mkdirSync(join(repo, "test"), { recursive: true });
   mkdirSync(outerTmp);
-  writeFileSync(join(repo, "verification/link-peers.sh"), "#!/bin/sh\nexit 0\n");
+  writeFileSync(join(repo, "verification/link-peers.sh"), PEER_LINKER_FIXTURE);
   writeFileSync(join(repo, "test/smoke.test.ts"), "// native fixture\n");
   writeFileSync(join(repo, "test/recovery-ownership-host.test.ts"), "// host fixture\n");
   const bin = join(repo, "bin");
@@ -784,7 +786,7 @@ test("run-tests isolates Jiti coverage from a cache warmed by an earlier process
   const policyCut = 'test("the real resolver wrapper refuses a missing exact-pinned TypeScript compiler"';
   assert.equal(policySource.split(policyCut).length, 2, "policy fixture cut point must remain unique");
   writeFileSync(policyPath, policySource.slice(0, policySource.indexOf(policyCut)));
-  writeFileSync(join(repo, "verification/link-peers.sh"), "#!/bin/sh\nexit 0\n");
+  writeFileSync(join(repo, "verification/link-peers.sh"), PEER_LINKER_FIXTURE);
 
   const packageLinks = [
     ["node_modules/typescript", "node_modules/typescript"],
@@ -1038,7 +1040,7 @@ test("run-tests isolates global fsmonitor configuration through the real coverag
   cpSync(RUNNER, join(repo, "verification/run-tests.sh"));
   writeFileSync(join(repo, "test/recovery-ownership-host.test.ts"), "// host fixture\n");
   cpSync(GATE, join(repo, "verification/coverage-gate.mjs"));
-  writeFileSync(join(repo, "verification/link-peers.sh"), "#!/bin/sh\nexit 0\n");
+  writeFileSync(join(repo, "verification/link-peers.sh"), PEER_LINKER_FIXTURE);
   const modules = join(repo, "node_modules");
   mkdirSync(modules);
   symlinkSync(realpathSync(join(CHECKOUT, "node_modules/typescript")), join(modules, "typescript"), "dir");
@@ -1093,7 +1095,7 @@ test("run-tests preserves a gate WARN as its final verdict (WH23)", (t) => {
   mkdirSync(join(repo, "verification"), { recursive: true });
   mkdirSync(join(repo, "test"), { recursive: true });
   cpSync(RUNNER, join(repo, "verification/run-tests.sh"));
-  writeFileSync(join(repo, "verification/link-peers.sh"), "#!/bin/sh\nexit 0\n");
+  writeFileSync(join(repo, "verification/link-peers.sh"), PEER_LINKER_FIXTURE);
   writeFileSync(join(repo, "verification/coverage-gate.mjs"), "console.log('VERDICT: WARN — fixture requires manual review');\n");
   writeFileSync(join(repo, "test/smoke.test.ts"), "import test from 'node:test'; test('smoke', () => {});\n");
   writeFileSync(join(repo, "test/recovery-ownership-host.test.ts"), "import test from 'node:test'; test('host', () => {});\n");
@@ -1138,7 +1140,7 @@ test("missing LCOV is an infrastructure error and the runner labels it (WH41)", 
   mkdirSync(join(runnerRepo, "verification"), { recursive: true });
   mkdirSync(join(runnerRepo, "test"), { recursive: true });
   cpSync(RUNNER, join(runnerRepo, "verification/run-tests.sh"));
-  writeFileSync(join(runnerRepo, "verification/link-peers.sh"), "#!/bin/sh\nexit 0\n");
+  writeFileSync(join(runnerRepo, "verification/link-peers.sh"), PEER_LINKER_FIXTURE);
   writeFileSync(join(runnerRepo, "verification/coverage-gate.mjs"), "process.exitCode = 2;\n");
   writeFileSync(join(runnerRepo, "test/smoke.test.ts"), "// fixture\n");
   writeFileSync(join(runnerRepo, "test/recovery-ownership-host.test.ts"), "// host fixture\n");

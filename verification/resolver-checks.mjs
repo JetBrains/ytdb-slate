@@ -30,7 +30,7 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { dirname, join, sep } from "node:path";
 import { pathToFileURL } from "node:url";
-import { EXPECTED_MUTATIONS, createMutationAudit, loadWithMutationAudit, mutationAuditControls, safeWriteDuties, acceptsSafeWriteDuty, acceptsDutyRoster, safeWriteAttacks, writerFieldAttacks, pendingContractChecks, acceptsNoPendingReader } from "./record-mutation-roster.mjs";
+import { EXPECTED_MUTATIONS, createMutationAudit, loadWithMutationAudit, mutationAuditControls, safeWriteDuties, activeOwnerControls, activeOwnerControlIds, acceptsSafeWriteDuty, acceptsDutyRoster, safeWriteAttacks, writerFieldAttacks, pendingContractChecks, acceptsNoPendingReader } from "./record-mutation-roster.mjs";
 
 const [, , REPO, JITI, WORK, ...OPTIONS] = process.argv;
 function refuse(reason) {
@@ -3769,6 +3769,7 @@ Use [change-records.md](change-records.md) § Design authority and privacy.`) },
 			].map(([id, source]) => ({ id, changed: source !== recursive, rejected: !acceptsRecordUnit(recordPolicy, source) })))(commonRecords), ...namedAttacks];
 			const dutySources = { C: commonRecords, W: readFileSync(join(REPO, "docs/safe-record-write.md"), "utf8"), E: readFileSync(join(REPO, "docs/record-write-recovery.md"), "utf8"), P: readFileSync(join(REPO, "docs/record-write-pending.md"), "utf8") };
 			const dutyAttacks = safeWriteAttacks(dutySources);
+            const activeControls = await activeOwnerControls(dutySources, REPO);
             const pendingSurfaces = [commonRecords, workflow, recursive, toolsSource];
             checkAll("contract-pending", "pending owners reject mutations and active sources name no pending reader", [
              ["complete pending owner and mutation audit", pendingContractChecks(dutySources)],
@@ -3780,7 +3781,8 @@ Use [change-records.md](change-records.md) § Design authority and privacy.`) },
 				const attacks = dutyAttacks.filter((attack) => attack.id.startsWith(id + "/"));
 				checkAll(`contract-duty-${id}`, "each retained clause rejects independent word removal", [
 					["current and outside-region control pass", acceptsDutyRoster() && acceptsSafeWriteDuty(dutySources, sentences) && acceptsSafeWriteDuty({ ...dutySources, C: "Benign framing.\n" + commonRecords }, sentences), id],
-					["all weakening cases change and fail", attacks.length > 0 && attacks.every((a) => a.changed && a.rejected), attacks.filter((a) => !a.changed || !a.rejected)],
+					["parsed owner controls", JSON.stringify(activeControls.map((r) => r.id)) === JSON.stringify(activeOwnerControlIds) && activeControls.every((r) => r.passed), activeControls.filter((r) => !r.passed)],
+                    ["all weakening cases change and fail", attacks.length > 0 && attacks.every((a) => a.changed && a.rejected), attacks.filter((a) => !a.changed || !a.rejected)],
 				]);
 			}
 			mutationAudit.record("record-contract", [...dutyAttacks, ...writerFieldAttacks(commonRecords), ...recordContractAttacks]);
