@@ -1001,7 +1001,8 @@ test("outside-owner copies expose the narrow scan in every uncovered section", a
   const source = readFileSync(new URL("../verification/record-mutation-roster.mjs", import.meta.url), "utf8");
   const wholeScan = 'const regions = Object.fromEntries(["C", "W", "E", "P"].map((key) => [key, (source[key] ?? "").replace(/\\s+/g, " ").trim()]));';
   assert.equal(source.split(wholeScan).length, 2);
-  const narrowScan = `const regions = { ...owners, W: (source.W ?? "").split("## Record preparation and recovery execution\\n")[1]?.replace(/\\s+/g, " ").trim() ?? "" };`;
+  // Keep the whole exception document visible to this occurrence-only mutant.
+  const narrowScan = `const regions = { ...owners, E: (source.E ?? "").replace(/\\s+/g, " ").trim(), W: (source.W ?? "").split("## Record preparation and recovery execution\\n")[1]?.replace(/\\s+/g, " ").trim() ?? "" };`;
   const faulty = await import("data:text/javascript;base64," + Buffer.from(source.replace(wholeScan, narrowScan)).toString("base64"));
   const attacks = faulty.safeWriteAttacks(dutySources);
   const outside = (rows: any[]) => rows.filter((attack: any) => /\/(?:copy|duplicate)-[CWE]-.+$/.test(attack.id));

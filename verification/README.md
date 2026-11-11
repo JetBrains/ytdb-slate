@@ -813,9 +813,18 @@ Neither path starts a pi session to obtain the parser.
 Parser contract tests check the version and the heading, block and inline token shapes used by ownership checks.
 Active-owner checks enforce unique headings, region boundaries and independent clause occurrences.
 Code blocks and hidden text cannot satisfy a clause.
-Active documents reject block and inline HTML tokens, including containers separated by blank lines.
-Ordered, nested and task lists cannot supply clause prose.
-The six unordered recovery triggers retain their required list markers.
+Each owner has an independent literal list census.
+The common owner requires exactly one top-level, unordered, tight, non-task list with six items.
+The worker and exception owners permit no lists, including nested or quoted lists.
+A census mismatch rejects every clause of that owner.
+Declared list-item text supplies prose, including the six marked triggers and the two tail clauses.
+Moving a clause within its own owner into the valid list or appending item text can pass ownership.
+The separate complete-byte guard rejects these accepted residual cases.
+Block and inline HTML at or before a region owner's end rejects that owner, including HTML before its heading.
+HTML after the region passes ownership, including HTML in the terminating heading.
+Inline HTML takes the position of its containing block.
+The whole-document exception owner rejects any HTML.
+These rules reject hidden containers, including containers separated by blank lines.
 Whole-document byte guards remain separate from structural ownership checks.
 Count-preserving moves and separate occurrence and boundary mutants test the mutation audit without byte-guard masking.
 

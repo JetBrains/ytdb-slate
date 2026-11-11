@@ -49,6 +49,17 @@ test("test runner retains selected linker diagnostics when linking fails", (t) =
   assert.match(failed.stderr, /peer linker failed/);
 });
 
+test("active owner task checkboxes validate in tight and loose list items", () => {
+  const parser = resolveActiveParser();
+  const tight = parser.lex("- [ ] task\n");
+  const loose = parser.lex("- [ ] task\n\n  continuation\n");
+  assert.equal(tight[0].loose, false);
+  assert.equal(loose[0].loose, true);
+  assert.ok(tight[0].items[0].tokens.some((token: any) => token.type === "checkbox"));
+  assert.ok(loose[0].items[0].tokens.some((token: any) => token.type === "paragraph"
+    && token.tokens.some((inline: any) => inline.type === "checkbox")));
+});
+
 test("active owner controls expose occurrence and boundary mutants without byte guards", async () => {
   assert.equal(safeWriteDuties.length, 40);
   assert.ok(safeWriteDuties.every(([, clauses]: any) => acceptsSafeWriteDuty(source, clauses)));
@@ -57,7 +68,8 @@ test("active owner controls expose occurrence and boundary mutants without byte 
   for (const control of controls) assert.ok(control.passed, control.id);
   const rows = activeOwnerAttacks(source);
   assert.deepEqual(rows.map((row: any) => row.id), activeOwnerMutationIds);
-  assert.equal(rows.length, 90);
+  assert.equal(rows.length, 100);
+  assert.equal(controls.length, 42);
   for (const row of rows) assert.ok(row.changed && row.rejected, row.id);
   // Contradictions leave clauses present, so the separate complete-byte layer is required.
   const contradiction = { ...source, E: source.E + "\nAll exceptions are optional.\n" };

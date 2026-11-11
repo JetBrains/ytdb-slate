@@ -35,7 +35,7 @@ export function resolveActiveParser(repo = process.env.SLATE_ACTIVE_REPO ?? proc
  }
 }
 const blockTypes = new Set(["space", "heading", "paragraph", "list", "text", "table", "code", "html", "blockquote", "hr", "def", "checkbox"]);
-const inlineTypes = new Set(["text", "escape", "codespan", "link", "image", "strong", "em", "del", "br", "html"]);
+const inlineTypes = new Set(["text", "escape", "codespan", "link", "image", "strong", "em", "del", "br", "html", "checkbox"]);
 function validateTokens(tokens, inline = false) {
  if (!Array.isArray(tokens)) throw new Error("missing token array");
  for (const token of tokens) {
@@ -68,7 +68,14 @@ export function assertActiveParserContract(parser) {
  const tokens = parser.lex(fixture);
  validateTokens(tokens);
  const lists = tokens.filter((t) => t.type === "list");
- if (!lists.some((t) => t.ordered) || !lists.some((t) => t.items.some((item) => item.task && item.tokens.some((part) => part.type === "checkbox")))) throw new Error("list contract");
+ if (!lists.some((t) => t.ordered)) throw new Error("list contract");
+ const tight = parser.lex("- [ ] task\n");
+ const loose = parser.lex("- [ ] task\n\n  continuation\n");
+ validateTokens(tight); validateTokens(loose);
+ if (tight[0].type !== "list" || tight[0].loose || !tight[0].items[0].task
+  || loose[0].type !== "list" || !loose[0].loose || !loose[0].items[0].task
+  || !tight[0].items[0].tokens.some((t) => t.type === "checkbox")
+  || !loose[0].items[0].tokens.some((t) => t.type === "paragraph" && t.tokens.some((i) => i.type === "checkbox"))) throw new Error("task checkbox contract");
  const paragraph = tokens.find((t) => t.type === "paragraph");
  for (const kind of ["codespan", "link", "strong"]) if (!paragraph.tokens.some((t) => t.type === kind)) throw new Error(`inline contract ${kind}`);
  const headings = tokens.filter((t) => t.type === "heading");
@@ -104,7 +111,6 @@ export function activeOwnerBlocks(source, owner) {
  if (cached?.text === text) return cached.body;
  const tokens = parser().lex(text);
  validateTokens(tokens);
- if (containsHtml(tokens)) return "";
  if (tokens.map((t) => t.raw).join("") !== text) throw new Error("parser raw spans do not cover source. Run npm ci --ignore-scripts");
  let body = tokens;
  if (owner !== "E") {
@@ -113,10 +119,33 @@ export function activeOwnerBlocks(source, owner) {
   const start = starts[0] + 1;
   let end = tokens.findIndex((t, i) => i >= start && t.type === "heading" && t.depth <= 2);
   if (end < 0) end = tokens.length;
+  if (containsHtml(tokens.slice(0, end))) return "";
   body = tokens.slice(start, end);
- }
+ } else if (containsHtml(tokens)) return "";
+ if (!validOwnerLists(body, owner)) return "";
  if (!cached) baselineBlocks.set(owner, { text, body });
  return body;
+}
+// This census is independent of clause locations and document bytes.
+const ownerListCensus = { C: { count: 1, items: 6 }, W: { count: 0 }, E: { count: 0 } };
+function validOwnerLists(tokens, owner) {
+ const lists = [];
+ const walk = (blocks, top) => {
+  for (const t of blocks) {
+   if (t.type === "list") {
+    lists.push({ token: t, top });
+    for (const item of t.items) walk(item.tokens, false);
+   } else if (t.type === "blockquote") walk(t.tokens, false);
+  }
+ };
+ walk(tokens, true);
+ const expected = ownerListCensus[owner];
+ if (owner === "W" && lists.length !== expected.count) return false;
+ if (owner === "E" && lists.length !== expected.count) return false;
+ if (owner !== "C") return true;
+ if (lists.length !== expected.count) return false;
+ return lists.every(({ token: t, top }) =>
+  top && !t.ordered && !t.loose && t.items.length === expected.items && t.items.every((item) => !item.task));
 }
 function parsedOwner(source, owner) {
  const body = activeOwnerBlocks(source, owner);
@@ -138,8 +167,8 @@ function parsedOwner(source, owner) {
      });
      segments.push({ raw: marker + normalized(t.raw), protectedSpans: protectedSpans.map(([start, raw]) => [start + marker.length, raw]) });
     }
-   } else if (t.type === "list" && marker === "" && !t.ordered) {
-    for (const item of t.items) if (!item.task) prose(item.tokens, "- ");
+   } else if (t.type === "list" && marker === "") {
+    for (const item of t.items) prose(item.tokens, "- ");
    }
   }
  };
@@ -148,7 +177,6 @@ function parsedOwner(source, owner) {
   let count = 0;
   for (const { raw, protectedSpans } of segments) {
    for (let at = raw.indexOf(sentence); at >= 0; at = raw.indexOf(sentence, at + sentence.length)) {
-    if (raw.startsWith("- ") && at === 2 && !sentence.startsWith("- ")) continue;
     if (protectedSpans.every(([start, text]) => start >= at + sentence.length || start + text.length <= at
       || (start >= at && start + text.length <= at + sentence.length))) count++;
    }
@@ -264,15 +292,28 @@ export function acceptsSafeWriteDuty(source, sentences) {
  });
 }
 // This bounded family has an independent accepted roster and never retains tokens.
-const activeAcceptedKinds = ["fence", "tilde", "indent", "comment", "html", "quote", "table", "inline", "link", "escape", "entity", "break", "reference", "unrelated-list", "html-blank", "inline-html", "comment-blank", "ordered-dot", "ordered-paren", "ordered-nested", "ordered-loose", "task-list", "nested-list", "loose-list"];
+const activeAcceptedKinds = ["fence", "tilde", "indent", "comment", "html", "quote", "table", "inline", "link", "escape", "entity", "break", "reference", "unrelated-list", "html-blank", "inline-html", "comment-blank", "ordered-dot", "ordered-paren", "ordered-nested", "ordered-loose", "task-list", "nested-list", "loose-list", "prefixed-continuation"];
 export const activeOwnerMutationIds = [
  ...["C", "W", "E"].flatMap((owner) => [
   ...activeAcceptedKinds.map((kind) => `${owner}/${kind}`),
   ...(owner === "E" ? [] : ["intro", "earlier", "later", "h1", "setext", "indented-heading", "heading-html-blank", "heading-comment-blank", "heading-inline-html"].map((kind) => `${owner}/${kind}`)),
  ]),
+ "C/census-ordered", "C/census-loose", "C/census-seventh", "C/census-removed", "C/census-quoted", "C/census-task", "C/census-second",
 ];
 const activeSubjects = [["C", "S01"], ["W", "S21"], ["E", "S27"]];
-export function activeOwnerAttacks(source, kinds = ["fence", "tilde", "indent", "comment", "html", "quote", "table", "inline", "link", "escape", "entity", "break", "reference", "unrelated-list", "html-blank", "inline-html", "comment-blank", "ordered-dot", "ordered-paren", "ordered-nested", "ordered-loose", "task-list", "nested-list", "loose-list"]) {
+function commonListVariants(source) {
+ const list = activeOwnerBlocks(source.C, "C").find((t) => t.type === "list").raw;
+ return Object.entries({
+  "census-ordered": list.replace(/^- /gm, "1. "),
+  "census-loose": list.replace(/\n- /g, "\n\n- "),
+  "census-seventh": "- Extra item\n" + list,
+  "census-removed": list.slice(list.indexOf("\n") + 1),
+  "census-quoted": list.split("\n").map((line) => "> " + line).join("\n"),
+  "census-task": list.replace("- ", "- [ ] "),
+  "census-second": "- One\n- Two\n- Three\n- Four\n- Five\n- Six\n\nParagraph separator.\n\n" + list,
+ }).map(([kind, replacement]) => [kind, { ...source, C: source.C.replace(list, replacement) }]);
+}
+export function activeOwnerAttacks(source, kinds = ["fence", "tilde", "indent", "comment", "html", "quote", "table", "inline", "link", "escape", "entity", "break", "reference", "unrelated-list", "html-blank", "inline-html", "comment-blank", "ordered-dot", "ordered-paren", "ordered-nested", "ordered-loose", "task-list", "nested-list", "loose-list", "prefixed-continuation"]) {
  for (const owner of ["C", "W", "E"]) ownerText(source, owner);
  return activeSubjects.flatMap(([owner, id]) => {
   const clauses = safeWriteDuties.find(([key]) => key === id)[1], clause = clauses[0];
@@ -296,6 +337,7 @@ export function activeOwnerAttacks(source, kinds = ["fence", "tilde", "indent", 
    "task-list": "\n\n- [ ] " + clause + "\n\n",
    "nested-list": "\n\n- Examples:\n  - " + clause + "\n\n",
    "loose-list": "\n\n- Unrelated examples:\n\n  " + clause + "\n\n",
+   "prefixed-continuation": "\n\n- Unrelated examples:\n\n  Example: " + clause + "\n\n",
   });
   const rows = kinds.map((kind) => [kind, { ...source, [owner]: source[owner].replace(clause, wrappers[kind]) }]);
   if (owner !== "E") for (const kind of ["intro", "earlier", "later", "h1", "setext", "indented-heading"]) {
@@ -316,13 +358,16 @@ export function activeOwnerAttacks(source, kinds = ["fence", "tilde", "indent", 
   }
   return rows.map(([kind, changed]) => ({ id: `${owner}/${kind}`, changed: changed[owner] !== source[owner],
    rejected: !acceptsSafeWriteDuty(changed, clauses) }));
- });
+ }).concat(commonListVariants(source).map(([kind, changed]) => ({ id: "C/" + kind,
+  changed: changed.C !== source.C, rejected: !acceptsSafeWriteDuty(changed, safeWriteDuties[0][1]) })));
 }
 export const activeOwnerControlIds = [
  "parser", "attacks", "heading-shapes-C", "heading-shapes-W", "wrong-version", "unknown-token", "parse-failure",
  "omitted-kind", "short-expected", "missing", "duplicate", "unexpected", "unchanged", "accepted", "crashed",
  "omitted-word", "byte-C", "byte-W", "byte-E", "contradiction-byte", "contradiction-clause",
- "occurrence-mutant", "boundary-mutant", "benign-C", "benign-W", "legacy-boundary", "legacy-pending-pin", "legacy-writer-search",
+ "occurrence-mutant", "boundary-mutant", "html-mutant",
+ "list-count-mutant", "list-top-mutant", "list-unordered-mutant", "list-tight-mutant", "list-items-mutant", "list-task-mutant", "list-W-mutant", "list-E-mutant",
+ "html-after-C", "html-before-C", "html-after-W", "html-before-W", "list-residual", "benign-C", "benign-W", "legacy-boundary", "legacy-pending-pin", "legacy-writer-search",
 ];
 export async function activeOwnerControls(source, repo = process.env.SLATE_ACTIVE_REPO ?? process.cwd()) {
  assertActiveRosterSource(repo);
@@ -377,12 +422,43 @@ export async function activeOwnerControls(source, repo = process.env.SLATE_ACTIV
  for (const [id, target, replacement] of [
   ["occurrence-mutant", "if (owners[owner].split(sentence)" + ".length - 1 !== 1) return false;", ""],
   ["boundary-mutant", 'if (end < 0) ' + 'end = tokens.length;', 'end = tokens.length;'],
+  ["html-mutant", 'if (containsHtml(tokens.slice(0, end))) ' + 'return "";', ""],
+  ["list-count-mutant", 'if (lists.length !== expected.count) ' + 'return false;', ""],
+  ["list-top-mutant", 'top && ' + '!t.ordered', '!t.ordered'],
+  ["list-unordered-mutant", '!t.ordered && ' + '!t.loose', '!t.loose'],
+  ["list-tight-mutant", '!t.loose && ' + 't.items.length', 't.items.length'],
+  ["list-items-mutant", 't.items.length === ' + 'expected.items && ', ""],
+  ["list-task-mutant", 't.items.every((item) => ' + '!item.task)', "true"],
+  ["list-W-mutant", 'if (owner === "W" && lists.length !== expected.count) ' + 'return false;', ""],
+  ["list-E-mutant", 'if (owner === "E" && lists.length !== expected.count) ' + 'return false;', ""],
  ]) {
   if (code.split(target).length !== 2) throw new Error(`nonunique active mutant ${id}`);
   const mutant = await import("data:text/javascript;base64," + Buffer.from(code.replace(target, replacement)).toString("base64"));
   const attacks = mutant.activeOwnerAttacks(source);
-  record(id, attacks.some((r) => r.id === "C/later" && !r.rejected) && !audit(attacks));
+  const witness = { "occurrence-mutant": "C/later", "boundary-mutant": "C/later", "html-mutant": "C/html-blank",
+   "list-count-mutant": "C/census-second", "list-top-mutant": "C/census-quoted",
+   "list-unordered-mutant": "C/census-ordered", "list-tight-mutant": "C/census-loose",
+   "list-items-mutant": "C/census-seventh", "list-task-mutant": "C/census-task",
+   "list-W-mutant": "W/unrelated-list", "list-E-mutant": "E/unrelated-list" }[id];
+  record(id, attacks.some((r) => r.id === witness && !r.rejected) && !audit(attacks));
  }
+ for (const owner of ["C", "W"]) {
+  const title = "## " + ownerHeadings[owner];
+  const html = "\n<div>Harmless text.</div>\n";
+  const ending = "\n## Harmless appendix <span>outside</span>\n" + html;
+  const after = { ...source, [owner]: source[owner] + ending };
+  record("html-after-" + owner, safeWriteDuties.every(([, clauses]) => acceptsSafeWriteDuty(after, clauses)));
+  const before = { ...source, [owner]: source[owner].replace(title, html + "\n" + title) };
+  const enclosing = { ...source, [owner]: "<div hidden>\n\n" + source[owner] + "\n\n</div>\n" };
+  record("html-before-" + owner, safeWriteDuties.filter(([id, clauses]) =>
+   clauses.some((_, index) => (dutyOwners[id]?.[index] ?? "C") === owner))
+   .every(([, clauses]) => !acceptsSafeWriteDuty(before, clauses) && !acceptsSafeWriteDuty(enclosing, clauses)));
+ }
+ const residualClause = safeWriteDuties[0][1][0];
+ const residual = { ...source, C: source.C.replace(residualClause, "").replace("- occupied creation.",
+  "- occupied creation.\nExample: " + residualClause) };
+ record("list-residual", safeWriteDuties.every(([, clauses]) => acceptsSafeWriteDuty(residual, clauses))
+  && digest(Buffer.from(residual.C)) !== hashes.get("docs/change-records.md"));
  for (const owner of ["C", "W"]) {
   const benign = { ...source, [owner]: source[owner] + "\n## Harmless appendix\nNo duty here.\n" };
   record("benign-" + owner, safeWriteDuties.every(([, clauses]) => acceptsSafeWriteDuty(benign, clauses)));
