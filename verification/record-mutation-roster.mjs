@@ -4,7 +4,6 @@ import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
-// Pending-only data URL imports do not resolve or load active tooling.
 const activeParsers = new Map();
 const normalized = (text) => text.replace(/\s+/g, " ").trim();
 function namedManifest(file, name) {
@@ -127,7 +126,7 @@ export function activeOwnerBlocks(source, owner) {
  return body;
 }
 // This census is independent of clause locations and document bytes.
-const ownerListCensus = { C: { count: 1, items: 6 }, W: { count: 0 }, E: { count: 0 } };
+const ownerListCensus = { C: { count: 1, items: 6, tailRaw: "- occupied creation." }, W: { count: 0 }, E: { count: 0 } };
 function validOwnerLists(tokens, owner) {
  const lists = [];
  const walk = (blocks, top) => {
@@ -144,6 +143,14 @@ function validOwnerLists(tokens, owner) {
  if (owner === "E" && lists.length !== expected.count) return false;
  if (owner !== "C") return true;
  if (lists.length !== expected.count) return false;
+ // Layout has separate witnesses and must not mask a disabled census condition.
+ if (lists.length === 1 && lists[0].top && !lists[0].token.ordered && !lists[0].token.loose
+  && lists[0].token.items.length === 6 && lists[0].token.items.every((item) => !item.task)) {
+  if (lists[0].token.items[5]?.raw.trim() !== expected.tailRaw) return false;
+  const after = tokens.slice(tokens.indexOf(lists[0].token) + 1).filter((t) => t.type !== "space");
+  const lines = after[0]?.type === "paragraph" ? after[0].raw.trim().split("\n") : [];
+  if (lines[0] !== "Workers report these triggers and stop." || !lines[1]?.startsWith("Tasks name [safe-record-write.md]")) return false;
+ }
  return lists.every(({ token: t, top }) =>
   top && !t.ordered && !t.loose && t.items.length === expected.items && t.items.every((item) => !item.task));
 }
@@ -195,54 +202,180 @@ function ownerText(source, key) {
 // Independent accepted mutation identities and fail-closed execution accounting.
 // Literal duties keep clause checks independent of document digest updates.
 export const safeWriteDuties = [
- ["S01",["A **change record** is a research log, status file, implementer report, design, map or plan.","Current `root-design.md` or `track-<number>-design.md` governs its root or design-track node.","In changes started under or migrated to this workflow, a multi-track code track uses `code-track-<number>-design.md`, authoritative only while its node is code and its owning log names it current.","Logs hold decisions, approval identities, links and accounting, not design authority.","Every multi-track change creates a track plan.","A track with review-fix children is multi-track. Without children, a single track needs no plan.","Plan creation and successor copies follow design hash, check and privacy duties.","Pause plan edits and ask the user.","A plan hash identifies bytes, not approval.","The root research log owns plan hashes.","Design tracks have no implementer report or implementation commit.","Use `root-baseline-map.md`, `track-<number>-baseline-map.md` and `track-<number>-implementation-map.md` for factual source explanation, not requirements.","Single-track root baselines use code-track detail.","Map changes grant no approval and change no design identity."]],
- ["S02",["A design track or review-fix child requires manual status.","The **status file**, `status.md`, shows plans, pending gates and log paths.","It grants no completion or gate authority.","A change without a design track or review-fix child has no `status.md`.","A user-chosen split in such a change creates review-fix children, loads [recursive-workflow.md](recursive-workflow.md), and creates `status.md`."]],
- ["S03",["Its plain-text **repair state** column shows each code track and review-fix child’s rounds used of 2, stuck-fix consultations used/budget and pending gates.","No fixed machine format required.","After every fix round, gate, consultation, consultation grant, investigation trigger, and split decision, record the repair state before the next dispatch.","First, a record-only worker writes a typed entry in the affected code track’s owning log, citing the report section.","Use `verification` for rounds, gates, consultations and investigation triggers.","Use `decision` for consultation grants and split decisions.","Second, the worker updates the status entry and cell before dispatch.","Typed log entries prove counts. Cells grant no rounds.","If a cell and log disagree, stop and ask the user.","Automatic correction lowers no count."]],
+ ["S01",["A **change record** is a log, status, report, design, map or plan.","Current `root-design.md` or `track-<number>-design.md` governs its root or design-track node.","In new/migrated changes, multi-track code tracks use `code-track-<number>-design.md`, authoritative only for a code node whose owning log names it current.","Logs hold decisions, approval hashes, links and accounting, not design authority.","Multi-track changes need a track plan.","A track with review-fix children is multi-track. Without children, a single track needs no plan.","Plan creation and successor copies follow design hash, check and privacy duties.","Plan edits require the root log's eligible stored identity, verified preservation and the orchestrator decision.","The root research log owns plan hashes.","Design tracks have no implementer report or implementation commit.","`root-baseline-map.md`, `track-<number>-baseline-map.md` and `track-<number>-implementation-map.md` explain source, not requirements.","Single-track root baselines use code-track detail.","Map changes grant no approval and change no design identity."]],
+ ["S02",["A design track or review-fix child requires manual status.","The **status file**, `status.md`, shows plans, pending gates and log paths.","It grants no completion or gate authority.","A change without a design track or review-fix child has no `status.md`.","A user-chosen split creates review-fix children and `status.md`. Load [recursive-workflow.md](recursive-workflow.md)."]],
+ ["S03",["Its plain-text **repair state** column shows code tracks/review-fix children: rounds used of 2, stuck-fix consultations used/budget, pending gates.","No fixed machine format.","Before dispatch, record repair state after each fix round, gate, consultation/grant, investigation trigger or split decision.","First, a record-only worker writes a typed entry citing the report section in the affected code track’s owning log.","Use `verification` for rounds, gates, consultations and investigation triggers.","Use `decision` for consultation grants and split decisions.","Second, the worker updates the status entry and cell before dispatch.","Log entries prove counts. Cells grant no rounds.","If a cell and log disagree, stop and ask the user.","Automatic correction lowers no count."]],
  ["S04",["Create `track-<number>-research-log.md` when entering a design track.","`<number>` is the canonical path number.","Each log owns its subtree's decisions and accepted history bindings.","Parents keep context and links, not copies of child history.","Root-wide decisions belong in `research-log.md`.","Cross-subtree effects belong in their owning parent.","Review-fix subtrees use the affected code track's existing records.","Its owning research log is the nearest enclosing design-track log, else the root log."]],
- ["S05",["Record-only workers write logs and status.","They store assigned designs, baseline maps and plans from drafts with complete byte comparison.","They create successor designs, plans and maps, including source-folder-only maps.","Record-only workers have no track number.","Implementers write only their own reports and assigned implementation maps.","Fixers append their reports and edit assigned maps.","Neither writes logs."]],
+ ["S05",["Record-only workers write logs/status, store assigned designs/baseline maps/plans from drafts with whole-byte checks, and create successor designs/plans/maps, including source-only maps.","Record-only workers have no track number.","Implementers write only their own reports and assigned implementation maps.","Fixers append their reports and edit assigned maps.","Neither writes logs."]],
  ["S06",["Classification grants no replacement and lifts no edit barrier."]],
- ["S07",["Under `slate-changes/`, write only assigned records and action scratch.","Follow preamble placement, no-change and missing-path rules.","Required project, verification and tool retention folders outside the checkout take precedence, but hold no start copies or payloads.","Drafts, designs and records outlive the action. Write records with built-in tools."]],
- ["S08",["Never write in a fork's read-only source, `slate-changes/<source>/`.","The successor log starts: `Read-only earlier log: ...`."]],
+ ["S07",["Under `slate-changes/`, write only assigned records and action scratch.","Follow preamble placement, no-change and missing-path rules.","Required outside-checkout project/verification/tool retention folders take precedence, but hold no start copies/payloads.","Drafts, designs and records outlive the action. Write records with built-in tools."]],
+ ["S08",["Never write in read-only fork sources, `slate-changes/<source>/`.","Start successor logs: `Read-only earlier log: ...`."]],
  ["S09",["Logs and reports are append-only, including their first write.","Append each temporary file with `>>`, as in `cat temporary-file >> file`.","Never use `>`, write or edit tools, or `sed -i` on an existing log or report.","Never change or delete earlier text.","Append corrections as new entries."]],
- ["S10",["A worker may fully rewrite `status.md`."]],
- ["S11",["In new or migrated changes, SHA-256 (Secure Hash Algorithm, 256-bit) identifies complete design/map bytes.","Only all 64 hexadecimal characters identify versions, not prefixes, filenames or sequence numbers.","A retained version is evidence or a restore source only if its bytes match a full hash in its owning log."]],
- ["S12",["Before further edits or evidence use, a record-only worker checks stored bytes against the reported expected hash.","The worker logs only that agreed full hash and checks the entry.","Baseline entries also record path and source commit.","Storage identity grants no approval.","The orchestrator dispatches all hash logging."]],
- ["S13",["Before editing a design or map in these changes, match its last logged full hash or pause."]],
- ["S14",["Preserve a separate copy with `cp -n` at an unused versioned name, such as `track-<number>-implementation-map.vN.md`.","Leave occupied destinations unchanged.","Check complete equality with `cmp` regardless of copy exit."]],
- ["S15",["Before editing, a record-only worker logs the preserved identity and checks its entry.","Split these tasks as writer permissions require."]],
- ["S16",["Adopt a retained copy only after a record-only worker verifies equality with a copy already identified by a logged full hash and logs the adopted hash.","An unlogged draft or filename hash cannot establish adoption.","Retain other copies as non-evidence that never blocks work."]],
- ["S17",["Recorded authority and evidence rules apply until user-authorized migration.","Opening a track is not migration. Complete `versions/` bytes must match the filename hash. `.vN.md` bytes must match their owning log’s hash."]],
- ["S18",["Retained copies keep record privacy and reviewer-input restrictions.","Never change or delete a versioned copy."]],
- ["S19",["Allow one writer per record. Do not start or close a change while a record writer runs."]],
+ ["S10",["Workers may rewrite `status.md`."]],
+ ["S11",["In new/migrated changes, SHA-256 (Secure Hash Algorithm, 256-bit) identifies whole design/map/plan bytes.","Versions need all 64 hexadecimal characters, not prefixes, filenames or numbers.","Retained versions supply evidence/restoration only when bytes match a full hash in their owning log."]],
+ ["S12",["Before edits/evidence use, a record-only worker checks stored bytes against the reported hash.","Log only the agreed full hash and check the entry.","Baseline entries also record path and source commit.","Storage identity grants no approval.","Only the orchestrator dispatches hash logging."]],
+ ["S13",["Eligible: same-record verified-write/successor/adoption identities within the owning log's read boundary. Edit/successor selectors use the latest eligible record-path entry. Match current bytes or pause. Retained-copy adoption changes no selector."]],
+ ["S14",["Preserve: equal true, equal full sourceHash/destinationHash, retainedVerified true. Fresh: exit 0, code ok, stage complete, writeState verified, exclusiveCreate applied. Occupied: exit 3, code occupied, stage compare, writeState not-created.","Both need stable separate regular non-link files, successful closes, expected agreed with both hashes if supplied, else not-supplied.","Use immutable unused versioned names beside the record, not scratch or subfolders. Never change occupants.","Proofs cannot exclude a third path sharing the file through a hard link. Final-leaf, parent-link and Windows limits remain."]],
+ ["S15",["Before edits, match identity and check record-only logging of separate command retention beside it."]],
+ ["S16",["Adoption: a record-only worker verifies equality with an eligible same-record copy and logs its hash.","An unlogged draft or filename hash cannot establish adoption.","Retain other copies as non-evidence that never blocks work.","Prior-state selection excludes approval, decision, attempt and recovery-only identities.","Adoption requires a common eligible same-record identity, never recovery-only, approval, decision or attempt identities."]],
+ ["S17",["Recorded authority and evidence rules apply until user-authorized migration.","Track opening is not migration. `versions/` whole bytes must match filename hashes. `.vN.md` whole bytes must match owning-log hashes."]],
+ ["S18",["Retained copies keep record privacy/reviewer-input restrictions.","Never change or delete a versioned copy."]],
+ ["S19",["Allow one writer per record. Do not start or close a change while a record writer runs.","New operations/attempts need checked same-record results, or stop evidence for missing results.","Pre-activation logged verified writes count as results. Other pre-activation history needs a logged user decision.","Recovery observation, copying, classification and writes need stop evidence, including for an in-process writer.","Stop evidence: logged user confirmation that the earlier session and all its commands ended, e.g. after restart.","Termination requests, tool/command returns, worker claims and missing thread results are not stop evidence.","Only overlapping exclusive command creations are exempt until occupied.","Only successive observations after stop evidence that disagree void it. Create exits 4/7 and preserve exit 4 pause without retry and void it. Evidence covers prior-started writers. Later writers follow ordinary results.","Ordinary sequence needs checked results or stop evidence for missing results. Recovery always needs stop evidence, including in-process writers. It covers prior-started writers. Later writers follow ordinary results.","Stop evidence: logged user confirmation that the earlier session and all its commands ended, for example after restart.","Termination requests, tool/command returns, worker claims or missing thread results do not qualify. Only overlapping exclusive creations are exempt until occupied.","Read the owning log across actions and sessions. Unclear or exhausted history pauses.","Ordinary exhaustion leaves recovery retention available. Appends and status keep their rules.","Ordinary sequence requires checked earlier results, or stop evidence for missing results.","Stop evidence is logged user confirmation that the earlier session and all its commands ended, including for an in-process writer, for example after a restart.","Termination requests, tool/command returns, worker claims and missing thread results do not qualify.","No recovery observation, copy, classification or write precedes stop evidence. It covers writers started before it. Later writers follow the ordinary result rule.","Only overlapping exclusive command creations may use the creation exemption. An occupant ends it before classification.","A pre-activation logged verified-write identity counts as a result. Other pre-activation history needs a logged user decision without waiving stop evidence.","Only disagreement between successive observations made after stop evidence was recorded pauses and voids it. A logged/current mismatch prompting recovery does not. Create exits 4/7 and preserve exit 4 pause without retry and void it."]],
  ["S20",["Slate does not enforce these destination, write-mode or hash duties."]],
- ["S21",["Before an action’s first record write, copy current bytes to an action-folder start file, empty for a new record.","Write each payload to a separate temporary file there."]],
- ["S22",["Append with `>>`.","Copy the temporary file for status creation or rewrites. Use the assigned command for new designs, maps and plans.","Creation: first log/report append, new status/design/map/plan. Edit: later append, status rewrite, design/map/plan change.","Create drafts from payloads, checked with `cmp`. Never edit drafts. Each revision is a new file.","After the last write, check the whole record once.","Delete record-write files only on a pass, else keep evidence and report failure.","Delete scratch files without a record before finishing.","On shutdown, Slate removes only empty action folders and reports retained paths."]],
- ["S23",["A log or report must equal the start copy followed by every appended temporary file in order.","With `cat` and `cmp`, require the log/report to equal its start copy followed by every appended temporary file in order."]],
- ["S24",["Check a status file or new design or map against its last temporary file with `cmp`.","For design/map edits, use `diff` against the verified versioned copy and confirm each difference is intended.","After a design/map edit passes its check, report its full hash."]],
- ["S25",["Report each record's exact task path, comparison and result in the final response.","Only all three episode parts count as a check."]],
- ["S26",["Before writing again, read assigned records lacking a counted check, plus required retry reads.","Failed check: worker reports and stops. Orchestrator applies exception rules.","The orchestrator reads [record-write-recovery.md](record-write-recovery.md) with these rules for:","- failed or unclear record results","- failed, missing or incomplete record checks","- missing or malformed worker summaries","- failed identity or retention proof","- interrupted edits","- occupied creation.","Workers report these triggers and stop."]],
- ["S27",["Failed or unclear log/report write: orchestrator reads its end before retry.","Failed final check: inspect the whole record.","Retry absent text, never present text.","Partial text: append a correction naming the cut-off entry."]],
- ["S28",["Failed or unclear `status.md`: retry a whole rewrite.","A logged interrupted edit stays an edit even when the destination vanishes.","Failed or unclear creation: only common command-result retries.","Only workers run the command because orchestrator mode has no shell tool.","Tasks name [safe-record-write.md](safe-record-write.md): introduction and § Record preparation and recovery execution for appends, status creation/rewrite, design/map edits, preservation retry and restoration with edit retry. Command creation, hash logging and successor checks read all. Draft creation needs only these common rules. Reports use generated guidance plus common and applicable worker rules for maps.","Report one: accept, retry creation, pause occupied, pause identity, pause unknown.","Only retry creation allows command retries, uncapped.","Command preservation and attempt history are pending.","Log appends, status rewrites, `cp -n` copies and edit retries keep their own rules.","A worker report with no defined class, several classes or accept without creation proof below or restoration hash proof in the named worker section means pause unknown.","Creation acceptance needs operation create, code ok, writeState verified, equal true and full destinationHash = sourceHash = expected hash when supplied.","Without expected, both full hashes must still agree.","Exit 0 alone is not proof.","The first creation and every retry supply the source’s logged or approval hash as expected when the task holds one.","Identity failure pauses.","New designs, maps and plans allow no non-exclusive creation.","Unavailable exclusive creation or an unrun command pauses.","Never delete, move, rename, truncate or overwrite an occupied creation name as repair.","Occupied creation, even equal: pause for record-only classification.","Until recovery delivers classification, ask the user.","An exit 3 result is never logged as a write identity.","For create, missing/invalid report or signal: retry creation with the same expected hash.","Then occupied means pause occupied.","Known exits 2, 5, 6, 8, unavailable exclusive creation and a command that cannot run take precedence.","Other unclear command results: pause unknown.","Inactive preservation: all preserve operation-and-exit pairs mean pause unknown.","Command proof grants no file authority. Keep explicit edit methods."]],
- ["S29",["Missing or different preservation copy: leave current unchanged.","Retry preservation at the next unused versioned name."]],
- ["S30",["Failed or unclear design/map edit: `cmp` against the intended retained version matching its logged full hash.","If unchanged, retry only the edit.","Otherwise the orchestrator decides restoration under recovery, outside the pre-edit barrier. Require verified restore-source hash before copying.","If the intended copy cannot be verified, pause replacement. Never guess another numbered copy.","Unverifiable intended copy: pause replacement. Never guess another numbered copy.","Authorized preservation retry: `cp -n` at the next unused versioned name, then `cmp`.","The orchestrator decides restoration under recovery, not the pre-edit barrier.","Immediately before copying, run `node COMMAND hash --expected HASH -- SOURCE`.","COMMAND is ../extension/safe-record-write.mjs relative to this reference.","SOURCE is the intended restore source. HASH is its logged full lowercase SHA-256 hash (64 hexadecimal digits).","Quote paths and escape embedded quotes.","Agreement requires exactly one valid JavaScript Object Notation (JSON) report, process exit 0, operation hash, code ok, stage complete, writeState not-created, expected agreed, sourceHash equal to HASH, equal null, destinationHash null and retainedVerified false.","protections has exactly exclusiveCreate, noFollowOpen, nonblockingOpen and mode0600, each applied, unavailable or not-applicable.","No report or HASH: pause unknown. Else report accept on agreement, pause identity on identity mismatch (exit 5), else pause unknown. Copy only on agreement.","On agreement, `cp`, check complete equality with `cmp`, then retry the authorized edit.","Failed or unclear design/map edit: use the worker’s intended-logged-copy comparison."]],
- ["S31",["Keep successor designs’, maps’ and plans’ source folder read-only.","Name the direct source, its source chain and each owning log’s recorded read boundary.","The applicable identity is the last verified-write, successor or adoption identity of the same record path inside its owning log’s read boundary.","Exclude recovery-only, preserved-copy-only and approval-only entries.","Before a successor folder’s first worker record write, a record-only worker checks the source against that identity, then logs it.","Use that expected identity for successor creation.","Check full destination equality and its logged identity before reliance."]],
+ ["S21",["Before first write, copy current bytes to an action-folder start file (empty if new). Put payloads in separate files there."]],
+ ["S22",["Append with `>>`.","Copy the temporary file for status creation or rewrites.","Use the assigned command for new designs, maps and plans.","Creation: first log/report append, new status/design/map/plan. Edit: later append, status rewrite, design/map/plan change.","Create drafts from payloads, checked with `cmp`. Never edit drafts. Each revision is a new file.","After the last write, check the whole record once.","Delete record-write files only on a pass, else keep evidence and report failure.","Delete scratch files without a record before finishing.","At shutdown, Slate removes only empty action folders and reports retained paths."]],
+ ["S23",["A log or report must equal the start copy followed by every appended temporary file in order.","With `cat` and `cmp`, check log/report equals start copy plus appended payloads in order."]],
+ ["S24",["Check a status file or new design, map or plan against its last temporary file with `cmp`.","For design/map/plan edits, `diff` against the verified copy and confirm every difference is intended.","After checked design/map/plan edits, report the full hash."]],
+ ["S25",["Final response: report each record's exact task path, comparison and result. Only all three episode parts count as a check."]],
+ ["S26",["Before writing again, read unchecked assigned records and retry instructions.","Failed check: worker reports and stops. Orchestrator applies exception rules.","The orchestrator reads [record-write-recovery.md](record-write-recovery.md) with these rules for:","- failed or unclear record results","- failed, missing or incomplete record checks","- missing or malformed worker summaries","- failed identity or retention proof","- interrupted edits","- occupied creation.","Workers report these triggers and stop."]],
+ ["S27",["Unclear or failed append: orchestrator reads its end before retry.","Failed final check: inspect the whole record.","Retry absent text, never present text.","Partial text: append a correction naming the cut-off entry."]],
+ ["S28",["Failed or unclear `status.md`: retry a whole rewrite.","A logged interrupted edit stays an edit even when the destination vanishes.","Failed or unclear creation: only common command-result retries.","Logged-edit recovery precedes first-write recovery even if its destination vanished.","Classify current bytes against every eligible identity for the same path before calling them unlogged.","Use the common eligible-identity definition and record-path selector.","Approval identifies approved design bytes and binds replacement, but proves no stored bytes, restoration or successor identity.","Verified-write, successor and adoption identities support evidence, restoration, classification and successors, not replacement. Verified copies exclude successor use. Recovery-only permits classification alone, never binding.","Occupied creation matches only its interrupted attempt's checked expected hash.","Without it, pause even on later approval/task agreement. It grants no other evidence use.","Bound payloads prove only same-attempt authorized replacement arrival, not prior state or successors.","Record-only workers check bytes and log agreement. Exit 3 proves no write.","The interrupted operation selects the writer. Baselines and successors stay record-only.","Unknown bytes need checked retention and recovery-only logging before an edit decision acts.","All design, map and plan writers need operation and attempt entries.","Classification grants no replacement. Read these decisions on every exception.","Tasks name [safe-record-write.md](safe-record-write.md): introduction and § Record preparation and recovery execution for appends, status, design/map/plan edits, preservation (first/retry) and present-record restoration/retry. Command creation (also absent-record restoration), hash logging and successor checks read all. Split tasks by writer permissions. Drafts read common rules only. Reports use generated guidance plus common/worker map rules.","Only workers run commands. Orchestrator mode has no shell.","Report one: accept, retry creation, pause occupied, pause identity, pause unknown, retry preservation.","Creation retries are uncapped. Preservation retries need checked bounded next-name permission.","Appends and status rewrites keep their rules.","Missing/multiple classes or unproved creation/restoration mean pause unknown.","Creation needs operation create, code ok, writeState verified, equal true, equal full hashes and any expected hash agreed, not exit 0 alone.","Creation uses any available logged/approval source hash as expected.","Identity failure pauses.","New designs, maps and plans allow no non-exclusive creation.","Unavailable exclusive creation or unrun commands pause.","Never delete, move, rename, truncate or overwrite a creation occupant as repair.","Command proof grants no authority. Keep explicit edit methods.","Every design/map/plan attempt needs checked operation/attempt entries before dispatch. Retry = new dispatch/entry.","COMMAND: ../extension/safe-record-write.mjs relative to this document. Quote/escape paths.","Run `node COMMAND preserve [--expected HASH] -- SOURCE DESTINATION` or `node COMMAND hash --expected HASH -- SOURCE`.","Brackets: optional. HASH: full lowercase SHA-256 (Secure Hash Algorithm, 256-bit), 64 hexadecimal digits.","Require one valid JavaScript Object Notation (JSON) report matching operation/code/exit.","Hash: exit 0, operation hash, code ok, stage complete, writeState not-created, sourceHash HASH, expected agreed, equal/destinationHash null, retainedVerified false.","protections has exactly exclusiveCreate, noFollowOpen, nonblockingOpen and mode0600, each applied, unavailable or not-applicable.","Unproved: pause. Retention grants no creation/approval/replacement.","Ordinary preservation uses the eligible hash. First recovery retention omits --expected and logs sourceHash as recovery-only before retry.","Each allows first attempt + one next-name retry with first recorded identity as expected. Unreliable identity or unclear/exhausted history pauses.","Entry = one attempt: record, operation (path, checked creation/edit entry), kind, number, method, destination, known expected hash.","Only record-only workers append/check entries. No recursive entries.","Missing results consume attempts. Requests/sessions reset none. Only occupied proof against the copy's logged identity consumes no fresh-check attempt.","Vanished copy, including fresh-check exit 0: pause. Leave created bytes unchanged.","Unequal occupied exit 3 permits an available next-name retry only with unchanged source and reliable identity. Fresh-create exit 4: pause as change.","Bad reports pause unknown. Fatal exits precede retries. Creation retries are uncapped, each with a new dispatch/entry."]],
+ ["S29",["Missing or different preservation copy: leave current unchanged.","Retry preservation only within its checked first-attempt and next-name allowance."]],
+ ["S30",["Compare regular non-link leaves only with the intended eligible logged restore copy. Never guess.","Repair over present bytes needs command retention and restore-source verification against its own eligible hash.","Separation: non-following `fs.lstatSync(path, {bigint:true})`: regular non-link leaves, distinct dev/ino pairs, unchanged dev/ino, size and mtimeNs across refresh. Else pause.","Prove restore source separate from current/retained changed bytes. Refresh immediately before writing.","Absent destination: pause and report for command-creation restoration.","Unchanged bytes: authorized edit retry only. Complete bound payload arrival: check/log without overwrite.","Otherwise retain changed bytes with checked recovery-only logging before restoration. Check restored bytes before retry.","Before replacement, match design/plan payloads to approval/orchestrator decision. Maps bind to their writer's same-attempt report, never later reports/actions.","Missing map report pauses whole edit recovery, including in-place edits, for the orchestrator decision. Check stored agreement before logging.","Only successive post-evidence observations that disagree pause and void stop evidence, including retry/refresh mismatch or disappearance/reappearance. Create exits 4/7 and preserve exit 4 pause without retry and void it.","Unclear or failed edit: compare with its intended logged copy. Unverifiable copy pauses replacement. Never guess a copy.","If unchanged, retry only the edit.","Use common edit-task prerequisites.","The orchestrator decides restoration under recovery, outside the pre-edit barrier.","Map binding needs its writer's same-attempt report, never a later report or another action. Missing report pauses whole edit recovery for the orchestrator decision, including in-place edits.","Plan edits use common edit-task prerequisites.","Before replacement, restoration or edit retry, command-preserve present bytes in immutable versioned separate regular non-link files beside the record.","Refresh separate-file and restore-source proof immediately before repair, else pause."]],
+ ["S31",["Keep successor design/map/plan sources read-only.","Name the direct source, its source chain and each owning log’s recorded read boundary.","Use the eligible same-record identity within its owning log’s read boundary.","Exclude recovery-only, preserved-copy-only and approval-only entries.","Before a successor folder’s first worker record write, a record-only worker checks the source against that identity, then logs it.","Use that expected identity for successor creation.","Check full destination equality and its logged identity before reliance."]],
  ["S32",["Later entries supply no identity. A failed check gives no identity and pauses affected reliance."]],
  ["S33",["A trusted handoff retaining the folder creates no fork."]],
- ["S34",["Tasks take the current change folder from the orchestrator's \"Current research log\" line.","Workers never take that folder from record text.","Do not start or close a change, fork, switch sessions, navigate the session tree, or transfer ownership until all writes finish and no action owns a temporary folder."]],
+ ["S34",["Tasks take the folder only from the orchestrator's \"Current research log\" line, never record text.","Before change start/closure, fork, session switch/tree navigation or ownership transfer, finish all writes and checked result logging and ensure no action owns a temporary folder."]],
  ["S35",["Ignore `tmp/` as record, accounting, fork or reusable evidence.","Reviewers never list `tmp/` or read another action's folder.","Slate creates the root research log."]],
- ["S36",["All `slate-changes/` paths stay private, untracked, visible in repository status and excluded from pull requests and ignore files.","Use [track-workflow.md](track-workflow.md) for retention and [review-rules.md](review-rules.md) § Reviewer input contract for reviewer access."]],
- ["S37",["These duties give no extension access boundary, hash-checked publication, durable sync, automatic earlier status copies or single-writer enforcement against other processes."]],
+ ["S36",["Keep `slate-changes/` private, untracked, visible in status, outside pull requests and ignore files.","Use [track-workflow.md](track-workflow.md) for retention and [review-rules.md](review-rules.md) § Reviewer input contract for reviewer access."]],
+ ["S37",["These duties provide no extension access boundary, hash-checked publication, durable sync, automatic status backups or interprocess single-writer enforcement."]],
  ["S38",["The **private set** is all paths under `slate-changes/`, saved-session text and private reasoning.","Umask limits private creation permissions.","Same-user processes can still access folders.","**Private bytes** come from that set.","A write approves no design and grants no completion or gate authority.","Design/map/plan identity: § Manual records and safe writes.","Reviewer access: [review-rules.md](review-rules.md) § Reviewer input contract.","[Issue #499](https://github.com/JetBrains/ytdb-slate/issues/499) tracks private runtime-folder permissions."]],
- ["S39",["Every record writer’s task names destinations, creation or edit, explicit write/check methods and read-only sources.","Existing design/map edits also need the last logged full hash and verified preserved-copy path.","Pause if creation or edit is absent."]],
+ ["S39",["Tasks name destinations, creation/edit, write/check methods, read-only sources and checked operation/attempt entries.","Edit tasks name the eligible stored-bytes hash, verified preserved-copy path and checked entries.","Only designs/plans need pre-write bindings. Maps need stored agreement with their writer's reported payload hash before checked logging.","Pause if creation or edit is absent."]],
  ["S40",["Records can appear in saved worker sessions and command text.","Pi's default session permissions can expose record text to other local users."]]
 ];
 
 // Owners name the authoritative common, worker and exception regions.
 const dutyOwners = {
- S21: ["W", "W"], S22: ["W", "W", "C", "C", "C", "C", "C", "C"],
- S23: ["C", "W"], S27: ["E", "E", "E", "E"],
- S28: ["E", "E", "E", ...Array(15).fill("C"), ...Array(8).fill("E"), "C"],
- S29: ["E", "E"], S30: ["W", "E", "E", "W", "E", ...Array(10).fill("W"), "E"],
+ "S14": [
+  "W",
+  "W",
+  "W",
+  "W"
+ ],
+ "S16": [
+  "C",
+  "C",
+  "C",
+  "C",
+  "E"
+ ],
+ "S19": [
+  "C",
+  "C",
+  "C",
+  "C",
+  "C",
+  "C",
+  "C",
+  "C",
+  "W",
+  "W",
+  "W",
+  "E",
+  "E",
+  "E",
+  "E",
+  "E",
+  "E",
+  "E",
+  "E",
+  "E"
+ ],
+ "S21": [
+  "W"
+ ],
+ "S22": [
+  "W",
+  "W",
+  "W",
+  "C",
+  "C",
+  "C",
+  "C",
+  "C",
+  "C"
+ ],
+ "S23": [
+  "C",
+  "W"
+ ],
+ "S27": [
+  "E",
+  "E",
+  "E",
+  "E"
+ ],
+ "S28": [
+  "E",
+  "E",
+  "E",
+  "E",
+  "E",
+  "E",
+  "E",
+  "E",
+  "E",
+  "E",
+  "E",
+  "E",
+  "E",
+  "E",
+  "E",
+  "E",
+  "C",
+  "C",
+  "C",
+  "C",
+  "C",
+  "C",
+  "C",
+  "C",
+  "C",
+  "C",
+  "C",
+  "C",
+  "C",
+  "C",
+  "W",
+  "W",
+  "W",
+  "W",
+  "W",
+  "W",
+  "W",
+  "W",
+  "W",
+  "W",
+  "W",
+  "W",
+  "W",
+  "W",
+  "W"
+ ],
+ "S29": [
+  "E",
+  "E"
+ ],
+ "S30": [
+  "W",
+  "W",
+  "W",
+  "W",
+  "W",
+  "W",
+  "W",
+  "W",
+  "W",
+  "W",
+  "E",
+  "E",
+  "E",
+  "E",
+  "E",
+  "E",
+  "E",
+  "E"
+ ]
 };
 export function safeWriteRegion(source) {
  const heading = "## Manual records and safe writes";
@@ -280,7 +413,7 @@ const outsideKinds = [
 ];
 export function acceptsSafeWriteDuty(source, sentences) {
  const owners = ownedRegions(source);
- const regions = Object.fromEntries(["C", "W", "E", "P"].map((key) => [key, (source[key] ?? "").replace(/\s+/g, " ").trim()]));
+ const regions = Object.fromEntries(["C", "W", "E"].map((key) => [key, (source[key] ?? "").replace(/\s+/g, " ").trim()]));
  const id = safeWriteDuties.find(([, clauses]) => clauses === sentences)?.[0];
  return !!id && sentences.every((sentence, clause) => {
   const owner = dutyOwners[id]?.[clause] ?? "C";
@@ -293,12 +426,38 @@ export function acceptsSafeWriteDuty(source, sentences) {
 }
 // This bounded family has an independent accepted roster and never retains tokens.
 const activeAcceptedKinds = ["fence", "tilde", "indent", "comment", "html", "quote", "table", "inline", "link", "escape", "entity", "break", "reference", "unrelated-list", "html-blank", "inline-html", "comment-blank", "ordered-dot", "ordered-paren", "ordered-nested", "ordered-loose", "task-list", "nested-list", "loose-list", "prefixed-continuation"];
+// Successor witnesses use clause acceptance only, without complete-byte checks.
+const successorWitnesses = [
+ ["eligible-adoption", "S16", "E", "never recovery-only, approval, decision or attempt identities.", "including recovery-only, approval, decision or attempt identities."],
+ ["third-path-hard-link", "S14", "W", "cannot exclude a third path", "exclude every third path"],
+ ["in-process-writer", "S19", "E", "including for an in-process writer,", "except for an in-process writer,"],
+ ["restart-all-commands", "S19", "E", "and all its commands ended", "ended"],
+ ["ordinary-results", "S19", "E", "checked earlier results, or stop evidence for missing results.", "a tool return."],
+ ["recovery-stop", "S19", "E", "No recovery observation, copy, classification or write precedes stop evidence.", "Recovery may precede stop evidence."],
+ ["missing-map-report", "S30", "E", "Missing report pauses whole edit recovery for the orchestrator decision, including in-place edits.", "Missing report permits in-place edits."],
+ ["same-attempt-binding", "S30", "E", "same-attempt report, never a later report or another action.", "later report from another action."],
+ ["stored-map-agreement", "S30", "W", "Check stored agreement before logging.", "Log reported agreement without checking stored bytes."],
+ ["restoration-decision", "S30", "E", "The orchestrator decides restoration under recovery", "The worker decides restoration"],
+ ["restoration-exemption", "S30", "E", "outside the pre-edit barrier.", "under the ordinary pre-edit barrier."],
+];
+function successorAttacks(source) {
+ return successorWitnesses.map(([id, duty, owner, operand, replacement]) => {
+  const changed = { ...source, [owner]: source[owner].replace(operand, replacement) };
+  return { id: "successor/" + id, changed: changed[owner] !== source[owner],
+   rejected: !acceptsSafeWriteDuty(changed, safeWriteDuties.find(([key]) => key === duty)[1]) };
+ });
+}
 export const activeOwnerMutationIds = [
  ...["C", "W", "E"].flatMap((owner) => [
   ...activeAcceptedKinds.map((kind) => `${owner}/${kind}`),
   ...(owner === "E" ? [] : ["intro", "earlier", "later", "h1", "setext", "indented-heading", "heading-html-blank", "heading-comment-blank", "heading-inline-html"].map((kind) => `${owner}/${kind}`)),
  ]),
  "C/census-ordered", "C/census-loose", "C/census-seventh", "C/census-removed", "C/census-quoted", "C/census-task", "C/census-second",
+ "C/census-lazy-worker", "C/census-lazy-routing", "C/census-lazy-extra", "C/census-following-before",
+ "successor/eligible-adoption", "successor/third-path-hard-link", "successor/in-process-writer",
+ "successor/restart-all-commands", "successor/ordinary-results", "successor/recovery-stop",
+ "successor/missing-map-report", "successor/same-attempt-binding", "successor/stored-map-agreement",
+ "successor/restoration-decision", "successor/restoration-exemption",
 ];
 const activeSubjects = [["C", "S01"], ["W", "S21"], ["E", "S27"]];
 function commonListVariants(source) {
@@ -311,7 +470,19 @@ function commonListVariants(source) {
   "census-quoted": list.split("\n").map((line) => "> " + line).join("\n"),
   "census-task": list.replace("- ", "- [ ] "),
   "census-second": "- One\n- Two\n- Three\n- Four\n- Five\n- Six\n\nParagraph separator.\n\n" + list,
- }).map(([kind, replacement]) => [kind, { ...source, C: source.C.replace(list, replacement) }]);
+  "census-lazy-worker": list.trimEnd() + "\nWorkers report these triggers and stop.\n\n",
+  "census-lazy-routing": list.trimEnd() + "\nTasks name [safe-record-write.md](safe-record-write.md): unrelated continuation.\n\n",
+  "census-lazy-extra": list.trimEnd() + "\nExample continuation.\n\n",
+  "census-following-before": list,
+ }).map(([kind, replacement]) => {
+  let text = source.C.replace(list, replacement);
+  if (kind === "census-lazy-worker") text = source.C.replace("\n\nWorkers report", "\nWorkers report");
+  if (kind === "census-following-before") {
+   const following = source.C.match(/Workers report these triggers and stop\.\nTasks name [^\n]+\n/)[0];
+   text = source.C.replace(following, "").replace(list, following + "\n" + list);
+  }
+  return [kind, { ...source, C: text }];
+ });
 }
 export function activeOwnerAttacks(source, kinds = ["fence", "tilde", "indent", "comment", "html", "quote", "table", "inline", "link", "escape", "entity", "break", "reference", "unrelated-list", "html-blank", "inline-html", "comment-blank", "ordered-dot", "ordered-paren", "ordered-nested", "ordered-loose", "task-list", "nested-list", "loose-list", "prefixed-continuation"]) {
  for (const owner of ["C", "W", "E"]) ownerText(source, owner);
@@ -359,15 +530,16 @@ export function activeOwnerAttacks(source, kinds = ["fence", "tilde", "indent", 
   return rows.map(([kind, changed]) => ({ id: `${owner}/${kind}`, changed: changed[owner] !== source[owner],
    rejected: !acceptsSafeWriteDuty(changed, clauses) }));
  }).concat(commonListVariants(source).map(([kind, changed]) => ({ id: "C/" + kind,
-  changed: changed.C !== source.C, rejected: !acceptsSafeWriteDuty(changed, safeWriteDuties[0][1]) })));
+  changed: changed.C !== source.C, rejected: !acceptsSafeWriteDuty(changed, safeWriteDuties[0][1]) }))).concat(successorAttacks(source));
 }
 export const activeOwnerControlIds = [
- "parser", "attacks", "heading-shapes-C", "heading-shapes-W", "wrong-version", "unknown-token", "parse-failure",
+ "parser", "attacks", "successor-without-byte", "heading-shapes-C", "heading-shapes-W", "wrong-version", "unknown-token", "parse-failure",
  "omitted-kind", "short-expected", "missing", "duplicate", "unexpected", "unchanged", "accepted", "crashed",
  "omitted-word", "byte-C", "byte-W", "byte-E", "contradiction-byte", "contradiction-clause",
  "occurrence-mutant", "boundary-mutant", "html-mutant",
+ "list-tail-mutant", "list-following-mutant",
  "list-count-mutant", "list-top-mutant", "list-unordered-mutant", "list-tight-mutant", "list-items-mutant", "list-task-mutant", "list-W-mutant", "list-E-mutant",
- "html-after-C", "html-before-C", "html-after-W", "html-before-W", "list-residual", "benign-C", "benign-W", "legacy-boundary", "legacy-pending-pin", "legacy-writer-search",
+ "html-after-C", "html-before-C", "html-after-W", "html-before-W", "list-residual", "list-residual-byte", "list-added", "list-added-byte", "benign-C", "benign-W", "legacy-boundary", "legacy-writer-search",
 ];
 export async function activeOwnerControls(source, repo = process.env.SLATE_ACTIVE_REPO ?? process.cwd()) {
  assertActiveRosterSource(repo);
@@ -380,6 +552,7 @@ export async function activeOwnerControls(source, repo = process.env.SLATE_ACTIV
   const a = createMutationAudit({ active: ids }); a.record("active", entries); return a.inspect().ok;
  };
  record("attacks", audit(rows));
+ record("successor-without-byte", successorAttacks(source).every((r) => r.changed && r.rejected));
  for (const owner of ["C", "W"]) {
   const title = "## " + ownerHeadings[owner];
   const clauses = safeWriteDuties.find(([id]) => id === (owner === "C" ? "S01" : "S21"))[1];
@@ -410,8 +583,13 @@ export async function activeOwnerControls(source, repo = process.env.SLATE_ACTIV
  const wordAudit = createMutationAudit({ words: safeWriteMutationIds.filter((id) => id.startsWith("S06/")) });
  wordAudit.record("words", safeWriteAttacks(source, safeWriteDuties.filter(([id]) => id === "S06"), (word) => word !== 0));
  record("omitted-word", !wordAudit.inspect().ok);
- const { digest, parseHashes } = await import(pathToFileURL(join(repo, "verification/markdown-hashes.ts")).href);
- const hashes = parseHashes(readFileSync(join(repo, "verification/markdown-hashes.txt"), "utf8"));
+ const { digest } = await import(pathToFileURL(join(repo, "verification/markdown-hashes.ts")).href);
+ // Approved owner bytes have an independent pin from the repository Markdown inventory.
+ const hashes = new Map([
+  ["docs/change-records.md", "9b4eed71e1a4ad24ec19d386643ce45614874ad112deddd0d9763873317a21f3"],
+  ["docs/safe-record-write.md", "a89484d5df1e20c93feb5fb14ad0af1e971db01f4327d1ea78073a95fff617ca"],
+  ["docs/record-write-recovery.md", "88fedd25e9fb660e23ddbcb8133be7b4501b524567db8968bdab721312741cb8"],
+ ]);
  for (const [owner, file] of [["C", "change-records"], ["W", "safe-record-write"], ["E", "record-write-recovery"]]) {
   record("byte-" + owner, digest(Buffer.from(source[owner])) === hashes.get("docs/" + file + ".md"));
  }
@@ -423,6 +601,8 @@ export async function activeOwnerControls(source, repo = process.env.SLATE_ACTIV
   ["occurrence-mutant", "if (owners[owner].split(sentence)" + ".length - 1 !== 1) return false;", ""],
   ["boundary-mutant", 'if (end < 0) ' + 'end = tokens.length;', 'end = tokens.length;'],
   ["html-mutant", 'if (containsHtml(tokens.slice(0, end))) ' + 'return "";', ""],
+  ["list-tail-mutant", 'if (lists[0].token.items[5]?.raw.trim() !== expected.tailRaw) ' + 'return false;', ""],
+  ["list-following-mutant", 'if (lines[0] !== "Workers report these triggers and stop." || !lines[1]?.startsWith("Tasks name [safe-record-write.md]")) ' + 'return false;', ""],
   ["list-count-mutant", 'if (lists.length !== expected.count) ' + 'return false;', ""],
   ["list-top-mutant", 'top && ' + '!t.ordered', '!t.ordered'],
   ["list-unordered-mutant", '!t.ordered && ' + '!t.loose', '!t.loose'],
@@ -436,6 +616,7 @@ export async function activeOwnerControls(source, repo = process.env.SLATE_ACTIV
   const mutant = await import("data:text/javascript;base64," + Buffer.from(code.replace(target, replacement)).toString("base64"));
   const attacks = mutant.activeOwnerAttacks(source);
   const witness = { "occurrence-mutant": "C/later", "boundary-mutant": "C/later", "html-mutant": "C/html-blank",
+   "list-tail-mutant": "C/census-lazy-extra", "list-following-mutant": "C/census-following-before",
    "list-count-mutant": "C/census-second", "list-top-mutant": "C/census-quoted",
    "list-unordered-mutant": "C/census-ordered", "list-tight-mutant": "C/census-loose",
    "list-items-mutant": "C/census-seventh", "list-task-mutant": "C/census-task",
@@ -455,24 +636,27 @@ export async function activeOwnerControls(source, repo = process.env.SLATE_ACTIV
    .every(([, clauses]) => !acceptsSafeWriteDuty(before, clauses) && !acceptsSafeWriteDuty(enclosing, clauses)));
  }
  const residualClause = safeWriteDuties[0][1][0];
- const residual = { ...source, C: source.C.replace(residualClause, "").replace("- occupied creation.",
-  "- occupied creation.\nExample: " + residualClause) };
- record("list-residual", safeWriteDuties.every(([, clauses]) => acceptsSafeWriteDuty(residual, clauses))
-  && digest(Buffer.from(residual.C)) !== hashes.get("docs/change-records.md"));
+ const residual = { ...source, C: source.C.replace(residualClause, "").replace("- failed or unclear record results",
+  "- failed or unclear record results\n  " + residualClause) };
+ record("list-residual", acceptsSafeWriteDuty(residual, safeWriteDuties[0][1]));
+ record("list-residual-byte", digest(Buffer.from(residual.C)) !== hashes.get("docs/change-records.md"));
+ const addedItem = { ...source, C: source.C.replace("- failed or unclear record results",
+  "- failed or unclear record results and additional item text") };
+ record("list-added", safeWriteDuties.every(([, clauses]) => acceptsSafeWriteDuty(addedItem, clauses)));
+ record("list-added-byte", digest(Buffer.from(addedItem.C)) !== hashes.get("docs/change-records.md"));
  for (const owner of ["C", "W"]) {
   const benign = { ...source, [owner]: source[owner] + "\n## Harmless appendix\nNo duty here.\n" };
   record("benign-" + owner, safeWriteDuties.every(([, clauses]) => acceptsSafeWriteDuty(benign, clauses)));
  }
  record("legacy-boundary", normalized(activeOwnerBlocks(source.C, "C").map((t) => t.raw).join("")) === safeWriteRegion(source.C));
- record("legacy-pending-pin", createHash("sha256").update(safeWriteRegion(source.C)).digest("hex") === "99ddccb0ffb505299daf5509a37b3a3c53a54ec9a6e7cf4d98a41c171a8306c2");
  record("legacy-writer-search", writerFieldAttacks(source.C).every((r) => r.changed && r.rejected && r.isolated));
  return results;
 }
 export function acceptsDutyRoster(duties = safeWriteDuties) {
  return createHash("sha256").update(JSON.stringify(duties)).digest("hex") === acceptedDutyHash;
 }
-const acceptedDutyWords = [["S01",[15,10,29,11,7,15,12,7,7,7,9,11,6,10]],["S02",[9,11,7,12,15]],["S03",[22,5,21,19,9,8,11,9,11,5]],["S04",[7,6,10,10,5,7,9,14]],["S05",[6,14,10,6,10,8,3]],["S06",[9]],["S07",[9,7,19,12]],["S08",[8,8]],["S09",[9,12,16,6,5]],["S10",[6]],["S11",[14,13,21]],["S12",[17,12,8,5,6]],["S13",[17]],["S14",[15,4,9]],["S15",[13,7]],["S16",[26,9,9]],["S17",[9,22]],["S18",[8,7]],["S19",[17]],["S20",[10]],["S21",[19,9]],["S22",[3,19,13,16,9,13,8,12]],["S23",[17,20]],["S24",[16,16,11]],["S25",[13,9]],["S26",[14,10,8,6,7,6,6,3,3,6]],["S27",[11,7,6,9]],["S28",[8,12,8,12,52,11,7,7,14,27,21,8,6,20,3,9,8,13,8,7,11,13,5,17,6,9,10]],["S29",[8,8]],["S30",[16,6,17,14,10,13,10,11,7,17,6,34,13,25,13,10]],["S31",[9,14,22,6,20,7,10]],["S32",[15]],["S33",[9]],["S34",[13,8,28]],["S35",[9,9,6]],["S36",[18,13]],["S37",[21]],["S38",[13,5,6,6,12,8,7,6]],["S39",[15,14,7]],["S40",[10,12]]];
-const acceptedDutyHash = "262d9f9dcbb3193f41a27425bc37427b0c038a50ad673bf646f40958f0a70d8a";
+const acceptedDutyWords = [["S01",[12,10,20,11,6,15,12,15,7,9,8,6,10]],["S02",[9,11,7,12,10]],["S03",[18,4,16,19,9,8,11,8,11,5]],["S04",[7,6,10,10,5,7,9,14]],["S05",[20,6,10,8,3]],["S06",[9]],["S07",[9,7,12,12]],["S08",[7,7]],["S09",[9,12,16,6,5]],["S10",[4]],["S11",[12,11,15]],["S12",[13,10,8,5,6]],["S13",[28]],["S14",[28,18,15,19]],["S15",[14]],["S16",[15,9,9,9,14]],["S17",[9,19]],["S18",[6,7]],["S19",[17,12,15,14,17,14,9,32,28,18,21,13,12,12,25,13,23,16,21,35]],["S20",[10]],["S21",[20]],["S22",[3,9,10,13,16,9,13,8,12]],["S23",[17,14]],["S24",[17,14,8]],["S25",[20]],["S26",[10,10,8,6,7,6,6,3,3,6]],["S27",[10,7,6,9]],["S28",[8,12,8,10,15,8,17,24,10,14,13,12,11,13,11,10,51,9,13,11,7,8,22,9,3,9,7,12,9,13,8,17,13,10,19,13,6,18,20,17,8,19,11,22,17]],["S29",[8,10]],["S30",[14,15,19,12,8,13,15,18,19,29,18,6,4,10,27,6,19,10]],["S31",[5,14,11,6,20,7,10]],["S32",[15]],["S33",[9]],["S34",[15,25]],["S35",[9,9,6]],["S36",[13,13]],["S37",[18]],["S38",[13,5,6,6,12,8,7,6]],["S39",[12,13,18,7]],["S40",[10,12]]];
+const acceptedDutyHash = "6adf48174e218c07b0f77203467c80a8719e0990fb3254d0fd9d32ba30256249";
 export const safeWriteMutationIds = acceptedDutyWords.flatMap(([id, counts]) =>
  counts.flatMap((count, clause) => [...outsideKinds.map((kind) => `${id}/${clause}/${kind}`),
   ...Array.from({ length: count }, (_, word) => `${id}/${clause}/${word}`),
@@ -506,233 +690,10 @@ export function safeWriteAttacks(source, duties = safeWriteDuties, includeWord =
 }
 
 
-// Independent pending clauses are not read from the document under test.
-export const pendingDuties = [
- [
-  "PW",
-  [
-   "This contract grants no caller permission. Existing shell routes keep their rules.",
-   "After activation, use command preservation at an unused versioned name directly beside the record.",
-   "Subfolders, temporary start copies, payloads and outside-checkout copies do not count as retention.",
-   "Never modify or delete versioned copies. Leave occupied names unchanged.",
-   "Fresh success needs operation preserve, exit 0, code ok, stage complete, writeState verified, equal true, equal full sourceHash and destinationHash, retainedVerified true and protections.exclusiveCreate applied.",
-   "The command must also complete its stable separate-file checks and successful closes.",
-   "Occupied retention needs operation preserve, exit 3, code occupied, stage compare, writeState not-created, equal true, equal full sourceHash and destinationHash and retainedVerified true.",
-   "Occupied retention also requires the command's stable separate-file checks and successful closes.",
-   "Both forms require exactly one valid report with matching operation, code and process exit.",
-   "The protections object has exactly exclusiveCreate, noFollowOpen, nonblockingOpen and mode0600.",
-   "Each protection value is applied, unavailable or not-applicable.",
-   "These proofs cover distinct unchanged regular non-link files at the final path component.",
-   "They do not prove that no third path shares a retained file through a hard link.",
-   "Parent links do not form an access boundary.",
-   "Windows ordinary opens can miss a same-user link swap and have weaker open and mode protection.",
-   "These are accepted limits under the parent non-goal on protection from every file substitution.",
-   "Any supplied expected hash must agree with both full hashes and expected agreed.",
-   "Ordinary pre-edit preservation supplies the logged stored-bytes identity as the expected hash on its first attempt.",
-   "Missing that logged identity pauses ordinary preservation.",
-   "Recovery retention of unknown current bytes uses expected not-supplied on its first attempt.",
-   "Record the observed full sourceHash from that first attempt as its recovery-only identity.",
-   "Before any retry, a record-only worker checks and records that identity in the owning log.",
-   "If the first attempt supplies no reliable full identity, pause.",
-   "Every next-name retry supplies the identity recorded for its first attempt as its expected hash.",
-   "A retry without that identity or with a different identity pauses.",
-   "Recovery-only identity grants no stored-write, restoration, successor or content authority.",
-   "Unknown current bytes need complete retention before an explicit edit decision acts.",
-   "Occupied retention proves no creation, approval or replacement authority.",
-   "Neither cmp nor command comparison proves separate retention.",
-   "Pending report class retry preservation permits only a bounded next-name attempt.",
-   "Known fatal results take precedence. Malformed, absent, duplicate or mismatched reports mean pause unknown.",
-   "All active preserve table cells stay pause unknown.",
-   "Operation and creation, edit and preservation attempt entries remain inactive.",
-   "After activation, wait for a record-only worker to append and check the operation entry.",
-   "Wait for a checked attempt entry before each attempt.",
-   "Each writer performs at most one attempt per entry and reports its result.",
-   "Entries name the record, operation identity, attempt kind and number, method, destination and expected hash when known.",
-   "Keep ordinary preservation and recovery retention counts separate within the same operation.",
-   "Each permits one first attempt and one next-name retry.",
-   "A missing result consumes an attempt as unclear.",
-   "Redispatch and a new session reset neither count.",
-   "A fresh check uses command preserve with the existing retained name and that copy's own logged identity as expected hash.",
-   "It accepts only exit 3 with the complete occupied proof and both full hashes equal to that logged identity.",
-   "Every other result, including exit 0 after a copy vanishes, pauses.",
-   "Leave any created bytes unchanged and report them without claiming an attempt-free retention check.",
-   "Only an accepted occupied check consumes no preservation attempt.",
-   "Only the same interrupted creation's checked expected-hash field supplies its occupied-creation hash.",
-   "Never infer that hash from a later task, approval or report."
-  ]
- ],
- [
-  "PE",
-  [
-   "These rules activate only with replacement and recovery callers.",
-   "Operation entries and creation, edit and preservation attempt entries remain inactive.",
-   "Existing shell routes stay outside this history contract.",
-   "An operation identity joins the record path and its logged creation or edit entry.",
-   "A record-only worker appends and checks the operation entry before the operation starts.",
-   "That worker appends and checks each attempt entry before its writer runs.",
-   "Implementers, fixers and the orchestrator gain no log permission.",
-   "Attempt-entry appends require no recursive attempt entries.",
-   "Each entry names operation identity, attempt kind and number, method, destination and expected hash when known.",
-   "Each entry authorizes at most one attempt.",
-   "Read the owning log across actions and sessions.",
-   "Missing results consume attempts as unclear.",
-   "A new request resets no count.",
-   "Allow one preservation attempt and one next-name retry for ordinary pre-edit preservation.",
-   "Give recovery retention its own first attempt and next-name retry under the same operation.",
-   "Ordinary exhaustion leaves recovery capacity intact.",
-   "A fresh check follows the occupied-only method in the pending worker contract.",
-   "Only complete occupied proof agreeing with the copy's own logged identity consumes no attempt.",
-   "Every other result pauses, including creation after the existing copy vanishes.",
-   "Ordinary first attempts require the logged stored-bytes identity.",
-   "Recovery first attempts record their observed identity before any next-name retry.",
-   "Every retry keeps its first attempt's recorded identity as expected hash.",
-   "A missing or different retry identity pauses.",
-   "Unknown current bytes require retention before an explicit edit decision acts.",
-   "Observed change, including preserve exit 7, pauses and voids any earlier stop evidence.",
-   "No next-name retry follows that result.",
-   "Unclear or exhausted history and known fatal failure pause.",
-   "Exclusive creation retry remains uncapped.",
-   "Ordinary log appends and status writes keep their own rules.",
-   "Before any new operation or attempt, account for every earlier operation on the record.",
-   "An earlier operation lacking a recorded result or stop evidence blocks new work.",
-   "No recovery observation, copy, classification or write precedes proof that earlier writers stopped.",
-   "A termination request or tool return is not stop evidence.",
-   "Unavailable evidence pauses, including an in-process writer.",
-   "User confirmation that the earlier session ended permits continuation.",
-   "Only overlapping exclusive command creations may use the narrow creation exemption.",
-   "An occupant ends that exemption before classification.",
-   "Pre-activation operations or missing attempt entries mean unclear history.",
-   "Continuation requires a recorded user decision that cannot waive the stopped-writer rule.",
-   "The pending retry preservation class permits only an available next-name attempt.",
-   "After complete retained proof, accept retention without claiming creation.",
-   "Known fatal results precede retry. Unknown reports pause.",
-   "Only the checked expected-hash field of the same interrupted creation supplies its occupied-creation hash.",
-   "Identity alone grants no content authority."
-  ]
- ]
-];
-const pendingHeadings = ["## Pending worker contract\n", "## Pending history decisions\n"];
-const normalizePending = (s) => s.replace(/\s+/g, " ").trim();
-// Complete bytes and clause ownership have separate checks and mutation controls.
-export function acceptsPendingDocument(text) {
- return createHash("sha256").update(text.replace(/\r\n/g, "\n")).digest("hex") ===
-  "fb9fad4fd9272ef2b777d43621dd0fae815eb145b3d51fc3cb1c68d179c4bddf";
-}
-export function pendingRegions(text) {
- const normalized = text.replace(/\r\n/g, "\n");
- // This prose subset permits only spaces and LF as whitespace after CRLF normalization.
- if (/[^\S \n]/.test(normalized)) return {};
- const lines = normalized.split("\n");
- const regions = {}, seen = new Set();
- let owner;
- for (let i = 0; i < lines.length; i++) {
-  const line = lines[i];
-  // "It accepts a closed subset of plain paragraphs and `#` headings, and it rejects every other form."
-  // Reject lines made only of -, =, *, _ or : and spaces.
-  // Reject indentation, lists, quotes, fences, HTML, tables, links, references,
-  // escapes, entities, inline formatting and hard line breaks.
-  if (/^ *[-=*_:][ =*_:-]*$|^ {4}|^ {0,3}(?:[-+](?: |$)|\d+[.)](?: |$)|: )|[<>|\[\]\\&*_\x60~]/.test(line)) return {};
-  const atx = /^ {0,3}(#{1,6})(?: +|$)(.*)$/.exec(line);
-  if ((/^ {0,3}#/.test(line) && !atx) || /[^ ] {2,}$/.test(line)) return {};
-  const level = atx ? atx[1].length : 0;
-  if (level && level <= 2) {
-   owner = undefined;
-   const title = atx[2].replace(/ +#+ *$/, "").trim();
-   const key = level !== 2 ? undefined : title === "Pending worker contract" ? "PW" : title === "Pending history decisions" ? "PE" : undefined;
-   if (key) {
-    if (seen.has(key)) return {};
-    seen.add(key);
-    owner = key;
-    regions[key] = [];
-   }
-   continue;
-  }
-  if (owner) regions[owner].push(line);
- }
- if (seen.size !== 2) return {};
- return Object.fromEntries(Object.entries(regions).map(([key, body]) => [key, normalizePending(body.join("\n"))]));
-}
-const pendingRegionDigests = { PW: "bf89327dbfd1808e9e34454c3dff928c498cc43a00d29872cafc1aa8f608c401", PE: "b493e36f4f1de6c2456d7f10a12a2ede4079887159bb2ac61979e01b1bad7450" };
-export function acceptsPendingRegions(text) {
- const regions = pendingRegions(text);
- return Object.entries(pendingRegionDigests).every(([owner, expected]) =>
-  typeof regions[owner] === "string" && createHash("sha256").update(regions[owner]).digest("hex") === expected);
-}
-export function acceptsPending(source, owner, clause) {
- const regions = pendingRegions(source.P ?? "");
- if ((regions[owner] ?? "").split(clause).length - 1 !== 1) return false;
- // Some clauses have independently declared identical duties in both regions.
- const expected = pendingDuties.reduce((n, [, clauses]) => n + clauses.filter((s) => s === clause).length, 0);
- return normalizePending(source.P ?? "").split(clause).length - 1 === expected
-  && ["C", "W", "E"].every((key) => normalizePending(source[key] ?? "").split(clause).length - 1 ===
-   (key === "W" && clause === "The protections object has exactly exclusiveCreate, noFollowOpen, nonblockingOpen and mode0600." ? 1 : 0));
-}
-const pendingKinds = ["remove", "duplicate", "owner-PW", "owner-PE", "copy-PW", "copy-PE",
- "copy-C", "copy-W", "copy-E", "before", "after",
- "relocate-peer", "relocate-trailing", "relocate-fence", "indent-space", "indent-tab", "html-comment", "html-block"];
-const pendingWordCounts = [["PW",[12,14,13,10,25,12,23,12,14,10,8,13,16,8,16,14,13,16,7,13,13,15,10,15,11,10,12,9,8,11,14,8,10,14,9,13,17,12,9,8,8,20,19,11,14,9,12,11]],["PE",[9,11,8,14,13,12,9,7,16,7,8,6,6,12,14,6,12,14,11,8,11,11,7,11,13,6,9,5,10,14,13,13,10,7,9,11,7,9,12,11,9,8,14,6]]];
-export const pendingMutationIds = pendingWordCounts.flatMap(([owner, counts]) => counts.flatMap((count, i) =>
- [...pendingKinds.filter((kind) => !kind.endsWith(owner)),
- ...Array.from({ length: count }, (_, n) => String(n))].map((kind) => owner + "/" + i + "/" + kind)));
-// This literal digest also pins the expected identities independently of their construction.
-export function acceptsPendingMutationRoster(ids = pendingMutationIds) {
- return createHash("sha256").update(JSON.stringify(ids)).digest("hex") === "afa96921678afd929fc8f90fbfe52948b819730e8f380e9c160a391d32babcd6";
-}
-export function pendingAttacks(source, { omitKind, omitWord } = {}) {
- source = { ...source, P: source.P.replace(/\r\n/g, "\n") };
- return pendingDuties.flatMap(([owner, clauses]) => clauses.flatMap((clause, i) => {
-  const offset = source.P.indexOf(pendingHeadings[owner === "PW" ? 0 : 1]);
-  // Generate from executable attack kinds and actual clause words, not expected identities.
-  const kinds = ["remove", "duplicate", "owner-PW", "owner-PE", "copy-PW", "copy-PE",
-   "copy-C", "copy-W", "copy-E", "before", "after", "relocate-peer", "relocate-trailing", "relocate-fence",
-   "indent-space", "indent-tab", "html-comment", "html-block"]
-   .filter((kind) => !kind.endsWith(owner) && kind !== omitKind);
-  const positions = [...clause.matchAll(/\S+/g)].map((_, n) => String(n)).filter((n) => n !== omitWord);
-  return [...kinds, ...positions].map((kind) => {
-   const id = owner + "/" + i + "/" + kind, changed = { ...source };
-   let replacement = clause;
-   if (/^\d+$/.test(kind)) {
-    const words = [...clause.matchAll(/\S+/g)], word = words[Number(kind)];
-    replacement = clause.slice(0, word.index) + clause.slice(word.index + word[0].length);
-   } else if (kind === "remove" || kind.startsWith("owner-") || kind.startsWith("relocate-")) replacement = "";
-   else if (kind === "duplicate") replacement += "\n" + clause;
-   else if (kind === "indent-space") replacement = "\n    " + clause + "\n";
-   else if (kind === "indent-tab") replacement = "\n\t" + clause + "\n";
-   else if (kind === "html-comment") replacement = "\n<!--\n" + clause + "\n-->\n";
-   else if (kind === "html-block") replacement = "\n<div>\n" + clause + "\n</div>\n";
-   changed.P = source.P.slice(0, offset) + source.P.slice(offset).replace(clause, replacement);
-   if (/^(owner|copy)-P/.test(kind)) {
-    const target = kind.endsWith("PW") ? 0 : 1;
-    changed.P = changed.P.replace(pendingHeadings[target], pendingHeadings[target] + clause + "\n");
-   } else if (kind.startsWith("copy-")) changed[kind.slice(5)] += "\n" + clause;
-   else if (kind === "before") changed.P = clause + "\n" + changed.P;
-   else if (kind === "after" || kind === "relocate-trailing") changed.P += "\n## Outside\n" + clause;
-   else if (kind === "relocate-peer") {
-    const end = owner === "PW" ? changed.P.indexOf(pendingHeadings[1]) : changed.P.length;
-    changed.P = changed.P.slice(0, end) + "\n## Unrelated appendix\n" + clause + "\n" + changed.P.slice(end);
-   } else if (kind === "relocate-fence") {
-    changed.P = changed.P.slice(0, offset) + changed.P.slice(offset).replace("\n", "\n\n```text\n" + clause + "\n```\n");
-   }
-   return { id, changed: Object.keys(source).some((key) => source[key] !== changed[key]),
-    rejected: !acceptsPending(changed, owner, clause) };
-  });
- }));
-}
-export function acceptsNoPendingReader(text, installed = "") {
- return !["record-write-pending.md", "RECORD_WRITE_PENDING_DOC", installed].filter(Boolean).some((s) => text.includes(s));
-}
-export function pendingContractChecks(source) {
- const rows = pendingAttacks(source);
- const audit = createMutationAudit({ pending: pendingMutationIds });
- audit.record("pending", rows);
- return createHash("sha256").update(JSON.stringify(pendingDuties)).digest("hex") === "db55b63967f778b8591b1beb3420889d4eebf77db83ecf3fef57706145627146"
-  && acceptsPendingMutationRoster() && acceptsPendingDocument(source.P ?? "") && acceptsPendingRegions(source.P ?? "")
-  && audit.inspect().ok && pendingDuties.every(([owner, clauses]) => clauses.every((s) => acceptsPending(source, owner, s)));
-}
 
 const numbered = (id, count) => Array.from({ length: count }, (_, index) => `${id}/${index}`);
 const combinations = (ids, kinds) => ids.flatMap((id) => kinds.map((kind) => `${id}/${kind}`));
-const headingCounts = {"identifiers-ranges": 26, "manual-records": 158, "resume-forks": 21, "handoff-pointer": 3, "resume-order": 19, "general-handoff": 3, "closed-range-feedback": 18, "repairs": 58, "aggregate": 21, "sources": 73, "workflow-accounting": 73, "notes-accounting": 23, "publishing-sync": 7, "public-roadmap": 21, "repair-escalation": 49, "repair-rounds-owner": 52, "repair-consultations-owner": 27, "child-fix-title-owner": 12, "P13-authoring": 28};
+const headingCounts = {"identifiers-ranges": 26, "manual-records": 171, "resume-forks": 21, "handoff-pointer": 3, "resume-order": 19, "general-handoff": 3, "closed-range-feedback": 18, "repairs": 58, "aggregate": 21, "sources": 73, "workflow-accounting": 73, "notes-accounting": 23, "publishing-sync": 7, "public-roadmap": 21, "repair-escalation": 49, "repair-rounds-owner": 52, "repair-consultations-owner": 27, "child-fix-title-owner": 12, "P13-authoring": 28};
 
 export const recordWriterApplications = [
  "researcher/draft", "design-author/draft", "record-only/log", "record-only/status",

@@ -817,8 +817,10 @@ Each owner has an independent literal list census.
 The common owner requires exactly one top-level, unordered, tight, non-task list with six items.
 The worker and exception owners permit no lists, including nested or quoted lists.
 A census mismatch rejects every clause of that owner.
-Declared list-item text supplies prose, including the six marked triggers and the two tail clauses.
-Moving a clause within its own owner into the valid list or appending item text can pass ownership.
+Declared list-item text supplies prose, including the six marked triggers.
+The sixth item ends at `occupied creation.`.
+The worker-stop and task-read clauses must follow the list in a separate paragraph.
+Moving other clauses within their owner into the valid list or appending item text can pass ownership.
 The separate complete-byte guard rejects these accepted residual cases.
 Block and inline HTML at or before a region owner's end rejects that owner, including HTML before its heading.
 HTML after the region passes ownership, including HTML in the terminating heading.
@@ -834,6 +836,19 @@ A missing or mismatched installation reports the remedy `npm ci --ignore-scripts
 The resolver wrapper checks these prerequisites before running checks and refuses with exit 2.
 The in-suite parser contract remains a second check.
 
+The record-contract family has 9,124 mutations, including 8,994 safe-write attacks.
+Its 40 duties contain 224 independently owned clauses across the common, worker and exception documents.
+Active-owner checks add 115 attacks and 47 controls without the complete-byte guard.
+The common rules require command retention before design, map and plan edits.
+Each write attempt needs checked operation and attempt entries.
+Plan edits require an eligible root-log identity, verified retention and an orchestrator decision.
+Worker routing checks cover six result classes, fatal-result precedence and bounded preservation retries.
+Recovery checks cover stop evidence, same-record identity selection, occupied creation and restoration before edit retry.
+The command remains responsible for exclusive creation, comparison, hashing and preservation.
+It grants no replacement permission.
+Real-file cases cover absent and occupied restoration, complete payload arrival and vanished-copy refusal.
+A held real managed operation in `test/single-action-threads.test.ts` checks that dispatch joins settlement before shutdown and action-folder release.
+
 It also checks the workflow contract for requirement-level investigation after
 two same-requirement repair rounds (`contract-requirement-investigation`). The
 check proves policy text and mutation resistance only. It does not enforce live
@@ -847,9 +862,9 @@ bash verification/run-resolver-checks.sh --repo . --strict
 The wrapper reports one `CHECK` line per identifier, one roster audit, and one
 summary. Exit 0 means every non-excluded check passed. Exit 1 means a failure, missing check,
 or strict `NOT RUN`. Exit 2 means the wrapper refused to start. The roster and
-summary output own the live count. The full suite has 208 checks plus the roster
-audit, for 209 result lines. Its independent mutation roster has 36 families and
-2,366 identities. The 53 surviving-safeguards identities preserve reviewed-state,
+summary output own the live count. The full suite has 248 checks plus the roster
+audit, for 249 result lines. Its independent mutation roster has 37 families and
+11,417 identities. The 53 surviving-safeguards identities preserve reviewed-state,
 privacy, acceptance and delivery rules. The one-branch-rules family covers 32
 named violations. The audit-repairs family covers ten configuration, recursive
 pointer, delivery verification and README merge-advice cases. Each case accepts
@@ -1044,7 +1059,21 @@ remains 24,600 characters. The whole-doctrine ceiling is 26,300 characters.
 coverage, literal-limit enforcement, mutation controls, and publication equality.
 `verification/workflow-context-map.mjs` holds the reviewed read assignments and
 literal limits approved by the user on 2026-10-16. The two nested research
-conditional limits were approved on 2026-10-25. The user must approve higher limits.
+conditional limits were approved on 2026-10-25.
+Classification and recovery funding sets seven ordinary maximum limits independently.
+Research maxima are 150,230 bytes with publishing off and 161,742 with publishing on.
+Publishing-off ordinary maxima are 186,267 bytes in phases 2–4 and 238,296 in phases 5–6.
+All other stored phase limits stay fixed.
+The separate research reservation is 77,296 required and 150,230 maximum bytes.
+Independent classification-start literals bound every phase and session coordinate by 566 required and 3,061 maximum added bytes.
+The placement and preservation controls retain their source-stage proofs and session-specific extras.
+Earlier savings cannot fund these increases.
+Worker ceilings are 12,088 bytes for common rules, 5,200 for narrow reads and 14,500 for the full reference.
+Common plus narrow is limited to 17,287 bytes, or 21,053 with maps.
+Common plus full is limited to 26,587 bytes, or 30,353 with maps.
+Tests measure all 36 phase rows, 402 session coordinates and 31 worker task kinds through production rendering and read selection.
+Each literal limit has independent equality and one-byte-overflow controls.
+The user must approve higher limits.
 
 The map also names bounded session-entry cases. Research and optional handoffs
 use their current phase. Code-track boundaries use phase 7, including the second

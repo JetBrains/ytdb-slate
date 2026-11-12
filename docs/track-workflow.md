@@ -504,7 +504,7 @@ Every implementation and review dispatch carries these fields:
 - acceptance condition.
 - declared file list.
 
-Edit logged maps: name last full hash, verified preserved-copy path.
+Edit logged maps: name eligible stored-bytes hash, verified preserved-copy path and checked entries.
 Every implementation dispatch carries this focused current-context block:
 
 > Research log: `slate-changes/<change>/research-log.md`. Report: `slate-changes/<change>/track-<number>-implementer-report.md`. Use supplied references and excerpts. Read further history only for unresolved relevant questions.

@@ -8,7 +8,7 @@ import test from "node:test";
 import { assertActiveRosterSource, resolveActiveParser, assertActiveParserContract, activeParserContractIds, activeOwnerControls, activeOwnerControlIds, activeOwnerAttacks, activeOwnerMutationIds, safeWriteDuties, acceptsSafeWriteDuty } from "../verification/record-mutation-roster.mjs";
 
 const repo = process.env.SLATE_ACTIVE_REPO ?? process.cwd();
-const source = Object.fromEntries([["C", "change-records"], ["W", "safe-record-write"], ["E", "record-write-recovery"], ["P", "record-write-pending"]].map(([key, file]) => [key, readFileSync(join(repo, "docs", file + ".md"), "utf8")]));
+const source = Object.fromEntries([["C", "change-records"], ["W", "safe-record-write"], ["E", "record-write-recovery"]].map(([key, file]) => [key, readFileSync(join(repo, "docs", file + ".md"), "utf8")]));
 
 test("active owner parser pins its selected origin, version and consumed shapes", () => {
   const parser = resolveActiveParser();
@@ -68,8 +68,8 @@ test("active owner controls expose occurrence and boundary mutants without byte 
   for (const control of controls) assert.ok(control.passed, control.id);
   const rows = activeOwnerAttacks(source);
   assert.deepEqual(rows.map((row: any) => row.id), activeOwnerMutationIds);
-  assert.equal(rows.length, 100);
-  assert.equal(controls.length, 42);
+  assert.equal(rows.length, 115);
+  assert.equal(controls.length, 47);
   for (const row of rows) assert.ok(row.changed && row.rejected, row.id);
   // Contradictions leave clauses present, so the separate complete-byte layer is required.
   const contradiction = { ...source, E: source.E + "\nAll exceptions are optional.\n" };

@@ -106,9 +106,9 @@ function checkWorkerReference(reference: string, common: string, recovery: strin
 		"Hashing requires writeState not-created, a full sourceHash, equal null, destinationHash null and retainedVerified false.",
 	];
 	const commonRules = [
-		"Pause plan edits and ask the user.",
-		"After a design/map edit passes its check, report its full hash.",
-		"Creation acceptance needs operation create, code ok, writeState verified, equal true and full destinationHash = sourceHash = expected hash when supplied.",
+		"Plan edits require the root log's eligible stored identity, verified preservation and the orchestrator decision.",
+		"After checked design/map/plan edits, report the full hash.",
+		"Creation needs operation create, code ok, writeState verified, equal true, equal full hashes and any expected hash agreed, not exit 0 alone.",
 	];
 	const requireRules = (source: string, rules: readonly string[]) => {
 		for (const rule of rules) assert.equal(source.split(rule).length, 2, rule);
@@ -122,22 +122,20 @@ function checkWorkerReference(reference: string, common: string, recovery: strin
 			}
 		}
 	}
-	const precedence = precedenceRule;
+	const precedence = "Known exits 2, 5, 6, 8, a command that cannot run and unavailable exclusive creation take precedence.";
 	const ordered = (source: string) => {
 		requireRules(source, [precedence]);
 		assert.ok(source.indexOf(precedence) < source.indexOf("For create,"));
 	};
-	assert.equal(common.split(precedence).length, 1, "precedence belongs to recovery, not common rules");
-	const workerPrecedence = "Known exits 2, 5, 6, 8, a command that cannot run and unavailable exclusive creation take precedence.";
-	assert.equal(reference.split(workerPrecedence).length, 2);
-	assert.equal(reference.split(precedence).length, 1);
-	for (const source of [reference.replace(workerPrecedence, precedence), recovery]) {
-		ordered(source);
-		assert.throws(() => ordered(source.replace(precedence + "\n", "") + "\n" + precedence));
-		for (const clause of ["2, ", "5, ", "6, ", "8, ", "unavailable exclusive creation", "a command that cannot run"]) {
-			assert.throws(() => ordered(source.replace(precedence, precedence.replace(clause, ""))));
-		}
+	assert.equal(common.split(precedenceRule).length, 1);
+	ordered(reference);
+	assert.throws(() => ordered(reference.replace(precedence + "\n", "") + "\n" + precedence));
+	for (const clause of ["2, ", "5, ", "6, ", "8, ", "unavailable exclusive creation", "a command that cannot run"]) {
+		assert.throws(() => ordered(reference.replace(precedence, precedence.replace(clause, ""))));
 	}
+	const delegation = "Failed or unclear creation: only common command-result retries.";
+	requireRules(recovery, [delegation]);
+	assert.throws(() => requireRules(recovery.replace(delegation, ""), [delegation]));
 	const command = readFileSync(SAFE_RECORD_WRITE, "utf8");
 	const checkRange = (text: string, source: string) => {
 		const range = /safe-record-write\.mjs:(\d+)–(\d+)/.exec(text)!;
@@ -153,7 +151,7 @@ function checkWorkerReference(reference: string, common: string, recovery: strin
 	}
 	const operations = ["create", "compare", "hash", "preserve", "invalid"];
 	const exits = [0, 2, 3, 4, 5, 6, 7, 8];
-	const classes = ["accept", "retry creation", "pause occupied", "pause identity", "pause unknown"];
+	const classes = ["accept", "retry creation", "retry preservation", "pause occupied", "pause identity", "pause unknown"];
 	function table(source: string) {
 		const rows = source.split("\n").filter(line => line.startsWith("| ") && !line.startsWith("| Operation |") && !line.startsWith("| ---"))
 			.map(line => line.split("|").slice(1, -1).map(cell => cell.trim()));
@@ -163,15 +161,16 @@ function checkWorkerReference(reference: string, common: string, recovery: strin
 		assert.equal(header.length, 1);
 		assert.deepEqual(header[0]!.split("|").slice(2, -1).map(cell => cell.trim()),
 			["0 ok", "2 usage", "3 occupied", "4 different", "5 identity", "6 io", "7 changed", "8 unsafe-file"]);
-		assert.ok(rows.every(row => row.length === 9 && row.slice(1).every(cell => classes.includes(cell!))));
+		assert.ok(rows.every(row => row.length === 9 && row.slice(1).every(cell => [...classes, "accept retention or retry preservation"].includes(cell!))));
 		return new Map(rows.map(row => [row[0]!, row.slice(1)]));
 	}
 	const routes = table(reference);
 	const expected = [
-		["accept", "pause unknown", "pause occupied", "retry creation", "pause identity", "pause unknown", "retry creation", "pause unknown"],
+		["accept", "pause unknown", "pause occupied", "pause unknown", "pause identity", "pause unknown", "pause unknown", "pause unknown"],
 		["accept", ...Array(7).fill("pause unknown")],
 		["accept", "pause unknown", "pause unknown", "pause unknown", "pause identity", "pause unknown", "pause unknown", "pause unknown"],
-		Array(8).fill("pause unknown"), Array(8).fill("pause unknown"),
+		["accept", "pause unknown", "accept retention or retry preservation", "pause unknown", "pause identity", "pause unknown", "pause unknown", "pause unknown"],
+		Array(8).fill("pause unknown"),
 	];
 	for (const [i, op] of operations.entries()) assert.deepEqual(routes.get(op), expected[i]);
 	const row = reference.split("\n").find(line => line.startsWith("| create |"))!;
@@ -200,8 +199,9 @@ function checkWorkerReference(reference: string, common: string, recovery: strin
 		assert.equal(accepts({ ...proof, [key]: digest.slice(0, 12) }, digest), false);
 	}
 	const codes = ["ok", "usage", "occupied", "different", "identity", "io", "changed", "unsafe-file"];
-	const acceptsOperation = (op: string, value: Record<string, unknown>, expected?: string) => {
+	const acceptsOperation = (op: string, value: Record<string, unknown>, expected?: string): boolean => {
 		if (op === "create") return accepts(value, expected);
+		if (op === "preserve") return route(op, value.code === "occupied" ? 3 : 0, [value], expected) === "accept";
 		const fullHash = typeof value.sourceHash === "string" && /^[a-f0-9]{64}$/.test(value.sourceHash);
 		const base = value.operation === op && value.code === "ok" && value.stage === "complete"
 			&& value.writeState === "not-created" && value.retainedVerified === false && fullHash
@@ -210,14 +210,28 @@ function checkWorkerReference(reference: string, common: string, recovery: strin
 		return base && (op === "hash" ? value.equal === null && value.destinationHash === null
 			: op === "compare" && !expected && value.equal === true && value.sourceHash === value.destinationHash);
 	};
-	function route(op: string, exit: number | null, reports: Record<string, unknown>[], expected?: string, canRun = true, exclusive = true) {
-		if (op === "preserve") return "pause unknown";
-		if (exit === 5 && op === "create") return "pause identity";
+	function route(op: string, exit: number | null, reports: Record<string, unknown>[], expected?: string, canRun = true, exclusive = true, occupiedOnly = false, retryAllowed = false): string {
+		if (exit === 5 && ["create", "preserve", "hash"].includes(op)) return "pause identity";
 		if (!canRun || !exclusive || [2, 6, 8].includes(exit!)) return "pause unknown";
 		const index = exits.indexOf(exit!);
 		const report = reports[0];
 		if (reports.length !== 1 || !report || report.operation !== op || report.code !== codes[index] || index < 0) {
 			return op === "create" ? "retry creation" : "pause unknown";
+		}
+		if (op === "preserve") {
+			const full = typeof report.sourceHash === "string" && /^[a-f0-9]{64}$/.test(report.sourceHash);
+			const protections = report.protections as Record<string, unknown> | null;
+			const validProtections = protections && Object.keys(protections).sort().join(",") === "exclusiveCreate,mode0600,noFollowOpen,nonblockingOpen"
+				&& Object.values(protections).every(value => ["applied", "unavailable", "not-applicable"].includes(String(value)));
+			const identity = full && validProtections && report.expected === (expected ? "agreed" : "not-supplied") && (!expected || expected === report.sourceHash);
+			const occupied = exit === 3 && report.stage === "compare" && report.writeState === "not-created";
+			const fresh = !occupiedOnly && exit === 0 && report.stage === "complete" && report.writeState === "verified"
+				&& (report.protections as Record<string, unknown>)?.exclusiveCreate === "applied";
+			if (identity && (occupied || fresh) && report.equal === true && report.sourceHash === report.destinationHash && report.retainedVerified === true) return "accept";
+			if (!occupiedOnly && occupied && identity && report.equal === false && report.retainedVerified === false
+				&& typeof report.destinationHash === "string" && /^[a-f0-9]{64}$/.test(report.destinationHash)
+				&& report.sourceHash !== report.destinationHash && retryAllowed) return "retry preservation";
+			return "pause unknown";
 		}
 		const selected = routes.get(op)?.[index] ?? "pause unknown";
 		return selected === "accept" && !acceptsOperation(op, report, expected) ? "pause unknown" : selected;
@@ -226,7 +240,11 @@ function checkWorkerReference(reference: string, common: string, recovery: strin
 		const report = { ...proof, operation: op, code: codes[i],
 			...(op === "hash" ? { writeState: "not-created", equal: null, destinationHash: null } : {}),
 			...(op === "compare" ? { writeState: "not-created", expected: "not-supplied" } : {}) };
-		assert.equal(route(op, exit, [report], op === "compare" ? undefined : digest), expected[operations.indexOf(op)]![i]);
+		if (op !== "preserve") assert.equal(route(op, exit, [report], op === "compare" ? undefined : digest), expected[operations.indexOf(op)]![i]);
+		else {
+			const retained = { ...report, protections: { exclusiveCreate: "applied", noFollowOpen: "applied", nonblockingOpen: "applied", mode0600: "applied" }, retainedVerified: true, stage: exit === 3 ? "compare" : "complete", writeState: exit === 3 ? "not-created" : "verified" };
+			assert.equal(route(op, exit, [retained], digest), exit === 0 || exit === 3 ? "accept" : exit === 5 ? "pause identity" : "pause unknown");
+		}
 	}
 	for (const bad of [[], [proof, proof], [{ ...proof, code: "bad" }]]) assert.equal(route("create", 0, bad, digest), "retry creation");
 	assert.equal(route("create", null, [], digest), "retry creation");
@@ -244,18 +262,110 @@ function checkWorkerReference(reference: string, common: string, recovery: strin
 	for (const key of Object.keys(proof)) assert.equal(workerRoute(["accept"], "create", { ...proof, [key]: null }), "pause unknown", key);
 	for (const op of ["hash", "compare"]) assert.equal(route(op, 0, [{ operation: op, code: "ok" }]), "pause unknown");
 	for (const verb of ["delete", "move", "rename", "truncate", "overwrite"]) {
-		const ban = "Never delete, move, rename, truncate or overwrite an occupied creation name as repair.";
+		const ban = "Never delete, move, rename, truncate or overwrite a creation occupant as repair.";
 		assert.ok(common.includes(ban));
 		assert.equal(common.replace(ban, ban.replace(verb, "")).includes(ban), false, verb);
 	}
 	for (const [source, rule] of [
-		[common, "The first creation and every retry supply the source’s logged or approval hash as expected when the task holds one."],
-		[common, "The worker logs only that agreed full hash and checks the entry."],
+		[common, "Creation uses any available logged/approval source hash as expected."],
+		[common, "Log only the agreed full hash and check the entry."],
 		[recovery, "A logged interrupted edit stays an edit even when the destination vanishes."],
 	]) {
 		assert.equal(source!.split(rule!).length, 2);
 		assert.equal(source!.replace(rule!, "").includes(rule!), false);
 	}
+	const preservation = { ...proof, operation: "preserve", retainedVerified: true, protections: {
+		exclusiveCreate: "applied", noFollowOpen: "applied", nonblockingOpen: "applied", mode0600: "applied",
+	} };
+	const occupiedProof = { ...preservation, code: "occupied", stage: "compare", writeState: "not-created" };
+	const unequalProof = { ...occupiedProof, equal: false, destinationHash: "0".repeat(64), retainedVerified: false };
+	assert.equal(route("preserve", 0, [preservation], digest), "accept");
+	assert.equal(workerRoute(["accept"], "preserve", preservation), "accept");
+	assert.equal(workerRoute(["accept"], "preserve", { ...preservation, retainedVerified: false }), "pause unknown");
+	assert.equal(route("preserve", 3, [occupiedProof], digest, true, true, true), "accept");
+	assert.equal(route("preserve", 0, [preservation], digest, true, true, true), "pause unknown", "vanished occupied-only copy is not retention");
+	assert.equal(route("preserve", 3, [unequalProof], digest, true, true, false, true), "retry preservation");
+	assert.equal(route("preserve", 3, [unequalProof], digest), "pause unknown");
+	assert.equal(route("preserve", 0, [{ ...preservation, expected: "not-supplied" }], digest), "pause unknown");
+	for (const [i, exit] of exits.entries()) {
+		const report = { ...occupiedProof, code: codes[i] };
+		assert.equal(route("preserve", exit, [report], digest, true, true, true), exit === 3 ? "accept" : exit === 5 ? "pause identity" : "pause unknown", `occupied-only exit ${exit}`);
+	}
+	for (const key of Object.keys(preservation)) {
+		assert.equal(route("preserve", 0, [{ ...preservation, [key]: null }], digest), "pause unknown", key);
+		assert.equal(route("preserve", 3, [{ ...occupiedProof, [key]: null }], digest), "pause unknown", key);
+	}
+	for (const key of Object.keys(preservation.protections)) {
+		const protections: Record<string, string> = { ...preservation.protections };
+		delete protections[key];
+		assert.equal(route("preserve", 3, [{ ...occupiedProof, protections }], digest), "pause unknown", key);
+		assert.equal(route("preserve", 3, [{ ...occupiedProof, protections: { ...preservation.protections, [key]: "invented" } }], digest), "pause unknown", key);
+	}
+	for (const op of operations) for (const bad of [[], [proof, proof], [{ ...proof, code: "bad" }]]) {
+		assert.equal(route(op, 0, bad, digest), op === "create" ? "retry creation" : "pause unknown");
+		for (const exit of [2, 5, 6, 8]) assert.equal(route(op, exit, bad, digest), exit === 5 && ["create", "preserve", "hash"].includes(op) ? "pause identity" : "pause unknown");
+	}
+	const historyRules = [
+		"Each allows first attempt + one next-name retry with first recorded identity as expected.",
+		"Missing results consume attempts. Requests/sessions reset none. Only occupied proof against the copy's logged identity consumes no fresh-check attempt.",
+		"Ordinary preservation uses the eligible hash. First recovery retention omits --expected and logs sourceHash as recovery-only before retry.",
+		"Termination requests, tool/command returns, worker claims or missing thread results do not qualify. Only overlapping exclusive creations are exempt until occupied.",
+	];
+	requireRules(reference, historyRules);
+	for (const rule of historyRules) assert.throws(() => requireRules(reference.replace(rule, ""), historyRules));
+	type Attempt = { kind: "ordinary" | "recovery"; first?: string; expected?: string; result: boolean; request: string; session: string };
+	const history: Attempt[] = [];
+	let stopped = true;
+	const attempt = (kind: Attempt["kind"], observed: string | undefined, supplied: string | undefined, result = true, request = "first", session = "first") => {
+		const prior = history.filter(entry => entry.kind === kind);
+		const identity = prior.length ? prior[0]!.first : kind === "ordinary" ? digest : undefined;
+		if (prior.length >= 2 || prior.length && !identity || !stopped) return "pause unknown";
+		if (identity && observed !== undefined && observed !== identity) { stopped = false; return "pause identity"; }
+		if (supplied !== identity) return "pause unknown";
+		history.push({ kind, first: observed, expected: supplied, result, request, session });
+		return "attempt";
+	};
+	assert.equal(attempt("ordinary", digest, undefined), "pause unknown", "available expected hash cannot be omitted");
+	assert.equal(attempt("ordinary", digest, digest, false), "attempt");
+	assert.equal(attempt("ordinary", digest, digest, true, "new", "new"), "attempt", "missing result consumes first allowance");
+	assert.equal(attempt("ordinary", digest, digest, true, "third", "third"), "pause unknown", "request/session changes cannot reset exhaustion");
+	assert.equal(attempt("recovery", digest, undefined), "attempt", "recovery has its own allowance");
+	assert.equal(attempt("recovery", digest, digest), "attempt");
+	assert.equal(attempt("recovery", digest, digest, true, "new", "new"), "pause unknown");
+	history.length = 0;
+	assert.equal(attempt("recovery", undefined, undefined, false), "attempt");
+	assert.equal(attempt("recovery", digest, undefined), "pause unknown", "lost first identity forbids retry");
+	history.length = 0;
+	assert.equal(attempt("recovery", digest, undefined), "attempt");
+	assert.equal(attempt("recovery", "0".repeat(64), digest), "pause identity");
+	assert.equal(stopped, false, "changed retry identity voids stop evidence");
+	const observe = (op: string, exit: number, retryMismatch = false) => {
+		if (op === "create" && [4, 7].includes(exit) || op === "preserve" && (exit === 4 || exit === 5 && retryMismatch)) stopped = false;
+		return exit === 5 ? "pause identity" : "pause unknown";
+	};
+	for (const [op, exit, mismatch] of [["create", 4, false], ["create", 7, false], ["preserve", 4, false], ["preserve", 5, true]] as const) {
+		stopped = true;
+		assert.equal(observe(op, exit, mismatch), exit === 5 ? "pause identity" : "pause unknown");
+		assert.equal(stopped, false);
+	}
+	stopped = true;
+	observe("preserve", 5);
+	assert.equal(stopped, true, "first expected mismatch alone is not a successive observation");
+	const stopEvidence = (evidence: string) => evidence === "user-confirmed session and all commands ended";
+	for (const evidence of ["termination requested", "tool returned", "worker claim", "missing result", "live writer", "unavailable"]) {
+		stopped = stopEvidence(evidence);
+		history.length = 0;
+		assert.equal(attempt("recovery", digest, undefined), "pause unknown", evidence);
+	}
+	stopped = stopEvidence("user-confirmed session and all commands ended");
+	assert.equal(attempt("recovery", digest, undefined), "attempt");
+	const exempt = (exclusive: boolean, occupied: boolean) => exclusive && !occupied;
+	assert.equal(exempt(true, false), true);
+	assert.equal(exempt(true, true), false);
+	assert.equal(exempt(false, false), false);
+	const planEdit = (stored: boolean, retained: boolean, decision: boolean) => stored && retained && decision;
+	assert.equal(planEdit(true, true, true), true);
+	for (const fields of [[false, true, true], [true, false, true], [true, true, false]]) assert.equal(planEdit(fields[0]!, fields[1]!, fields[2]!), false);
 	type Identity = { log: string; path: string; entry: number; kind: string; hash: string };
 	const identities: Identity[] = [];
 	const select = (log: string, path: string, boundary: number) => identities.filter(identity =>
@@ -325,6 +435,62 @@ describe("safe record command", { timeout: 60000 }, () => {
 		assert.ok(results.every(r => r.status === 0 || r.status === 3 || r.status === 7));
 		assert.deepEqual(results.map(r => r.report.writeState).sort(), ["not-created", "verified"]);
 		assert.deepEqual(readFileSync(race), bytes);
+		const reference = readFileSync(SAFE_RECORD_WRITE_DOC, "utf8");
+		const recovery = readFileSync(RECORD_WRITE_RECOVERY_DOC, "utf8");
+		const rules = [
+			"Absent destination: pause and report for command-creation restoration.",
+			"Compare regular non-link leaves only with the intended eligible logged restore copy. Never guess.",
+			"Complete bound payload arrival: check/log without overwrite.",
+			"Missing map report pauses whole edit recovery, including in-place edits, for the orchestrator decision.",
+			"Vanished copy, including fresh-check exit 0: pause. Leave created bytes unchanged.",
+		];
+		const checkRules = (text: string) => {
+			for (const rule of rules) assert.equal(text.split(rule).length, 2, rule);
+		};
+		checkRules(reference);
+		for (const rule of rules) for (const word of rule.match(/\S+/g)!)
+			assert.throws(() => checkRules(reference.replace(rule, rule.replace(word, ""))), word);
+		assert.ok(recovery.includes("Missing report pauses whole edit recovery for the orchestrator decision, including in-place edits."));
+		const restored = join(root, "restored");
+		const sourceStat = lstatSync(retained);
+		assert.ok(sourceStat.isFile() && !sourceStat.isSymbolicLink());
+		expect(await run(operation("hash", retained, undefined, hash(bytes)), root), 0);
+		// The orchestrator-selected creation restores only from the verified eligible copy.
+		expect(await run(operation("create", retained, restored, hash(bytes)), root), 0, "verified");
+		assert.deepEqual(readFileSync(restored), bytes);
+		writeFileSync(restored, "occupied changed bytes");
+		const beforeOccupied = readFileSync(restored);
+		const restoration = expect(await run(operation("create", retained, restored, hash(bytes)), root), 3);
+		assert.equal(restoration.equal, false);
+		assert.deepEqual(readFileSync(restored), beforeOccupied, "occupied restoration returns to classification without replacement");
+		const arrival = join(root, "payload-arrived");
+		copyFileSync(source, arrival);
+		const beforeArrival = lstatSync(arrival, { bigint: true });
+		const agreed = expect(await run(operation("compare", source, arrival), root), 0);
+		const logged: string[] = [];
+		if (agreed.equal) logged.push(agreed.destinationHash!);
+		assert.deepEqual(logged, [hash(bytes)]);
+		const afterArrival = lstatSync(arrival, { bigint: true });
+		for (const field of ["dev", "ino", "size", "mtimeNs", "ctimeNs"] as const)
+			assert.equal(afterArrival[field], beforeArrival[field], "complete payload arrival leaves " + field + " unchanged");
+		const recoverMap = (sameAttemptReport: boolean, inPlace: boolean) =>
+			!sameAttemptReport ? "pause whole edit recovery for orchestrator decision" : inPlace ? "authorized in-place repair" : "classify";
+		for (const inPlace of [false, true])
+			assert.equal(recoverMap(false, inPlace), "pause whole edit recovery for orchestrator decision");
+		assert.equal(recoverMap(true, true), "authorized in-place repair");
+		assert.equal(recoverMap(true, false), "classify");
+		const freshCheck = async () => {
+			const result = await run(operation("preserve", source, retained, hash(bytes)), root);
+			return { result, accepted: result.status === 3 && result.report!.retainedVerified
+				&& result.report!.equal && result.report!.expected === "agreed"
+				&& result.report!.sourceHash === hash(bytes) && result.report!.destinationHash === hash(bytes) };
+		};
+		assert.equal((await freshCheck()).accepted, true);
+		rmSync(retained);
+		const vanished = await freshCheck();
+		expect(vanished.result, 0, "verified");
+		assert.equal(vanished.accepted, false, "creation after the intended copy vanishes pauses");
+		assert.deepEqual(readFileSync(retained), bytes, "leave fresh-check-created bytes unchanged");
 		complete();
 	});
 	requiredCase(names[1]!, { timeout: 12000 }, async (t, complete) => {
@@ -493,7 +659,7 @@ describe("safe record command", { timeout: 60000 }, () => {
 		for (const newline of ["\n", "\r\n"]) {
 			checkWorkerReference(reference.replace(/\r?\n/g, newline), common.replace(/\r?\n/g, newline), recovery.replace(/\r?\n/g, newline));
 			assert.throws(() => checkWorkerReference(reference, common + "\n" + precedenceRule, recovery));
-			assert.throws(() => checkWorkerReference(reference, common, recovery.replace(precedenceRule, "")));
+			assert.throws(() => checkWorkerReference(reference, common, recovery.replace("Failed or unclear creation: only common command-result retries.", "")));
 		}
 		for (const name of ["create", "preserve", "compare", "hash"]) assert.match(help, new RegExp(name + ":"));
 		for (const code of [0, 2, 3, 4, 5, 6, 7, 8]) assert.match(help, new RegExp("\\b" + code + " "));
@@ -556,7 +722,7 @@ describe("safe record command", { timeout: 60000 }, () => {
 		copyFileSync(SAFE_RECORD_WRITE_DOC, join(root, "installed space", "docs", "safe-record-write.md"));
 		const relocatedDoc = join(root, "installed space", "docs", "safe-record-write.md");
 		const relocatedLink = /\[safe-record-write\.mjs\]\(([^)]+)\)/.exec(readFileSync(relocatedDoc, "utf8"))![1]!;
-		const commandRelative = /COMMAND is (\S+) relative to this reference\./.exec(readFileSync(relocatedDoc, "utf8"))![1]!;
+		const commandRelative = /COMMAND is (\S+), relative to this document\./.exec(readFileSync(relocatedDoc, "utf8"))![1]!;
 		assert.equal(commandRelative, relocatedLink);
 		const expectedLink = fileURLToPath(new URL(relocatedLink, pathToFileURL(relocatedDoc)));
 		assert.equal(expectedLink, join(relocated, "safe-record-write.mjs"));

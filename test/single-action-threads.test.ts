@@ -15,7 +15,7 @@ import { registerSlateTools } from "../extension/tools.ts";
 import { renderCompactResult } from "../extension/render.ts";
 import { sanitizeThreadRecord, SLATE_STATE_FORMAT, SlateStore, THREAD_TYPES, type EpisodeRecord, type ThreadRecord } from "../extension/state.ts";
 import { actionTemporaryMessage, ACTION_TEMPORARY_MESSAGE_TYPE, MAX_CONTEXT_EPISODES, messagesForCompression, ThreadManager, type DispatchOptions, type DispatchResult } from "../extension/threads.ts";
-import { changeGuidance, isJudgementThreadType, workerSystemPromptBlocks, WORKER_REQUEST_CONTRACT_ERROR, type WorkerRequestContract } from "../extension/worker.ts";
+import { openWorkerSession, type WorkerSession, changeGuidance, isJudgementThreadType, workerSystemPromptBlocks, WORKER_REQUEST_CONTRACT_ERROR, type WorkerRequestContract } from "../extension/worker.ts";
 import { bindFakeWorkerRequest } from "./worker-request-contract-fixture.ts";
 
 function deferred<T = void>() {
@@ -182,6 +182,79 @@ test("display progress retains failures outside the evidence tail", { timeout: 5
     assert.ok(result.warnings.some((warning) => warning.includes("completed tool calls failed")));
     assert.ok(result.warnings.some((warning) => warning.includes("progress callback failed")));
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("dispatch waits for real managed settlement before returning and releasing its action folder", { timeout: 10_000 }, async () => {
+  const root = mkdtempSync(join(tmpdir(), "slate-dispatch-real-settlement-"));
+  const previousAgent = process.env.PI_CODING_AGENT_DIR, previousOffline = process.env.PI_OFFLINE;
+  process.env.PI_CODING_AGENT_DIR = join(root, "agent");
+  process.env.PI_OFFLINE = "1";
+  const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
+  store.currentChange = createChangeFolder();
+  mkdirSync(join(root, "slate-changes", store.currentChange), { recursive: true });
+  const manager = new ThreadManager(store, {}, undefined, fixtureRuntime());
+  const entered = deferred(), release = deferred(), settling = deferred();
+  let session: WorkerSession | undefined, held: Promise<void> | undefined;
+  let returned = false, shutdown = false, shutdownStarted = false, temporary = "";
+  const ctx = {
+    cwd: root, hasUI: false, isProjectTrusted: () => true, model: workerModel("test", "worker"),
+    modelRegistry: {
+      find: () => workerModel("test", "worker"), hasConfiguredAuth: () => true,
+      getAvailable: async () => [], getRegisteredProviderIds: () => [],
+      getRegisteredNativeProvider: () => undefined, getRegisteredProviderConfig: () => undefined,
+    },
+  } as unknown as ExtensionContext;
+  const internals = manager as any;
+  internals.openWorkerFor = async (args: any) => {
+    session = await openWorkerSession({
+      ctx, config: { workerExtensions: [], cacheKeyEnabled: false }, extensionPaths: [],
+      onCreated: args.observeSession,
+    });
+    const worker = session;
+    worker.prompt = async (text: string) => {
+      if (text === "held managed call") { entered.resolve(); await release.promise; }
+      else { held = worker.sendUserMessage("held managed call"); await entered.promise; }
+    };
+    bindFakeWorkerRequest(worker, args.requestContract);
+    const settle = worker.settleManagedOperations.bind(worker);
+    worker.settleManagedOperations = () => { settling.resolve(); return settle(); };
+    const close = worker.shutdownWorker.bind(worker);
+    worker.shutdownWorker = async () => { shutdownStarted = true; await close(); shutdown = true; };
+    temporary = [...store.actionTemporaryOwners][0]!.path;
+    internals.live.set(args.thread.id, worker);
+    return { session: worker };
+  };
+  let action: Promise<DispatchResult> | undefined;
+  try {
+    action = manager.dispatch({ ...TEST_ROUTE, type: "general", task: "hold managed settlement" }, ctx, undefined);
+    void action.then(() => { returned = true; }, () => { returned = true; });
+    await settlesWithin(settling.promise, "real settlement to begin", 5_000);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(session!.activeManagedOperationCount(), 1);
+    assert.equal(returned, false, "dispatch cannot return while admitted work remains live");
+    assert.equal(store.episodes.size, 0, "dispatch cannot record an outcome before managed settlement");
+    assert.equal(shutdownStarted, false, "dispatch awaits settlement before shutdown");
+    assert.equal(shutdown, false);
+    assert.equal(existsSync(temporary), true);
+    assert.equal(store.actionTemporaryOwners.size, 1);
+    assert.throws(() => store.assertNoActionTemporaryOwners(), /cannot close/);
+    release.resolve();
+    await settlesWithin(held!, "the admitted managed call");
+    await settlesWithin(action, "dispatch after real settlement", 3_000);
+    assert.equal(session!.activeManagedOperationCount(), 0);
+    assert.equal(shutdown, true);
+    assert.equal(store.actionTemporaryOwners.size, 0);
+    assert.equal(existsSync(temporary), false);
+  } finally {
+    release.resolve();
+    if (action) await settlesWithin(action.catch(() => undefined), "dispatch cleanup", 3_000);
+    await settlesWithin(manager.disposeAll(), "manager cleanup", 1_000);
+    if (previousAgent === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previousAgent;
+    if (previousOffline === undefined) delete process.env.PI_OFFLINE;
+    else process.env.PI_OFFLINE = previousOffline;
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("action folders join shutdown and completion across terminal outcomes", { timeout: 10_000 }, async (t) => {

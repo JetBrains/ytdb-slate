@@ -169,9 +169,10 @@ test("preservation share controls every phase and session coordinate", async () 
  const verify = (key: string, required: Read[], maximum: Read[], extra = 0) => {
   const size = bytes(doctrine[key.includes(" on ") ? 1 : 0]!.split(directory).join(""));
   const actual = [size + total(required), size + total(maximum)];
-  const start = preservationStart[key]!;
-  const ceilings = [start[0]!, start[1]! + extra + 600];
-  assert.deepEqual(actual, [start[0]! - 1, start[1]! + extra - 1]);
+  const start = classificationStart[key]!;
+  assert.deepEqual(start, preservationStart[key]!.map((n) => n - 1), `source-stage preservation proof ${key}`);
+  const ceilings = [start[0] + 566, start[1] + extra + 3061];
+  assert.deepEqual(actual, [start[0] + 336, start[1] + extra + 2912]);
   actual.forEach((value, i) => {
    checkLimit(value, ceilings[i]!, key);
    checkLimit(ceilings[i]!, ceilings[i]!, key);
@@ -348,10 +349,34 @@ const acceptedStartLimits: Record<string, [number, number]> = {
 };
 const deliveredGrowth = 2593;
 const placementDelta = [-1395, 80];
-const phaseTotals = Object.fromEntries(Object.entries(acceptedStartTotals)
+const placementTotals = Object.fromEntries(Object.entries(acceptedStartTotals)
   .map(([key, pair]) => [key, pair.map((value, side) => value + deliveredGrowth
     + placementDelta[side]!
     + (key.endsWith("nested") || Number(key.split(" ")[0]) >= 7 && side === 1 ? 6 : 0))]));
+
+// Independent classification starts exclude savings from earlier stages.
+const classificationStart: Record<string, [number, number]> = {
+  "1 off ordinary": [76730, 147169], "1 off nested": [91970, 162409],
+  "1 on ordinary": [88242, 158681], "1 on nested": [103482, 173921],
+  "2 off ordinary": [112767, 183206], "2 off nested": [128007, 198446],
+  "2 on ordinary": [124279, 194718], "2 on nested": [139519, 209958],
+  "3 off ordinary": [112767, 183206], "3 off nested": [128007, 198446],
+  "3 on ordinary": [124279, 194718], "3 on nested": [139519, 209958],
+  "4 off ordinary": [112767, 183206], "4 off nested": [128007, 198446],
+  "4 on ordinary": [124279, 194718], "4 on nested": [139519, 209958],
+  "5 off ordinary": [136920, 235235], "5 off nested": [152160, 250475],
+  "5 on ordinary": [148432, 246747], "5 on nested": [163672, 261987],
+  "6 off ordinary": [136920, 235235], "6 off nested": [152160, 250475],
+  "6 on ordinary": [148432, 246747], "6 on nested": [163672, 261987],
+  "7 off ordinary": [160032, 262939], "7 off nested": [175272, 262939],
+  "7 on ordinary": [171544, 274451], "7 on nested": [186784, 274451],
+  "8 off ordinary": [160032, 262939], "8 off nested": [175272, 262939],
+  "8 on ordinary": [171544, 274451], "8 on nested": [186784, 274451],
+  "9 off ordinary": [160032, 262939], "9 off nested": [175272, 262939],
+  "9 on ordinary": [171544, 274451], "9 on nested": [186784, 274451],
+};
+const phaseTotals = Object.fromEntries(Object.entries(classificationStart)
+  .map(([key, pair]) => [key, [pair[0] + 336, pair[1] + 2912]]));
 
 test("placement keeps exception membership, phase shares and literal worker ceilings", async () => {
   const has = (set: Read[]) => set.some(([id]) => id === "RECORD_WRITE_RECOVERY_DOC");
@@ -370,9 +395,10 @@ test("placement keeps exception membership, phase shares and literal worker ceil
   for (let phase = 1; phase <= 9; phase++) for (const scenario of scenarios) {
     const size = bytes(doctrine[scenario.startsWith("on") ? 1 : 0]!.split(directory).join(""));
     const pair = [size + total(accumulatedReads(phase, scenario)), size + total(accumulatedReads(phase, scenario, true))];
-    const key = `${phase} ${scenario}`, previous = phaseTotals[key]!.map((n, side) => n - placementDelta[side]!);
+    const key = `${phase} ${scenario}`, start = classificationStart[key]!;
+    assert.deepEqual(start, placementTotals[key], `source-stage placement proof ${key}`);
     assert.deepEqual(pair, phaseTotals[key]);
-    assert.ok(pair[0]! <= previous[0]! - 1364 && pair[1]! <= previous[1]! + 255, key);
+    assert.ok(pair[0]! <= start[0] + 566 && pair[1]! <= start[1] + 3061, key);
     pair.forEach((n, side) => checkLimit(n, limits[key][side], key));
   }
   for (const entry of sessionEntries) for (const scenario of scenarios.filter((s: string) => entry.plans.includes(s.split(" ")[1]))) {
@@ -385,13 +411,13 @@ test("placement keeps exception membership, phase shares and literal worker ceil
   const common = total([["CHANGE_RECORDS_DOC", 1, "worker", "worker", ["Manual records and safe writes"]]]);
   const worker = source("SAFE_RECORD_WRITE_DOC"), introEnd = worker.indexOf("## Command contract");
   const narrow = bytes(worker.slice(0, introEnd)) + total([["SAFE_RECORD_WRITE_DOC", 1, "worker", "worker", ["Record preparation and recovery execution"]]]);
-  assert.equal(common, 11775);
-  assert.equal(bytes(worker), 11152);
-  assert.equal(narrow, 2271);
-  assert.equal(bytes(source("RECORD_WRITE_RECOVERY_DOC")), 1475);
+  assert.equal(common, 12079);
+  assert.equal(bytes(worker), 14466);
+  assert.equal(narrow, 5199);
+  assert.equal(bytes(source("RECORD_WRITE_RECOVERY_DOC")), 4051);
   const ceiling = (value: number, limit: number) => assert.ok(value <= limit);
-  const cases = [[common, 11783], [narrow, 2277], [bytes(worker), 11158], [common + narrow, 14060],
-    [common + narrow + 3766, 17826], [common + bytes(worker), 22941], [common + bytes(worker) + 3766, 26707]];
+  const cases = [[common, 12088], [narrow, 5200], [bytes(worker), 14500], [common + narrow, 17287],
+    [common + narrow + 3766, 21053], [common + bytes(worker), 26587], [common + bytes(worker) + 3766, 30353]];
   for (const [value, limit] of cases) {
     ceiling(value!, limit!);
     ceiling(limit! - 1, limit!);
@@ -401,11 +427,17 @@ test("placement keeps exception membership, phase shares and literal worker ceil
 });
 
 const checkChildCeiling = (required: number, maximum: number) => {
-  checkLimit(required, 76731, "child required reservation");
-  checkLimit(maximum, 147770, "child maximum reservation");
+  checkLimit(required, 77296, "child required reservation");
+  checkLimit(maximum, 150230, "child maximum reservation");
 };
 function exactLimits(key: string, pair: number[]): void {
-  assert.deepEqual(pair, acceptedStartLimits[key]!.map((n, side) => n + (key === "1 off ordinary" ? deliveredGrowth : 0) + (side === 1 && /^[1-6] off ordinary$/.test(key) ? 255 : 0)), `exact approved raise ${key}`);
+  const maximums: Record<string, number> = {
+    "1 off ordinary": 150230, "1 on ordinary": 161742,
+    "2 off ordinary": 186267, "3 off ordinary": 186267, "4 off ordinary": 186267,
+    "5 off ordinary": 238296, "6 off ordinary": 238296,
+  };
+  assert.deepEqual(pair, acceptedStartLimits[key]!.map((n, side) => side === 1 ? maximums[key] ?? n
+    : n + (key === "1 off ordinary" ? deliveredGrowth : 0)), `exact approved raise ${key}`);
 }
 function checkLimit(value: number, limit: number, label: string): void {
   assert.ok(Number.isInteger(limit) && value <= limit, `${label}: total ${value}, limit ${limit}, excess ${value - limit}`);
@@ -511,12 +543,12 @@ function table(rows: string[], costs: string[], entries: string[]): string {
     "They are 227,750 bytes / 56,938 estimated tokens with publishing off and",
     "244,594 bytes / 61,149 estimated tokens with publishing on.",
     "The fixed historical safe-write raise G is 2,593 bytes.",
-    "The fixed cumulative recovery raise F is 255 bytes.",
-    "Only phases 1 through 6 with publishing off and ordinary planning add F to their stored maximum limits.",
-    "All required limits and other maximum limits retain their stored literals.",
-    "Research candidate ceilings are 76,731 required and 147,770 maximum bytes.",
-    "Actual research totals are 76,730 required and 147,169 maximum bytes.",
-    "This child permits no required increase and at most 600 maximum bytes per phase and session row. The 600-byte share stays unused.",
+    "Child 1.9.3 replaces the fixed recovery raise F and its six-row restriction.",
+    "Only exceeded stored limits become the row's start total plus its approved share. All other limits stay fixed.",
+    "The classification and recovery allowance applies independently to each required and maximum row.",
+    "Research candidate ceilings are 77,296 required and 150,230 maximum bytes.",
+    "Actual research totals are 77,066 required and 150,081 maximum bytes.",
+    "Each phase and session row permits at most 566 required and 3,061 maximum bytes above the classification and recovery start. No sibling saving transfers.",
     "The protected pool retains 187 bytes. Unused share moves only by recorded user decision.",
     "",
     "| Phase | Publishing | Plan | Required bytes | Estimated tokens | Byte limit | Token limit | Conditional maximum bytes | Estimated tokens | Byte limit | Token limit |",
@@ -580,7 +612,7 @@ function table(rows: string[], costs: string[], entries: string[]): string {
     "Maps use a soft guideline of about 1,500 words, with Mermaid diagrams under 40 nodes.",
     "The worker reference is 3766 bytes. See [maps.md](maps.md) for its writer and authorized checker readers.",
     "Map text, worker reference reads and composed drafts are real excluded costs.",
-    "The safe-write section is 11,775 bytes and includes privacy rules.",
+    "The safe-write section is 12,079 bytes and includes privacy rules.",
     "Only its worker read is a separate excluded cost. Its orchestrator read enters phase totals.",
     "Whole applicable designs supplied to reviewers are excluded costs that repeat across reviewers and fix-gate rounds.",
     "Several maps can exceed fixed-row headroom. These totals do not bound the whole conversation.",
@@ -608,6 +640,7 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
     sources[documentName(exported[id]!)] = union(entries.flatMap((r) => sections(source(id), r[4]))).map(([a, b]) => source(id).slice(a, b)).join("");
   }
   const doctrines = await Promise.all([render(false), render(true)]);
+  assert.deepEqual(doctrines.map((text) => bytes(text.split(directory).join(""))), [8595, 8665]);
   doctrines.forEach((text, i) => { sources[`doctrine-${i}`] = text; });
   validateLimitKeys(limits);
   for (const key of expectedKeys) {
@@ -618,8 +651,9 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
     }
   }
   const fundedMaximums: Record<string, number> = {
-    "1 off ordinary": 147555, "2 off ordinary": 183508, "3 off ordinary": 183508,
-    "4 off ordinary": 183508, "5 off ordinary": 237032, "6 off ordinary": 237032,
+    "1 off ordinary": 150230, "1 on ordinary": 161742,
+    "2 off ordinary": 186267, "3 off ordinary": 186267,
+    "4 off ordinary": 186267, "5 off ordinary": 238296, "6 off ordinary": 238296,
   };
   for (const [key, approved] of Object.entries(fundedMaximums)) {
     assert.equal(limits[key][1], approved, key);
@@ -627,8 +661,8 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
     checkLimit(approved, limits[key][1], key);
     assert.throws(() => checkLimit(approved + 1, limits[key][1], key));
   }
-  assert.deepEqual(limits["1 off ordinary"], [78664, 147555]);
-  assert.deepEqual([78664 - 76731, 147555 - 147170], [1933, 385]);
+  assert.deepEqual(limits["1 off ordinary"], [78664, 150230]);
+  assert.deepEqual([78664 - 76730, 150230 - 147169], [1934, 3061]);
   for (const delta of [-1, 1]) for (const side of [0, 1]) {
     const pair = [...limits["1 off ordinary"]];
     pair[side] += delta;
@@ -682,20 +716,21 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
     checkLimit(maximum, pair[1], `design-track maximum ${scenario}`);
     return `| ${publishing} | ${required} | ${tokens(required)} | ${maximum} | ${tokens(maximum)} | ${pair[1]} | ${tokens(pair[1])} |`;
   });
-  assert.deepEqual(measured[0], { key: "1 off ordinary", requiredBytes: 76730, maximumBytes: 147169, proposed: [80567, 154528] });
+  assert.deepEqual(measured[0], { key: "1 off ordinary", requiredBytes: 77066, maximumBytes: 150081, proposed: [80920, 157586] });
   checkChildCeiling(measured[0].requiredBytes, measured[0].maximumBytes);
-  checkChildCeiling(76731, 147770);
-  assert.ok(source("CONTEXT_BUDGET_DOC").includes("ceilings are 76,731 required and 147,770 maximum bytes."));
+  checkChildCeiling(77295, 150229);
+  checkChildCeiling(77296, 150230);
+  assert.ok(source("CONTEXT_BUDGET_DOC").includes("ceilings are 77,296 required and 150,230 maximum bytes."));
   assert.ok(source("CONTEXT_BUDGET_DOC").includes("G is 2,593 bytes."));
   assert.ok(source("CONTEXT_BUDGET_DOC").includes("retains 187 bytes."));
-  assert.throws(() => checkChildCeiling(76732, 144496), /child required reservation/);
-  assert.throws(() => checkChildCeiling(75532, 147771), /child maximum reservation/);
+  assert.throws(() => checkChildCeiling(77297, 144496), /child required reservation/);
+  assert.throws(() => checkChildCeiling(75532, 150231), /child maximum reservation/);
   checkLimit(75856, limits["1 off ordinary"][0], "wider required control");
   checkLimit(144492, limits["1 off ordinary"][1], "wider maximum control");
-  assert.throws(() => checkChildCeiling(76732, 147344), /child required reservation/);
-  assert.throws(() => checkChildCeiling(76731, 147771), /child maximum reservation/);
+  assert.throws(() => checkChildCeiling(77297, 150230), /child required reservation/);
+  assert.throws(() => checkChildCeiling(77296, 150231), /child maximum reservation/);
   const publication = table(rows, costs, entries);
-  assert.equal(bytes(publication), 11910, "approved publication bytes");
+  assert.equal(bytes(publication), 11990, "approved publication bytes");
   if (process.env.SLATE_PHASE_INSPECT === "1") console.log(JSON.stringify({ measured, references: scan(sources), publication, excluded, costs }));
   assert.equal(Object.keys(limits).length, 36);
   assert.equal(rows.length, 36);
@@ -712,7 +747,7 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
   }
   assert.equal(dirname(paths.MAPS_DOC), dirname(paths.TRACK_WORKFLOW_DOC));
   const safeWriteSection = sections(source("CHANGE_RECORDS_DOC"), ["Manual records and safe writes"]);
-  assert.equal(bytes(source("CHANGE_RECORDS_DOC").slice(...safeWriteSection[0]!)), 11775);
+  assert.equal(bytes(source("CHANGE_RECORDS_DOC").slice(...safeWriteSection[0]!)), 12079);
   assert.ok(source("CONTEXT_BUDGET_DOC").includes("Only its worker read is a separate excluded cost. Its orchestrator read enters phase totals."));
   const protectedHashes: Record<string, string> = {
     "MAPS_DOC": "9d3df9f71b5007c7fae20b961c4ece296efeb9c03ed4ee4207f85c31f89fbc75",
@@ -762,7 +797,7 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
       `The worker-only safe-record-write.md reference measures ${format(bytes(worker))} bytes.`,
       `Command help measures ${bytes(helpText)} bytes within its ${format(Number(bounds[1]))}-byte bound.`,
       `Each non-help command call has a ${format(report + stderr)}-byte output bound.`,
-      `The inactive preservation route allows two ordinary attempts and two recovery attempts per record operation across dispatches.`,
+      `The preservation route allows two ordinary attempts and two recovery attempts per record operation across dispatches.`,
       `Those four attempts have a ${format(4 * (report + stderr))}-byte output bound.`,
       `Accepted occupied fresh checks consume no attempt and each adds at most ${format(report + stderr)} output bytes.`,
       `Repeated fresh checks have no cumulative output bound.`,
@@ -894,8 +929,7 @@ test("session entry sets, continuation, and transfer controls", { timeout: 10000
       const actual = sessionReads(entry, scenario, maximum) as Read[];
       assertEntry(actual, entry, scenario, maximum);
       const doctrine = bytes(doctrines[scenario.startsWith("on") ? 1 : 0]!.split(directory).join(""));
-      assert.equal(doctrine + total(actual), acceptedStartTotals[`${entry.phase} ${scenario}`]![maximum ? 1 : 0]
-        + deliveredGrowth + placementDelta[maximum ? 1 : 0]! + (scenario.endsWith("nested") || entry.phase >= 7 && maximum ? 6 : 0)
+      assert.equal(doctrine + total(actual), phaseTotals[`${entry.phase} ${scenario}`]![maximum ? 1 : 0]!
         + (entry.phase === 1 && entry.id !== "research" && scenario.endsWith("nested") && maximum ? 29762 : 0));
       checkLimit(doctrine + total(actual), limits[`${entry.phase} ${scenario}`][maximum ? 1 : 0], entry.id);
       // Required successor reread and conditional-read omissions must fail independently of bytes.

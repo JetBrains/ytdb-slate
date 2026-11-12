@@ -8,11 +8,11 @@ a662990ad131898b265a18e14e4499b1977774b0c35027a4dc8bd34616fd4512  README-GUIDELI
 
 c3ec46232ae59a874141e6528bebf5a079f492e72048f86474166fde53d58d20  docs/blast-radius.md
 
-fe7ef736e1e2eae60a4738805f21f44e0e1bac4597ef07ba2af7b8c8605334c2  docs/change-records.md
+9b4eed71e1a4ad24ec19d386643ce45614874ad112deddd0d9763873317a21f3  docs/change-records.md
 
 84dcfbeb2f215665c7562f6d7fe37857ceb8438cfc4f7dc80eb9a94296eae517  docs/configuration.md
 
-54e8f021b303c7900c837ea6c911bdbb7db877a13d510c22d85fdeb4d6e40d08  docs/context-budget.md
+f26a7fd5d1797b36402b4bc9955b8b5cc924e9e93ce642fd19776d800676dd30  docs/context-budget.md
 
 a19eef7bf9a86c2cf57f5f510534791c02320b6ce2259eabc3a9e7099d8254c5  docs/delivery-packages.md
 
@@ -24,9 +24,7 @@ a19eef7bf9a86c2cf57f5f510534791c02320b6ce2259eabc3a9e7099d8254c5  docs/delivery-
 
 0fae4450d2f24b44919521a210a39a694be0873a29ae1fb0dd124398d9859f15  docs/pr-publishing.md
 
-fb9fad4fd9272ef2b777d43621dd0fae815eb145b3d51fc3cb1c68d179c4bddf  docs/record-write-pending.md
-
-70e2f95e8f0cd50c5393e93542b0bbcb735b1c7e7aa2d8b92134f1a57c571cca  docs/record-write-recovery.md
+88fedd25e9fb660e23ddbcb8133be7b4501b524567db8968bdab721312741cb8  docs/record-write-recovery.md
 
 c61c06c2dd17236f91fdeb06d943224e37b7cf105ae893dd60f9ca534f4b37c8  docs/recursive-workflow.md
 
@@ -62,11 +60,11 @@ a527dcd58276be7808e0a284add5f1dc08036ee9a522db85a4d5aeab3dd7b2f2  docs/review-pe
 
 6d747d45d7b680b7d7c91ff6158cd8d312c520ab2ae19ded16f4e2d6c77aa675  docs/roadmap.md
 
-ce0623055334123dc402ed22df7049ab64a2d5e6985c4378ad2d5dad0da26433  docs/safe-record-write.md
+a89484d5df1e20c93feb5fb14ad0af1e971db01f4327d1ea78073a95fff617ca  docs/safe-record-write.md
 
 0a5e32799a1b0dc786b32ad2b01a2b363162ce73e75c0fac86896159daa47e52  docs/safety-and-trust.md
 
-cf086f4f3090c8d0e53d0db225b9109cde7cea789aa18d42c42c5bd14534cf48  docs/track-workflow.md
+5cba0832dd7e4f2194b365a80d3c5d82dd220484ab7942d2545c8a891fe9108e  docs/track-workflow.md
 
 f18298e3a2b41c6c77fb92e7410618df557e494374e4392b5085a626d00f01c8  docs/user-notes.md
 
@@ -96,4 +94,4 @@ ff583b7578b55fa21887fde2ca828eb55a6d9efa0851112d830802eae1cc86e4  research/opena
 
 266812b566da8edc5d90936b39bfc7d13e160cd42291aba56b6e00eac3cf5077  research/writing-threshold-provenance.md
 
-ddaaa5dab81cfd7c901f0202ccd1cb648eaa35db48c341bd32725c6b4710609e  verification/README.md
+bfd26acf525c5bf99b6207ed0272a79cfe096f730a88279b27e442a8e072c4a3  verification/README.md
