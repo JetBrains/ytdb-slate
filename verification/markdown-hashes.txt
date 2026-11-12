@@ -8,11 +8,11 @@ a662990ad131898b265a18e14e4499b1977774b0c35027a4dc8bd34616fd4512  README-GUIDELI
 
 c3ec46232ae59a874141e6528bebf5a079f492e72048f86474166fde53d58d20  docs/blast-radius.md
 
-9b4eed71e1a4ad24ec19d386643ce45614874ad112deddd0d9763873317a21f3  docs/change-records.md
+9a76907f1a1b81bc05b379a982a9e4b68e4f03006df2758b7640ff7f3edfe13c  docs/change-records.md
 
 84dcfbeb2f215665c7562f6d7fe37857ceb8438cfc4f7dc80eb9a94296eae517  docs/configuration.md
 
-f26a7fd5d1797b36402b4bc9955b8b5cc924e9e93ce642fd19776d800676dd30  docs/context-budget.md
+7420b78d3075b8b52b7273a77499bf7021189b4a09fd2719d370547bc0ae1ebb  docs/context-budget.md
 
 a19eef7bf9a86c2cf57f5f510534791c02320b6ce2259eabc3a9e7099d8254c5  docs/delivery-packages.md
 
@@ -24,7 +24,7 @@ a19eef7bf9a86c2cf57f5f510534791c02320b6ce2259eabc3a9e7099d8254c5  docs/delivery-
 
 0fae4450d2f24b44919521a210a39a694be0873a29ae1fb0dd124398d9859f15  docs/pr-publishing.md
 
-88fedd25e9fb660e23ddbcb8133be7b4501b524567db8968bdab721312741cb8  docs/record-write-recovery.md
+a8a7a5f753092bb4ad98f57fd3241c6c318be13c7d67d8766baaa4148c57f89a  docs/record-write-recovery.md
 
 c61c06c2dd17236f91fdeb06d943224e37b7cf105ae893dd60f9ca534f4b37c8  docs/recursive-workflow.md
 
@@ -60,7 +60,7 @@ a527dcd58276be7808e0a284add5f1dc08036ee9a522db85a4d5aeab3dd7b2f2  docs/review-pe
 
 6d747d45d7b680b7d7c91ff6158cd8d312c520ab2ae19ded16f4e2d6c77aa675  docs/roadmap.md
 
-a89484d5df1e20c93feb5fb14ad0af1e971db01f4327d1ea78073a95fff617ca  docs/safe-record-write.md
+73dda64d2fa284c45ddb61cecae1156f8f5f384e078ea0ca186e10e32e6581bd  docs/safe-record-write.md
 
 0a5e32799a1b0dc786b32ad2b01a2b363162ce73e75c0fac86896159daa47e52  docs/safety-and-trust.md
 
@@ -94,4 +94,4 @@ ff583b7578b55fa21887fde2ca828eb55a6d9efa0851112d830802eae1cc86e4  research/opena
 
 266812b566da8edc5d90936b39bfc7d13e160cd42291aba56b6e00eac3cf5077  research/writing-threshold-provenance.md
 
-bfd26acf525c5bf99b6207ed0272a79cfe096f730a88279b27e442a8e072c4a3  verification/README.md
+e1166b8f3b0ec890de4876a43e9f6b48090e159f0501aa944267d5cad3eec77e  verification/README.md

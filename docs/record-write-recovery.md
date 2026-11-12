@@ -22,11 +22,12 @@ Verified-write, successor and adoption identities support evidence, restoration,
 Occupied creation matches only its interrupted attempt's checked expected hash.
 Without it, pause even on later approval/task agreement. It grants no other evidence use.
 Bound payloads prove only same-attempt authorized replacement arrival, not prior state or successors.
+Complete bound arrival: check/log, no overwrite/restore.
 Record-only workers check bytes and log agreement. Exit 3 proves no write.
 The interrupted operation selects the writer. Baselines and successors stay record-only.
 Unknown bytes need checked retention and recovery-only logging before an edit decision acts.
 A pre-activation logged verified-write identity counts as a result. Other pre-activation history needs a logged user decision without waiving stop evidence.
-Only disagreement between successive observations made after stop evidence was recorded pauses and voids it. A logged/current mismatch prompting recovery does not. Create exits 4/7 and preserve exit 4 pause without retry and void it.
+Only disagreement between successive observations made after stop evidence was recorded pauses and voids it. A logged/current mismatch prompting recovery does not. Create and preserve exits 4/7 pause without retry and void it.
 
 Unclear or failed append: orchestrator reads its end before retry.
 Failed final check: inspect the whole record.
@@ -35,9 +36,10 @@ Partial text: append a correction naming the cut-off entry.
 
 Failed or unclear `status.md`: retry a whole rewrite.
 A logged interrupted edit stays an edit even when the destination vanishes.
+Absent destination: command-creation restoration from a verified eligible source.
 Failed or unclear creation: only common command-result retries.
 Missing or different preservation copy: leave current unchanged.
-Retry preservation only within its checked first-attempt and next-name allowance.
+Retry preservation only within its checked first attempt + one next-name retry allowance.
 Unclear or failed edit: compare with its intended logged copy. Unverifiable copy pauses replacement. Never guess a copy.
 If unchanged, retry only the edit.
 

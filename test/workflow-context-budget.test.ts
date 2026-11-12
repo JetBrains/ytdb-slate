@@ -172,7 +172,7 @@ test("preservation share controls every phase and session coordinate", async () 
   const start = classificationStart[key]!;
   assert.deepEqual(start, preservationStart[key]!.map((n) => n - 1), `source-stage preservation proof ${key}`);
   const ceilings = [start[0] + 566, start[1] + extra + 3061];
-  assert.deepEqual(actual, [start[0] + 336, start[1] + extra + 2912]);
+  assert.deepEqual(actual, [start[0] + 342, start[1] + extra + 3058]);
   actual.forEach((value, i) => {
    checkLimit(value, ceilings[i]!, key);
    checkLimit(ceilings[i]!, ceilings[i]!, key);
@@ -376,7 +376,7 @@ const classificationStart: Record<string, [number, number]> = {
   "9 on ordinary": [171544, 274451], "9 on nested": [186784, 274451],
 };
 const phaseTotals = Object.fromEntries(Object.entries(classificationStart)
-  .map(([key, pair]) => [key, [pair[0] + 336, pair[1] + 2912]]));
+  .map(([key, pair]) => [key, [pair[0] + 342, pair[1] + 3058]]));
 
 test("placement keeps exception membership, phase shares and literal worker ceilings", async () => {
   const has = (set: Read[]) => set.some(([id]) => id === "RECORD_WRITE_RECOVERY_DOC");
@@ -411,10 +411,10 @@ test("placement keeps exception membership, phase shares and literal worker ceil
   const common = total([["CHANGE_RECORDS_DOC", 1, "worker", "worker", ["Manual records and safe writes"]]]);
   const worker = source("SAFE_RECORD_WRITE_DOC"), introEnd = worker.indexOf("## Command contract");
   const narrow = bytes(worker.slice(0, introEnd)) + total([["SAFE_RECORD_WRITE_DOC", 1, "worker", "worker", ["Record preparation and recovery execution"]]]);
-  assert.equal(common, 12079);
-  assert.equal(bytes(worker), 14466);
-  assert.equal(narrow, 5199);
-  assert.equal(bytes(source("RECORD_WRITE_RECOVERY_DOC")), 4051);
+  assert.equal(common, 12085);
+  assert.equal(bytes(worker), 14480);
+  assert.equal(narrow, 5200);
+  assert.equal(bytes(source("RECORD_WRITE_RECOVERY_DOC")), 4191);
   const ceiling = (value: number, limit: number) => assert.ok(value <= limit);
   const cases = [[common, 12088], [narrow, 5200], [bytes(worker), 14500], [common + narrow, 17287],
     [common + narrow + 3766, 21053], [common + bytes(worker), 26587], [common + bytes(worker) + 3766, 30353]];
@@ -543,11 +543,10 @@ function table(rows: string[], costs: string[], entries: string[]): string {
     "They are 227,750 bytes / 56,938 estimated tokens with publishing off and",
     "244,594 bytes / 61,149 estimated tokens with publishing on.",
     "The fixed historical safe-write raise G is 2,593 bytes.",
-    "Child 1.9.3 replaces the fixed recovery raise F and its six-row restriction.",
     "Only exceeded stored limits become the row's start total plus its approved share. All other limits stay fixed.",
     "The classification and recovery allowance applies independently to each required and maximum row.",
     "Research candidate ceilings are 77,296 required and 150,230 maximum bytes.",
-    "Actual research totals are 77,066 required and 150,081 maximum bytes.",
+    "Actual research totals are 77,072 required and 150,227 maximum bytes.",
     "Each phase and session row permits at most 566 required and 3,061 maximum bytes above the classification and recovery start. No sibling saving transfers.",
     "The protected pool retains 187 bytes. Unused share moves only by recorded user decision.",
     "",
@@ -612,7 +611,7 @@ function table(rows: string[], costs: string[], entries: string[]): string {
     "Maps use a soft guideline of about 1,500 words, with Mermaid diagrams under 40 nodes.",
     "The worker reference is 3766 bytes. See [maps.md](maps.md) for its writer and authorized checker readers.",
     "Map text, worker reference reads and composed drafts are real excluded costs.",
-    "The safe-write section is 12,079 bytes and includes privacy rules.",
+    "The safe-write section is 12,085 bytes and includes privacy rules.",
     "Only its worker read is a separate excluded cost. Its orchestrator read enters phase totals.",
     "Whole applicable designs supplied to reviewers are excluded costs that repeat across reviewers and fix-gate rounds.",
     "Several maps can exceed fixed-row headroom. These totals do not bound the whole conversation.",
@@ -716,7 +715,7 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
     checkLimit(maximum, pair[1], `design-track maximum ${scenario}`);
     return `| ${publishing} | ${required} | ${tokens(required)} | ${maximum} | ${tokens(maximum)} | ${pair[1]} | ${tokens(pair[1])} |`;
   });
-  assert.deepEqual(measured[0], { key: "1 off ordinary", requiredBytes: 77066, maximumBytes: 150081, proposed: [80920, 157586] });
+  assert.deepEqual(measured[0], { key: "1 off ordinary", requiredBytes: 77072, maximumBytes: 150227, proposed: [80926, 157739] });
   checkChildCeiling(measured[0].requiredBytes, measured[0].maximumBytes);
   checkChildCeiling(77295, 150229);
   checkChildCeiling(77296, 150230);
@@ -730,7 +729,7 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
   assert.throws(() => checkChildCeiling(77297, 150230), /child required reservation/);
   assert.throws(() => checkChildCeiling(77296, 150231), /child maximum reservation/);
   const publication = table(rows, costs, entries);
-  assert.equal(bytes(publication), 11990, "approved publication bytes");
+  assert.equal(bytes(publication), 11913, "approved publication bytes");
   if (process.env.SLATE_PHASE_INSPECT === "1") console.log(JSON.stringify({ measured, references: scan(sources), publication, excluded, costs }));
   assert.equal(Object.keys(limits).length, 36);
   assert.equal(rows.length, 36);
@@ -747,7 +746,7 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
   }
   assert.equal(dirname(paths.MAPS_DOC), dirname(paths.TRACK_WORKFLOW_DOC));
   const safeWriteSection = sections(source("CHANGE_RECORDS_DOC"), ["Manual records and safe writes"]);
-  assert.equal(bytes(source("CHANGE_RECORDS_DOC").slice(...safeWriteSection[0]!)), 12079);
+  assert.equal(bytes(source("CHANGE_RECORDS_DOC").slice(...safeWriteSection[0]!)), 12085);
   assert.ok(source("CONTEXT_BUDGET_DOC").includes("Only its worker read is a separate excluded cost. Its orchestrator read enters phase totals."));
   const protectedHashes: Record<string, string> = {
     "MAPS_DOC": "9d3df9f71b5007c7fae20b961c4ece296efeb9c03ed4ee4207f85c31f89fbc75",

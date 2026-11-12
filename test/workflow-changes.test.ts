@@ -330,8 +330,8 @@ const mapRules = [
   `Create assigned new maps only with the installed safe-record-write command. Read <${SAFE_RECORD_WRITE_DOC}>: introduction and § Record preparation and recovery execution for edits, preservation and present-record repair, all for command creation (also absent-record restoration). Hash logging and successor checks: record-only.`,
   "Keep interrupted edits as edits even when their destinations vanish.",
   "Pause map writes unless the task names the destination, creation or edit, write and check methods, read-only sources and, for edits, the eligible stored-bytes hash and verified preserved-copy path.",
-  "Check map entries before each attempt.",
-  "Match stored bytes to that writer's same-attempt report before logging.",
+  "Tasks name checked map-attempt entries.",
+  "Record-only: match stored bytes to the writer's same-attempt report before logging.",
 ] as const;
 function assertMapMethod(task: string) {
   for (const rule of mapRules) assert.equal(task.split(rule).length, 2, rule);
@@ -434,7 +434,7 @@ test("implementer receives its report path and approved method with and without 
   for (const removed of ["and stop.", "Never retry that append."]) {
     assert.throws(() => resultAfterUnclearAppend(task!.replace(removed, ""), 1));
   }
-  assert.deepEqual(guidanceBytes, [1912, 2466], "portable production-rendered guidance bytes, source absent and present");
+  assert.deepEqual(guidanceBytes, [1925, 2479], "portable production-rendered guidance bytes, source absent and present");
   const published = readFileSync(new URL("../docs/context-budget.md", import.meta.url), "utf8");
   const format = (bytes: number) => bytes.toLocaleString("en-US");
   assert.ok(published.includes(`Its generated guidance is ${format(guidanceBytes[0]!)} UTF-8 bytes without a source folder.`));
@@ -447,37 +447,37 @@ test("implementer receives its report path and approved method with and without 
 
 test("all worker task identities retain literal totals and accepted growth", { timeout: 10000 }, async () => {
   const expected: Array<[string, number, number, number, number]> = [
-    ["append",14046,17278,3232,17287],
-    ["status creation",14046,17278,3232,17287],
-    ["status rewrite",14046,17278,3232,17287],
-    ["preservation retry",14046,17278,3232,17287],
-    ["map preservation retry",17812,21044,3232,21053],
-    ["draft creation",11775,12079,304,12341],
-    ["activated plan edit",11775,17278,5503,17287],
-    ["design edit",14046,17278,3232,17287],
-    ["restoration and edit retry",14046,17278,3232,17287],
-    ["map edit",17812,21044,3232,21053],
-    ["map restoration and retry",17812,21044,3232,21053],
-    ["map command creation/hash/successor",26693,30311,3618,30353],
-    ["command creation",22927,26545,3618,26587],
-    ["hash logging",22927,26545,3618,26587],
-    ["successor checks",22927,26545,3618,26587],
-    ["Implementer report",1782,1912,130,1926],
-    ["Implementer report/map edit",19594,22956,3362,22979],
-    ["Implementer report/map retry",19594,22956,3362,22979],
-    ["Implementer report/map creation",28475,32223,3748,32279],
-    ["Fixer report",1782,1912,130,1926],
-    ["Fixer report/map edit",19594,22956,3362,22979],
-    ["Fixer report/map retry",19594,22956,3362,22979],
-    ["Fixer report/map creation",28475,32223,3748,32279],
-    ["Implementer report source",2336,2466,130,2480],
-    ["Implementer report/map edit source",20148,23510,3362,23533],
-    ["Implementer report/map retry source",20148,23510,3362,23533],
-    ["Implementer report/map creation source",29029,32777,3748,32833],
-    ["Fixer report source",2336,2466,130,2480],
-    ["Fixer report/map edit source",20148,23510,3362,23533],
-    ["Fixer report/map retry source",20148,23510,3362,23533],
-    ["Fixer report/map creation source",29029,32777,3748,32833],
+    ["append",14046,17285,3239,17287],
+    ["status creation",14046,17285,3239,17287],
+    ["status rewrite",14046,17285,3239,17287],
+    ["preservation retry",14046,17285,3239,17287],
+    ["map preservation retry",17812,21051,3239,21053],
+    ["draft creation",11775,12085,310,12341],
+    ["activated plan edit",11775,17285,5510,17287],
+    ["design edit",14046,17285,3239,17287],
+    ["restoration and edit retry",14046,17285,3239,17287],
+    ["map edit",17812,21051,3239,21053],
+    ["map restoration and retry",17812,21051,3239,21053],
+    ["map command creation/hash/successor",26693,30331,3638,30353],
+    ["command creation",22927,26565,3638,26587],
+    ["hash logging",22927,26565,3638,26587],
+    ["successor checks",22927,26565,3638,26587],
+    ["Implementer report",1782,1925,143,1926],
+    ["Implementer report/map edit",19594,22976,3382,22979],
+    ["Implementer report/map retry",19594,22976,3382,22979],
+    ["Implementer report/map creation",28475,32256,3781,32279],
+    ["Fixer report",1782,1925,143,1926],
+    ["Fixer report/map edit",19594,22976,3382,22979],
+    ["Fixer report/map retry",19594,22976,3382,22979],
+    ["Fixer report/map creation",28475,32256,3781,32279],
+    ["Implementer report source",2336,2479,143,2480],
+    ["Implementer report/map edit source",20148,23530,3382,23533],
+    ["Implementer report/map retry source",20148,23530,3382,23533],
+    ["Implementer report/map creation source",29029,32810,3781,32833],
+    ["Fixer report source",2336,2479,143,2480],
+    ["Fixer report/map edit source",20148,23530,3382,23533],
+    ["Fixer report/map retry source",20148,23530,3382,23533],
+    ["Fixer report/map creation source",29029,32810,3781,32833],
   ];
   const text = (path: string | URL) => readFileSync(path, "utf8").replace(/\r\n/g, "\n");
   const size = (value: string) => Buffer.byteLength(value);

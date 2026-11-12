@@ -183,7 +183,7 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 					`Create assigned new maps only with the installed safe-record-write command. Read <${SAFE_RECORD_WRITE_DOC}>: introduction and § Record preparation and recovery execution for edits, preservation and present-record repair, all for command creation (also absent-record restoration). Hash logging and successor checks: record-only. ` +
 					"Keep interrupted edits as edits even when their destinations vanish. " +
 					"Pause map writes unless the task names the destination, creation or edit, write and check methods, read-only sources and, for edits, the eligible stored-bytes hash and verified preserved-copy path." +
-					" Check map entries before each attempt. Match stored bytes to that writer's same-attempt report before logging." +
+					" Tasks name checked map-attempt entries. Record-only: match stored bytes to the writer's same-attempt report before logging." +
 					(store.sourceChange
 						? ` If the source folder has this track's report, continue it in this new report and name slate-changes/${store.sourceChange}/${reportName} as read-only in the new report's first entry. Do not edit the source report. If an assigned map exists only in the source folder, pause map writing until a record-only worker creates its successor copy. Do not create a replacement map from scratch. Never write in the read-only source folder \`slate-changes/${store.sourceChange}/\`.`
 						: "")

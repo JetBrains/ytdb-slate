@@ -836,9 +836,9 @@ A missing or mismatched installation reports the remedy `npm ci --ignore-scripts
 The resolver wrapper checks these prerequisites before running checks and refuses with exit 2.
 The in-suite parser contract remains a second check.
 
-The record-contract family has 9,124 mutations, including 8,994 safe-write attacks.
-Its 40 duties contain 224 independently owned clauses across the common, worker and exception documents.
-Active-owner checks add 115 attacks and 47 controls without the complete-byte guard.
+The record-contract family has 9,194 mutations, including 9,064 safe-write attacks.
+Its 40 duties contain 226 independently owned clauses across the common, worker and exception documents.
+Active-owner checks add 121 attacks and 48 controls without the complete-byte guard.
 The common rules require command retention before design, map and plan edits.
 Each write attempt needs checked operation and attempt entries.
 Plan edits require an eligible root-log identity, verified retention and an orchestrator decision.

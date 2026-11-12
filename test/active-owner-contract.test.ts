@@ -68,8 +68,8 @@ test("active owner controls expose occurrence and boundary mutants without byte 
   for (const control of controls) assert.ok(control.passed, control.id);
   const rows = activeOwnerAttacks(source);
   assert.deepEqual(rows.map((row: any) => row.id), activeOwnerMutationIds);
-  assert.equal(rows.length, 115);
-  assert.equal(controls.length, 47);
+  assert.equal(rows.length, 121);
+  assert.equal(controls.length, 48);
   for (const row of rows) assert.ok(row.changed && row.rejected, row.id);
   // Contradictions leave clauses present, so the separate complete-byte layer is required.
   const contradiction = { ...source, E: source.E + "\nAll exceptions are optional.\n" };

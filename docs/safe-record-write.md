@@ -81,7 +81,7 @@ Check that every operation and exit key occurs exactly once and only defined cla
 Use accept, retry creation, retry preservation, pause occupied, pause identity and pause unknown.
 Report exactly one class and the operation’s proof fields.
 Accept requires all operation-specific proof above, not exit 0 alone.
-Known exits 2, 5, 6, 8, a command that cannot run and unavailable exclusive creation take precedence.
+Known exits 2, 5, 6, 8, create exits 4/7, a command that cannot run and unavailable exclusive creation take precedence.
 For create, a missing or invalid command report or a signal means retry creation with the same expected hash.
 Other unclear command results mean pause unknown.
 A worker report with no defined class, several classes or accept without the required proof means pause unknown.
@@ -107,7 +107,7 @@ For pause occupied and pause unknown, report the result for the common exception
 Log appends and status rewrites keep their own rules. All design, map and plan callers follow checked history and stopped-writer duties.
 Occupied equality never proves creation. Never log exit 3 as a write identity.
 For preserve exit 3, complete occupied proof means accept retention, never creation. Unequal occupied bytes permit retry only with checked history, reliable unchanged identity and recovery stop evidence when applicable. Missing proof pauses unknown.
-Fresh-create exit 4 and exit 7 pause and void stop evidence.
+Create/preserve exits 4/7 pause and void stop evidence.
 Fresh occupied-only retention checks accept no other result, including exit 0. No new retained file is an attempt-free check.
 A logged interrupted edit remains an edit even if the destination vanishes.
 Keep explicit edit prerequisites and methods.
@@ -162,8 +162,8 @@ Entry = one attempt: record, operation (path, checked creation/edit entry), kind
 Only record-only workers append/check entries. No recursive entries.
 Missing results consume attempts. Requests/sessions reset none. Only occupied proof against the copy's logged identity consumes no fresh-check attempt.
 Vanished copy, including fresh-check exit 0: pause. Leave created bytes unchanged.
-Unequal occupied exit 3 permits an available next-name retry only with unchanged source and reliable identity. Fresh-create exit 4: pause as change.
-Bad reports pause unknown. Fatal exits precede retries. Creation retries are uncapped, each with a new dispatch/entry.
+Unequal occupied exit 3 permits an available next-name retry only with unchanged source and reliable identity. Create/preserve exits 4/7: pause as change.
+Bad reports pause unknown. Exits 2/5/6/8 precede retries. Creation retries are uncapped, each with a new dispatch/entry.
 Proofs cannot exclude a third path sharing the file through a hard link. Final-leaf, parent-link and Windows limits remain.
 
 ### Active replacement and recovery execution
@@ -180,4 +180,4 @@ Unchanged bytes: authorized edit retry only. Complete bound payload arrival: che
 Otherwise retain changed bytes with checked recovery-only logging before restoration. Check restored bytes before retry.
 Before replacement, match design/plan payloads to approval/orchestrator decision. Maps bind to their writer's same-attempt report, never later reports/actions.
 Missing map report pauses whole edit recovery, including in-place edits, for the orchestrator decision. Check stored agreement before logging.
-Only successive post-evidence observations that disagree pause and void stop evidence, including retry/refresh mismatch or disappearance/reappearance. Create exits 4/7 and preserve exit 4 pause without retry and void it.
+Only successive post-evidence observations that disagree pause and void stop evidence, including retry/refresh mismatch or disappearance/reappearance. Create and preserve exits 4/7 pause without retry and void it.

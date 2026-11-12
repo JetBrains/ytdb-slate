@@ -50,7 +50,7 @@ Logs hold decisions, approval hashes, links and accounting, not design authority
 Multi-track changes need a track plan.
 A track with review-fix children is multi-track. Without children, a single track needs no plan.
 Plan creation and successor copies follow design hash, check and privacy duties.
-Plan edits require the root log's eligible stored identity, verified preservation and the orchestrator decision.
+Plan edits require the root log's eligible stored identity, verified preservation and the orchestrator decision's plan hash.
 The root research log owns plan hashes.
 Design tracks have no implementer report or implementation commit.
 `root-baseline-map.md`, `track-<number>-baseline-map.md` and `track-<number>-implementation-map.md` explain source, not requirements.
@@ -140,6 +140,7 @@ The orchestrator reads [record-write-recovery.md](record-write-recovery.md) with
 - occupied creation.
 
 Workers report these triggers and stop.
+
 Tasks name [safe-record-write.md](safe-record-write.md): introduction and § Record preparation and recovery execution for appends, status, design/map/plan edits, preservation (first/retry) and present-record restoration/retry. Command creation (also absent-record restoration), hash logging and successor checks read all. Split tasks by writer permissions. Drafts read common rules only. Reports use generated guidance plus common/worker map rules.
 
 Creation: first log/report append, new status/design/map/plan. Edit: later append, status rewrite, design/map/plan change.
@@ -199,7 +200,7 @@ Recovery observation, copying, classification and writes need stop evidence, inc
 Stop evidence: logged user confirmation that the earlier session and all its commands ended, e.g. after restart.
 Termination requests, tool/command returns, worker claims and missing thread results are not stop evidence.
 Only overlapping exclusive command creations are exempt until occupied.
-Only successive observations after stop evidence that disagree void it. Create exits 4/7 and preserve exit 4 pause without retry and void it. Evidence covers prior-started writers. Later writers follow ordinary results.
+Only successive observations after stop evidence that disagree void it. Create and preserve exits 4/7 pause without retry and void it. Evidence covers prior-started writers. Later writers follow ordinary results.
 
 ### Design authority and privacy
 

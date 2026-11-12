@@ -106,7 +106,7 @@ function checkWorkerReference(reference: string, common: string, recovery: strin
 		"Hashing requires writeState not-created, a full sourceHash, equal null, destinationHash null and retainedVerified false.",
 	];
 	const commonRules = [
-		"Plan edits require the root log's eligible stored identity, verified preservation and the orchestrator decision.",
+		"Plan edits require the root log's eligible stored identity, verified preservation and the orchestrator decision's plan hash.",
 		"After checked design/map/plan edits, report the full hash.",
 		"Creation needs operation create, code ok, writeState verified, equal true, equal full hashes and any expected hash agreed, not exit 0 alone.",
 	];
@@ -122,7 +122,7 @@ function checkWorkerReference(reference: string, common: string, recovery: strin
 			}
 		}
 	}
-	const precedence = "Known exits 2, 5, 6, 8, a command that cannot run and unavailable exclusive creation take precedence.";
+	const precedence = "Known exits 2, 5, 6, 8, create exits 4/7, a command that cannot run and unavailable exclusive creation take precedence.";
 	const ordered = (source: string) => {
 		requireRules(source, [precedence]);
 		assert.ok(source.indexOf(precedence) < source.indexOf("For create,"));
@@ -210,7 +210,12 @@ function checkWorkerReference(reference: string, common: string, recovery: strin
 		return base && (op === "hash" ? value.equal === null && value.destinationHash === null
 			: op === "compare" && !expected && value.equal === true && value.sourceHash === value.destinationHash);
 	};
+	let routeStopEvidence = true;
 	function route(op: string, exit: number | null, reports: Record<string, unknown>[], expected?: string, canRun = true, exclusive = true, occupiedOnly = false, retryAllowed = false): string {
+		if (["create", "preserve"].includes(op) && [4, 7].includes(exit!)) {
+			routeStopEvidence = false;
+			return "pause unknown";
+		}
 		if (exit === 5 && ["create", "preserve", "hash"].includes(op)) return "pause identity";
 		if (!canRun || !exclusive || [2, 6, 8].includes(exit!)) return "pause unknown";
 		const index = exits.indexOf(exit!);
@@ -247,6 +252,11 @@ function checkWorkerReference(reference: string, common: string, recovery: strin
 		}
 	}
 	for (const bad of [[], [proof, proof], [{ ...proof, code: "bad" }]]) assert.equal(route("create", 0, bad, digest), "retry creation");
+	for (const exit of [4, 7]) for (const reports of [[], [proof, proof], [{ ...proof, code: "bad" }]]) {
+		routeStopEvidence = true;
+		assert.equal(route("create", exit, reports, digest), "pause unknown");
+		assert.equal(routeStopEvidence, false, `create exit ${exit} voids stop evidence despite invalid reports`);
+	}
 	assert.equal(route("create", null, [], digest), "retry creation");
 	assert.equal(route("create", 3, [{ ...proof, code: "occupied" }], digest), "pause occupied");
 	for (const exit of [2, 5, 6, 8]) for (const reports of [[], [proof, proof], [{ ...proof, code: "bad" }]]) {
@@ -340,10 +350,10 @@ function checkWorkerReference(reference: string, common: string, recovery: strin
 	assert.equal(attempt("recovery", "0".repeat(64), digest), "pause identity");
 	assert.equal(stopped, false, "changed retry identity voids stop evidence");
 	const observe = (op: string, exit: number, retryMismatch = false) => {
-		if (op === "create" && [4, 7].includes(exit) || op === "preserve" && (exit === 4 || exit === 5 && retryMismatch)) stopped = false;
+		if (op === "create" && [4, 7].includes(exit) || op === "preserve" && ([4, 7].includes(exit) || exit === 5 && retryMismatch)) stopped = false;
 		return exit === 5 ? "pause identity" : "pause unknown";
 	};
-	for (const [op, exit, mismatch] of [["create", 4, false], ["create", 7, false], ["preserve", 4, false], ["preserve", 5, true]] as const) {
+	for (const [op, exit, mismatch] of [["create", 4, false], ["create", 7, false], ["preserve", 4, false], ["preserve", 7, false], ["preserve", 5, true]] as const) {
 		stopped = true;
 		assert.equal(observe(op, exit, mismatch), exit === 5 ? "pause identity" : "pause unknown");
 		assert.equal(stopped, false);
@@ -363,9 +373,21 @@ function checkWorkerReference(reference: string, common: string, recovery: strin
 	assert.equal(exempt(true, false), true);
 	assert.equal(exempt(true, true), false);
 	assert.equal(exempt(false, false), false);
-	const planEdit = (stored: boolean, retained: boolean, decision: boolean) => stored && retained && decision;
-	assert.equal(planEdit(true, true, true), true);
-	for (const fields of [[false, true, true], [true, false, true], [true, true, false]]) assert.equal(planEdit(fields[0]!, fields[1]!, fields[2]!), false);
+	type PlanDecision = { id: string; planHash?: string; logged: boolean };
+	const decision: PlanDecision = { id: "authorized", planHash: digest, logged: true };
+	const planEdit = (stored: boolean, retained: boolean, binding: PlanDecision | undefined, payload = bytes) =>
+		stored && retained && binding?.id === decision.id && binding.logged
+		&& binding.planHash === hash(payload) && /^[a-f0-9]{64}$/.test(binding.planHash);
+	assert.equal(planEdit(true, true, decision), true);
+	assert.equal(planEdit(false, true, decision), false);
+	assert.equal(planEdit(true, false, decision), false);
+	assert.equal(planEdit(true, true, undefined), false);
+	for (const binding of [
+		{ ...decision, planHash: undefined }, { ...decision, planHash: digest.slice(0, 12) },
+		{ ...decision, planHash: hash("decision text") }, { ...decision, planHash: hash("other plan") },
+		{ ...decision, id: "another decision" }, { ...decision, logged: false },
+	]) assert.equal(planEdit(true, true, binding), false);
+	assert.equal(planEdit(true, true, decision, Buffer.from("different payload")), false);
 	type Identity = { log: string; path: string; entry: number; kind: string; hash: string };
 	const identities: Identity[] = [];
 	const select = (log: string, path: string, boundary: number) => identities.filter(identity =>

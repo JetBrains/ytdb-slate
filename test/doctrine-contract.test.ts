@@ -959,6 +959,28 @@ for (const [id, sentences] of safeWriteDuties as [string, string[]][]) {
     for (const attack of attacks) assert.ok(attack.changed && attack.rejected, attack.id);
   });
 }
+test("safe-write attack generation uses a constant selected-parser call count", { timeout: 60000 }, async () => {
+  const code = readFileSync(new URL("../verification/record-mutation-roster.mjs", import.meta.url), "utf8");
+  const target = 'lex: (source) => Lexer.lex(';
+  assert.equal(code.split(target).length, 2);
+  const counted = 'export let lexerCalls = 0;\n' + code.replace(target, 'lex: (source) => (++lexerCalls, Lexer.lex(')
+    .replace('{ gfm: true, breaks: false, pedantic: false }) };', '{ gfm: true, breaks: false, pedantic: false })) };');
+  const load = (text: string) => import("data:text/javascript;base64," + Buffer.from(text).toString("base64"));
+  const small = await load(counted + "\n// small sample");
+  const full = await load(counted + "\n// full sample");
+  const smallRows = small.safeWriteAttacks(dutySources, small.safeWriteDuties.slice(0, 1));
+  const fullRows = full.safeWriteAttacks(dutySources);
+  const bounded = (calls: number) => calls >= 3 && calls <= 10;
+  assert.ok(fullRows.length > smallRows.length * 10);
+  assert.equal(small.lexerCalls, full.lexerCalls);
+  assert.ok(bounded(full.lexerCalls), `selected-parser calls: ${full.lexerCalls}`);
+  const attackLoop = 'return [...outside, ...attacks.map(([kind, replacement]) => {';
+  assert.equal(counted.split(attackLoop).length, 2);
+  const mutant = await load(counted.replace(attackLoop, attackLoop + "\n   parser().lex(source.C);"));
+  mutant.safeWriteAttacks(dutySources, mutant.safeWriteDuties.slice(0, 1));
+  assert.equal(bounded(mutant.lexerCalls), false, "a selected-parser call per attack must fail the guard");
+});
+
 test("active owner predicates reject the count-preserving issue 587 relocation", () => {
   const clauses = safeWriteDuties[0][1];
   const changed = { ...dutySources, C: dutySources.C.replace(clauses[0], "") + "\n## Outside owner\n" + clauses[0] };
@@ -1009,9 +1031,9 @@ test("outside-owner copies expose the narrow scan in every uncovered section", a
   const parts = ["C-introduction", "C-before", "C-after", "W-introduction", "W-command-contract", "W-invocation",
     "W-reports", "W-routes", "W-bounds", "W-after", "E-whole"];
   assert.equal(safeWriteDuties.length, 40);
-  assert.equal(safeWriteDuties.reduce((count: number, [, clauses]: any) => count + clauses.length, 0), 224);
-  assert.equal(outside(attacks).length, 4928);
-  assert.equal(outside(cachedDutyAttacks).length, 4928);
+  assert.equal(safeWriteDuties.reduce((count: number, [, clauses]: any) => count + clauses.length, 0), 226);
+  assert.equal(outside(attacks).length, 4972);
+  assert.equal(outside(cachedDutyAttacks).length, 4972);
   for (const [id, clauses] of safeWriteDuties) {
     for (let clause = 0; clause < clauses.length; clause++) {
       for (const part of parts) for (const kind of ["copy", "duplicate"]) {
@@ -1024,7 +1046,7 @@ test("outside-owner copies expose the narrow scan in every uncovered section", a
       }
     }
   }
-  assert.equal(outside(attacks).filter((attack: any) => !attack.rejected).length, 4032);
+  assert.equal(outside(attacks).filter((attack: any) => !attack.rejected).length, 4068);
   assert.ok(safeWriteDuties.every(([, clauses]: any) => acceptsSafeWriteDuty(dutySources, clauses)));
   for (const key of ["C", "W", "E"]) {
     assert.ok(safeWriteDuties.every(([, clauses]: any) =>
@@ -1119,8 +1141,8 @@ const policies: Record<string, Record<string, string>> = {
     restorationExecution: "Otherwise retain changed bytes with checked recovery-only logging before restoration. Check restored bytes before retry.",
   },
   "record-write-recovery": {
-    firstWrite: "Failed or unclear `status.md`: retry a whole rewrite. A logged interrupted edit stays an edit even when the destination vanishes. Failed or unclear creation: only common command-result retries.",
-    missingCopy: "Missing or different preservation copy: leave current unchanged. Retry preservation only within its checked first-attempt and next-name allowance.",
+    firstWrite: "Failed or unclear `status.md`: retry a whole rewrite. A logged interrupted edit stays an edit even when the destination vanishes. Absent destination: command-creation restoration from a verified eligible source. Failed or unclear creation: only common command-result retries.",
+    missingCopy: "Missing or different preservation copy: leave current unchanged. Retry preservation only within its checked first attempt + one next-name retry allowance.",
     recoveryOrder: "If unchanged, retry only the edit.",
     recoveryPause: "Unclear or failed edit: compare with its intended logged copy. Unverifiable copy pauses replacement. Never guess a copy.",
   },
@@ -1176,7 +1198,7 @@ test("record policy rejects unsafe copy, identity, adoption and migration scenar
     ["change-records", "unscoped pre-edit barrier", "Edit/successor selectors use the latest eligible record-path entry.", "Edits need no eligible record-path entry."],
     ["change-records", "new code track implicitly migrates recorded change", "In new/migrated changes, multi-track code tracks use", "Every multi-track code track uses"],
     ["change-records", "fixer report append forbidden", "Fixers append their reports and edit assigned maps.", "Fixers change only assigned maps."],
-    ["record-write-recovery", "first-write retry blocked", "A logged interrupted edit stays an edit even when the destination vanishes. Failed or unclear creation: only common command-result retries.", "Retry it only after finding a logged identity."],
+    ["record-write-recovery", "first-write retry blocked", "A logged interrupted edit stays an edit even when the destination vanishes. Absent destination: command-creation restoration from a verified eligible source. Failed or unclear creation: only common command-result retries.", "Retry it only after finding a logged identity."],
     ["change-records", "successor logs before checking", "then logs it.", "log it before checking."],
     ["change-records", "failed successor check supplies identity", "A failed check gives no identity and pauses affected reliance.", "A failed check still supplies identity."],
     ["safe-record-write", "versioned map form removed", "immutable unused versioned names beside the record", "any mutable name in scratch"],

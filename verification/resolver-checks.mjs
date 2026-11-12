@@ -3497,7 +3497,7 @@ Use its § Session handoff and the research log for ownership.`);
 			const resumeOrderExpected = normalizeText(`Resume in this fixed order: 1. Read the initial request and latest state summary. Before relying on a summary, check that its named subtree entry exists. An older summary without a subtree reference still resumes under its recorded workflow. 2. Read later decisions and the active subtree's records. When the summary names an existing current implementer report, read it there. Use [recursive-workflow.md](recursive-workflow.md) § Resume and folder forks for tree reconciliation and read-only source boundaries. Before resuming a paused subtree, read its typed \`decision\` entry in the owning parent research log. Check that its unfinished sibling dependency has completed and its recorded resume condition holds. Confirm the decision records a boundary between code-track ranges, with no open range. A status entry alone authorizes neither pause nor resume. 3. Inspect marker commits and the current branch state. 4. Reconcile the declared file list, track table, coverage register, proved focus areas, risk record, and live diff. 5. Re-run any stale precondition check. 6. Apply the user-decision reuse rule before asking any question. 7. Continue only after answering: **What changed since the last state summary, and does it change focus, scope, or required gates?** A mismatch pauses work. Reconcile it in the log. Use marker commits and Git history as boundary authority. The track table is display-only.`);
 			const recursiveRecordUnits = [
 				{ id: "identifiers-ranges", source: commonRecords, start: "## Identifiers, code ranges, and design markers", extract: headingUnit("## Identifiers, code ranges, and design markers"), expected: "0d995abc7711561bde6f3b397106a7c4957559453f5d45320352cfd1bfc52ffb" },
-				{ id: "tool-records-and-recovery", source: commonRecords, start: "## Manual records and safe writes", extract: headingUnit("## Manual records and safe writes"), expected: "27cc150b1445255ff034ddc36a33008c054d75d9bfbe3c21e3db46a4f98b40a8" },
+				{ id: "tool-records-and-recovery", source: commonRecords, start: "## Manual records and safe writes", extract: headingUnit("## Manual records and safe writes"), expected: "bc77d3c7268cc5d96d60c977d1a35978e133222fecf2924182b4851a9f3d3601" },
 				{ id: "resume-forks", source: recursive, start: "## Resume and folder forks", extract: headingUnit("## Resume and folder forks"), expected: "953d25a6c6cf11abdf8fc12aeea4db0223480331fb6c199e507c9e87ac0e5fc7" },
 				{ id: "handoff-pointer", source: recursive, start: "## Handoff boundaries", extract: headingUnit("## Handoff boundaries"), expected: "225c24f843fa607d5ebfd489e574e16641953dab064546450ea0082463bf48d0" },
 				{ id: "marker-identity", source: workflow, extract: markedUnit("marker-identity-policy"), expected: "ae24e23298695b323c803f31515c87ee8de5777cd0b0a13dba90d747c9df4308" },
@@ -3527,7 +3527,7 @@ Use its § Session handoff and the research log for ownership.`);
 			// Independent reviewed pins protect the common owner.
 			commonUnits = [
 				{ id: "identifiers", start: "## Identifiers, code ranges, and design markers", expected: "0d995abc7711561bde6f3b397106a7c4957559453f5d45320352cfd1bfc52ffb" },
-				{ id: "records", start: "## Manual records and safe writes", expected: "27cc150b1445255ff034ddc36a33008c054d75d9bfbe3c21e3db46a4f98b40a8" },
+				{ id: "records", start: "## Manual records and safe writes", expected: "bc77d3c7268cc5d96d60c977d1a35978e133222fecf2924182b4851a9f3d3601" },
 			];
 			const acceptsCommon = (source) => commonUnits.every(({ start, expected }) => {
 				const region = headingUnit(start)(source);
@@ -3535,7 +3535,7 @@ Use its § Session handoff and the research log for ownership.`);
 			});
 			privacyHeading = "### Design authority and privacy";
 			const commonHeadings = [...commonUnits.map(({ start }) => start), privacyHeading];
-			const completeCommonDigest = "9b4eed71e1a4ad24ec19d386643ce45614874ad112deddd0d9763873317a21f3";
+			const completeCommonDigest = "9a76907f1a1b81bc05b379a982a9e4b68e4f03006df2758b7640ff7f3edfe13c";
 			const acceptsCompleteCommon = (source) => createHash("sha256").update(source).digest("hex") === completeCommonDigest;
 			const completeCommonAttacks = [
 				["title", commonRecords.replace("# Common change records", "# Nested change records")],
