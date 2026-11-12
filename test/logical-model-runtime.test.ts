@@ -56,8 +56,8 @@ test("runtime freezes one usable policy and keeps prompt, effective view, and de
 	assert.ok(Object.isFrozen(runtime));
 	assert.ok(Object.isFrozen(runtime.policy));
 	assert.deepEqual(runtime.criticalErrors, []);
-	assert.equal(runtime.policy?.ordinary.length, 6);
-	assert.equal(runtime.definition("sol-6.1")?.capabilityRating, 85);
+	assert.equal(runtime.policy?.ordinary.length, 7);
+	assert.equal(runtime.definition("sol-6.1")?.capabilityRating, 66);
 	assert.equal(runtime.effortFor("claude-sonnet-5.5"), "high");
 	assert.match(runtime.promptText() ?? "", /gpt-6-astra/);
 	assert.match(runtime.effectiveText(), /fixedEffort=max/);
@@ -68,7 +68,7 @@ test("runtime freezes one usable policy and keeps prompt, effective view, and de
 test("untrusted configuration cannot alter policy or inject warnings", () => {
 	const runtime = createLogicalRuntime({ trusted: false, projectConfig: { router: { models: { include: [] } }, episodeModel: "bad" } });
 	assert.deepEqual(runtime.criticalErrors, []);
-	assert.equal(runtime.policy?.ordinary.length, 6);
+	assert.equal(runtime.policy?.ordinary.length, 7);
 	assert.deepEqual(runtime.warnings, []);
 });
 

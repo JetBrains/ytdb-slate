@@ -9,6 +9,7 @@ import { after, test } from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import slateExtension from "../extension/index.ts";
 import { createLogicalRuntime, type LogicalRuntime } from "../extension/logical-model-runtime.ts";
+import { SHIPPED_LOGICAL_MODELS } from "../extension/logical-model-definitions.ts";
 import { registerSlateMode } from "../extension/mode.ts";
 import { BLAST_RADIUS_DOC, CHANGE_RECORDS_DOC, DESIGN_PRINCIPLES_DOC, PR_PUBLISHING_DOC, RECURSIVE_WORKFLOW_DOC, REVIEW_RULES_DOC, TRACK_WORKFLOW_DOC, WRITING_GUIDANCE_DOC } from "../extension/paths.ts";
 import { SlateStore, type SlateConfig } from "../extension/state.ts";
@@ -108,11 +109,11 @@ test("logical doctrine uses the cached static runtime policy without physical ro
   assert.match(doctrine, /Every `thread` call must name logical `model` and a short `reason`/);
   assert.match(doctrine, /Effort is fixed by policy/);
   assert.match(doctrine, /Model routing policy:/);
-  assert.match(doctrine, /\| luna-6 \| 45 \| 5 \| auxiliary tasks only,[^|]+routine text management such as modifying research logs[^|]+\|[^|]+Do not use Luna to handle complex texts\. \|/);
-  assert.match(doctrine, /\| sol-6\.1 \| 85 \| 20 \| default thread choice \|/);
+  assert.match(doctrine, /\| luna-6 \| 35 \| 2 \| auxiliary tasks only,[^|]+routine text management such as modifying research logs[^|]+\|[^|]+Do not use Luna to handle complex texts\.[^|]+ \|/);
+  assert.match(doctrine, /\| sol-6\.1 \| 66 \| 9 \| default thread choice \|/);
   assert.match(doctrine, /Apply a more specific active guideline when it states an exception to a general preference\./);
-  assert.match(doctrine, /\| claude-opus-5\.5 \| 90 \| 65 \| Reviewer for each proved DESIGN-TRIGGERING focus area, in adversarial design review and in implementation area review\. \/ Do not select Opus 5\.5 as the default implementer\.[^|]+first ask Opus 5\.5 to investigate[^|]+guided attempt also fails[^|]+Existing approval requirements and repair limits still apply\. \|/);
-  assert.match(doctrine, /\| gpt-6-astra \| 86 \| 60 \| Do not select Astra as the default implementer\. \/ Prefer Sol 6\.1 over Astra\. \| none \|/);
+  assert.match(doctrine, /\| claude-opus-5\.5 \| 70 \| 30 \| Reviewer for each proved DESIGN-TRIGGERING focus area, in adversarial design review and in implementation area review\. \/ Do not select Opus 5\.5 as the default implementer\. \|/);
+  assert.match(doctrine, /\| gpt-6-astra \| 67 \| 28 \| Do not select Astra as the default implementer\. \/ Prefer Sol 6\.1 over Astra\. \| none \|/);
   assert.doesNotMatch(doctrine, /preferredProvider|permission openai\/|registry prices|context window|`effort`/);
   assert.match(doctrine, /orchestrator selects the model for a no-area track under the same ordinary guidance/);
 });
@@ -134,13 +135,13 @@ test("logical doctrine production renders match published portable measurements"
     { path: "/fixture/b", source: "y".repeat(128), isDirectory: true, tools: [{ name: "c".repeat(64), description: "f".repeat(140) }, { name: "d".repeat(64), description: "g".repeat(140) }] },
   ], paths: [], toolNames: [] };
   const metric = (text: string) => ({ portable: text.split(docsDirectory).join("").length, lines: text.split("\n").length, paths: text.split(docsDirectory).length - 1 });
-  assert.deepEqual(metric(runtime.promptText()!), { portable: 3596, lines: 11, paths: 0 });
-  assert.deepEqual(metric(await renderDoctrine(runtime)), { portable: 8397, lines: 74, paths: 5 });
+  assert.deepEqual(metric(runtime.promptText()!), { portable: 4575, lines: 12, paths: 0 });
+  assert.deepEqual(metric(await renderDoctrine(runtime)), { portable: 9376, lines: 75, paths: 5 });
   assert.deepEqual(metric(await renderDoctrine(runtime, {}, false)), { portable: 2711, lines: 33, paths: 4 });
-  assert.deepEqual(metric(await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped)), { portable: 9937, lines: 87, paths: 6 });
+  assert.deepEqual(metric(await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped)), { portable: 10916, lines: 88, paths: 6 });
   const change = { current: `change-20260101T000000Z-${"a".repeat(32)}`, source: `change-20260101T000001Z-${"b".repeat(32)}`, legacy: true };
   const linked = await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped, change);
-  assert.deepEqual(metric(linked), { portable: 10365, lines: 90, paths: 6 });
+  assert.deepEqual(metric(linked), { portable: 11344, lines: 91, paths: 6 });
   assert.ok(metric(linked).portable * 1.05 < 26300);
   assert.match(linked, /Follow each log's first entry to read the full source chain and accounting/);
   assert.match(linked, /Read-only legacy root log: research-log.md/);
@@ -197,7 +198,17 @@ test("every declared doctrine composition fits the original production hook", { 
     const projectRoster: SlateConfig = { router: { models: { include: ["sol-6.1"], replace: [{ model: "sol-6.1", guidelines: ["x"], cautions: [] }] } } };
     return [runtime(), null, runtime({ router: { compressor: { models: [] } } }), runtime(replace(19401 - runtime(replace(1)).promptText()!.length)), runtime(projectRoster)];
   };
+  const samePolicy: SlateConfig = { router: { models: {
+    replace: SHIPPED_LOGICAL_MODELS.filter((row) => row.model !== "fable-5-2").map(({ source, ...row }) => row),
+    add: SHIPPED_LOGICAL_MODELS.filter((row) => row.model === "fable-5-2").map(({ source, ...row }) => row),
+  } } };
   const oldRuntimes = runtimes(reference.create, basePrefix), newRuntimes = runtimes(createLogicalRuntime, prefix);
+  oldRuntimes[0] = reference.create({ trusted: true, projectConfig: samePolicy, documentationDirectory: basePrefix });
+  const ordinaryInput = (runtime: Readonly<LogicalRuntime>) => JSON.stringify(runtime.policy!.ordinary.map(
+    ({ model, capabilityRating, costRating, effort, preferredProvider, providers, guidelines, cautions }) =>
+      ({ model, capabilityRating, costRating, effort, preferredProvider, providers: Object.entries(providers).sort(([a], [b]) => a.localeCompare(b)), guidelines, cautions }),
+  ));
+  assert.equal(ordinaryInput(oldRuntimes[0]!), ordinaryInput(newRuntimes[0]!), "same shipped policy input resolves identical ordinary rows");
   assert.equal(oldRuntimes[3]!.promptText()!.length, 19400);
   assert.equal(newRuntimes[3]!.promptText()!.length, 19400);
   for (const runtime of [oldRuntimes[4], newRuntimes[4]]) assert.deepEqual(runtime!.policy!.ordinary.map((model) => model.model), ["sol-6.1"]);
@@ -242,6 +253,14 @@ test("every declared doctrine composition fits the original production hook", { 
   assert.deepEqual(comparison(before, normalized), [true, true, true, true]);
   assert.equal(comparison(before, `${normalized}x`)[0], false);
   assert.equal(comparison(before, `${normalized}${prefix}`)[1], false);
+  const shipped = newRuntimes[0]!;
+  for (const [name, transform] of [
+    ["caution-row renderer growth", (text: string) => text.split("\n").map((line) => /^\| [a-z0-9._-]+ \| \d+ \|/.test(line) && !line.endsWith("| none |") ? line + "x".repeat(40) : line).join("\n")],
+    ["several-row renderer growth", (text: string) => text.split("\n").filter((line) => line.startsWith("| ")).length > 3 ? text + "x".repeat(168) : text],
+  ] as const) {
+    const changed = { ...shipped, promptText: () => transform(shipped.promptText()!) };
+    assert.equal(comparison(before, await renderDoctrine(changed))[0], false, name);
+  }
   const fixed = newRuntimes[4]!;
   const grown = { ...fixed, promptText: () => `${fixed.promptText()}${"x".repeat(128)}` };
   const fixedBefore = await renderDoctrine(oldRuntimes[4], {}, true, false, undefined, EMPTY_WORKER_EXTENSION_SET, undefined, reference.register);
@@ -338,14 +357,14 @@ test("effective command reads current preferences without policy or provider wor
   assert.match(notices[0]!, /Remembered compressor selection: none/);
 });
 
-test("project startup settings merge causally and select Opus 5.5 at high when unscoped", { timeout: 5000 }, async () => {
+test("project startup settings merge causally and select Fable 5.2 at high when unscoped", { timeout: 5000 }, async () => {
   const settingsPath = join(process.cwd(), ".pi", "settings.json");
   const projectSettings = JSON.parse(readFileSync(settingsPath, "utf8"));
   assert.deepEqual(projectSettings, {
     defaultProvider: "anthropic",
-    defaultModel: "claude-opus-5-5",
+    defaultModel: "claude-fable-5-2",
     defaultThinkingLevel: "high",
-    packages: ["../../main", "npm:pi-smart-fetch@0.3.17", "npm:pi-web-search@1.6.0"],
+    packages: ["../../main", "npm:pi-smart-fetch@0.3.23", "npm:pi-web-search@1.7.0"],
   });
   const agentDir = join(scratch, "startup-agent");
   mkdirSync(agentDir, { recursive: true });
@@ -360,16 +379,18 @@ test("project startup settings merge causally and select Opus 5.5 at high when u
   const resolverModule = await import(join(packageRoot, "model-resolver.js"));
   const manager = settingsModule.SettingsManager.create(process.cwd(), agentDir, { projectTrusted: true });
   assert.equal(manager.getDefaultProvider(), "anthropic");
-  assert.equal(manager.getDefaultModel(), "claude-opus-5-5");
+  assert.equal(manager.getDefaultModel(), "claude-fable-5-2");
   assert.equal(manager.getDefaultThinkingLevel(), "high");
   assert.deepEqual(manager.getProjectSettings().packages, projectSettings.packages);
   const opus = { provider: "anthropic", id: "claude-opus-5-5" };
+  const fable = { provider: "anthropic", id: "claude-fable-5-2" };
   const other = { provider: "openai", id: "scoped" };
   const runtime = {
-    getModel: (provider: string, id: string) => provider === opus.provider && id === opus.id ? opus
+    getModel: (provider: string, id: string) => provider === fable.provider && id === fable.id ? fable
+      : provider === opus.provider && id === opus.id ? opus
       : provider === other.provider && id === other.id ? other : undefined,
     hasConfiguredAuth: () => true,
-    getModels: () => [opus, other],
+    getModels: () => [opus, fable, other],
     getAvailable: async () => [other],
   };
   const selected = await resolverModule.findInitialModel({
@@ -377,7 +398,7 @@ test("project startup settings merge causally and select Opus 5.5 at high when u
     defaultProvider: manager.getDefaultProvider(), defaultModelId: manager.getDefaultModel(),
     defaultThinkingLevel: manager.getDefaultThinkingLevel(), modelRuntime: runtime,
   });
-  assert.strictEqual(selected.model, opus);
+  assert.strictEqual(selected.model, fable);
   assert.equal(selected.thinkingLevel, "high");
   const scoped = await resolverModule.findInitialModel({
     scopedModels: [{ model: other, thinkingLevel: "low" }], isContinuing: false,
@@ -386,7 +407,7 @@ test("project startup settings merge causally and select Opus 5.5 at high when u
   });
   assert.strictEqual(scoped.model, other, "the scoped set must constrain startup selection");
   assert.equal(scoped.thinkingLevel, "low");
-  const restored = await resolverModule.restoreModelFromSession(other.provider, other.id, opus, false, runtime);
+  const restored = await resolverModule.restoreModelFromSession(other.provider, other.id, fable, false, runtime);
   assert.strictEqual(restored.model, other, "a usable restored model must replace the startup default");
   const untrusted = settingsModule.SettingsManager.create(process.cwd(), agentDir, { projectTrusted: false });
   assert.equal(untrusted.getDefaultProvider(), "anthropic");
@@ -396,7 +417,7 @@ test("project startup settings merge causally and select Opus 5.5 at high when u
 
 for (const explicitModel of [false, true]) test(explicitModel
   ? "real Pi startup gives an explicit command-line model precedence over a conflicting project default"
-  : "real Pi startup prefers Opus 5.5 anywhere in the scoped model set", { timeout: 15000 }, () => {
+  : "real Pi startup prefers Fable 5.2 anywhere in the scoped model set", { timeout: 15000 }, () => {
   const trackedSettings = JSON.parse(readFileSync(join(process.cwd(), ".pi", "settings.json"), "utf8"));
   const trackedDefaults = {
     defaultProvider: trackedSettings.defaultProvider,
@@ -405,7 +426,7 @@ for (const explicitModel of [false, true]) test(explicitModel
   };
   assert.deepEqual(trackedDefaults, {
     defaultProvider: "anthropic",
-    defaultModel: "claude-opus-5-5",
+    defaultModel: "claude-fable-5-2",
     defaultThinkingLevel: "high",
   });
   const cliScratch = mkdtempSync(join(tmpdir(), "slate-startup-cli-"));
@@ -439,7 +460,7 @@ for (const explicitModel of [false, true]) test(explicitModel
           baseUrl: "http://127.0.0.1:9/v1",
           apiKey: "literal-offline-startup-key",
           api: "anthropic-messages",
-          models: ["claude-opus-5-5"].map((id) => ({
+          models: ["claude-opus-5-5", "claude-fable-5-2"].map((id) => ({
             id,
             name: id,
             reasoning: true,
@@ -463,7 +484,7 @@ for (const explicitModel of [false, true]) test(explicitModel
       "--no-session",
       ...(explicitModel
         ? ["--provider", "openai", "--model", "explicit-startup-model"]
-        : ["--models", "anthropic/claude-opus-5-5"]),
+        : ["--models", "anthropic/claude-opus-5-5,anthropic/claude-fable-5-2"]),
     ], {
       cwd: projectDir,
       env: {
@@ -496,7 +517,7 @@ for (const explicitModel of [false, true]) test(explicitModel
     assert.equal(response.success, true);
     assert.equal(response.data?.model?.provider, explicitModel ? "openai" : "anthropic",
       "an explicit command-line provider must outrank the conflicting project default");
-    assert.equal(response.data?.model?.id, explicitModel ? "explicit-startup-model" : "claude-opus-5-5",
+    assert.equal(response.data?.model?.id, explicitModel ? "explicit-startup-model" : "claude-fable-5-2",
       "an explicit command-line model must outrank the conflicting project default");
     if (!explicitModel) assert.equal(response.data?.thinkingLevel, "high");
   } finally {

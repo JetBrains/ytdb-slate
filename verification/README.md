@@ -864,7 +864,7 @@ summary. Exit 0 means every non-excluded check passed. Exit 1 means a failure, m
 or strict `NOT RUN`. Exit 2 means the wrapper refused to start. The roster and
 summary output own the live count. The full suite has 248 checks plus the roster
 audit, for 249 result lines. Its independent mutation roster has 37 families and
-11,417 identities. The 53 surviving-safeguards identities preserve reviewed-state,
+11,487 identities. The 53 surviving-safeguards identities preserve reviewed-state,
 privacy, acceptance and delivery rules. The one-branch-rules family covers 32
 named violations. The audit-repairs family covers ten configuration, recursive
 pointer, delivery verification and README merge-advice cases. Each case accepts
@@ -983,28 +983,28 @@ exact current production renders are:
 
 | fixture | paths | portable characters | lines |
 | --- | ---: | ---: | ---: |
-| shipped logical section | 0 | 3,596 | 11 |
-| trusted shipped-default doctrine | 5 | 8397 | 74 |
+| shipped logical section | 0 | 4575 | 12 |
+| trusted shipped-default doctrine | 5 | 9376 | 75 |
 | untrusted doctrine | 4 | 2711 | 33 |
-| draft pull requests, shipped policy | 6 | 8467 | 75 |
-| capped workers, shipped policy | 5 | 9744 | 84 |
-| draft plus capped workers | 6 | 9814 | 85 |
-| deferred issues plus capped workers | 5 | 9818 | 85 |
-| routing recommendations plus capped workers | 5 | 9797 | 85 |
-| draft plus deferred issues and capped workers | 6 | 9888 | 86 |
-| draft plus routing recommendations and capped workers | 6 | 9863 | 86 |
-| deferred issues plus routing recommendations and capped workers | 5 | 9871 | 86 |
-| canonical maximal baseline with all workflow options | 6 | 9937 | 87 |
-| maximal baseline with an open change | 6 | 10135 | 88 |
-| maximal baseline with source and legacy root log | 6 | 10365 | 90 |
-| dogfood config and extension roster | 6 | 9062 | 86 |
-| 19,400-character policy plus draft, source and legacy log | 6 | 26046 | 88 |
-| same policy plus draft and deferred issues, source and legacy log | 6 | 26120 | 89 |
-| same policy plus routing recommendations, source and legacy log | 5 | 26029 | 88 |
-| same policy plus deferred issues and routing recommendations, source and legacy log | 5 | 26103 | 89 |
-| same policy plus draft and routing recommendations, source and legacy log | 6 | 26095 | 89 |
-| same boundary composition plus deferred issues | 6 | 26169 | 90 |
-| valid shipped policy plus 88 capped tools, source and legacy log | 6 | 28039 | 173 |
+| draft pull requests, shipped policy | 6 | 9446 | 76 |
+| capped workers, shipped policy | 5 | 10723 | 85 |
+| draft plus capped workers | 6 | 10793 | 86 |
+| deferred issues plus capped workers | 5 | 10797 | 86 |
+| routing recommendations plus capped workers | 5 | 10776 | 86 |
+| draft plus deferred issues and capped workers | 6 | 10867 | 87 |
+| draft plus routing recommendations and capped workers | 6 | 10842 | 87 |
+| deferred issues plus routing recommendations and capped workers | 5 | 10850 | 87 |
+| canonical maximal baseline with all workflow options | 6 | 10916 | 88 |
+| maximal baseline with an open change | 6 | 11114 | 89 |
+| maximal baseline with source and legacy root log | 6 | 11344 | 91 |
+| dogfood config and extension roster | 6 | 10041 | 87 |
+| 19,400-character policy plus draft, source and legacy log | 6 | 26046 | 89 |
+| same policy plus draft and deferred issues, source and legacy log | 6 | 26120 | 90 |
+| same policy plus routing recommendations, source and legacy log | 5 | 26029 | 89 |
+| same policy plus deferred issues and routing recommendations, source and legacy log | 5 | 26103 | 90 |
+| same policy plus draft and routing recommendations, source and legacy log | 6 | 26095 | 90 |
+| same boundary composition plus deferred issues | 6 | 26169 | 91 |
+| valid shipped policy plus 88 capped tools, source and legacy log | 6 | 29018 | 174 |
 
 Complete worker writing guidance measures 1161 UTF-8 bytes, including the design-scope exception.
 The permitted non-review preamble measures 2479 bytes.
@@ -1016,10 +1016,10 @@ characters. Each tool name has 64 characters. Each description has 140
 characters. The dogfood fixture reads `.pi/slate.json` and represents its two
 configured extension units.
 
-The canonical 9,937-character baseline uses all six shipped logical models,
+The canonical 10,916-character baseline uses all seven shipped logical models,
 all three workflow options, and the capped worker roster. With an open change,
-a direct source folder, and a legacy root log, it measures 10,365 characters.
-Its required five-percent value is 10,884. The 26,300 whole-doctrine ceiling
+a direct source folder, and a legacy root log, it measures 11,344 characters.
+Its required five-percent value is 11,912. The 26,300 whole-doctrine ceiling
 keeps that reserve. The exact fixtures cover all eight workflow-option
 combinations.
 
@@ -1040,7 +1040,7 @@ not reserve-bearing canonical baselines.
 
 The over-cap counterfactual keeps the shipped logical policy valid and adds 88
 supported capped worker tools. With an open change, source, and legacy log, its
-28,039 portable characters exceed the ceiling by 1,739 characters.
+29,018 portable characters exceed the ceiling by 2,718 characters.
 This transformed fixture replaces the retired six-copy physical model-row shape.
 It does not assume an old per-row or per-tool increment. Removing the whole-
 doctrine comparison makes the counterfactual pass and therefore breaks the
@@ -1052,6 +1052,22 @@ file, `verification/resolver-checks.mjs`, `test/doctrine-contract.test.ts`, and
 `test/config-loading.test.ts` (its two doctrine metric assertions).
 The logical limits remain 19,400 characters and 105 lines. The all-tail limit
 remains 24,600 characters. The whole-doctrine ceiling is 26,300 characters.
+
+The shipped model policy section has a separate limit of 4,804 portable
+characters and 12 lines. The character limit is the measured 4,575 characters
+plus five percent reserve, rounded up. The line limit has no reserve.
+An eighth model needs a new user approval. A higher limit requires a new user
+approval.
+
+For the comparison with the fixed earlier commit, both sides receive the same
+candidate shipped policy input. The earlier code renders that input through
+trusted project configuration. A check requires equal resolved ordinary policy rows in the same order.
+The check compares model names, both ratings, effort, preferred providers,
+permitted provider routes, guidelines and cautions. It excludes source metadata.
+This comparison does not measure growth of the shipped policy text.
+It still rejects growth of all other doctrine text and growth caused by the
+policy rendering code. Separate controls reject added text per caution row
+and text added only with several rows.
 
 ## Workflow-phase context maintenance
 
@@ -1651,7 +1667,7 @@ lab   = /tmp/slate-loadcheck.example
 CHECK L4                               PASS — the canary observed all three dispatch tools registered: thread, threads, episode
 CHECK L6                               PASS — /slate is registered and attributed to /home/you/src/main-as-source/extension/index.ts — inside the checkout under test, so this run exercised the working tree and not an installed release
 CHECK T2                               PASS — the trusted config emitted no sanitizer warning
-CHECK T4                               PASS — /home/you/src/main-as-source/.pi/slate.json parses as a JSON object, 4 top-level key(s): orchestratorModeDefault, workflow, router, workerExtensions
+CHECK T4                               PASS — /home/you/src/main-as-source/.pi/slate.json parses as a JSON object, 3 top-level key(s): orchestratorModeDefault, workflow, workerExtensions
 CHECK T5                               PASS — /home/you/src/main-as-source/.pi/settings.json carries exactly one local package entry, spelled "../../main", and no registry entry for ytdb-slate (3 package entry/entries in total)
 
 CHECK roster                           PASS — all 13 selected check(s) reported exactly once (13 result line(s) before this audit)

@@ -68,36 +68,45 @@ forecasts. Membership changes do not rescale them.
 
 | logical model | ordinary effort | capability | cost | preferred provider | exact initial permission | guidance | cautions |
 | --- | --- | ---: | ---: | --- | --- | --- | --- |
-| `luna-6` | `max` | 45 | 5 | `openai` | `openai/gpt-6-luna` | Auxiliary tasks only, such as file location, check-result collection, or routine text management such as modifying research logs. Never primary research, implementation, design, or review. Consumer-contract work only when auxiliary. | scope and complex-text cautions below |
-| `claude-sonnet-5.5` | `high` | 45 | 54 | `anthropic` | `anthropic/claude-sonnet-5-5` | none | scope caution below |
-| `sol-6.1` | `high` | 85 | 20 | `openai` | `openai/gpt-6.1-sol` | Default thread choice. | blocked-action caution below |
-| `gemini-3.8-flash` | `medium` | 55 | 30 | `google-vertex` | `google-vertex/gemini-3.8-flash` | Default thread choice. Generally prefer over Luna when available. A more specific active guideline overrides this general Flash preference. | reviewer and evidence caution below |
-| `claude-opus-5.5` | `high` | 90 | 65 | `anthropic` | `anthropic/claude-opus-5-5` | Reviewer for each proved DESIGN-TRIGGERING focus area, in adversarial design review and in implementation area review. Do not select Opus 5.5 as the default implementer. If a lower-capability model repeatedly fails at implementation, first ask Opus 5.5 to investigate and provide detailed repair instructions. Let the implementer try those instructions. Use Opus 5.5 as the implementer only if that guided attempt also fails. Treat that use as an exception. Select another suitable model for later implementation work. Existing approval requirements and repair limits still apply. | scope caution below |
-| `gpt-6-astra` | `medium` | 86 | 60 | `openai` | `openai/gpt-6-astra` | Do not select Astra as the default implementer. Prefer Sol 6.1 over Astra. | none |
+| `luna-6` | `max` | 35 | 2 | `openai` | `openai/gpt-6-luna` | Auxiliary tasks only, such as file location, check-result collection, or routine text management such as modifying research logs. Never primary research, implementation, design, or review. Consumer-contract work only when auxiliary. | Luna cautions below |
+| `claude-sonnet-5.5` | `high` | 35 | 25 | `anthropic` | `anthropic/claude-sonnet-5-5` | none | scope caution below |
+| `sol-6.1` | `high` | 66 | 9 | `openai` | `openai/gpt-6.1-sol` | Default thread choice. | Sol cautions below |
+| `gemini-3.8-flash` | `medium` | 43 | 14 | `google-vertex` | `google-vertex/gemini-3.8-flash` | Default thread choice. Generally prefer over Luna when available. A more specific active guideline overrides this general Flash preference. | reviewer and evidence caution below |
+| `claude-opus-5.5` | `high` | 70 | 30 | `anthropic` | `anthropic/claude-opus-5-5` | Reviewer for each proved DESIGN-TRIGGERING focus area, in adversarial design review and in implementation area review. Do not select Opus 5.5 as the default implementer. | scope caution below |
+| `gpt-6-astra` | `medium` | 67 | 28 | `openai` | `openai/gpt-6-astra` | Do not select Astra as the default implementer. Prefer Sol 6.1 over Astra. | none |
+| `fable-5-2` | `high` | 84 | 75 | `anthropic` | `anthropic/claude-fable-5-2` | Do not select Fable 5.2 for routine work. If a lower-capability model repeatedly fails at implementation, first ask Fable 5.2 to investigate and provide detailed repair instructions. Let the implementer try those instructions. Use Fable 5.2 as the implementer only if that guided attempt also fails. Treat that use as an exception. Select another suitable model for later implementation work. Existing approval requirements and repair limits still apply. | none |
 
-Sonnet and Opus use this caution: `May exceed explicit scope or infer permission
-from earlier requests. Check changes against stated exclusions and approval
-requirements.` Sol uses this caution: `When blocked, may substitute unapproved
-resources or perform destructive cleanup. Require permission before either
-action.` Luna uses these cautions: `May treat supplied repair context as
-permission to implement despite explicit task limits. Restrict write access for
-record-only work and verify the changed files.` and `Do not use Luna to handle
-complex texts.` Flash uses this caution: `Do not
-use as a reviewer. It relies too much on passing tests and exact-size assertions.
-Verify source citations and distinguish proposed behavior from existing
-behavior.` Fable is not active because it has no complete
-approved definition.
+Sonnet and Opus use this caution: `May exceed explicit scope or infer permission from earlier requests. Check changes against stated exclusions and approval requirements.`
+
+Luna uses these cautions in order:
+
+1. `May treat supplied repair context as permission to implement despite explicit task limits. Restrict write access for record-only work and verify the changed files.`
+2. `Do not use Luna to handle complex texts.`
+3. `May shorten long file paths in tool calls. Give the full path and require a read-back of the edited lines.`
+4. `May undo its own checked writes before it ends. Check the final file state after every record task.`
+5. `For an append, anchor one single-block edit on the exact current last line, then read back the tail.`
+6. `May report state outside the task scope incorrectly. Verify such a claim before acting on it.`
+
+Sol uses these cautions in order:
+
+1. `When blocked, may substitute unapproved resources or perform destructive cleanup. Require permission before either action. Do not run a dependency install that the project rules forbid. Ask first.`
+2. `Broad searches can return text from excluded private paths. State path limits in the task and use path-limited commands.`
+3. `For cross-runtime process and networking fixes, verify exit, slot ownership and silent output on every supported runtime before closing the repair.`
+4. `When shortening text to fit a size budget, may drop or weaken duties. Require a duty-by-duty comparison of the text before and after the cut.`
+
+Flash uses this caution: `Do not use as a reviewer. It relies too much on passing tests and exact-size assertions. Verify source citations and distinguish proposed behavior from existing behavior.`
 
 The independent shipped compressor list contains one entry. It is
 `claude-sonnet-5.5` at `medium`. Ordinary Sonnet remains at `high`.
 
-The Sol 6.1 and Sonnet 5.5 capability and cost ratings are project judgments
-set on 2026-09-30 without new benchmark evidence. Other ratings are project
-judgments informed by DeepSWE v1.1 by DataCurve and reviewed supporting evidence.
-The source for those other ratings is
-<https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json>. The project
-retrieved it on 2026-09-11. Those ratings use that evidence without a later
-refresh. The live source has no confirmed licence bridge for every newer result. Slate publishes no raw task, trajectory, leaderboard row, copied
+The project set every shipped rating on 2026-11-12 by proportional scaling of
+its earlier project judgments. Fable 5.2 ratings are project judgments with no
+benchmark source. Custom `add` and `replace` ratings are ranked against this
+shipped scale. Earlier Sol 6.1 and Sonnet 5.5 judgments had no new benchmark
+evidence. DeepSWE v1.1 by DataCurve and reviewed supporting evidence informed
+the other earlier judgments. The project retrieved that source on 2026-09-11:
+<https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json>.
+The live source has no confirmed licence bridge for every newer result. Slate publishes no raw task, trajectory, leaderboard row, copied
 publisher prose, or copied table structure. This attribution is not a new
 licence grant.
 
@@ -134,7 +143,7 @@ new session.
 }
 ```
 
-Omitted `include` starts with all six shipped ordinary definitions. An explicit
+Omitted `include` starts with all seven shipped ordinary definitions. An explicit
 empty `include` starts with an empty ordinary pool. `exclude` applies last and
 wins.
 
@@ -201,8 +210,8 @@ Complete `replace` example:
         {
           "model": "sol-6.1",
           "effort": "max",
-          "capabilityRating": 85,
-          "costRating": 20,
+          "capabilityRating": 66,
+          "costRating": 9,
           "preferredProvider": "gateway",
           "providers": { "gateway": "openai/gpt-6.1-sol" },
           "guidelines": ["repository-wide implementation"],
