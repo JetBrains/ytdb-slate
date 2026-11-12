@@ -65,7 +65,7 @@ function setup() {
           result: { content: [{ type: "text", text: id }], details: undefined } };
       },
     } as unknown as ExtensionToolContext;
-    // pi 1.4.0 dist/extensions/codemode/execute.js:445-485 publishes the
+    // pi 1.5.2 dist/extensions/codemode/execute.js:445-485 publishes the
     // first onUpdate before synchronously registering admission. Awaiting this
     // promise resumes after waiter registration. Never abort inside onUpdate.
     const source = timeout === undefined ? code : `// @options: {"timeout_ms":${timeout}}\n${code}`;

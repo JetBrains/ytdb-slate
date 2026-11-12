@@ -96,6 +96,22 @@ Follow the writing convention in `AGENTS.md` and `docs/writing-guidance.md`. Rel
 
 Show the complete notes to the user. Wait for explicit approval before running `prepare`. Enter the approved text unchanged in the `notes` input. The notes hash becomes part of the request identity, so the notes cannot change after preparation.
 
+## Draft and merge the update note
+
+After drafting the release notes, draft a short update note for pi and social networks. Name the notable changes from `Highlights` and `Breaking changes`, when present. Include `https://github.com/JetBrains/ytdb-slate/releases/tag/v<version>`. This link works only after a successful release. Follow the writing convention in `AGENTS.md` and `docs/writing-guidance.md`.
+
+Use the heading exactly `## [<version>]`, with three numeric parts such as `## [1.2.3]`. Put the newest entry directly below the introductory text in root `CHANGELOG.md`, above older entries. Do not use any other `## ` heading inside an entry. Use `###` for subsections if needed. Pi reads these version headings and can stay silent when they are malformed. The packaging guards check their form.
+
+Show the complete draft, including its heading and link, to the user. Wait for requested changes and explicit approval. After each change, show the complete draft again and wait for approval. Then add the approved text unchanged to `CHANGELOG.md`.
+
+Open an ordinary pull request for the entry and ask the user to merge it. The agent never merges. For a `release/X.Y` target, merge into `main` first, then backport as **Maintain a release line** requires. The entry must reach the selected target branch before `prepare`. Never include the changelog in the release request. That request's merge may change only its fixed files.
+
+Before `prepare`, confirm that the selected target branch head contains the approved entry. Confirm that its heading version equals the version to enter in `prepare`. Do not run `prepare` unless both conditions hold.
+
+Pi shows entries newer than the version it saw last on the next new interactive session after an update. Pi shows nothing on first install. An entry above the installed version repeats until the installed version reaches it.
+
+If a request is abandoned or retired and reuses the unused version, leave the merged entry in place. If the version is consumed without a successful release, such as `close` or a byte mismatch, move the entry to the next version heading before the next `prepare`. Use an ordinary pull request and user-approved text for that move.
+
 ## Maintain a release line
 
 After the first verified promotion of line `X.Y`, an administrator creates `release/X.Y` at that release tag commit. The administrator updates the exact branch name in the merge-queue ruleset. The administrator locks the previous release branch. Do not create a branch while a request for the same line is open. Only the administrator creates or deletes release branches.
@@ -107,6 +123,8 @@ A push to a release branch runs CI after that branch carries the CI push trigger
 Do not merge a change to the interface between the Release workflow definition and stored control code on `main` while a release holds the lane.
 
 ## Start a release
+
+Before these steps, complete **Draft and merge the update note**. Confirm that the selected target branch head contains the approved entry. Its heading version must equal the version entered below. Do not run `prepare` otherwise.
 
 1. Open the **Release** workflow on branch `main`.
 2. Choose `prepare`.
@@ -151,11 +169,9 @@ npm distribution-tag writes are unconditional. The workflow serializes and fence
 
 ## Announce the release
 
-The release agent writes an announcement only after a successful release. Confirm that promotion of npm `latest` is verified and that the Git version tag exists. Confirm the GitHub release with `gh release view v<version> --json url`.
+The release agent gives the user the approved update note only after a successful release. Confirm that promotion of npm `latest` is verified and that the Git version tag exists. Confirm the GitHub release with `gh release view v<version> --json url`.
 
-Write a short message for social networks. Name the notable changes from `Highlights` and `Breaking changes`, when present. Link to the release notes at `https://github.com/JetBrains/ytdb-slate/releases/tag/v<version>`. Follow the writing convention in `AGENTS.md` and `docs/writing-guidance.md`.
-
-Give the message to the user. Do not post it. Do not write an announcement for a failed, retired, or closed release.
+Give the user the approved update-note text from `CHANGELOG.md` together with the release link for social networks. Use the same approved text. Do not write a new message. Do not post it. Do not announce a failed, retired, or closed release.
 
 ## Failure, retirement, and recovery
 
