@@ -13,13 +13,11 @@ import { REVIEWED_LOGICAL_MODEL_EDGES, REVIEWED_NON_LITERAL_MODULE_SITES, analyz
 const REPOSITORY_ROOT = process.cwd();
 const resolve = (projectConfig?: unknown, trusted = true) => resolveLogicalModelPolicy({ trusted, projectConfig });
 const validCustom = { model: "custom-model", capabilityRating: 52, effort: "high", costRating: 25, preferredProvider: "custom", providers: { custom: "vendor/model-v1" }, guidelines: ["bounded custom work"], cautions: [] };
-const SOURCE = {
-  capabilityRating: { publisher: "DeepSWE/DataCurve", retrieved: "2026-09-11", sourceUrl: "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json", basis: "Project judgment informed by DeepSWE v1.1 and reviewed supporting evidence" },
-  costRating: { publisher: "DeepSWE/DataCurve", retrieved: "2026-09-11", sourceUrl: "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json", basis: "Project judgment informed by DeepSWE v1.1 and reviewed supporting evidence" },
-  guidelines: { publisher: "DeepSWE/DataCurve", retrieved: "2026-09-11", sourceUrl: "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json", basis: "Project judgment informed by DeepSWE v1.1 and reviewed supporting evidence" },
-};
-const PROJECT_RATING_SOURCE = { publisher: "Slate project", decided: "2026-09-30", basis: "Project judgment set on 2026-09-30 without new benchmark evidence" };
-const PROJECT_SOURCE = { capabilityRating: PROJECT_RATING_SOURCE, costRating: PROJECT_RATING_SOURCE, guidelines: SOURCE.guidelines };
+const EARLIER_GUIDANCE_SOURCE = {"publisher":"DeepSWE/DataCurve","retrieved":"2026-09-11","sourceUrl":"https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json","basis":"Project judgment informed by DeepSWE v1.1 and reviewed supporting evidence"};
+const SCALED_RATING_SOURCE = {"publisher":"Slate project","decided":"2026-11-12","basis":"Project judgment proportionally scaled on 2026-11-12 from earlier judgments informed by DeepSWE v1.1 and reviewed supporting evidence"};
+const PROJECT_RATING_SOURCE = {"publisher":"Slate project","decided":"2026-11-12","basis":"Project judgment proportionally scaled on 2026-11-12 without a benchmark source for this rating"};
+const SOURCE = { capabilityRating: SCALED_RATING_SOURCE, costRating: SCALED_RATING_SOURCE, guidelines: EARLIER_GUIDANCE_SOURCE };
+const PROJECT_SOURCE = { capabilityRating: PROJECT_RATING_SOURCE, costRating: PROJECT_RATING_SOURCE, guidelines: EARLIER_GUIDANCE_SOURCE };
 const EXPECTED_GUIDANCE_MEANING = "Guidance and cautions direct selection, but Slate does not enforce them at runtime. Shipped preferences are not rigid rankings and do not guarantee quality. Apply a more specific active guideline when it states an exception to a general preference. A reference to another model describes a conditional preference and does not require selecting an excluded model. Trusted project definitions can replace shipped guidance, and custom model definitions remain supported. Guidance and cautions create no runtime eligibility or rejection rules.";
 const EXPECTED_ROUTER_PROMPT_INSTRUCTIONS = [
   `Select a logical model for the current action. Use action fit, relevant area guidance, behavioral cautions, capability evidence, and a lower supported cost rating. A higher capability rating or higher cost rating is not enough by itself. Reassess after each episode. Change models only when there is a concrete reason and an expected benefit. Keep quality redispatch separate from transient recovery. ${EXPECTED_GUIDANCE_MEANING}`,
@@ -31,23 +29,25 @@ const EXPECTED_DEFAULT_PROMPT_LINES = [
   EXPECTED_ROUTER_PROMPT_INSTRUCTIONS[1],
   "| logical model | capability rating | cost rating | guidelines | cautions |",
   "| --- | ---: | ---: | --- | --- |",
-  "| luna-6 | 45 | 5 | auxiliary tasks only, such as file location, check-result collection, or routine text management such as modifying research logs / never primary research, implementation, design, or review / consumer-contract work only when auxiliary | May treat supplied repair context as permission to implement despite explicit task limits. Restrict write access for record-only work and verify the changed files. / Do not use Luna to handle complex texts. |",
-  "| claude-sonnet-5.5 | 45 | 54 | none | May exceed explicit scope or infer permission from earlier requests. Check changes against stated exclusions and approval requirements. |",
-  "| sol-6.1 | 85 | 20 | default thread choice | When blocked, may substitute unapproved resources or perform destructive cleanup. Require permission before either action. |",
-  "| gemini-3.8-flash | 55 | 30 | default thread choice / generally prefer over Luna when available / a more specific active guideline overrides this general Flash preference | Do not use as a reviewer. It relies too much on passing tests and exact-size assertions. Verify source citations and distinguish proposed behavior from existing behavior. |",
-  "| claude-opus-5.5 | 90 | 65 | Reviewer for each proved DESIGN-TRIGGERING focus area, in adversarial design review and in implementation area review. / Do not select Opus 5.5 as the default implementer. If a lower-capability model repeatedly fails at implementation, first ask Opus 5.5 to investigate and provide detailed repair instructions. Let the implementer try those instructions. Use Opus 5.5 as the implementer only if that guided attempt also fails. Treat that use as an exception. Select another suitable model for later implementation work. Existing approval requirements and repair limits still apply. | May exceed explicit scope or infer permission from earlier requests. Check changes against stated exclusions and approval requirements. |",
-  "| gpt-6-astra | 86 | 60 | Do not select Astra as the default implementer. / Prefer Sol 6.1 over Astra. | none |",
+  "| luna-6 | 35 | 2 | auxiliary tasks only, such as file location, check-result collection, or routine text management such as modifying research logs / never primary research, implementation, design, or review / consumer-contract work only when auxiliary | May treat supplied repair context as permission to implement despite explicit task limits. Restrict write access for record-only work and verify the changed files. / Do not use Luna to handle complex texts. / May shorten long file paths in tool calls. Give the full path and require a read-back of the edited lines. / May undo its own checked writes before it ends. Check the final file state after every record task. / For an append, anchor one single-block edit on the exact current last line, then read back the tail. / May report state outside the task scope incorrectly. Verify such a claim before acting on it. |",
+  "| claude-sonnet-5.5 | 35 | 25 | none | May exceed explicit scope or infer permission from earlier requests. Check changes against stated exclusions and approval requirements. |",
+  "| sol-6.1 | 66 | 9 | default thread choice | When blocked, may substitute unapproved resources or perform destructive cleanup. Require permission before either action. Do not run a dependency install that the project rules forbid. Ask first. / Broad searches can return text from excluded private paths. State path limits in the task and use path-limited commands. / For cross-runtime process and networking fixes, verify exit, slot ownership and silent output on every supported runtime before closing the repair. / When shortening text to fit a size budget, may drop or weaken duties. Require a duty-by-duty comparison of the text before and after the cut. |",
+  "| gemini-3.8-flash | 43 | 14 | default thread choice / generally prefer over Luna when available / a more specific active guideline overrides this general Flash preference | Do not use as a reviewer. It relies too much on passing tests and exact-size assertions. Verify source citations and distinguish proposed behavior from existing behavior. |",
+  "| claude-opus-5.5 | 70 | 30 | Reviewer for each proved DESIGN-TRIGGERING focus area, in adversarial design review and in implementation area review. / Do not select Opus 5.5 as the default implementer. | May exceed explicit scope or infer permission from earlier requests. Check changes against stated exclusions and approval requirements. |",
+  "| gpt-6-astra | 67 | 28 | Do not select Astra as the default implementer. / Prefer Sol 6.1 over Astra. | none |",
+  "| fable-5-2 | 84 | 75 | Do not select Fable 5.2 for routine work. / If a lower-capability model repeatedly fails at implementation, first ask Fable 5.2 to investigate and provide detailed repair instructions. Let the implementer try those instructions. Use Fable 5.2 as the implementer only if that guided attempt also fails. Treat that use as an exception. Select another suitable model for later implementation work. Existing approval requirements and repair limits still apply. | none |",
 ] as const;
 
 function plain<T>(value: T): T { return JSON.parse(JSON.stringify(value)) as T; }
 
 const COMPLETE_DEFAULTS = [
-  { model: "luna-6", capabilityRating: 45, effort: "max", costRating: 5, preferredProvider: "openai", providers: { openai: "gpt-6-luna" }, guidelines: ["auxiliary tasks only, such as file location, check-result collection, or routine text management such as modifying research logs", "never primary research, implementation, design, or review", "consumer-contract work only when auxiliary"], cautions: ["May treat supplied repair context as permission to implement despite explicit task limits. Restrict write access for record-only work and verify the changed files.", "Do not use Luna to handle complex texts."], source: SOURCE },
-  { model: "claude-sonnet-5.5", capabilityRating: 45, effort: "high", costRating: 54, preferredProvider: "anthropic", providers: { anthropic: "claude-sonnet-5-5" }, guidelines: [], cautions: ["May exceed explicit scope or infer permission from earlier requests. Check changes against stated exclusions and approval requirements."], source: PROJECT_SOURCE },
-  { model: "sol-6.1", capabilityRating: 85, effort: "high", costRating: 20, preferredProvider: "openai", providers: { openai: "gpt-6.1-sol" }, guidelines: ["default thread choice"], cautions: ["When blocked, may substitute unapproved resources or perform destructive cleanup. Require permission before either action."], source: PROJECT_SOURCE },
-  { model: "gemini-3.8-flash", capabilityRating: 55, effort: "medium", costRating: 30, preferredProvider: "google-vertex", providers: { "google-vertex": "gemini-3.8-flash" }, guidelines: ["default thread choice", "generally prefer over Luna when available", "a more specific active guideline overrides this general Flash preference"], cautions: ["Do not use as a reviewer. It relies too much on passing tests and exact-size assertions. Verify source citations and distinguish proposed behavior from existing behavior."], source: SOURCE },
-  { model: "claude-opus-5.5", capabilityRating: 90, effort: "high", costRating: 65, preferredProvider: "anthropic", providers: { anthropic: "claude-opus-5-5" }, guidelines: ["Reviewer for each proved DESIGN-TRIGGERING focus area, in adversarial design review and in implementation area review.", "Do not select Opus 5.5 as the default implementer. If a lower-capability model repeatedly fails at implementation, first ask Opus 5.5 to investigate and provide detailed repair instructions. Let the implementer try those instructions. Use Opus 5.5 as the implementer only if that guided attempt also fails. Treat that use as an exception. Select another suitable model for later implementation work. Existing approval requirements and repair limits still apply."], cautions: ["May exceed explicit scope or infer permission from earlier requests. Check changes against stated exclusions and approval requirements."], source: SOURCE },
-  { model: "gpt-6-astra", capabilityRating: 86, effort: "medium", costRating: 60, preferredProvider: "openai", providers: { openai: "gpt-6-astra" }, guidelines: ["Do not select Astra as the default implementer.", "Prefer Sol 6.1 over Astra."], cautions: [], source: SOURCE },
+  {"model":"luna-6","capabilityRating":35,"effort":"max","costRating":2,"preferredProvider":"openai","providers":{"openai":"gpt-6-luna"},"guidelines":["auxiliary tasks only, such as file location, check-result collection, or routine text management such as modifying research logs","never primary research, implementation, design, or review","consumer-contract work only when auxiliary"],"cautions":["May treat supplied repair context as permission to implement despite explicit task limits. Restrict write access for record-only work and verify the changed files.","Do not use Luna to handle complex texts.","May shorten long file paths in tool calls. Give the full path and require a read-back of the edited lines.","May undo its own checked writes before it ends. Check the final file state after every record task.","For an append, anchor one single-block edit on the exact current last line, then read back the tail.","May report state outside the task scope incorrectly. Verify such a claim before acting on it."], "source": SOURCE },
+  {"model":"claude-sonnet-5.5","capabilityRating":35,"effort":"high","costRating":25,"preferredProvider":"anthropic","providers":{"anthropic":"claude-sonnet-5-5"},"guidelines":[],"cautions":["May exceed explicit scope or infer permission from earlier requests. Check changes against stated exclusions and approval requirements."], "source": PROJECT_SOURCE },
+  {"model":"sol-6.1","capabilityRating":66,"effort":"high","costRating":9,"preferredProvider":"openai","providers":{"openai":"gpt-6.1-sol"},"guidelines":["default thread choice"],"cautions":["When blocked, may substitute unapproved resources or perform destructive cleanup. Require permission before either action. Do not run a dependency install that the project rules forbid. Ask first.","Broad searches can return text from excluded private paths. State path limits in the task and use path-limited commands.","For cross-runtime process and networking fixes, verify exit, slot ownership and silent output on every supported runtime before closing the repair.","When shortening text to fit a size budget, may drop or weaken duties. Require a duty-by-duty comparison of the text before and after the cut."], "source": PROJECT_SOURCE },
+  {"model":"gemini-3.8-flash","capabilityRating":43,"effort":"medium","costRating":14,"preferredProvider":"google-vertex","providers":{"google-vertex":"gemini-3.8-flash"},"guidelines":["default thread choice","generally prefer over Luna when available","a more specific active guideline overrides this general Flash preference"],"cautions":["Do not use as a reviewer. It relies too much on passing tests and exact-size assertions. Verify source citations and distinguish proposed behavior from existing behavior."], "source": SOURCE },
+  {"model":"claude-opus-5.5","capabilityRating":70,"effort":"high","costRating":30,"preferredProvider":"anthropic","providers":{"anthropic":"claude-opus-5-5"},"guidelines":["Reviewer for each proved DESIGN-TRIGGERING focus area, in adversarial design review and in implementation area review.","Do not select Opus 5.5 as the default implementer."],"cautions":["May exceed explicit scope or infer permission from earlier requests. Check changes against stated exclusions and approval requirements."], "source": SOURCE },
+  {"model":"gpt-6-astra","capabilityRating":67,"effort":"medium","costRating":28,"preferredProvider":"openai","providers":{"openai":"gpt-6-astra"},"guidelines":["Do not select Astra as the default implementer.","Prefer Sol 6.1 over Astra."],"cautions":[], "source": SOURCE },
+  {"model":"fable-5-2","capabilityRating":84,"effort":"high","costRating":75,"preferredProvider":"anthropic","providers":{"anthropic":"claude-fable-5-2"},"guidelines":["Do not select Fable 5.2 for routine work.","If a lower-capability model repeatedly fails at implementation, first ask Fable 5.2 to investigate and provide detailed repair instructions. Let the implementer try those instructions. Use Fable 5.2 as the implementer only if that guided attempt also fails. Treat that use as an exception. Select another suitable model for later implementation work. Existing approval requirements and repair limits still apply."],"cautions":[], "source": PROJECT_SOURCE },
 ];
 
 test("project configuration selects the exact approved logical defaults", () => {
@@ -56,13 +56,13 @@ test("project configuration selects the exact approved logical defaults", () => 
     orchestratorModeDefault: true,
     workflow: { draftPRs: true, routingRecommendations: true },
     router: {
-      models: { include: COMPLETE_DEFAULTS.map((row) => row.model) },
+      models: { include: COMPLETE_DEFAULTS.slice(0, 6).map((row) => row.model) },
       compressor: { models: [{ model: "claude-sonnet-5.5", effort: "medium" }] },
     },
     workerExtensions: ["pi-smart-fetch", "pi-web-search"],
   });
   const resolution = resolve(config);
-  assert.deepEqual(resolution.policy?.ordinary.map((row) => row.model), COMPLETE_DEFAULTS.map((row) => row.model));
+  assert.deepEqual(resolution.policy?.ordinary.map((row) => row.model), COMPLETE_DEFAULTS.slice(0, 6).map((row) => row.model));
   assert.deepEqual(resolution.policy?.compressor, [{ model: "claude-sonnet-5.5", effort: "medium" }]);
 });
 
@@ -86,9 +86,9 @@ test("documented add and replace JSON examples resolve through production policy
   assert.deepEqual(replaced.errors, []);
   assert.deepEqual(plain(replaced.policy?.definitions["sol-6.1"]), {
     model: "sol-6.1",
-    capabilityRating: 85,
+    capabilityRating: 66,
     effort: "max",
-    costRating: 20,
+    costRating: 9,
     preferredProvider: "gateway",
     providers: { gateway: "openai/gpt-6.1-sol" },
     guidelines: ["repository-wide implementation"],
@@ -99,8 +99,29 @@ test("documented add and replace JSON examples resolve through production policy
 test("shipped definitions match the complete approved literal", () => {
   assert.deepEqual(plain(SHIPPED_LOGICAL_MODELS), COMPLETE_DEFAULTS);
   assert.deepEqual(SHIPPED_COMPRESSOR_MODELS, [{ model: "claude-sonnet-5.5", effort: "medium" }]);
-  assert.equal(SHIPPED_LOGICAL_MODELS.some((row) => row.model.includes("fable")), false);
+  assert.equal(SHIPPED_LOGICAL_MODELS.length, 7);
+  assert.deepEqual(plain(SHIPPED_LOGICAL_MODELS[6]), COMPLETE_DEFAULTS[6]);
   assert.equal(SHIPPED_LOGICAL_MODELS.every((row) => Object.isFrozen(row) && Object.isFrozen(row.providers) && Object.isFrozen(row.guidelines) && Object.isFrozen(row.cautions) && Object.isFrozen(row.source) && Object.isFrozen(row.source?.capabilityRating)), true);
+});
+
+test("shipped policy section enforces its approved character and line limits", () => {
+  const within = (text: string) => text.length <= 4804 && text.split("\n").length <= 12;
+  const text = renderLogicalModelPrompt(resolve().policy!).text!;
+  assert.equal(within(text), true);
+  const at = text + "x".repeat(4804 - text.length);
+  assert.equal(at.length, 4804);
+  assert.equal(within(at), true);
+  assert.equal(within(at + "x"), false, "4,805 characters fail");
+  assert.equal((text + "\nextra row").split("\n").length, 13);
+  assert.equal(within(text + "\nextra row"), false, "thirteenth line fails");
+});
+
+test("Fable has a distinct shipped name and exact permitted route", () => {
+  assert.deepEqual(resolve({ router: { models: { include: ["fable-5-2"] } } }).errors, []);
+  const row = resolve().policy!.definitions["fable-5-2"]!;
+  assert.deepEqual([row.model, row.capabilityRating, row.costRating, row.effort, row.preferredProvider, { ...row.providers }, row.cautions],
+    ["fable-5-2", 84, 75, "high", "anthropic", { anthropic: "claude-fable-5-2" }, []]);
+  assert.match(resolve({ router: { models: { add: [{ ...validCustom, model: "fable-5-2" }] } } }).errors.join("\n"), /cannot replace existing model/);
 });
 
 test("default ratings remain fixed and the policy is deeply immutable", () => {
@@ -120,14 +141,14 @@ test("trusted membership applies include then add then exclusion while compresso
 test("include empty is distinct from omission and add still applies", () => {
   assert.deepEqual(resolve({ router: { models: { include: [] } } }).policy?.ordinary, []);
   assert.deepEqual(resolve({ router: { models: { include: [], add: [validCustom] } } }).policy?.ordinary.map((row) => row.model), ["custom-model"]);
-  assert.equal(resolve().policy?.ordinary.length, 6);
+  assert.equal(resolve().policy?.ordinary.length, 7);
 });
 
 test("replace inherits fields and replaces maps and lists as whole values", () => {
   const result = resolve({ router: { models: { replace: [{ model: "sol-6.1", preferredProvider: "gateway", providers: { gateway: "openai/gpt-6.1-sol" }, guidelines: ["new guide"], cautions: [] }] } } });
   const row = result.policy?.definitions["sol-6.1"];
   assert.ok(row);
-  assert.deepEqual([row.capabilityRating, row.effort, row.costRating], [85, "high", 20]);
+  assert.deepEqual([row.capabilityRating, row.effort, row.costRating], [66, "high", 9]);
   assert.deepEqual({ ...row.providers }, { gateway: "openai/gpt-6.1-sol" });
   assert.deepEqual(row.guidelines, ["new guide"]);
   assert.deepEqual(row.cautions, []);
@@ -140,12 +161,12 @@ test("field attribution survives equal and unrelated replacements and clears onl
     [{ preferredProvider: "gateway", providers: { gateway: "sol-6.1" } }, [true, true, true]],
     [{ cautions: ["changed"] }, [true, true, true]],
     [{ guidelines: ["default thread choice"] }, [true, true, true]],
-    [{ capabilityRating: 85 }, [true, true, true]],
-    [{ costRating: 20 }, [true, true, true]],
+    [{ capabilityRating: 66 }, [true, true, true]],
+    [{ costRating: 9 }, [true, true, true]],
     [{ capabilityRating: 59 }, [false, true, true]],
     [{ costRating: 21 }, [true, false, true]],
     [{ guidelines: ["changed"] }, [true, true, false]],
-    [{ effort: "max", capabilityRating: 85, costRating: 20 }, [false, false, true]],
+    [{ effort: "max", capabilityRating: 66, costRating: 9 }, [false, false, true]],
   ] as const;
   for (const [change, expected] of cases) {
     const row = resolve({ router: { models: { replace: [{ model: "sol-6.1", ...change }] } } }).policy?.definitions["sol-6.1"];
@@ -268,7 +289,7 @@ test("the trust gate does not consume or report untrusted project values", () =>
   const value = Object.defineProperty({}, "router", { enumerable: true, get() { reads++; throw new Error("must not read"); } });
   const result = resolve(value, false);
   assert.equal(reads, 0);
-  assert.equal(result.policy?.ordinary.length, 6);
+  assert.equal(result.policy?.ordinary.length, 7);
   assert.deepEqual([result.errors, result.warnings], [[], []]);
 });
 
@@ -374,11 +395,11 @@ Warnings and ignored legacy keys:
 - Legacy key modelFailover is ignored. Use router.models or router.compressor.models. No automatic migration is performed.
 Ordinary membership in configured order after exclusion: sol-6.1
 Definitions used by ordinary or compressor policy:
-- sol-6.1: capabilityRating=85; costRating=20; fixedEffort=high; preferredProvider=openai; rememberedProvider=openai
+- sol-6.1: capabilityRating=66; costRating=9; fixedEffort=high; preferredProvider=openai; rememberedProvider=openai
   permission openai/gpt-6.1-sol
   guidelines: default thread choice
-  cautions: When blocked, may substitute unapproved resources or perform destructive cleanup. Require permission before either action.
-- claude-sonnet-5.5: capabilityRating=45; costRating=54; fixedEffort=high; preferredProvider=anthropic; rememberedProvider=none
+  cautions: When blocked, may substitute unapproved resources or perform destructive cleanup. Require permission before either action. Do not run a dependency install that the project rules forbid. Ask first. / Broad searches can return text from excluded private paths. State path limits in the task and use path-limited commands. / For cross-runtime process and networking fixes, verify exit, slot ownership and silent output on every supported runtime before closing the repair. / When shortening text to fit a size budget, may drop or weaken duties. Require a duty-by-duty comparison of the text before and after the cut.
+- claude-sonnet-5.5: capabilityRating=35; costRating=25; fixedEffort=high; preferredProvider=anthropic; rememberedProvider=none
   permission anthropic/claude-sonnet-5-5
   guidelines: none
   cautions: May exceed explicit scope or infer permission from earlier requests. Check changes against stated exclusions and approval requirements.
@@ -416,11 +437,11 @@ Status: usable.
 Warnings: none.
 Ordinary membership in configured order after exclusion: sol-6.1
 Definitions used by ordinary or compressor policy:
-- sol-6.1: capabilityRating=85; costRating=20; fixedEffort=high; preferredProvider=openai; rememberedProvider=invalid or unavailable
+- sol-6.1: capabilityRating=66; costRating=9; fixedEffort=high; preferredProvider=openai; rememberedProvider=invalid or unavailable
   permission openai/gpt-6.1-sol
   guidelines: default thread choice
-  cautions: When blocked, may substitute unapproved resources or perform destructive cleanup. Require permission before either action.
-- claude-sonnet-5.5: capabilityRating=45; costRating=54; fixedEffort=high; preferredProvider=anthropic; rememberedProvider=none
+  cautions: When blocked, may substitute unapproved resources or perform destructive cleanup. Require permission before either action. Do not run a dependency install that the project rules forbid. Ask first. / Broad searches can return text from excluded private paths. State path limits in the task and use path-limited commands. / For cross-runtime process and networking fixes, verify exit, slot ownership and silent output on every supported runtime before closing the repair. / When shortening text to fit a size budget, may drop or weaken duties. Require a duty-by-duty comparison of the text before and after the cut.
+- claude-sonnet-5.5: capabilityRating=35; costRating=25; fixedEffort=high; preferredProvider=anthropic; rememberedProvider=none
   permission anthropic/claude-sonnet-5-5
   guidelines: none
   cautions: May exceed explicit scope or infer permission from earlier requests. Check changes against stated exclusions and approval requirements.

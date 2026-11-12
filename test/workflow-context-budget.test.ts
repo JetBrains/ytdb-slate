@@ -160,8 +160,14 @@ function table(rows: string[], costs: string[]): string {
     "The excluded installed path cost is 5 times the prefix byte length with",
     "publishing off and 6 times that length with publishing on. Tests measure",
     "this cost separately. It depends on the installation path.", "",
-    "The user approved these limits on 2026-10-16. Each initial byte limit",
-    "is ceil(baseline bytes * 1.05). Tests enforce total <= stored literal limit.",
+    "The user approved the limits for the other 35 rows on 2026-10-16.",
+    "Each of those byte limits is ceil(baseline bytes * 1.05).",
+    "The user approved the two limits for Research, publishing off, ordinary plan",
+    "on 2026-11-12. These limits are 76,835 and 145,471 bytes.",
+    "They equal the limits approved on 2026-10-16 plus 979 bytes of approved",
+    "shipped model policy growth. They carry no five percent reserve.",
+    "A higher limit requires a new user approval.",
+    "Tests enforce total <= stored literal limit.",
     "The token limit is ceil(byte limit / 4). Reserve is checked at approval,",
     "not recalculated as text grows. A maximum includes all applicable optional",
     "reads. Any subset fits because removing ranges cannot increase union size.", "",
@@ -288,6 +294,14 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
   assert.notDeepEqual(spine.slice(1), lifecycle);
   checkLimit(100, 100, "equality");
   assert.throws(() => checkLimit(101, 100, "overflow"), /excess 1/);
+});
+
+test("approved research limits reject further growth", () => {
+  assert.deepEqual(limits["1 off ordinary"], [76835, 145471]);
+  assert.doesNotThrow(() => checkLimit(76835, 76835, "required boundary"));
+  assert.doesNotThrow(() => checkLimit(145471, 145471, "maximum boundary"));
+  assert.throws(() => checkLimit(76836, 76835, "required overflow"), /excess 1/);
+  assert.throws(() => checkLimit(145472, 145471, "maximum overflow"), /excess 1/);
 });
 
 test("both original-base Git helpers isolate German parent settings", { timeout: 10000 }, () => {

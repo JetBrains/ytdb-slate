@@ -9,6 +9,7 @@ import { after, test } from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import slateExtension from "../extension/index.ts";
 import { createLogicalRuntime, type LogicalRuntime } from "../extension/logical-model-runtime.ts";
+import { SHIPPED_LOGICAL_MODELS } from "../extension/logical-model-definitions.ts";
 import { registerSlateMode } from "../extension/mode.ts";
 import { BLAST_RADIUS_DOC, CHANGE_RECORDS_DOC, DESIGN_PRINCIPLES_DOC, PR_PUBLISHING_DOC, RECURSIVE_WORKFLOW_DOC, REVIEW_RULES_DOC, TRACK_WORKFLOW_DOC, WRITING_GUIDANCE_DOC } from "../extension/paths.ts";
 import { SlateStore, type SlateConfig } from "../extension/state.ts";
@@ -108,11 +109,11 @@ test("logical doctrine uses the cached static runtime policy without physical ro
   assert.match(doctrine, /Every `thread` call must name logical `model` and a short `reason`/);
   assert.match(doctrine, /Effort is fixed by policy/);
   assert.match(doctrine, /Model routing policy:/);
-  assert.match(doctrine, /\| luna-6 \| 45 \| 5 \| auxiliary tasks only,[^|]+routine text management such as modifying research logs[^|]+\|[^|]+Do not use Luna to handle complex texts\. \|/);
-  assert.match(doctrine, /\| sol-6\.1 \| 85 \| 20 \| default thread choice \|/);
+  assert.match(doctrine, /\| luna-6 \| 35 \| 2 \| auxiliary tasks only,[^|]+routine text management such as modifying research logs[^|]+\|[^|]+Do not use Luna to handle complex texts\.[^|]+ \|/);
+  assert.match(doctrine, /\| sol-6\.1 \| 66 \| 9 \| default thread choice \|/);
   assert.match(doctrine, /Apply a more specific active guideline when it states an exception to a general preference\./);
-  assert.match(doctrine, /\| claude-opus-5\.5 \| 90 \| 65 \| Reviewer for each proved DESIGN-TRIGGERING focus area, in adversarial design review and in implementation area review\. \/ Do not select Opus 5\.5 as the default implementer\.[^|]+first ask Opus 5\.5 to investigate[^|]+guided attempt also fails[^|]+Existing approval requirements and repair limits still apply\. \|/);
-  assert.match(doctrine, /\| gpt-6-astra \| 86 \| 60 \| Do not select Astra as the default implementer\. \/ Prefer Sol 6\.1 over Astra\. \| none \|/);
+  assert.match(doctrine, /\| claude-opus-5\.5 \| 70 \| 30 \| Reviewer for each proved DESIGN-TRIGGERING focus area, in adversarial design review and in implementation area review\. \/ Do not select Opus 5\.5 as the default implementer\. \|/);
+  assert.match(doctrine, /\| gpt-6-astra \| 67 \| 28 \| Do not select Astra as the default implementer\. \/ Prefer Sol 6\.1 over Astra\. \| none \|/);
   assert.doesNotMatch(doctrine, /preferredProvider|permission openai\/|registry prices|context window|`effort`/);
   assert.match(doctrine, /orchestrator selects the model for a no-area track under the same ordinary guidance/);
 });
@@ -134,13 +135,13 @@ test("logical doctrine production renders match published portable measurements"
     { path: "/fixture/b", source: "y".repeat(128), isDirectory: true, tools: [{ name: "c".repeat(64), description: "f".repeat(140) }, { name: "d".repeat(64), description: "g".repeat(140) }] },
   ], paths: [], toolNames: [] };
   const metric = (text: string) => ({ portable: text.split(docsDirectory).join("").length, lines: text.split("\n").length, paths: text.split(docsDirectory).length - 1 });
-  assert.deepEqual(metric(runtime.promptText()!), { portable: 3596, lines: 11, paths: 0 });
-  assert.deepEqual(metric(await renderDoctrine(runtime)), { portable: 8404, lines: 74, paths: 5 });
+  assert.deepEqual(metric(runtime.promptText()!), { portable: 4575, lines: 12, paths: 0 });
+  assert.deepEqual(metric(await renderDoctrine(runtime)), { portable: 9383, lines: 75, paths: 5 });
   assert.deepEqual(metric(await renderDoctrine(runtime, {}, false)), { portable: 2711, lines: 33, paths: 4 });
-  assert.deepEqual(metric(await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped)), { portable: 9944, lines: 87, paths: 6 });
+  assert.deepEqual(metric(await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped)), { portable: 10923, lines: 88, paths: 6 });
   const change = { current: `change-20260101T000000Z-${"a".repeat(32)}`, source: `change-20260101T000001Z-${"b".repeat(32)}`, legacy: true };
   const linked = await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped, change);
-  assert.deepEqual(metric(linked), { portable: 10372, lines: 90, paths: 6 });
+  assert.deepEqual(metric(linked), { portable: 11351, lines: 91, paths: 6 });
   assert.ok(metric(linked).portable * 1.05 < 26300);
   assert.match(linked, /Follow each log's first entry to read the full source chain and accounting/);
   assert.match(linked, /Read-only legacy root log: research-log.md/);
@@ -197,7 +198,17 @@ test("every declared doctrine composition fits the original production hook", { 
     const projectRoster: SlateConfig = { router: { models: { include: ["sol-6.1"], replace: [{ model: "sol-6.1", guidelines: ["x"], cautions: [] }] } } };
     return [runtime(), null, runtime({ router: { compressor: { models: [] } } }), runtime(replace(19401 - runtime(replace(1)).promptText()!.length)), runtime(projectRoster)];
   };
+  const samePolicy: SlateConfig = { router: { models: {
+    replace: SHIPPED_LOGICAL_MODELS.filter((row) => row.model !== "fable-5-2").map(({ source, ...row }) => row),
+    add: SHIPPED_LOGICAL_MODELS.filter((row) => row.model === "fable-5-2").map(({ source, ...row }) => row),
+  } } };
   const oldRuntimes = runtimes(reference.create, basePrefix), newRuntimes = runtimes(createLogicalRuntime, prefix);
+  oldRuntimes[0] = reference.create({ trusted: true, projectConfig: samePolicy, documentationDirectory: basePrefix });
+  const ordinaryInput = (runtime: Readonly<LogicalRuntime>) => JSON.stringify(runtime.policy!.ordinary.map(
+    ({ model, capabilityRating, costRating, effort, preferredProvider, providers, guidelines, cautions }) =>
+      ({ model, capabilityRating, costRating, effort, preferredProvider, providers: Object.entries(providers).sort(([a], [b]) => a.localeCompare(b)), guidelines, cautions }),
+  ));
+  assert.equal(ordinaryInput(oldRuntimes[0]!), ordinaryInput(newRuntimes[0]!), "same shipped policy input resolves identical ordinary rows");
   assert.equal(oldRuntimes[3]!.promptText()!.length, 19400);
   assert.equal(newRuntimes[3]!.promptText()!.length, 19400);
   for (const runtime of [oldRuntimes[4], newRuntimes[4]]) assert.deepEqual(runtime!.policy!.ordinary.map((model) => model.model), ["sol-6.1"]);
@@ -242,6 +253,14 @@ test("every declared doctrine composition fits the original production hook", { 
   assert.deepEqual(comparison(before, normalized), [true, true, true, true]);
   assert.equal(comparison(before, `${normalized}x`)[0], false);
   assert.equal(comparison(before, `${normalized}${prefix}`)[1], false);
+  const shipped = newRuntimes[0]!;
+  for (const [name, transform] of [
+    ["caution-row renderer growth", (text: string) => text.split("\n").map((line) => /^\| [a-z0-9._-]+ \| \d+ \|/.test(line) && !line.endsWith("| none |") ? line + "x".repeat(40) : line).join("\n")],
+    ["several-row renderer growth", (text: string) => text.split("\n").filter((line) => line.startsWith("| ")).length > 3 ? text + "x".repeat(168) : text],
+  ] as const) {
+    const changed = { ...shipped, promptText: () => transform(shipped.promptText()!) };
+    assert.equal(comparison(before, await renderDoctrine(changed))[0], false, name);
+  }
   const fixed = newRuntimes[4]!;
   const grown = { ...fixed, promptText: () => `${fixed.promptText()}${"x".repeat(128)}` };
   const fixedBefore = await renderDoctrine(oldRuntimes[4], {}, true, false, undefined, EMPTY_WORKER_EXTENSION_SET, undefined, reference.register);

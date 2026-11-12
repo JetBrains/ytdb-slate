@@ -1,4 +1,7 @@
-// Reviewed source-read assignments. The user approved these limits on 2026-10-16.
+// Reviewed source-read assignments. The user approved the "1 off ordinary" limit pair on 2026-11-12.
+// Its limits equal the 2026-10-16 limits plus 979 bytes of approved shipped model policy growth, with no five percent reserve.
+// The other 35 pairs retain the 2026-10-16 approval and ceil(baseline bytes * 1.05) byte limits.
+// A higher limit requires a new user approval.
 export const phases = ["Research", "Risk assessment", "Design validation", "Focus reconfirmation", "Adversarial design review", "Final design approval", "Track loop", "Final acceptance", "Delivery"];
 export const lifecycle = ["research.", "assess and record all eleven risk lines.", "design and validate for a multi-track change, a proved DESIGN-TRIGGERING area, or a per-track estimate above 100 counted lines.", "when a design exists, reconfirm the focus list against the validated design.", "when a design exists, run one adversarial design review for each proved DESIGN-TRIGGERING area that has not reviewed the applicable design.", "when a design exists, obtain final design approval.", "run the track loop.", "obtain blocking final acceptance.", "deliver."];
 export const scenarios = ["off ordinary", "off nested", "on ordinary", "on nested"];
@@ -42,7 +45,7 @@ export const conditionalSets = [
   ["Manual review", ["REVIEW_COMMON_POLICY_DOC", "WRITING_GUIDANCE_DOC", ...["RI", "CN", "DU", "SE", "PF", "TQ", "PL", "LX", "NL", "CB", "GR", "UF"].map((id) => `REVIEW_${id}_DOC`)]],
 ];
 export const limits = {
-  "1 off ordinary": [75856, 144492],
+  "1 off ordinary": [76835, 145471],
   "1 off nested": [129137, 197773],
   "1 on ordinary": [92700, 161336],
   "1 on nested": [145981, 214617],
