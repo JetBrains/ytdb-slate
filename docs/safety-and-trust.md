@@ -37,7 +37,7 @@ Main recovery sends hidden `slate-failover` instructions with a unique `details.
 Only the matching message start produces the continuation status, at most once.
 Aborted, cancelled, replaced, or paused attempts produce no such status.
 The acknowledgement does not itself prove recovery success or release recovery ownership.
-Pi 1.4.0's ordinary extension send returns no delivery promise.
+Pi 1.5.2's ordinary extension send returns no delivery promise.
 A deferred preparation failure can escape extension observation.
 Remote procedure call (RPC) mode can suppress that late caller error.
 Slate does not claim all-mode detection of a continuation that never starts.

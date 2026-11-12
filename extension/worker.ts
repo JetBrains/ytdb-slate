@@ -80,10 +80,11 @@ export function isJudgementThreadType(type: unknown): type is (typeof JUDGEMENT_
 	return (JUDGEMENT_THREAD_TYPES as readonly unknown[]).includes(type);
 }
 
-// pi-ai 1.4.0 declares this value in
+// pi-ai 1.5.2 declares this value in
 // @earendil-works/pi-ai/dist/api/openai-prompt-cache.js. pi's extension loader
-// aliases the package root to the compat.js FILE, so an extension cannot safely
-// import that deep subpath. The node test pins this copy to pi-ai's declaration.
+// aliases the package root to dist/core/extensions/pi-ai-extension-view.js,
+// which re-exports compat. This file alias prevents safe deep-subpath imports.
+// The node test pins this copy to pi-ai's declaration.
 export const OPENAI_PROMPT_CACHE_KEY_MAX_LENGTH = 64;
 
 // Common writing guidance reaches every trusted worker configuration.
@@ -186,7 +187,7 @@ function installPromptCacheKey(session: WorkerSession, promptCacheKey?: string):
 		}
 
 		try {
-			// pi-ai 1.4.0 api/openai-responses.js buildParams always creates
+			// pi-ai 1.5.2 api/openai-responses.js buildParams always creates
 			// prompt_cache_key and assigns undefined when resolved cacheRetention is
 			// "none". Own-property presence therefore distinguishes that deliberate
 			// opt-out from a payload shape that never considered this field.
@@ -312,22 +313,27 @@ export function createWorkerRequestContract(): WorkerRequestContract {
  *    (pi-ai types.d.ts), so a wait there could not be cancelled;
  *  · pi's history compaction and branch summarization call
  *    `this.agent.streamFunction` directly (pi-coding-agent
- *    dist/core/agent-session.js lines 1453 and 2551) and their options are built
+ *    dist/core/agent-session.js lines 2305 and 3443) and their options are built
  *    WITHOUT `onPayload` (dist/core/compaction/compaction.js
- *    createSummarizationOptions), so a throttle on `onPayload` would miss every
+ *    createSummarizationOptions, lines 463–469), so a throttle on `onPayload` would miss every
  *    worker history summary, which the approved design includes;
  *  · the wait happens BEFORE the SDK converts the conversation into a provider
  *    payload, so a waiting request holds no converted copy (PF5).
  *
- * The wrapper preserves the software development kit (SDK) authentication branch.
- * AgentSession._getSummarizationRequestAuth takes its strict branch only when
- * agent.streamFunction === streamSimple. In pinned pi 1.4.0, createAgentSession
- * installs its own stream function, so fresh worker sessions take the lenient
- * branch. test/request-throttle-worker.test.ts checks that identity.
+ * In pi 1.5.2, createAgentSession marks its installed stream function through
+ * markRuntimeStreamFunction (dist/core/sdk.js:290).
+ * AgentSession._getSummarizationRequestAuth skips credential pre-resolution
+ * only for a marked function (dist/core/agent-session.js:275–308).
+ * Slate replaces that function without carrying its mark. Worker summaries
+ * take the fallback branch and receive the resolved credential as an explicit
+ * apiKey. Issue #591 tracks the repair.
+ * The strict branch still tests agent.streamFunction === streamSimple.
+ * Fresh workers use a different function. test/request-throttle-worker.test.ts
+ * checks that identity, not preservation of runtime-owned authentication.
  *
  * A THROWN admission error is NOT swallowed. A cancelled wait rejects, pi turns
  * the rejection into the same aborted or errored assistant outcome it produces
- * for a provider failure (pi-agent-core dist/agent.js handleRunFailure), and no
+ * for a provider failure (pi-agent-core dist/agent.js:368 handleRunFailure), and no
  * request is sent.
  */
 export function installRequestThrottle(
@@ -481,7 +487,7 @@ export async function openWorkerSession(opts: {
 	// user has NOT trusted. Carry the host session's actual trust decision into
 	// both the resource loader and the session.
 	//
-	// READ-ONLY view (AF8/AF9): pi 1.4.0 keeps ordinary session.setModel and
+	// READ-ONLY view (AF8/AF9): pi 1.5.2 keeps ordinary session.setModel and
 	// setThinkingLevel calls inside the session. Slate requests no persistence.
 	// This storage protects global settings from calls with persist:true and
 	// from hosts that persist switches. A file-backed manager would save those
@@ -658,7 +664,7 @@ export async function openWorkerSession(opts: {
 		? SessionManager.open(opts.sessionFile)
 		: SessionManager.create(ctx.cwd, ensureRuntimeDirectory(ctx.cwd, opts.runtimeFolder ?? defaultArtifactFolder(), "threads"));
 
-	// In pi 1.4.0, createAgentSession creates a ModelRuntime when none is passed.
+	// In pi 1.5.2, createAgentSession creates a ModelRuntime when none is passed.
 	// It uses auth.json, models.json and models-store.json under agentDir.
 	// SDK creation enables network catalog refresh only with allowModelNetwork.
 	// This call supplies no runtime option, so creation uses no network catalog

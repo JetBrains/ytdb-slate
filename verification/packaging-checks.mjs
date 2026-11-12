@@ -95,6 +95,7 @@ const INSTALL_SCRIPTS = ["prepare", "postinstall", "install", "preinstall"];
 const ALLOWED = [
 	{ label: "package.json", test: (p) => p === "package.json" },
 	{ label: "README.md", test: (p) => p === "README.md" },
+	{ label: "CHANGELOG.md", test: (p) => p === "CHANGELOG.md" },
 	{ label: "LICENSE", test: (p) => p === "LICENSE" },
 	{ label: "docs/**/*.md", test: (p) => /^docs\/(?:[^/]+\/)*[^/]+\.md$/.test(p) },
 	{ label: "extension/**/*.ts", test: (p) => /^extension\/(?:[^/]+\/)*[^/]+\.ts$/.test(p) },
@@ -190,7 +191,7 @@ function findTarballs(dir, rel = "") {
 // manifest and against a mutated clone of it.
 const MANIFEST = new Map();
 
-const FILES_EXACT = ["extension", "docs", "README.md", "LICENSE"];
+const FILES_EXACT = ["extension", "docs", "README.md", "CHANGELOG.md", "LICENSE"];
 MANIFEST.set("files-exact", (m) => {
 	const got = m.files;
 	const ok = Array.isArray(got) && got.length === FILES_EXACT.length && got.every((v, i) => v === FILES_EXACT[i]);
@@ -201,6 +202,11 @@ MANIFEST.set("files-docs", (m) => {
 	const ok = Array.isArray(m.files) && m.files.includes("docs");
 	return { ok, detail: `files includes "docs" — ${ok ? "the doctrine's package-resolved docs ship" : "WITHOUT IT THE SHIPPED DOCTRINE IS BROKEN (recorded adversarial finding)"}` };
 });
+
+MANIFEST.set("changelog-default", (m) => ({
+	ok: !Object.hasOwn(m.pi ?? {}, "changelogPath"),
+	detail: "pi.changelogPath is absent so pi reads the root CHANGELOG.md",
+}));
 
 MANIFEST.set("keywords-pi-package", (m) => {
 	const ok = Array.isArray(m.keywords) && m.keywords.includes("pi-package");
@@ -229,6 +235,7 @@ MANIFEST.set("no-install-scripts", (m) => {
 // One violating mutation per manifest assertion, applied to a deep clone of the
 // REAL manifest. Each returns a human description of what it changed.
 const MUTATE = new Map();
+MUTATE.set("changelog-default", (m) => ((m.pi = { ...m.pi, changelogPath: "" }), 'disabled the changelog with pi.changelogPath'));
 MUTATE.set("files-exact", (m) => ((m.files = [...(m.files ?? []), "verification"]), 'pushed "verification" onto files'));
 MUTATE.set("files-docs", (m) => ((m.files = (m.files ?? []).filter((f) => f !== "docs")), 'removed "docs" from files'));
 MUTATE.set("keywords-pi-package", (m) => ((m.keywords = (m.keywords ?? []).filter((k) => k !== "pi-package")), 'removed "pi-package" from keywords'));
@@ -239,10 +246,21 @@ for (const { short, name } of SDK) {
 MUTATE.set("no-install-scripts", (m) => ((m.scripts = { ...(m.scripts ?? {}), prepare: "echo pwned" }), 'added a "prepare" script'));
 
 // ---------------------------------------------------- pack-output assertions --
-// Pure functions over a pack context { files, docs, vars, tarballs } → the same
+// Pure functions over a pack context { files, changelog, docs, vars, tarballs } → the same
 // { ok, detail } shape, so these are self-testable too: the mutation clones the
 // REAL context instead of the real manifest.
 const PACK = new Map();
+
+PACK.set("pack-changelog", (ctx) => ({
+	ok: ctx.files.includes("CHANGELOG.md"),
+	detail: "the real pack file list contains CHANGELOG.md",
+}));
+
+PACK.set("changelog-headings", (ctx) => {
+	const bad = ctx.changelog.split(/\r?\n/).flatMap((line, i) =>
+		line.startsWith("## ") && !/^## \[\d+\.\d+\.\d+\]$/.test(line) ? [i + 1] : []);
+	return { ok: bad.length === 0, detail: `every ## heading is exactly ## [X.Y.Z] — invalid lines: ${list(bad)}` };
+});
 
 PACK.set("pack-allowed", (ctx) => {
 	const bad = ctx.files.filter((p) => !ALLOWED.some((a) => a.test(p)));
@@ -272,6 +290,8 @@ PACK.set("pack-no-tarball", (ctx) => ({
 }));
 
 const MUTATE_PACK = new Map();
+MUTATE_PACK.set("pack-changelog", (c) => (c.files = c.files.filter((p) => p !== "CHANGELOG.md"), 'dropped CHANGELOG.md from shipped paths'));
+MUTATE_PACK.set("changelog-headings", (c) => (c.changelog += "\n## v1.2.3\n", 'added a malformed version heading to the real changelog'));
 MUTATE_PACK.set("pack-allowed", (c) => (c.files.push("verification/ci-canary.ts"), 'added shipped path "verification/ci-canary.ts"'));
 MUTATE_PACK.set("pack-no-junk", (c) => (c.files.push("extension/.env"), 'added shipped path "extension/.env"'));
 MUTATE_PACK.set("pack-doctrine-docs", (c) => {
@@ -285,7 +305,8 @@ MUTATE_PACK.set("pack-no-tarball", (c) => (c.tarballs.push("ytdb-slate-0.0.0.tgz
 const manifest = JSON.parse(readFileSync(join(REPO, "package.json"), "utf8"));
 const derived = deriveDoctrineDocs(REPO);
 const packFiles = packOutput(REPO);
-const packCtx = { files: packFiles, docs: derived.docs, vars: derived.vars, tarballs: findTarballs(REPO) };
+const changelog = packFiles.includes("CHANGELOG.md") ? readFileSync(join(REPO, "CHANGELOG.md"), "utf8") : "";
+const packCtx = { files: packFiles, changelog, docs: derived.docs, vars: derived.vars, tarballs: findTarballs(REPO) };
 
 // --------------------------------------------------------------------- runs ---
 if (!SELF_TEST) {
@@ -313,7 +334,7 @@ if (!SELF_TEST) {
 		const what = MUTATE_PACK.get(id)(clone);
 		const changed = JSON.stringify(clone) !== JSON.stringify(packCtx);
 		const r = assertion(clone);
-		check(`self-${id}`, changed && !r.ok, `not manifest-shaped, so mutated the REAL pack list: ${what} → ${rejected(changed, r.ok, "pack list")}`);
+		check(`self-${id}`, changed && !r.ok, `not manifest-shaped, so mutated the REAL pack context: ${what} → ${rejected(changed, r.ok, "pack context")}`);
 	}
 }
 

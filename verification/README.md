@@ -6,7 +6,7 @@ two callers, `extension/failover.ts` (orchestrator failover) and
 half of the same hazard: the guarantee in `extension/worker.ts` that a
 **worker-side per-dispatch** model/effort switch never reaches the user's global
 defaults at all. Same failure class (a slate-initiated switch leaving the user's
-pi configuration changed), different mechanism. Pi 1.4.0 makes ordinary
+pi configuration changed), different mechanism. Pi 1.5.2 makes ordinary
 extension setters session-scoped, so the production switch sites write zero
 global-settings bytes. The probe also drives the real `AgentSession` setters
 with `persist:true`. That explicit fixture keeps the compatibility restore under
@@ -411,7 +411,7 @@ clone has no history to search, and a squash-merge erases the commit a history
 search would look for).
 
 `verification/` is not shipped: `package.json`'s `files` whitelist is
-`extension`, `docs`, `README.md`, `LICENSE`.
+`extension`, `docs`, `README.md`, `CHANGELOG.md`, `LICENSE`.
 
 ## How the harness drives a switch
 
@@ -452,7 +452,7 @@ Four drive modes, chosen per rung:
    performs the per-dispatch model **and** effort switch exactly as
    `threads.ts`'s `applyRoute` does (`session.setModel` then
    `session.setThinkingLevel`). Used only by `WK1`, in two phases across two pi
-   processes. In pi 1.4.0, `createAgentSession` creates its default runtime
+   processes. In pi 1.5.2, `createAgentSession` creates its default runtime
    without enabling network catalog refresh. The harness sets `PI_OFFLINE=1`
    as an additional safeguard against model-network access.
 
@@ -1281,6 +1281,7 @@ executable. It has two layers.
 The first layer reads the shape of `package.json`:
 
 - the exact `files` whitelist;
+- the absence of `pi.changelogPath`, so pi reads root `CHANGELOG.md`;
 - the `docs` entry, which the shipped doctrine resolves at run time;
 - the `pi-package` keyword, which the pi.dev gallery listing needs;
 - each pi-bundled SDK package, which must be a peer at `"*"` and absent from
@@ -1302,7 +1303,7 @@ catch.
 
 The harness is cheap and valid for one reason: it drives nothing. Every manifest
 assertion is a pure function of the parsed manifest, and every pack assertion is
-a pure function of the pack file list. That purity makes `--self-test` possible:
+a pure function of the pack context, including the changelog text. That purity makes `--self-test` possible:
 the harness runs each guard again against a **deep clone of the real input** with
 exactly one violating mutation, and the guard must FAIL. The harness writes no
 fixture itself, because an assertion that reads a misspelled field accepts a
@@ -1322,20 +1323,20 @@ bash verification/run-packaging-checks.sh --help
 The harness prints one line for each check, then a summary:
 
 ```
-CHECK files-exact                      PASS — files is exactly ["extension","docs","README.md","LICENSE"] (order included), got ["extension","docs","README.md","LICENSE"]
+CHECK files-exact                      PASS — files is exactly ["extension","docs","README.md","CHANGELOG.md","LICENSE"] (order included), got ["extension","docs","README.md","CHANGELOG.md","LICENSE"]
 CHECK pack-doctrine-docs               PASS — every doctrine doc derived from extension/*.ts via DOCS_DIR ships: design-principles.md, model-routing.md, pr-publishing.md, review-rules.md, track-workflow.md, writing-guidance.md — missing: none
-== summary: 16 pass, 0 fail ==
+== summary: 19 pass, 0 fail ==
 ```
 
-`--self-test` prints the same 16 ids with the prefix `self-`. The verdict column
+`--self-test` prints the same 19 ids with the prefix `self-`. The verdict column
 holds the meaning: PASS says that the guard rejected its mutated input, which is
 the required result.
 
 ```
 == self-test: each guard must reject a real input carrying one violating mutation ==
 CHECK self-files-exact                 PASS — mutated the real manifest: pushed "verification" onto files → the guard rejected it, as required
-CHECK self-pack-doctrine-docs          PASS — not manifest-shaped, so mutated the REAL pack list: dropped docs/design-principles.md from the shipped paths → the guard rejected it, as required
-== summary: 16 pass, 0 fail ==
+CHECK self-pack-doctrine-docs          PASS — not manifest-shaped, so mutated the REAL pack context: dropped docs/design-principles.md from the shipped paths → the guard rejected it, as required
+== summary: 19 pass, 0 fail ==
 ```
 
 Exit status: **0** every check passed · **1** a check failed · **2** the harness
@@ -1348,12 +1349,15 @@ proves that result.
 
 ## What it covers
 
-The harness runs 16 checks. Twelve checks read the manifest, and four checks read
-the real pack output.
+The harness runs 19 checks. Thirteen checks read the manifest. Six checks read
+the pack context, including the changelog text.
 
 | id | what it proves |
 | --- | --- |
-| `files-exact` | `files` is exactly `["extension","docs","README.md","LICENSE"]`, in that order. The guard asserts **equality**, so a deliberate change to the whitelist must update `FILES_EXACT` in the driver in the same commit |
+| `files-exact` | `files` is exactly `["extension","docs","README.md","CHANGELOG.md","LICENSE"]`, in that order. The guard asserts **equality**, so a deliberate change to the whitelist must update `FILES_EXACT` in the driver in the same commit |
+| `changelog-default` | `pi.changelogPath` is absent. Its self-test sets the field to an empty string |
+| `pack-changelog` | the real pack list includes `CHANGELOG.md`. Its self-test drops that path |
+| `changelog-headings` | every line starting with `## ` is exactly `## [X.Y.Z]`, with three numeric parts and nothing else. Zero entries pass. No comparison with the manifest version occurs. Its self-test adds `## v1.2.3` |
 | `files-docs` | `files` contains `docs`. This check has its own verdict line, separate from the equality check, because a package without `docs` ships a **broken doctrine** (a recorded adversarial finding) |
 | `keywords-pi-package` | `keywords` contains `pi-package`, which lists the package in the pi.dev gallery |
 | `peer-pi-ai` / `nodep-pi-ai` | `@earendil-works/pi-ai` is `"*"` in `peerDependencies`, and it is absent from `dependencies` |
@@ -1361,7 +1365,7 @@ the real pack output.
 | `peer-pi-tui` / `nodep-pi-tui` | the same for `@earendil-works/pi-tui` |
 | `peer-typebox` / `nodep-typebox` | the same for `typebox` |
 | `no-install-scripts` | `scripts` declares none of `prepare`, `postinstall`, `install` and `preinstall`. npm runs each of them on **every consumer install** |
-| `pack-allowed` | every shipped path is one of `package.json`, `README.md`, `LICENSE`, `docs/**/*.md`, `extension/**/*.ts` and `extension/**/*.mjs`. This is the guard against the recursive expansion, and the only guard that covers a doc which prose alone references. The `.mjs` kind is a **runtime** kind, not a harness one: the shipped writing checker (`extension/writing-check.mjs`) is dependency-free plain JavaScript, because it runs both as a command and inside a synchronous turn hook with no transpiler in either path |
+| `pack-allowed` | every shipped path is one of `package.json`, `README.md`, `CHANGELOG.md`, `LICENSE`, `docs/**/*.md`, `extension/**/*.ts` and `extension/**/*.mjs`. This is the guard against the recursive expansion, and the only guard that covers a doc which prose alone references. The `.mjs` kind is a **runtime** kind, not a harness one: the shipped writing checker (`extension/writing-check.mjs`) is dependency-free plain JavaScript, because it runs both as a command and inside a synchronous turn hook with no transpiler in either path |
 | `pack-no-junk` | no shipped path matches `.env* *.log *.pem *.key *.p12 *secret* *credential* node_modules/** *.tgz .git* *.local.*`. The match ignores case, and a pattern without `/` matches the basename at any depth |
 | `pack-doctrine-docs` | the package ships every doctrine doc that the extension resolves at a package-resolved path. The driver **derives** the expected set at run time from the `DOCS_DIR` joins in `extension/*.ts`. See the limits below |
 | `pack-no-tarball` | the `--dry-run` pack left no `*.tgz` in the checkout. The search skips `node_modules/` and `.git/`, because a cached tarball there belongs to another package |
@@ -1411,7 +1415,7 @@ logs in nowhere, and it contacts no registry.
 | `packaging-checks.mjs` | the driver: the manifest assertions, the pack assertions, their mutations, and the derived set of doctrine docs |
 
 Like the ladder, `verification/` is not shipped (`package.json`'s `files`
-whitelist is `extension`, `docs`, `README.md`, `LICENSE`). For that reason the
+whitelist is `extension`, `docs`, `README.md`, `CHANGELOG.md`, `LICENSE`). For that reason the
 self-test of `pack-allowed` adds `verification/ci-canary.ts` to the pack list: a
 shipped file from this directory is exactly the regression that the guard must
 catch.
@@ -1492,7 +1496,7 @@ signal (`AGENTS.md` § How extension-load failures surface). pi drops an entry i
 in `session_start` appears as an `extension_error` event on stdout only. A tool
 registration that disappears produces **no diagnostic at all**.
 
-The last failure mode needs a positive control, because pinned Pi 1.4.0 offers
+The last failure mode needs a positive control, because pinned Pi 1.5.2 offers
 no rpc command and no CLI flag that lists the registered tools.
 `verification/ci-canary.ts`
 loads beside the checkout, and it prints one
@@ -1551,7 +1555,7 @@ The timing figures above remain historical measurements from 2026-09-04.
 
 ```
 repo  = /home/you/src/main-as-source (02b6bf8)
-pi    = /home/you/src/main-as-source/node_modules/.bin/pi (1.4.0, pinned 1.4.0)
+pi    = /home/you/src/main-as-source/node_modules/.bin/pi (1.5.2, pinned 1.5.2)
 lab   = /tmp/slate-loadcheck.example
 
 CHECK L4                               PASS — the canary observed all three dispatch tools registered: thread, threads, episode
@@ -1728,7 +1732,7 @@ processes: 1 version-pin probe plus 2 rpc sessions.
 
 | id | what it proves |
 | --- | --- |
-| `L1` | pi **exited 0** and loaded the checkout (rpc, offline, empty agent dir, no `models.json` and no `auth.json`, environment scrubbed by name pattern). The verdict names the pattern scrub, and it claims no more than that. The run does **not** deliver an environment with no credentials of any kind: the scrub is a variable-name pattern list, and a credential under an unmatched name reaches the child, as the measured `AWS_ACCESS_KEY_ID` case above shows. What holds is that the run has nothing to spend a credential on. This check is a real signal on pinned Pi 1.4.0, where the covered load failures exit 1 |
+| `L1` | pi **exited 0** and loaded the checkout (rpc, offline, empty agent dir, no `models.json` and no `auth.json`, environment scrubbed by name pattern). The verdict names the pattern scrub, and it claims no more than that. The run does **not** deliver an environment with no credentials of any kind: the scrub is a variable-name pattern list, and a credential under an unmatched name reaches the child, as the measured `AWS_ACCESS_KEY_ID` case above shows. What holds is that the run has nothing to spend a credential on. This check is a real signal on pinned Pi 1.5.2, where the covered load failures exit 1 |
 | `L2` | stderr holds **neither** `Failed to load extension` **nor** `Extension error (`. The check reads both markers, because the first is the channel for a reported load failure and the second is the channel for a hook, which the first misses. Its own verdict line names the two markers and reproduces neither, so a grep of a CI log for either literal finds no line from a run that passed |
 | `L3` | **stdout** holds no `extension_error` event, which is the only signal from a hook that throws in rpc mode |
 | `L4` | the canary saw all three dispatch tools: `thread`, `threads` and `episode`. Nothing else detects their removal |
@@ -1791,7 +1795,7 @@ need the ladder, the resolver checks, or the manual isolated-load smoke test (`p
 | `ci-canary.ts` | the positive control: a `session_start` hook that prints the registered tool set, the cwd and the trust state to stderr, and asserts nothing |
 
 Like the ladder, `verification/` is not shipped (`package.json`'s `files`
-whitelist is `extension`, `docs`, `README.md`, `LICENSE`). No module in
+whitelist is `extension`, `docs`, `README.md`, `CHANGELOG.md`, `LICENSE`). No module in
 `extension/` imports the canary, and the canary reaches a session only because
 this harness passes it to pi with `-e`.
 
