@@ -1468,7 +1468,7 @@ try {
 			draftFollowUp: { portable: 10874, lines: 87, paths: 6 }, draftRouting: { portable: 10849, lines: 87, paths: 6 },
 			followUpRouting: { portable: 10857, lines: 87, paths: 5 }, maximal: { portable: 10923, lines: 88, paths: 6 },
 			maximalOpen: { portable: 11121, lines: 89, paths: 6 }, maximalLinked: { portable: 11351, lines: 91, paths: 6 },
-			dogfood: { portable: 9558, lines: 86, paths: 6 },
+			dogfood: { portable: 10048, lines: 87, paths: 6 },
 		};
 		const doctrineBaselines = Object.values(rendered);
 		checkAll("doctrine-budget", "exact production renders match published portable baselines and every current baseline keeps five-percent reserve", [

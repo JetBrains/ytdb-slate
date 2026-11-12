@@ -357,12 +357,12 @@ test("effective command reads current preferences without policy or provider wor
   assert.match(notices[0]!, /Remembered compressor selection: none/);
 });
 
-test("project startup settings merge causally and select Opus 5.5 at high when unscoped", { timeout: 5000 }, async () => {
+test("project startup settings merge causally and select Fable 5.2 at high when unscoped", { timeout: 5000 }, async () => {
   const settingsPath = join(process.cwd(), ".pi", "settings.json");
   const projectSettings = JSON.parse(readFileSync(settingsPath, "utf8"));
   assert.deepEqual(projectSettings, {
     defaultProvider: "anthropic",
-    defaultModel: "claude-opus-5-5",
+    defaultModel: "claude-fable-5-2",
     defaultThinkingLevel: "high",
     packages: ["../../main", "npm:pi-smart-fetch@0.3.23", "npm:pi-web-search@1.7.0"],
   });
@@ -379,16 +379,18 @@ test("project startup settings merge causally and select Opus 5.5 at high when u
   const resolverModule = await import(join(packageRoot, "model-resolver.js"));
   const manager = settingsModule.SettingsManager.create(process.cwd(), agentDir, { projectTrusted: true });
   assert.equal(manager.getDefaultProvider(), "anthropic");
-  assert.equal(manager.getDefaultModel(), "claude-opus-5-5");
+  assert.equal(manager.getDefaultModel(), "claude-fable-5-2");
   assert.equal(manager.getDefaultThinkingLevel(), "high");
   assert.deepEqual(manager.getProjectSettings().packages, projectSettings.packages);
   const opus = { provider: "anthropic", id: "claude-opus-5-5" };
+  const fable = { provider: "anthropic", id: "claude-fable-5-2" };
   const other = { provider: "openai", id: "scoped" };
   const runtime = {
-    getModel: (provider: string, id: string) => provider === opus.provider && id === opus.id ? opus
+    getModel: (provider: string, id: string) => provider === fable.provider && id === fable.id ? fable
+      : provider === opus.provider && id === opus.id ? opus
       : provider === other.provider && id === other.id ? other : undefined,
     hasConfiguredAuth: () => true,
-    getModels: () => [opus, other],
+    getModels: () => [opus, fable, other],
     getAvailable: async () => [other],
   };
   const selected = await resolverModule.findInitialModel({
@@ -396,7 +398,7 @@ test("project startup settings merge causally and select Opus 5.5 at high when u
     defaultProvider: manager.getDefaultProvider(), defaultModelId: manager.getDefaultModel(),
     defaultThinkingLevel: manager.getDefaultThinkingLevel(), modelRuntime: runtime,
   });
-  assert.strictEqual(selected.model, opus);
+  assert.strictEqual(selected.model, fable);
   assert.equal(selected.thinkingLevel, "high");
   const scoped = await resolverModule.findInitialModel({
     scopedModels: [{ model: other, thinkingLevel: "low" }], isContinuing: false,
@@ -405,7 +407,7 @@ test("project startup settings merge causally and select Opus 5.5 at high when u
   });
   assert.strictEqual(scoped.model, other, "the scoped set must constrain startup selection");
   assert.equal(scoped.thinkingLevel, "low");
-  const restored = await resolverModule.restoreModelFromSession(other.provider, other.id, opus, false, runtime);
+  const restored = await resolverModule.restoreModelFromSession(other.provider, other.id, fable, false, runtime);
   assert.strictEqual(restored.model, other, "a usable restored model must replace the startup default");
   const untrusted = settingsModule.SettingsManager.create(process.cwd(), agentDir, { projectTrusted: false });
   assert.equal(untrusted.getDefaultProvider(), "anthropic");
@@ -415,7 +417,7 @@ test("project startup settings merge causally and select Opus 5.5 at high when u
 
 for (const explicitModel of [false, true]) test(explicitModel
   ? "real Pi startup gives an explicit command-line model precedence over a conflicting project default"
-  : "real Pi startup prefers Opus 5.5 anywhere in the scoped model set", { timeout: 15000 }, () => {
+  : "real Pi startup prefers Fable 5.2 anywhere in the scoped model set", { timeout: 15000 }, () => {
   const trackedSettings = JSON.parse(readFileSync(join(process.cwd(), ".pi", "settings.json"), "utf8"));
   const trackedDefaults = {
     defaultProvider: trackedSettings.defaultProvider,
@@ -424,7 +426,7 @@ for (const explicitModel of [false, true]) test(explicitModel
   };
   assert.deepEqual(trackedDefaults, {
     defaultProvider: "anthropic",
-    defaultModel: "claude-opus-5-5",
+    defaultModel: "claude-fable-5-2",
     defaultThinkingLevel: "high",
   });
   const cliScratch = mkdtempSync(join(tmpdir(), "slate-startup-cli-"));
@@ -458,7 +460,7 @@ for (const explicitModel of [false, true]) test(explicitModel
           baseUrl: "http://127.0.0.1:9/v1",
           apiKey: "literal-offline-startup-key",
           api: "anthropic-messages",
-          models: ["claude-opus-5-5"].map((id) => ({
+          models: ["claude-opus-5-5", "claude-fable-5-2"].map((id) => ({
             id,
             name: id,
             reasoning: true,
@@ -482,7 +484,7 @@ for (const explicitModel of [false, true]) test(explicitModel
       "--no-session",
       ...(explicitModel
         ? ["--provider", "openai", "--model", "explicit-startup-model"]
-        : ["--models", "anthropic/claude-opus-5-5"]),
+        : ["--models", "anthropic/claude-opus-5-5,anthropic/claude-fable-5-2"]),
     ], {
       cwd: projectDir,
       env: {
@@ -515,7 +517,7 @@ for (const explicitModel of [false, true]) test(explicitModel
     assert.equal(response.success, true);
     assert.equal(response.data?.model?.provider, explicitModel ? "openai" : "anthropic",
       "an explicit command-line provider must outrank the conflicting project default");
-    assert.equal(response.data?.model?.id, explicitModel ? "explicit-startup-model" : "claude-opus-5-5",
+    assert.equal(response.data?.model?.id, explicitModel ? "explicit-startup-model" : "claude-fable-5-2",
       "an explicit command-line model must outrank the conflicting project default");
     if (!explicitModel) assert.equal(response.data?.thinkingLevel, "high");
   } finally {

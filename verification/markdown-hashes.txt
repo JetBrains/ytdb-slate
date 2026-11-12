@@ -12,7 +12,7 @@ e9696c6b9ba621a175e62451d052ecd3f06be88bf6d56da3485e38c5b6f40e25  README.md
 
 db3a085bc6bc8299cd9164d34f77c839b3d1a8c61eed20f6283e240a36952cd3  docs/configuration.md
 
-9ad30b6d4599a02045a06c51f6947741999d3c0e598bec834a1c3be3454c1b25  docs/context-budget.md
+4dd3888440176869630d8de976ec08f134bbdfe6cad04c088787bd0170f11e0a  docs/context-budget.md
 
 0fa1dc5b979304aae079c6bdfaa8b772be9e6401ac82bd1958ca77255e390a96  docs/delivery-packages.md
 
@@ -88,4 +88,4 @@ ff583b7578b55fa21887fde2ca828eb55a6d9efa0851112d830802eae1cc86e4  research/opena
 
 266812b566da8edc5d90936b39bfc7d13e160cd42291aba56b6e00eac3cf5077  research/writing-threshold-provenance.md
 
-85395ba1f3bf697e514b0be98377991a69ddd0632ab044871e00a058426f8ea0  verification/README.md
+01d0269905239eca9c8e8ad943b4816e2ed37471b62961e94f8a2810ae336227  verification/README.md

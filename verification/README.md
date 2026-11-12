@@ -941,7 +941,7 @@ exact current production renders are:
 | canonical maximal baseline with all workflow options | 6 | 10923 | 88 |
 | maximal baseline with an open change | 6 | 11121 | 89 |
 | maximal baseline with source and legacy root log | 6 | 11351 | 91 |
-| dogfood config and extension roster | 6 | 9558 | 86 |
+| dogfood config and extension roster | 6 | 10048 | 87 |
 | 19,400-character policy plus draft, source and legacy log | 6 | 26053 | 89 |
 | same policy plus draft and deferred issues, source and legacy log | 6 | 26127 | 90 |
 | same policy plus routing recommendations, source and legacy log | 5 | 26036 | 89 |
@@ -1557,7 +1557,7 @@ lab   = /tmp/slate-loadcheck.example
 CHECK L4                               PASS — the canary observed all three dispatch tools registered: thread, threads, episode
 CHECK L6                               PASS — /slate is registered and attributed to /home/you/src/main-as-source/extension/index.ts — inside the checkout under test, so this run exercised the working tree and not an installed release
 CHECK T2                               PASS — the trusted config emitted no sanitizer warning
-CHECK T4                               PASS — /home/you/src/main-as-source/.pi/slate.json parses as a JSON object, 4 top-level key(s): orchestratorModeDefault, workflow, router, workerExtensions
+CHECK T4                               PASS — /home/you/src/main-as-source/.pi/slate.json parses as a JSON object, 3 top-level key(s): orchestratorModeDefault, workflow, workerExtensions
 CHECK T5                               PASS — /home/you/src/main-as-source/.pi/settings.json carries exactly one local package entry, spelled "../../main", and no registry entry for ytdb-slate (3 package entry/entries in total)
 
 CHECK roster                           PASS — all 13 selected check(s) reported exactly once (13 result line(s) before this audit)

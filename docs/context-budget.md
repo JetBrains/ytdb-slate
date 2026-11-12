@@ -7,28 +7,34 @@ This document is reference documentation, not workflow doctrine.
 
 ## Why absolute tokens, not a percentage
 
-pi's registry context windows differ per model: current Anthropic
-flagships are registered at 1,000,000 tokens; `claude-haiku-4-5`,
-`claude-opus-4-1`, and `claude-opus-4-5` (and their dated aliases)
-at 200,000; direct-OpenAI GPT-5.6 models default to 272,000 as a
-pricing-tier guard (the full 1.05M window is opt-in). One percentage
-cannot express a consistent orchestrator budget across those
-denominators — 40% of a flagship Claude is 400K tokens; 40% of a
-GPT-5.6 is 108.8K. An absolute budget says what it means on every
-model.
+pi registers `anthropic/claude-sonnet-5-5` and `anthropic/claude-opus-5-5`
+with 1,000,000-token context windows. It registers `openai/gpt-6.1-sol`,
+`openai/gpt-6-luna` and `openai/gpt-6-astra` with 272,000-token windows.
+It registers `google-vertex/gemini-3.8-flash` with 1,048,576 tokens.
+
+One percentage cannot express a consistent budget across these windows.
+For example, 40% of the `anthropic/claude-sonnet-5-5` window is 400,000 tokens.
+For `openai/gpt-6.1-sol`, 40% is 108,800 tokens.
+An absolute budget states the token count directly.
 
 ## The OpenAI pricing cliff
 
-OpenAI long-context pricing is request-wide: a request whose total
-input exceeds 272K tokens bills the ENTIRE request at long-context
-rates. The multipliers are the tier pattern — 2× input, 1.5×
-output, 2× cache read, 2× cache write; the dollar figures are
-`gpt-5.6-sol`'s registered rates (absolute rates vary per model):
-input $5→$10/M, output $30→$45/M, cache read $0.5→$1/M, cache
-write $6.25→$12.5/M. In an agent loop the whole conversation is
-resent every turn, so once the boundary is
-crossed, every subsequent turn stays at those rates. The budget's
-job is to stop the orchestrator before that happens.
+For `openai/gpt-6.1-sol`, a request above 272,000 input tokens uses long-context
+rates for the full request. The input and cache rates double.
+The output rate rises by a factor of 1.5.
+The registered rates in dollars per million tokens are:
+
+| Token type | Up to 272,000 input tokens | Above 272,000 input tokens |
+| --- | ---: | ---: |
+| Input | 2 | 4 |
+| Output | 10 | 15 |
+| Cache read | 0.10 | 0.20 |
+| Cache write | 2.50 | 5 |
+
+An agent loop resends the conversation on each turn.
+While the conversation stays above 272,000 input tokens, each request uses
+the long-context rates. The purpose of the built-in default budget is to
+pause the orchestrator before a request crosses this boundary.
 
 ## Defaults
 
@@ -56,7 +62,7 @@ or an object:
   "contextBudget": {
     "tokens": 256000,
     "overrides": [
-      { "match": "openai/gpt-5\\.6-.*", "tokens": 240000 },
+      { "match": "openai/gpt-6\\.1-sol", "tokens": 240000 },
       { "match": "anthropic/.*", "tokens": 400000 }
     ]
   }
@@ -211,7 +217,7 @@ characters. Tool names use 64 characters. Descriptions use 140 characters.
 | canonical maximal baseline with all workflow options | 6 | 10,923 | 88 |
 | maximal baseline with an open change | 6 | 11,121 | 89 |
 | maximal baseline with source and legacy root log | 6 | 11,351 | 91 |
-| dogfood `.pi/slate.json` and its two extension units | 6 | 9,558 | 86 |
+| dogfood `.pi/slate.json` and its two extension units | 6 | 10,048 | 87 |
 | runtime boundary plus draft and capped workers, source and legacy log | 6 | 26,053 | 89 |
 | runtime boundary plus draft and deferred issues, source and legacy log | 6 | 26,127 | 90 |
 | runtime boundary plus routing recommendations, source and legacy log | 5 | 26,036 | 89 |
@@ -451,42 +457,50 @@ The separate principle-table row contains 145 bytes without its final line feed.
 A blank separator before § 5 of design-principles.md adds one byte outside the 457-byte figure.
 The complete design-principles.md document adds 604 bytes for P14.
 
-## Using GPT-5.6's full 1.05M window
+## Using GPT-6.1 Sol's full 1.05M window
 
-Two deliberate steps. First, raise the registry window in
-`~/.pi/agent/models.json` (pi's custom-models file — NOT
-`settings.json`, where this block is silently ignored):
+OpenAI documents a 1,050,000-token context window for `gpt-6.1-sol`.
+Pi registers `openai/gpt-6.1-sol` with a 272,000-token window and a maximum
+output of 128,000 tokens.
+The registered window equals the long-context pricing boundary.
+To use the larger window, first set `modelOverrides` in pi's custom-models
+file, `~/.pi/agent/models.json`. Pi ignores this block in `settings.json`
+without a message.
 
 ```json
 {
   "providers": {
     "openai": {
       "modelOverrides": {
-        "gpt-5.6-sol": { "contextWindow": 1050000 }
+        "gpt-6.1-sol": { "contextWindow": 1050000 }
       }
     }
   }
 }
 ```
 
-(repeat for `gpt-5.6-terra` / `gpt-5.6-luna`). Second, raise the
-Slate budget with an override in `.pi/slate.json` — the full nested
-form matters: a bare `{"match": …, "tokens": …}` pasted as the
-`contextBudget` value becomes a global scalar with `match` silently
-dropped:
+Second, raise the Slate budget with an override in `.pi/slate.json`.
+Keep the full nested form shown below.
+A bare `{"match": …, "tokens": …}` used as the `contextBudget` value sets
+a global token budget. Slate drops its `match`.
+Slate reports a warning about the unknown key.
 
 ```json
 {
   "contextBudget": {
     "overrides": [
-      { "match": "openai/gpt-5\\.6-.*", "tokens": 900000 }
+      { "match": "openai/gpt-6\\.1-sol", "tokens": 900000 }
     ]
   }
 }
 ```
 
-WARNING: beyond 272K total input every request bills at the
-long-context rates listed above.
+With the default 16,384-token compaction reserve, the clamp allows
+1,000,848 tokens for this window. The configured 900,000-token budget binds.
+That budget is about 85.7% of the 1,050,000-token window.
+
+WARNING: every request above 272,000 input tokens uses the long-context
+rates listed above for the full request.
 
 Logical-model routing does not change this context-window setting. Pi's registry
 remains the runtime source for context capacity. Slate validates permitted routes
@@ -494,10 +508,13 @@ against that registry but does not compare it with a second profile window.
 
 ## Accepted limitations
 
-- On models with a 272K pricing tier and a larger registry window
-  (`gpt-5.4-pro`, `gpt-5.5-pro`, GPT-5.6 after the opt-in above), a
-  >16K single-turn overshoot near the 256K default can bill the
-  final turns at long-context rates — override to 240,000 to widen
+- When context is near the 256,000-token default, one turn that adds more
+  than 16,000 tokens can cross 272,000 input tokens and incur long-context rates.
+  This applies to `openai/gpt-6.1-sol` after the `modelOverrides` step in
+  § "Using GPT-6.1 Sol's full 1.05M window" if the default budget stays.
+  With the default compaction reserve, the clamp keeps that budget at 256,000.
+  With the registered 272,000-token window, the clamp instead gives 222,848,
+  so this limitation does not apply there. Override to 240,000 to increase
   the margin.
 - The 32K margin in the clamp covers typical turns, not extreme
   single-turn ingestion (several parallel large file reads) — hand

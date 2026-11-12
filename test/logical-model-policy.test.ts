@@ -55,14 +55,12 @@ test("project configuration selects the exact approved logical defaults", () => 
   assert.deepEqual(config, {
     orchestratorModeDefault: true,
     workflow: { draftPRs: true, routingRecommendations: true },
-    router: {
-      models: { include: COMPLETE_DEFAULTS.slice(0, 6).map((row) => row.model) },
-      compressor: { models: [{ model: "claude-sonnet-5.5", effort: "medium" }] },
-    },
     workerExtensions: ["pi-smart-fetch", "pi-web-search"],
   });
+  assert.equal(Object.hasOwn(config, "router"), false);
   const resolution = resolve(config);
-  assert.deepEqual(resolution.policy?.ordinary.map((row) => row.model), COMPLETE_DEFAULTS.slice(0, 6).map((row) => row.model));
+  assert.deepEqual(resolution.policy?.ordinary.map(({ source: _source, ...row }) => plain(row)),
+    COMPLETE_DEFAULTS.map(({ source: _source, ...row }) => row));
   assert.deepEqual(resolution.policy?.compressor, [{ model: "claude-sonnet-5.5", effort: "medium" }]);
 });
 
