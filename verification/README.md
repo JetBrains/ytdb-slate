@@ -1077,10 +1077,10 @@ coverage, literal-limit enforcement, mutation controls, and publication equality
 literal limits approved by the user on 2026-10-16. The two nested research
 conditional limits were approved on 2026-10-25.
 Classification and recovery funding sets seven ordinary maximum limits independently.
-Research maxima are 150,230 bytes with publishing off and 161,742 with publishing on.
-Publishing-off ordinary maxima are 186,267 bytes in phases 2–4 and 238,296 in phases 5–6.
+Research maxima are 151,209 bytes with publishing off and 162,721 with publishing on.
+Publishing-off ordinary maxima are 187,246 bytes in phases 2–4 and 239,275 in phases 5–6.
 All other stored phase limits stay fixed.
-The separate research reservation is 77,296 required and 150,230 maximum bytes.
+The separate research reservation is 78,275 required and 151,209 maximum bytes.
 Independent classification-start literals bound every phase and session coordinate by 566 required and 3,061 maximum added bytes.
 The placement and preservation controls retain their source-stage proofs and session-specific extras.
 Earlier savings cannot fund these increases.
