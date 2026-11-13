@@ -136,12 +136,12 @@ test("logical doctrine production renders match published portable measurements"
   ], paths: [], toolNames: [] };
   const metric = (text: string) => ({ portable: text.split(docsDirectory).join("").length, lines: text.split("\n").length, paths: text.split(docsDirectory).length - 1 });
   assert.deepEqual(metric(runtime.promptText()!), { portable: 4575, lines: 12, paths: 0 });
-  assert.deepEqual(metric(await renderDoctrine(runtime)), { portable: 9383, lines: 75, paths: 5 });
+  assert.deepEqual(metric(await renderDoctrine(runtime)), { portable: 9376, lines: 75, paths: 5 });
   assert.deepEqual(metric(await renderDoctrine(runtime, {}, false)), { portable: 2711, lines: 33, paths: 4 });
-  assert.deepEqual(metric(await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped)), { portable: 10923, lines: 88, paths: 6 });
+  assert.deepEqual(metric(await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped)), { portable: 10916, lines: 88, paths: 6 });
   const change = { current: `change-20260101T000000Z-${"a".repeat(32)}`, source: `change-20260101T000001Z-${"b".repeat(32)}`, legacy: true };
   const linked = await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped, change);
-  assert.deepEqual(metric(linked), { portable: 11351, lines: 91, paths: 6 });
+  assert.deepEqual(metric(linked), { portable: 11344, lines: 91, paths: 6 });
   assert.ok(metric(linked).portable * 1.05 < 26300);
   assert.match(linked, /Follow each log's first entry to read the full source chain and accounting/);
   assert.match(linked, /Read-only legacy root log: research-log.md/);
@@ -576,7 +576,7 @@ test("fixed doctrine preserves loading clauses and resolves filenames beside Lif
     assert.match(doctrine, /Never for routine dispatch\. Skip if in context\./);
     assert.doesNotMatch(doctrine, /P1[34] —|Workflow steps in code/);
     const proportional = readFileSync(RECURSIVE_WORKFLOW_DOC, "utf8").split("## Proportional process\n\n")[1]!.split("\n## ")[0]!;
-    const retained = "Use [track-workflow.md](track-workflow.md) § Recursive planning and loading for record triggers.\nEntering a design track triggers its research log and nested gates.\nAn ordinary code track or a high-level design alone triggers neither extra record.\nQuestions follow unresolved decisions rather than record or track counts.\n";
+    const retained = "Use [track-workflow.md](track-workflow.md) § Recursive planning and loading for record triggers.\nEntering a design track triggers its research log and nested gates.\nAn ordinary code track or a high-level design alone triggers neither extra record.\nStandalone designs and maps follow the lifecycle artifact summary.\nQuestions follow unresolved decisions rather than record or track counts.\n";
     const valid = (text: string) => text === retained && !text.includes("Use [design-principles.md]");
     assert.ok(valid(proportional));
     assert.equal(valid(`Use [design-principles.md](design-principles.md) § 4. Operating principles for proportional process.\n${proportional}`), false);
@@ -719,8 +719,7 @@ test("writing doctrine is active for trusted projects regardless of ignored writ
     "Propose a repeated regression as a non-goal candidate.",
     "Present what changed when you update a design.",
     "Assume the user knows software but not this project.",
-    "Apply these requirements to README and documentation text, code comments and pull request text.",
-    "Apply these requirements also to commit bodies, issues, review comments, release notes and user messages.",
+    "Apply these requirements to user-facing prose: README, docs, code comments, pull requests, commit bodies, issues, review comments, release notes, user messages, maps, designs and package drafts.",
     "Exclude research logs, worker task text, and the project's own agent instruction file.",
     "Read it only for an unusual prose decision.",
     "Skip it if already in context.",
@@ -964,4 +963,398 @@ test("entry configuration validates request pacing and reports the removed shard
   const removed = await run("removed-shards", { cacheKeyShards: 3 });
   assert.equal(removed.length, 1);
   assert.match(removed[0] ?? "", /cacheKeyShards 3 is a removed setting and has no effect/);
+});
+
+
+// @ts-ignore Shared closed record-contract roster.
+import { safeWriteDuties, safeWriteAttacks, acceptsSafeWriteDuty, acceptsDutyRoster, recordWriterApplications, writerFieldAttacks, writerFieldIds, safeWriteMutationIds, createMutationAudit } from "../verification/record-mutation-roster.mjs";
+
+const dutySources = Object.fromEntries([["C", "change-records"], ["W", "safe-record-write"], ["E", "record-write-recovery"]].map(([owner, file]) => [owner, readFileSync(new URL(`../docs/${file}.md`, import.meta.url), "utf8")]));
+const cachedDutyAttacks = safeWriteAttacks(dutySources);
+for (const [id, sentences] of safeWriteDuties as [string, string[]][]) {
+  test(`safe-write duty ${id} retains every clause`, () => {
+    assert.ok(acceptsSafeWriteDuty(dutySources, sentences));
+    assert.ok(acceptsSafeWriteDuty({ ...dutySources, C: "Benign framing.\n" + dutySources.C }, sentences));
+    const attacks = cachedDutyAttacks.filter((a: any) => a.id.startsWith(id + "/"));
+    assert.ok(attacks.length > 0);
+    for (const attack of attacks) assert.ok(attack.changed && attack.rejected, attack.id);
+  });
+}
+test("safe-write attack generation uses a constant selected-parser call count", { timeout: 60000 }, async () => {
+  const code = readFileSync(new URL("../verification/record-mutation-roster.mjs", import.meta.url), "utf8");
+  const target = 'lex: (source) => Lexer.lex(';
+  assert.equal(code.split(target).length, 2);
+  const counted = 'export let lexerCalls = 0;\n' + code.replace(target, 'lex: (source) => (++lexerCalls, Lexer.lex(')
+    .replace('{ gfm: true, breaks: false, pedantic: false }) };', '{ gfm: true, breaks: false, pedantic: false })) };');
+  const load = (text: string) => import("data:text/javascript;base64," + Buffer.from(text).toString("base64"));
+  const small = await load(counted + "\n// small sample");
+  const full = await load(counted + "\n// full sample");
+  const smallRows = small.safeWriteAttacks(dutySources, small.safeWriteDuties.slice(0, 1));
+  const fullRows = full.safeWriteAttacks(dutySources);
+  const bounded = (calls: number) => calls >= 3 && calls <= 10;
+  assert.ok(fullRows.length > smallRows.length * 10);
+  assert.equal(small.lexerCalls, full.lexerCalls);
+  assert.ok(bounded(full.lexerCalls), `selected-parser calls: ${full.lexerCalls}`);
+  const attackLoop = 'return [...outside, ...attacks.map(([kind, replacement]) => {';
+  assert.equal(counted.split(attackLoop).length, 2);
+  const mutant = await load(counted.replace(attackLoop, attackLoop + "\n   parser().lex(source.C);"));
+  mutant.safeWriteAttacks(dutySources, mutant.safeWriteDuties.slice(0, 1));
+  assert.equal(bounded(mutant.lexerCalls), false, "a selected-parser call per attack must fail the guard");
+});
+
+test("active owner predicates reject the count-preserving issue 587 relocation", () => {
+  const clauses = safeWriteDuties[0][1];
+  const changed = { ...dutySources, C: dutySources.C.replace(clauses[0], "") + "\n## Outside owner\n" + clauses[0] };
+  assert.equal(changed.C.split(clauses[0]).length, dutySources.C.split(clauses[0]).length);
+  assert.equal(acceptsSafeWriteDuty(changed, clauses), false);
+});
+
+test("exception triggers and worker stop retain independent common ownership", () => {
+  const clauses = safeWriteDuties.find(([id]: any) => id === "S26")[1];
+  assert.equal(clauses.length, 10);
+  for (let clause = 2; clause < 10; clause++) {
+    const attacks = cachedDutyAttacks.filter((attack: any) => attack.id.startsWith(`S26/${clause}/`));
+    for (const kind of ["remove", "duplicate", "owner-W", "owner-E", "copy-W", "copy-E"]) {
+      assert.ok(attacks.some((attack: any) => attack.id.endsWith("/" + kind) && attack.changed && attack.rejected), `S26/${clause}/${kind}`);
+    }
+    assert.equal(attacks.filter((attack: any) => /\/\d+$/.test(attack.id)).length, clauses[clause].split(/\s+/).length);
+    assert.ok(attacks.every((attack: any) => attack.changed && attack.rejected));
+  }
+});
+
+test("cross-owner duplicates expose an owner-only acceptor", async () => {
+  const source = readFileSync(new URL("../verification/record-mutation-roster.mjs", import.meta.url), "utf8");
+  const predicate = "return Object.entries(regions).every(([key, text]) => text.split(sentence).length - 1 === (key === owner ? 1 : 0));";
+  assert.equal(source.split(predicate).length, 2);
+  const weakened = source.replace(predicate, "return regions[owner].split(sentence).length - 1 === 1;");
+  const faulty = await import("data:text/javascript;base64," + Buffer.from(weakened).toString("base64"));
+  const attacks = faulty.safeWriteAttacks(dutySources);
+  const copies = attacks.filter((attack: any) => /\/copy-[CWE]$/.test(attack.id));
+  const clauseCount = safeWriteDuties.reduce((count: number, [, clauses]: any) => count + clauses.length, 0);
+  assert.equal(copies.length, 2 * clauseCount);
+  assert.ok(copies.every((attack: any) => attack.changed && !attack.rejected));
+  assert.ok(attacks.filter((attack: any) => !/\/(?:copy-[CWE]|(?:copy|duplicate)-[CWE]-.+)$/.test(attack.id)).every((attack: any) => attack.changed && attack.rejected));
+  assert.ok(cachedDutyAttacks.every((attack: any) => attack.changed && attack.rejected));
+  const audit = createMutationAudit({ duties: safeWriteMutationIds });
+  audit.record("duties", attacks);
+  assert.equal(audit.inspect().ok, false);
+});
+
+test("outside-owner copies expose the narrow scan in every uncovered section", async () => {
+  const source = readFileSync(new URL("../verification/record-mutation-roster.mjs", import.meta.url), "utf8");
+  const wholeScan = 'const regions = Object.fromEntries(["C", "W", "E"].map((key) => [key, (source[key] ?? "").replace(/\\s+/g, " ").trim()]));';
+  assert.equal(source.split(wholeScan).length, 2);
+  // Keep the whole exception document visible to this occurrence-only mutant.
+  const narrowScan = `const regions = { ...owners, E: (source.E ?? "").replace(/\\s+/g, " ").trim(), W: (source.W ?? "").split("## Record preparation and recovery execution\\n")[1]?.replace(/\\s+/g, " ").trim() ?? "" };`;
+  const faulty = await import("data:text/javascript;base64," + Buffer.from(source.replace(wholeScan, narrowScan)).toString("base64"));
+  const attacks = faulty.safeWriteAttacks(dutySources);
+  const outside = (rows: any[]) => rows.filter((attack: any) => /\/(?:copy|duplicate)-[CWE]-.+$/.test(attack.id));
+  const parts = ["C-introduction", "C-before", "C-after", "W-introduction", "W-command-contract", "W-invocation",
+    "W-reports", "W-routes", "W-bounds", "W-after", "E-whole"];
+  assert.equal(safeWriteDuties.length, 40);
+  assert.equal(safeWriteDuties.reduce((count: number, [, clauses]: any) => count + clauses.length, 0), 226);
+  assert.equal(outside(attacks).length, 4972);
+  assert.equal(outside(cachedDutyAttacks).length, 4972);
+  for (const [id, clauses] of safeWriteDuties) {
+    for (let clause = 0; clause < clauses.length; clause++) {
+      for (const part of parts) for (const kind of ["copy", "duplicate"]) {
+        const identity = `${id}/${clause}/${kind}-${part}`;
+        const old = attacks.find((attack: any) => attack.id === identity);
+        const fixed = cachedDutyAttacks.find((attack: any) => attack.id === identity);
+        assert.ok(old.changed, identity);
+        assert.equal(old.rejected, part === "W-after" || part === "E-whole", identity);
+        assert.ok(fixed.changed && fixed.rejected, identity);
+      }
+    }
+  }
+  assert.equal(outside(attacks).filter((attack: any) => !attack.rejected).length, 4068);
+  assert.ok(safeWriteDuties.every(([, clauses]: any) => acceptsSafeWriteDuty(dutySources, clauses)));
+  for (const key of ["C", "W", "E"]) {
+    assert.ok(safeWriteDuties.every(([, clauses]: any) =>
+      acceptsSafeWriteDuty({ ...dutySources, [key]: dutySources[key] + "\n## Benign ending\nNo extra duty." }, clauses)));
+  }
+  const audit = createMutationAudit({ duties: safeWriteMutationIds });
+  audit.record("duties", attacks);
+  assert.equal(audit.inspect().ok, false);
+});
+
+test("record writer fields have exactly-once fail-closed accounting", () => {
+  const source = read("change-records");
+  const rows = [...cachedDutyAttacks, ...writerFieldAttacks(source)];
+  assert.ok(acceptsDutyRoster());
+  assert.equal(acceptsDutyRoster(safeWriteDuties.slice(1)), false);
+  assert.equal(acceptsDutyRoster(safeWriteDuties.map(([id, clauses]: any) => [id, id === "S09" ? clauses.slice(1) : clauses])), false);
+  assert.ok(writerFieldAttacks(source).every((row: any) => row.isolated));
+  const expected = { "record-contract": [...safeWriteMutationIds, ...writerFieldIds] };
+  const check = (entries: any[]) => {
+    const audit = createMutationAudit(expected);
+    audit.record("record-contract", entries);
+    return audit.inspect().ok;
+  };
+  assert.ok(check(rows));
+  assert.equal(check([...safeWriteAttacks(dutySources, safeWriteDuties.slice(1)), ...writerFieldAttacks(source)]), false);
+  assert.equal(check([...cachedDutyAttacks, ...writerFieldAttacks(source, recordWriterApplications.slice(1))]), false);
+  assert.equal(check(rows.slice(1)), false);
+  assert.equal(check([...rows, rows[0]]), false);
+  assert.equal(check(rows.map((row, i) => i ? row : { ...row, rejected: false })), false);
+  assert.equal(check(rows.map((row, i) => i ? row : { ...row, changed: false })), false);
+  const audit = createMutationAudit(expected);
+  audit.crash(new Error("fixture"));
+  audit.record("record-contract", rows);
+  assert.equal(audit.inspect().ok, false);
+});
+
+const normalize = (text: string) => text.replace(/\s+/g, " ").trim();
+const read = (file: string) => readFileSync(new URL(`../docs/${file}.md`, import.meta.url), "utf8");
+
+// Independent policy expectations make each weakening observable without a hash refresh.
+const policies: Record<string, Record<string, string>> = {
+  maps: {
+    start: "Start with decision-dependent questions.",
+    stop: "Stop reading when no questions remain.",
+    reliance: "Before relying on a baseline fact, check current source when that source changed after the map commit.",
+    facts: "Check every map fact against source evidence.",
+    further: "Read further only for open or reopened questions.",
+    access: "Map access follows the Reviewer input contract in [review-rules.md](review-rules.md).",
+    length: "Use a soft guideline of about 1,500 words for every map.",
+    nodes: "Keep each Mermaid diagram under 40 nodes.",
+  },
+  "change-records": {
+    categories: "A **change record** is a log, status, report, design, map or plan.",
+    rootAuthority: "Current `root-design.md` or `track-<number>-design.md` governs its root or design-track node.",
+    codeAuthority: "In new/migrated changes, multi-track code tracks use `code-track-<number>-design.md`, authoritative only for a code node whose owning log names it current.",
+    logAuthority: "Logs hold decisions, approval hashes, links and accounting, not design authority.",
+    noPlan: "A track with review-fix children is multi-track. Without children, a single track needs no plan.",
+    mapFamilies: "`root-baseline-map.md`, `track-<number>-baseline-map.md` and `track-<number>-implementation-map.md` explain source, not requirements.",
+    singleTrack: "Single-track root baselines use code-track detail.",
+    facts: "Map changes grant no approval and change no design identity.",
+    draftCheck: "Record-only workers write logs/status, store assigned designs/baseline maps/plans from drafts with whole-byte checks, and create successor designs/plans/maps, including source-only maps.",
+    writers: "Implementers write only their own reports and assigned implementation maps. Fixers append their reports and edit assigned maps. Neither writes logs.",
+    workflowScope: "In new/migrated changes, SHA-256 (Secure Hash Algorithm, 256-bit) identifies whole design/map/plan bytes.",
+    fullHash: "Versions need all 64 hexadecimal characters, not prefixes, filenames or numbers.",
+    loggedEvidence: "Retained versions supply evidence/restoration only when bytes match a full hash in their owning log.",
+    afterWrite: "Before edits/evidence use, a record-only worker checks stored bytes against the reported hash. Log only the agreed full hash and check the entry.",
+    baselineIdentity: "Baseline entries also record path and source commit.",
+    noApproval: "Storage identity grants no approval.",
+    logDispatch: "Only the orchestrator dispatches hash logging.",
+    editBarrier: "Eligible: same-record verified-write/successor/adoption identities within the owning log's read boundary. Edit/successor selectors use the latest eligible record-path entry. Match current bytes or pause. Retained-copy adoption changes no selector.",
+    preserve: "Before edits, match identity and check record-only logging of separate command retention beside it.",
+    copyStatus: "Only designs/plans need pre-write bindings. Maps need stored agreement with their writer's reported payload hash before checked logging.",
+    preservationLog: "Edit tasks name the eligible stored-bytes hash, verified preserved-copy path and checked entries.",
+    adoption: "Adoption: a record-only worker verifies equality with an eligible same-record copy and logs its hash.",
+    adoptionExclusions: "An unlogged draft or filename hash cannot establish adoption.",
+    unrelatedCopies: "Retain other copies as non-evidence that never blocks work.",
+    compatibility: "Recorded authority and evidence rules apply until user-authorized migration. Track opening is not migration. `versions/` whole bytes must match filename hashes. `.vN.md` whole bytes must match owning-log hashes.",
+    retention: "Drafts, designs and records outlive the action. Write records with built-in tools.",
+    immutableCopies: "Never change or delete a versioned copy.",
+    successorSource: "Keep successor design/map/plan sources read-only. Name the direct source, its source chain and each owning log’s recorded read boundary.",
+    successorLog: "Before a successor folder’s first worker record write, a record-only worker checks the source against that identity, then logs it.",
+    successorBoundary: "Later entries supply no identity. A failed check gives no identity and pauses affected reliance.",
+    handoff: "A trusted handoff retaining the folder creates no fork.",
+    retainedPrivacy: "Retained copies keep record privacy/reviewer-input restrictions.",
+  },
+  "safe-record-write": {
+    recoveryIdentity: "Compare regular non-link leaves only with the intended eligible logged restore copy. Never guess.",
+    recoveryPause: "Unproved: pause. Retention grants no creation/approval/replacement.",
+    missingCopyExecution: "Each allows first attempt + one next-name retry with first recorded identity as expected. Unreliable identity or unclear/exhausted history pauses.",
+    immutableRetention: "Use immutable unused versioned names beside the record, not scratch or subfolders. Never change occupants.",
+    occupiedProof: "Occupied: exit 3, code occupied, stage compare, writeState not-created.",
+    restorationExecution: "Otherwise retain changed bytes with checked recovery-only logging before restoration. Check restored bytes before retry.",
+  },
+  "record-write-recovery": {
+    firstWrite: "Failed or unclear `status.md`: retry a whole rewrite. A logged interrupted edit stays an edit even when the destination vanishes. Absent destination: command-creation restoration from a verified eligible source. Failed or unclear creation: only common command-result retries.",
+    missingCopy: "Missing or different preservation copy: leave current unchanged. Retry preservation only within its checked first attempt + one next-name retry allowance.",
+    recoveryOrder: "If unchanged, retry only the edit.",
+    recoveryPause: "Unclear or failed edit: compare with its intended logged copy. Unverifiable copy pauses replacement. Never guess a copy.",
+  },
+  "track-workflow": {
+    focusedContext: "Research log: `slate-changes/<change>/research-log.md`. Report: `slate-changes/<change>/track-<number>-implementer-report.md`.",
+    workerDepth: "Implementers map final source per [maps.md](maps.md).",
+    mapMaintenance: "Fixers maintain maps per source commit.",
+    mapEditFields: "Edit logged maps: name eligible stored-bytes hash, verified preserved-copy path and checked entries.",
+    designDispatch: "Name any current approved design (standalone or log-held), task, acceptance condition, findings with compact fix evidence, affected files, decisions and open questions.",
+    boundedContext: "Give implementers and fixers section references or bounded excerpts, not a required whole-log read.",
+    factualContext: "Assign maps per code track: facts, not requirements.",
+    baselineDispatch: "For a stored baseline, obtain its path and source commit from the log and name both.",
+    singleBaseline: "Single-track work uses the root baseline.",
+    recordedBaseline: "Recorded changes keep their workflow until user-approved migration.",
+    unresolvedHistory: "Use supplied references and excerpts. Read further history only for unresolved relevant questions.",
+    migrationRange: "For log-content migration, record the exact source line range and full hash.",
+    migrationBytes: "The standalone design must equal that span, including entry prefixes, without summary or correction.",
+    migrationHash: "Log its full hash under [change-records.md](change-records.md) § Manual records and safe writes.",
+    migrationCorrection: "Later corrections need a new user-approved design version.",
+  },
+  "delivery-packages": {
+    identityOwner: "Use [change-records.md](change-records.md) § Manual records and safe writes for evidence identity and recorded-workflow compatibility.",
+    discovery: "Read standalone code-track designs, baseline and implementation maps, code-track reports and review-fix evidence.",
+    earlierNode: "Discovery grants no design authority to a retained earlier node kind.",
+    facts: "Maps supply facts, not approval, acceptance or completion evidence.",
+  },
+};
+
+for (const [file, rules] of Object.entries(policies)) {
+  for (const [name, rule] of Object.entries(rules)) test(`factual record contract in ${file}: ${name} rejects removal and weakening`, (t) => {
+    const source = normalize(read(file));
+    const accepts = (text: string) => Object.values(rules).every((rule) => text.includes(rule));
+    assert.ok(accepts(source), file);
+    assert.ok(accepts(`${source} Unrelated framing.`));
+    assert.equal(source.split(rule).length - 1, 1, name);
+    for (const replacement of ["", `Contradictory ${name} policy.`]) {
+      const changed = source.replace(rule, replacement);
+      assert.notEqual(changed, source, name);
+      assert.equal(accepts(changed), false, name);
+      const offset = source.indexOf(rule);
+      const restored = changed.slice(0, offset) + rule + changed.slice(offset + replacement.length);
+      assert.equal(restored, source, "restored bytes");
+      assert.ok(accepts(restored), "restored policy");
+    }
+    assert.ok(accepts(source), "original policy accepts its permitted case");
+    t.diagnostic(`${name}: removal and weakening rejected, restoration accepted`);
+  });
+}
+
+// These are document-policy counterexamples, not a replacement record writer.
+test("record policy rejects unsafe copy, identity, adoption and migration scenarios", (t) => {
+  const cases = [
+    ["change-records", "unscoped pre-edit barrier", "Edit/successor selectors use the latest eligible record-path entry.", "Edits need no eligible record-path entry."],
+    ["change-records", "new code track implicitly migrates recorded change", "In new/migrated changes, multi-track code tracks use", "Every multi-track code track uses"],
+    ["change-records", "fixer report append forbidden", "Fixers append their reports and edit assigned maps.", "Fixers change only assigned maps."],
+    ["record-write-recovery", "first-write retry blocked", "A logged interrupted edit stays an edit even when the destination vanishes. Absent destination: command-creation restoration from a verified eligible source. Failed or unclear creation: only common command-result retries.", "Retry it only after finding a logged identity."],
+    ["change-records", "successor logs before checking", "then logs it.", "log it before checking."],
+    ["change-records", "failed successor check supplies identity", "A failed check gives no identity and pauses affected reliance.", "A failed check still supplies identity."],
+    ["safe-record-write", "versioned map form removed", "immutable unused versioned names beside the record", "any mutable name in scratch"],
+    ["change-records", "retention ends with action", "Drafts, designs and records outlive the action.", "Delete drafts and records after the action."],
+    ["track-workflow", "recorded approved design omitted", "(standalone or log-held)", "(standalone only)"],
+    ["track-workflow", "map depth assigned to orchestrator", "Implementers map final source per [maps.md](maps.md).", "For map reading depth, use [maps.md](maps.md)."],
+    ["track-workflow", "focused block instructs orchestrator", "Research log:", "Name the research log:"],
+    ["safe-record-write", "occupied preservation name", "Never change occupants.", "The command replaces an occupied destination."],
+    ["safe-record-write", "equal copy with nonzero exit", "Occupied: exit 3, code occupied, stage compare, writeState not-created.", "Reject occupied equality because the exit is nonzero."],
+    ["change-records", "missing pre-edit log identity", "Match current bytes or pause.", "Edit without a logged identity."],
+    ["change-records", "failed preservation log check", "check record-only logging of separate command retention beside it.", "edits before checking the entry"],
+    ["change-records", "failed resulting log check", "Log only the agreed full hash and check the entry.", "permits reliance after a failed log check"],
+    ["change-records", "short hash", "Versions need all 64 hexadecimal characters", "A 12-character prefix identifies a version."],
+    ["safe-record-write", "sequence-only recovery", "Never guess.", "Recover the highest numbered copy."],
+    ["safe-record-write", "unverified recovery", "intended eligible logged restore copy.", "Restore an unverified recovery copy."],
+    ["record-write-recovery", "unchanged retry", "If unchanged, retry only the edit.", "If unchanged, overwrite the preserved copy."],
+    ["safe-record-write", "partial edit restoration", "Otherwise retain changed bytes with checked recovery-only logging before restoration. Check restored bytes before retry.", "Retry the partial edit before checking restoration."],
+    ["change-records", "adoption without identified equal bytes", "equality with an eligible same-record copy", "equality with any unlogged copy"],
+    ["change-records", "unlogged draft adoption", "An unlogged draft or filename hash cannot establish adoption.", "An unlogged draft establishes adoption."],
+    ["change-records", "filename-only adoption", "An unlogged draft or filename hash cannot establish adoption.", "A filename hash establishes adoption."],
+    ["change-records", "unrelated retained copy", "Retain other copies as non-evidence that never blocks work.", "An unrelated retained copy blocks every edit."],
+    ["change-records", "new track in recorded change", "Track opening is not migration.", "Opening another track migrates the change."],
+    ["change-records", "source hash beyond read boundary", "Later entries supply no identity.", "Later source entries identify the source version."],
+    ["change-records", "code node changed to design", "authoritative only for a code node whose owning log names it current", "authoritative even after its node becomes a design track"],
+    ["change-records", "map edit changes approval", "Map changes grant no approval and change no design identity.", "Map edits approve a new design."],
+    ["change-records", "recorded filename evidence preserved until migration", "`versions/` whole bytes must match filename hashes.", "excluding all version-folder filename hashes even without migration"],
+    ["change-records", "source hash inside read boundary required", "against that identity", "Use an entry from any part of the source log."],
+    ["track-workflow", "migration exact line range", "record the exact source line range and full hash", "record an approximate source region without a hash"],
+    ["track-workflow", "migration exact bytes", "must equal that span", "may summarize that span"],
+    ["track-workflow", "migration strips entry prefix", "including entry prefixes, without summary or correction", "after removing entry prefixes"],
+    ["track-workflow", "migration folds in a correction", "Later corrections need a new user-approved design version.", "Fold later corrections into the extracted span."],
+  ] as const;
+  for (const [file, scenario, operand, replacement] of cases) {
+    const source = normalize(read(file));
+    const accepts = (text: string) => Object.values(policies[file]!).every((rule) => text.includes(rule));
+    assert.ok(accepts(source), scenario);
+    assert.equal(source.split(operand).length - 1, 1, scenario);
+    const changed = source.replace(operand, replacement);
+    assert.notEqual(changed, source, scenario);
+    assert.equal(accepts(changed), false, scenario);
+    t.diagnostic(`${scenario}: original accepted, weakened policy rejected`);
+  }
+});
+
+test("recovery covers comparison errors and absent destinations", () => {
+  const recovery = normalize(read("record-write-recovery"));
+  const clauses = ["If unchanged, retry only the edit.",
+    "The orchestrator decides restoration under recovery, outside the pre-edit barrier.",
+    "A logged interrupted edit stays an edit even when the destination vanishes."];
+  const check = (text: string) => clauses.forEach((clause) => assert.equal(text.split(clause).length, 2));
+  check(recovery);
+  for (const clause of clauses) assert.throws(() => check(recovery.replace(clause, "")));
+  const saved = join(scratch, "recovery-saved"), current = join(scratch, "recovery-current");
+  writeFileSync(saved, "saved");
+  writeFileSync(current, "changed");
+  const route = (status: number | null) => {
+    check(recovery);
+    return status === 0 ? "retry edit" : "restoration decision";
+  };
+  assert.equal(route(spawnSync("cmp", [saved, current]).status), "restoration decision");
+  rmSync(current);
+  const absent = spawnSync("cmp", [saved, current]).status;
+  assert.equal(absent, 2);
+  assert.equal(route(absent), "restoration decision");
+  assert.equal(route(2), "restoration decision");
+  assert.equal(route(0), "retry edit");
+});
+
+test("append equality includes earlier payloads and forbids duplicate retry", () => {
+  const worker = normalize(read("safe-record-write"));
+  const clause = "With `cat` and `cmp`, check log/report equals start copy plus appended payloads in order.";
+  assert.equal(worker.split(clause).length, 2);
+  const start = "existing\n", first = "first\n", last = "last\n";
+  const intended = Buffer.from(start + first + last);
+  const attack = Buffer.from(start + first + first + last);
+  assert.equal(attack.subarray(-Buffer.byteLength(last)).equals(Buffer.from(last)), true);
+  assert.equal(attack.equals(intended), false);
+  assert.equal(worker.replace(clause, "Compare only the last payload.").includes(clause), false);
+});
+
+test("shared design and map duties stay in their measured owners", () => {
+  for (const file of ["change-records", "safe-record-write", "record-write-recovery"]) {
+    const source = read(file);
+    const start = file === "change-records" ? "## Manual records and safe writes\n"
+      : file === "safe-record-write" ? "## Record preparation and recovery execution\n" : "# Record-write recovery\n";
+    const end = file === "change-records" ? "### Design authority and privacy\n" : "## Outside owner\n";
+    const body = (text: string) => normalize(text.slice(text.indexOf(start) + start.length,
+      text.indexOf(end) < 0 ? text.length : text.indexOf(end)));
+    for (const [key, rule] of Object.entries(policies[file]!)) {
+      const owned = body(source);
+      assert.equal(owned.split(rule).length - 1, 1, key);
+      for (const outside of ["preface", "following"]) {
+        const without = owned.replace(rule, "");
+        const moved = outside === "preface"
+          ? rule + "\n" + start + without + "\n" + end
+          : start + without + "\n" + end + rule;
+        assert.ok(normalize(moved).includes(rule), "the rule remains in the document");
+        assert.equal(body(moved).includes(rule), false, `${file}/${key}: moved into ${outside}`);
+      }
+    }
+  }
+});
+
+const triggerRules = [
+  "Entering a design track triggers its research log and nested gates.",
+  "An ordinary code track or a high-level design alone triggers neither extra record.",
+  "Questions follow unresolved decisions rather than record or track counts.",
+];
+test("artifact summaries preserve record triggers and standalone exceptions", () => {
+  for (const file of ["track-workflow", "recursive-workflow"]) {
+    const source = normalize(read(file));
+    const rules = [...triggerRules, file === "track-workflow"
+      ? "Standalone designs and maps use the artifact exceptions in [design-principles.md](design-principles.md) P11."
+      : "Standalone designs and maps follow the lifecycle artifact summary."];
+    const accepts = (text: string) => rules.every((rule) => text.includes(rule));
+    assert.ok(accepts(source), file);
+    for (const rule of rules) {
+      assert.equal(accepts(source.replace(rule, "Every track requires every record.")), false, rule);
+    }
+  }
+  const source = normalize(read("design-principles"));
+  const exceptions = "The current change folder's research log, standalone designs and maps are permitted unconditional-artifact exceptions for authors of future rules.";
+  assert.ok(source.includes(exceptions));
+  for (const name of ["research log", "standalone designs", "maps"]) {
+    assert.equal(source.replace(exceptions, exceptions.replace(name, "every report")).includes(exceptions), false);
+  }
+  for (const rule of [
+    "It does not remove or condition current required artifacts, including the per-track implementer report.",
+    "Mandatory multi-track handoffs under [track-workflow.md](track-workflow.md) § Confirmation gate are the sole unconditional-handoff exception.",
+  ]) {
+    assert.ok(source.includes(rule), rule);
+    for (const replacement of ["", "Every artifact and handoff is optional."]) {
+      const changed = source.replace(rule, replacement);
+      assert.notEqual(changed, source);
+      assert.equal(changed.includes(rule), false, rule);
+    }
+  }
 });

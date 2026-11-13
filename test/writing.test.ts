@@ -32,6 +32,24 @@ import {
   type WritingChecker,
 } from "../extension/writing.ts";
 
+test("worker writing guidance uses shared writing exports without design requirements", async () => {
+  const { WORKER_WRITING_GUIDANCE, WORKER_DESIGN_SCOPE_EXCEPTION } = await import("../extension/worker.ts");
+  const { WRITING_REQUIREMENTS_TITLE, WRITING_STYLE_RULES, renderWritingDoctrineRequirements } = await import("../extension/writing-reminder.ts");
+  const lines = WORKER_WRITING_GUIDANCE.split("\n");
+  assert.deepEqual(lines.slice(0, 12), [
+    `${WRITING_REQUIREMENTS_TITLE}:`,
+    WRITING_STYLE_RULES.map(({ text }) => text).join(" "),
+    ...renderWritingDoctrineRequirements().split("\n"),
+  ]);
+  assert.equal(lines[12], "");
+  assert.equal(lines[13], WRITING_SCOPE_EXCLUSION);
+  assert.equal(lines[14], WORKER_DESIGN_SCOPE_EXCEPTION);
+  assert.equal(WORKER_DESIGN_SCOPE_EXCEPTION, "A high-level design remains governed even inside a research log.");
+  assert.equal(lines.length, 16);
+  assert.equal(Buffer.byteLength(WORKER_WRITING_GUIDANCE), 1161);
+  for (const { text } of DESIGN_REQUIREMENTS) assert.equal(WORKER_WRITING_GUIDANCE.includes(text), false);
+});
+
 const DEFAULT_CONFIG = {
   remindTurns: DEFAULT_REMIND_TURNS,
   remindOnFinding: DEFAULT_REMIND_ON_FINDING,

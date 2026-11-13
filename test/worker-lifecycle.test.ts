@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { lstatSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -17,6 +17,8 @@ import { createRuntimeStorageFolder } from "../extension/artifact-names.ts";
 import { openWorkerSession, type WorkerSession } from "../extension/worker.ts";
 import { createWorkerExtensionResolver } from "../extension/worker-extensions.ts";
 import { NotificationDispatcher } from "../extension/notification-dispatcher.ts";
+import { SAFE_RECORD_WRITE } from "../extension/paths.ts";
+import { createHash } from "node:crypto";
 
 function context(cwd: string): ExtensionContext {
   return {
@@ -200,24 +202,35 @@ test("built-in write replaces the complete status file", { timeout: 10000 }, asy
     });
 });
 
+const shellPath = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
+const designHash = (value: string) => createHash("sha256").update(value).digest("hex");
 const designCopyCommand = (design: string, copy: string): string =>
-  `cp -n '${design}' '${copy}'; cmp '${design}' '${copy}' && printf '\\ncopy verified\\n'`;
-function copyWasVerified(request: TranscriptContext): boolean {
+  [process.execPath, SAFE_RECORD_WRITE, "preserve", "--expected", designHash(readFileSync(design, "utf8")), "--", design, copy].map(shellPath).join(" ");
+function copyWasVerified(request: TranscriptContext, expected: string): boolean {
   const result = request.messages.find((message) => message.role === "toolResult" && message.toolName === "bash");
-  return result?.role === "toolResult" && !result.isError &&
-    result.content.some((part) => part.type === "text" && /^copy verified$/m.test(part.text));
+  if (result?.role !== "toolResult") return false;
+  const lines = result.content.flatMap(part => part.type === "text" ? part.text.split("\n") : []).filter(line => line.startsWith("{"));
+  if (lines.length !== 1) return false;
+  const proof = JSON.parse(lines[0]!);
+  return proof.operation === "preserve" && proof.retainedVerified === true && proof.equal === true &&
+    /^[a-f0-9]{64}$/.test(proof.sourceHash) && proof.sourceHash === expected && proof.sourceHash === proof.destinationHash && proof.expected === "agreed" &&
+    (proof.code === "ok" && proof.stage === "complete" && proof.writeState === "verified" && !result.isError ||
+      proof.code === "occupied" && proof.stage === "compare" && proof.writeState === "not-created");
 }
 
-test("built-in design copy and comparison finish before edit and preserve versioned bytes", { timeout: 10000 }, async (t) => {
+for (const occupied of [false, true]) test(`command preservation ${occupied ? "accepts equal occupied retention" : "creates separate retention"} before built-in edit`, { timeout: 10000 }, async (t) => {
   let design = "", copy = "";
   let capturedRequests: TranscriptContext[] = [];
   const original = "# Design\n\nApproved design bytes.\n";
   await offlineWorkerTest(t, (_root, ordinal) => {
     if (ordinal === 1) return builtinCall("bash", { command: designCopyCommand(design, copy) });
     if (ordinal === 2) {
-      assert.equal(copyWasVerified(capturedRequests[1]!), true, "cmp reports success before edit");
-      assert.equal(readFileSync(design, "utf8"), original, "the comparison precedes the edit");
-      assert.equal(readFileSync(copy, "utf8"), original, "the verified copy exists before edit");
+      assert.equal(copyWasVerified(capturedRequests[1]!, designHash(original)), true, "command proves retention before edit");
+      assert.equal(readFileSync(design, "utf8"), original);
+      assert.equal(readFileSync(copy, "utf8"), original);
+      const current = lstatSync(design), retained = lstatSync(copy);
+      assert.ok(current.isFile() && retained.isFile() && !current.isSymbolicLink() && !retained.isSymbolicLink());
+      assert.notDeepEqual([current.dev, current.ino], [retained.dev, retained.ino], "retention is a separate file before edit");
       return builtinCall("edit", { path: design, oldText: "Approved design bytes.", newText: "Updated design bytes." });
     }
     return completedWrite();
@@ -225,27 +238,33 @@ test("built-in design copy and comparison finish before edit and preserve versio
     capturedRequests = requests;
     design = join(root, "slate-changes", change, "root-design.md");
     copy = join(root, "slate-changes", change, "root-design.v2.md");
-    const retained = join(root, "slate-changes", change, "root-design.v1.md");
+    const earlier = join(root, "slate-changes", change, "root-design.v1.md");
     writeFileSync(design, original);
-    writeFileSync(retained, "earlier versioned bytes\n");
-    const retainedBytes = readFileSync(retained);
-    await session.prompt("Copy with cp -n and compare with cmp. Only then edit the design.");
+    writeFileSync(earlier, "earlier versioned bytes\n");
+    if (occupied) writeFileSync(copy, original);
+    const earlierBytes = readFileSync(earlier);
+    const before = occupied ? lstatSync(copy) : undefined;
+    await session.prompt("Command-preserve the current design. Edit only after complete separate retention proof.");
     assert.equal(requests.length, 3);
-    assertBuiltinResults(session, ["bash", "edit"]);
+    const results = session.messages.filter(message => message.role === "toolResult");
+    assert.deepEqual(results.map(message => message.toolName), ["bash", "edit"]);
+    assert.equal(results[1]!.isError, false);
+    assert.equal(results[0]!.isError, occupied, "occupied command exits 3 without claiming creation");
     assert.equal(readFileSync(design, "utf8"), original.replace("Approved", "Updated"));
     assert.equal(readFileSync(copy, "utf8"), original);
-    assert.deepEqual(readFileSync(retained), retainedBytes);
+    if (before) assert.deepEqual([lstatSync(copy).dev, lstatSync(copy).ino], [before.dev, before.ino]);
+    assert.deepEqual(readFileSync(earlier), earlierBytes);
   });
 });
 
-test("built-in design copy preserves a conflicting versioned target and comparison prevents edit", { timeout: 10000 }, async (t) => {
+test("command preservation leaves unequal occupied bytes unchanged and prevents edit", { timeout: 10000 }, async (t) => {
   let design = "", copy = "";
   let capturedRequests: TranscriptContext[] = [];
   const original = "# Design\n\nApproved design bytes.\n";
   const retained = "# Design\n\nDifferent versioned bytes.\n";
   await offlineWorkerTest(t, (_root, ordinal) => {
     if (ordinal === 1) return builtinCall("bash", { command: designCopyCommand(design, copy) });
-    if (ordinal === 2 && copyWasVerified(capturedRequests[1]!))
+    if (ordinal === 2 && copyWasVerified(capturedRequests[1]!, designHash(original)))
       return builtinCall("edit", { path: design, oldText: "Approved design bytes.", newText: "Updated design bytes." });
     return completedWrite();
   }, async (session, root, change, requests) => {
@@ -254,16 +273,15 @@ test("built-in design copy preserves a conflicting versioned target and comparis
     copy = join(root, "slate-changes", change, "root-design.v2.md");
     writeFileSync(design, original);
     writeFileSync(copy, retained);
-    const originalBytes = readFileSync(design);
-    const retainedBytes = readFileSync(copy);
-    await session.prompt("Copy with cp -n and compare with cmp. Edit only if the comparison succeeds.");
-    assert.deepEqual(readFileSync(copy), retainedBytes, "cp -n preserves the existing versioned target");
-    assert.deepEqual(readFileSync(design), originalBytes, "a failed comparison leaves the design unchanged");
+    const originalBytes = readFileSync(design), retainedBytes = readFileSync(copy);
+    await session.prompt("Command-preserve current bytes. Leave unequal occupied retention unchanged and do not edit.");
+    assert.deepEqual(readFileSync(copy), retainedBytes);
+    assert.deepEqual(readFileSync(design), originalBytes);
     assert.equal(requests.length, 2);
-    const results = session.messages.filter((message) => message.role === "toolResult");
-    assert.deepEqual(results.map((message) => message.toolName), ["bash"], "no edit runs after a failed comparison");
-    assert.equal(results[0]!.isError, true, "cmp rejects different bytes");
-    assert.equal(copyWasVerified(requests[1]!), false, "the comparison does not report success");
+    const results = session.messages.filter(message => message.role === "toolResult");
+    assert.deepEqual(results.map(message => message.toolName), ["bash"]);
+    assert.equal(results[0]!.isError, true);
+    assert.equal(copyWasVerified(requests[1]!, designHash(original)), false);
   });
 });
 

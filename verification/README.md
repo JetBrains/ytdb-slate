@@ -57,10 +57,10 @@ limit and pin Node 24.18.0. They inherit the read-only workflow permission,
 reuse the Linux action SHAs and install with `npm ci --ignore-scripts`.
 The workflow configures no required-check ruleset.
 
-The Windows job runs both files with ordinary `spec` output visible:
+The Windows job runs three files in order with ordinary `spec` output visible:
 
 ```text
-node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=./verification/required-case-reporter.ts --test-reporter-destination=stdout test/notification-push-portable.test.ts test/notification-native-windows-readback.test.ts
+node --test --test-concurrency=1 --test-reporter=spec --test-reporter-destination=stdout --test-reporter=./verification/required-case-reporter.ts --test-reporter-destination=stdout test/notification-push-portable.test.ts test/notification-native-windows-readback.test.ts test/safe-record-write.test.ts
 ```
 
 The macOS job runs both files in one invocation with the same reporters:
@@ -101,8 +101,10 @@ list selects applicable native cases through `process.platform`. A selected
 platform must have at least one required file. The macOS native file has one
 required case with `platforms: ["darwin"]`. The Windows native file has one
 required case with `platforms: ["win32"]`. Each native file registers no case
-outside its platform. The roster has three files in total. The selected roster
-has two files on macOS or Windows and one on Linux.
+outside its platform. The safe record-write command file uses `platforms: ["win32"]`.
+Its six required cases run on real files with a 60-second suite limit.
+The roster has four files in total. The selected roster has three files on Windows,
+two on macOS and one on Linux.
 
 The reporter runs only in the macOS and Windows job commands. The Linux runner
 uses its ordinary reporters without this required-file contract. Linux runs
@@ -796,6 +798,57 @@ objects. A shallow clone without those objects fails the default comparisons.
 It starts no Pi session, uses no network, and writes only to its disposable work
 directory.
 
+The resolver harness borrows pi's jiti TypeScript transpiler and marked Markdown parser.
+It selects pi through `PI_BIN`, then checkout-local `node_modules/.bin/pi`, then `PATH`.
+Parser resolution uses only that conveyed physical launcher, not another installation.
+Without `SLATE_ACTIVE_PI`, active checks fail with instructions to use either wrapper or supply the physical launcher path.
+`SLATE_ACTIVE_REPO` binds the document tree and pi pin.
+A selected tree with different roster source refuses startup with a source-mismatch diagnostic.
+The selected pi manifest must match the repository's exact pi devDependency pin.
+The parser must be marked 18.0.11 with the required exports and token shapes.
+Native active-owner tests use the same selected parser origin through the peer linker's verified selection binding.
+The peer linker selects pi in the same order and links its bundled SDK packages into checkout `node_modules`.
+Neither path starts a pi session to obtain the parser.
+
+Parser contract tests check the version and the heading, block and inline token shapes used by ownership checks.
+Active-owner checks enforce unique headings, region boundaries and independent clause occurrences.
+Code blocks and hidden text cannot satisfy a clause.
+Each owner has an independent literal list census.
+The common owner requires exactly one top-level, unordered, tight, non-task list with six items.
+The worker and exception owners permit no lists, including nested or quoted lists.
+A census mismatch rejects every clause of that owner.
+Declared list-item text supplies prose, including the six marked triggers.
+The sixth item ends at `occupied creation.`.
+The worker-stop and task-read clauses must follow the list in a separate paragraph.
+Moving other clauses within their owner into the valid list or appending item text can pass ownership.
+The separate complete-byte guard rejects these accepted residual cases.
+Block and inline HTML at or before a region owner's end rejects that owner, including HTML before its heading.
+HTML after the region passes ownership, including HTML in the terminating heading.
+Inline HTML takes the position of its containing block.
+The whole-document exception owner rejects any HTML.
+These rules reject hidden containers, including containers separated by blank lines.
+Whole-document byte guards remain separate from structural ownership checks.
+Count-preserving moves and separate occurrence and boundary mutants test the mutation audit without byte-guard masking.
+
+Missing tooling, a mismatched version, unsupported tokens, parse failures and transpilation failures fail visibly with a nonzero result.
+No tooling failure may report an empty successful check set.
+A missing or mismatched installation reports the remedy `npm ci --ignore-scripts`.
+The resolver wrapper checks these prerequisites before running checks and refuses with exit 2.
+The in-suite parser contract remains a second check.
+
+The record-contract family has 9,194 mutations, including 9,064 safe-write attacks.
+Its 40 duties contain 226 independently owned clauses across the common, worker and exception documents.
+Active-owner checks add 121 attacks and 48 controls without the complete-byte guard.
+The common rules require command retention before design, map and plan edits.
+Each write attempt needs checked operation and attempt entries.
+Plan edits require an eligible root-log identity, verified retention and an orchestrator decision.
+Worker routing checks cover six result classes, fatal-result precedence and bounded preservation retries.
+Recovery checks cover stop evidence, same-record identity selection, occupied creation and restoration before edit retry.
+The command remains responsible for exclusive creation, comparison, hashing and preservation.
+It grants no replacement permission.
+Real-file cases cover absent and occupied restoration, complete payload arrival and vanished-copy refusal.
+A held real managed operation in `test/single-action-threads.test.ts` checks that dispatch joins settlement before shutdown and action-folder release.
+
 It also checks the workflow contract for requirement-level investigation after
 two same-requirement repair rounds (`contract-requirement-investigation`). The
 check proves policy text and mutation resistance only. It does not enforce live
@@ -809,9 +862,9 @@ bash verification/run-resolver-checks.sh --repo . --strict
 The wrapper reports one `CHECK` line per identifier, one roster audit, and one
 summary. Exit 0 means every non-excluded check passed. Exit 1 means a failure, missing check,
 or strict `NOT RUN`. Exit 2 means the wrapper refused to start. The roster and
-summary output own the live count. The full suite has 208 checks plus the roster
-audit, for 209 result lines. Its independent mutation roster has 35 families and
-2,377 identities. The 53 surviving-safeguards identities preserve reviewed-state,
+summary output own the live count. The full suite has 248 checks plus the roster
+audit, for 249 result lines. Its independent mutation roster has 37 families and
+11,487 identities. The 53 surviving-safeguards identities preserve reviewed-state,
 privacy, acceptance and delivery rules. The one-branch-rules family covers 32
 named violations. The audit-repairs family covers ten configuration, recursive
 pointer, delivery verification and README merge-advice cases. Each case accepts
@@ -819,7 +872,10 @@ original and wrapped text and rejects removal and contradiction. History-moves
 relocates a rule outside its owner. Ordering-wrapped attacks a wrapped rule.
 Pause controls pass valid wrapped policy through the complete history-unit
 check and require that the same check reject permission for open-range
-interleaving. These checks prove document policy, not live workflow execution.
+interleaving. The 17 review-history cases reject the listed restored and reworded
+rules. Correct-sentence controls accept the listed valid guidance. Both use plain
+and reflowed text. This check does not prove a removed rule is absent in other
+words. These checks prove document policy, not live workflow execution.
 
 `--exclude <id,id>` accepts only `doctrine-original-base` and
 `doctrine-original-controls`, together or individually. The driver accepts the
@@ -841,7 +897,7 @@ combination with `--exclude` refuse startup with exit 2. The wrapper reports
 Selection loads only required modules and runs only the requested checks and
 their prerequisites. Checks retain their full-run implementations. The independent
 mutation roster supplies identities for selected families. Heading selection
-requires all 894 `heading-policy` identities, including commit identity rules. Package selection has an empty
+requires all `heading-policy` identities, including commit identity rules. Package selection has an empty
 mutation scope. Missing, duplicate, incomplete, outside-family or crashed mutation
 execution fails `selected-mutation-audit`. Crash and driver failure lines always
 report. A separate `roster` audit requires each requested check and scoped audit
@@ -928,37 +984,42 @@ exact current production renders are:
 | fixture | paths | portable characters | lines |
 | --- | ---: | ---: | ---: |
 | shipped logical section | 0 | 4575 | 12 |
-| trusted shipped-default doctrine | 5 | 9383 | 75 |
+| trusted shipped-default doctrine | 5 | 9376 | 75 |
 | untrusted doctrine | 4 | 2711 | 33 |
-| draft pull requests, shipped policy | 6 | 9453 | 76 |
-| capped workers, shipped policy | 5 | 10730 | 85 |
-| draft plus capped workers | 6 | 10800 | 86 |
-| deferred issues plus capped workers | 5 | 10804 | 86 |
-| routing recommendations plus capped workers | 5 | 10783 | 86 |
-| draft plus deferred issues and capped workers | 6 | 10874 | 87 |
-| draft plus routing recommendations and capped workers | 6 | 10849 | 87 |
-| deferred issues plus routing recommendations and capped workers | 5 | 10857 | 87 |
-| canonical maximal baseline with all workflow options | 6 | 10923 | 88 |
-| maximal baseline with an open change | 6 | 11121 | 89 |
-| maximal baseline with source and legacy root log | 6 | 11351 | 91 |
-| dogfood config and extension roster | 6 | 10048 | 87 |
-| 19,400-character policy plus draft, source and legacy log | 6 | 26053 | 89 |
-| same policy plus draft and deferred issues, source and legacy log | 6 | 26127 | 90 |
-| same policy plus routing recommendations, source and legacy log | 5 | 26036 | 89 |
-| same policy plus deferred issues and routing recommendations, source and legacy log | 5 | 26110 | 90 |
-| same policy plus draft and routing recommendations, source and legacy log | 6 | 26102 | 90 |
-| same boundary composition plus deferred issues | 6 | 26176 | 91 |
-| valid shipped policy plus 88 capped tools, source and legacy log | 6 | 29025 | 174 |
+| draft pull requests, shipped policy | 6 | 9446 | 76 |
+| capped workers, shipped policy | 5 | 10723 | 85 |
+| draft plus capped workers | 6 | 10793 | 86 |
+| deferred issues plus capped workers | 5 | 10797 | 86 |
+| routing recommendations plus capped workers | 5 | 10776 | 86 |
+| draft plus deferred issues and capped workers | 6 | 10867 | 87 |
+| draft plus routing recommendations and capped workers | 6 | 10842 | 87 |
+| deferred issues plus routing recommendations and capped workers | 5 | 10850 | 87 |
+| canonical maximal baseline with all workflow options | 6 | 10916 | 88 |
+| maximal baseline with an open change | 6 | 11114 | 89 |
+| maximal baseline with source and legacy root log | 6 | 11344 | 91 |
+| dogfood config and extension roster | 6 | 10041 | 87 |
+| 19,400-character policy plus draft, source and legacy log | 6 | 26046 | 89 |
+| same policy plus draft and deferred issues, source and legacy log | 6 | 26120 | 90 |
+| same policy plus routing recommendations, source and legacy log | 5 | 26029 | 89 |
+| same policy plus deferred issues and routing recommendations, source and legacy log | 5 | 26103 | 90 |
+| same policy plus draft and routing recommendations, source and legacy log | 6 | 26095 | 90 |
+| same boundary composition plus deferred issues | 6 | 26169 | 91 |
+| valid shipped policy plus 88 capped tools, source and legacy log | 6 | 29018 | 174 |
+
+Complete worker writing guidance measures 1161 UTF-8 bytes, including the design-scope exception.
+The permitted non-review preamble measures 2479 bytes.
+Its open-change record-writing system measures 3278 bytes.
+The short reviewer writing form remains 543 bytes, with a 4016-byte permitted review preamble.
 
 The capped worker baseline has two units and four tools. Each unit label has 128
 characters. Each tool name has 64 characters. Each description has 140
 characters. The dogfood fixture reads `.pi/slate.json` and represents its two
 configured extension units.
 
-The canonical 10,923-character baseline uses all seven shipped logical models,
+The canonical 10,916-character baseline uses all seven shipped logical models,
 all three workflow options, and the capped worker roster. With an open change,
-a direct source folder, and a legacy root log, it measures 11,351 characters.
-Its required five-percent value is 11,919. The 26,300 whole-doctrine ceiling
+a direct source folder, and a legacy root log, it measures 11,344 characters.
+Its required five-percent value is 11,912. The 26,300 whole-doctrine ceiling
 keeps that reserve. The exact fixtures cover all eight workflow-option
 combinations.
 
@@ -969,17 +1030,17 @@ characters and 12 lines. An adoption pause adds neither version.
 Runtime rejection controls are separate. A logical section at exactly 19,400
 portable characters or 105 lines is valid. A section at 19,401 characters or
 106 lines is rejected before work. The four routing-enabled boundary
-compositions and the 26,053-character and 26,127-character feature-off
+compositions and the 26,046-character and 26,120-character feature-off
 compatibility controls include the current change, direct source, and legacy
 root log. They prove that an exact-boundary policy fits the 26,300-character
-whole-doctrine ceiling. The 26,176-character control has 124 characters of headroom.
-A valid third worker unit with a 118-character label and all three workflow
-options measures 26,300. A 119-character label measures 26,301 and fails. These controls are
+whole-doctrine ceiling. The 26,169-character control has 131 characters of headroom.
+A valid third worker unit with a 125-character label and all three workflow
+options measures 26,300. A 126-character label measures 26,301 and fails. These controls are
 not reserve-bearing canonical baselines.
 
 The over-cap counterfactual keeps the shipped logical policy valid and adds 88
 supported capped worker tools. With an open change, source, and legacy log, its
-29,025 portable characters exceed the ceiling by 2,725 characters.
+29,018 portable characters exceed the ceiling by 2,718 characters.
 This transformed fixture replaces the retired six-copy physical model-row shape.
 It does not assume an old per-row or per-tool increment. Removing the whole-
 doctrine comparison makes the counterfactual pass and therefore breaks the
@@ -1013,19 +1074,64 @@ and text added only with several rows.
 `test/workflow-context-budget.test.ts` owns phase measurements, read-reference
 coverage, literal-limit enforcement, mutation controls, and publication equality.
 `verification/workflow-context-map.mjs` holds the reviewed read assignments and
-literal limits for 36 rows. The user approved the limits for the other 35 rows
-on 2026-10-16. Each of those byte limits is ceil(baseline bytes * 1.05).
-The user approved the two limits for Research, publishing off, ordinary plan
-on 2026-11-12. These limits are 76,835 and 145,471 bytes.
-They equal the limits approved on 2026-10-16 plus 979 bytes of approved
-shipped model policy growth. They carry no five percent reserve.
-A higher limit requires a new user approval.
+literal limits approved by the user on 2026-10-16. The two nested research
+conditional limits were approved on 2026-10-25.
+Classification and recovery funding sets seven ordinary maximum limits independently.
+Research maxima are 151,209 bytes with publishing off and 162,721 with publishing on.
+Publishing-off ordinary maxima are 187,246 bytes in phases 2–4 and 239,275 in phases 5–6.
+All other stored phase limits stay fixed.
+The separate research reservation is 78,275 required and 151,209 maximum bytes.
+Independent classification-start literals bound every phase and session coordinate by 566 required and 3,061 maximum added bytes.
+The placement and preservation controls retain their source-stage proofs and session-specific extras.
+Earlier savings cannot fund these increases.
+Worker ceilings are 12,088 bytes for common rules, 5,200 for narrow reads and 14,500 for the full reference.
+Common plus narrow is limited to 17,287 bytes, or 21,053 with maps.
+Common plus full is limited to 26,587 bytes, or 30,353 with maps.
+Tests measure all 36 phase rows, 402 session coordinates and 31 worker task kinds through production rendering and read selection.
+Each literal limit has independent equality and one-byte-overflow controls.
+The user must approve higher limits.
+
+The map also names bounded session-entry cases. Research and optional handoffs
+use their current phase. Code-track boundaries use phase 7, including the second
+boundary after a meaningful pre-track change. Design tracks enter nested phase 1.
+Parent returns use the continuing parent phase. Equivalent successive tracks
+reuse these coordinates without fixing a track count.
+
+Entry tests compare document identities, conditions and selected range unions
+against an independent accumulated-set selection plus named resume reads.
+Renewed focus judgment at any nested phase-1 resume adds definition ranges.
+This includes design-track entry and optional handoffs inside a design subtree.
+Root research starts add none, even with a nested plan.
+Unchanged-record reconciliation adds none. Other entries equal their accumulated
+sets. Continuation retains entry reads and accumulates later phases.
+Negative controls remove successor rereads and conditional reads, add an
+unsupported release, and reset a continuing session. Outcome-dependent transfer
+controls retain current reads after failure, cancellation, or resume without transfer.
+Any completed transfer starts a session. Single-track work has no mandatory boundary.
+The publication includes fresh rendered nested phase-1 resume totals.
+Handoff savings in variable conversation content remain outside this metric.
+Re-run the native phase tests after changing mapped reads, document exports,
+doctrine, phase assignments, limits, entry coordinates, resume ranges, source
+duties, scenario filters, or publication text. Inspect with
+`SLATE_PHASE_INSPECT=1 node --test test/workflow-context-budget.test.ts`.
+
+After any resume, handoff, or reread source duty changes, reconcile session-entry
+assignments semantically even when tests pass. Check `extension/mode.ts` doctrine
+rules, `docs/track-workflow.md` § Confirmation gate and § Resume order and
+reconciliation, `docs/recursive-workflow.md` § Resume and folder forks, and
+`docs/blast-radius.md` focus and coverage definitions. Compare recipients,
+conditions, selected ranges, and inherited records at every affected start.
+Update entry assignments, independent expectations, and the publication from a
+fresh production render. If no update is needed, record an explicit no-change
+decision with the checked duties and reasons in the implementer report.
+A passing test run does not replace this reconciliation.
+
 Publishing-disabled delivery uses accepted local branch history. Its checks cover
 marker completion, branch preservation, local verification and resume, private
 history inspection, and owning-log verification before closure. The default
 publishing template has no disabled-delivery read assignment. The delivery
 reference tests reject a final squash and deleted preservation duties. They also
-accept the current history rule with harmless line wrapping. The user must approve fresh baseline limits.
+accept the current history rule with harmless line wrapping.
 
 On failure, inspect the reported scenario, phase, source ranges, total, limit,
 and excess bytes. Check for a wrong read assignment or unintended growth first.
@@ -1052,8 +1158,11 @@ A failed comparison grants no authority to replace its base.
 ## Re-run triggers
 
 Re-run phase tests after changes to mapped reads, document exports, doctrine,
-phase assignments, limits, or the published phase section. Run both independent
-package-content commands and their self-test for package evidence.
+phase assignments, limits, entry coordinates, resume ranges, source duties,
+scenario filters, or publication text. Any resume, handoff, or reread source-duty
+change also requires the semantic reconciliation under Workflow-phase context
+maintenance, even when tests pass. Run both independent package-content commands
+and their self-test for package evidence.
 
 Re-run the strict suite after changes to active logical-model modules,
 `mode.ts`, `paths.ts`, worker-extension doctrine, state sanitizers, base-model
@@ -1505,11 +1614,12 @@ the driver, which reads that line. `L5` and `T1` turn an absent line or an
 empty line into a failure, and not into a quiet pass.
 
 The harness takes the pi CLI from the order that it shares with the resolver
-checks (`AGENTS.md` § CI), with two deliberate differences. It accepts
+checks (`AGENTS.md` § CI), with one selection difference. It accepts
 **no** pi from `PATH`: after `PI_BIN` and `node_modules/.bin/pi` in the checkout,
-it refuses to start. It also requires the same version from `pi --version` as the
-`@earendil-works/pi-coding-agent` pin in `devDependencies`. Both rules have one
-reason: this harness asserts on pi's rpc output shapes, so it must exercise the
+it refuses to start. Both wrappers require the selected pi version to match the
+`@earendil-works/pi-coding-agent` pin in `devDependencies`.
+The load check reads `pi --version`. The resolver checks read its package manifest.
+The load check asserts on pi's rpc output shapes, so it must exercise the
 same pi that the typecheck pins.
 
 The harness prints `PI_BIN` loudly in its output. `PI_BIN` is an override for an

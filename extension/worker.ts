@@ -51,6 +51,7 @@ import type { LogicalModelEffort } from "./logical-model-definitions.ts";
 import type { RecoveryCandidate } from "./logical-model-recovery.ts";
 import { RequestThrottleAbort, type RequestThrottle } from "./request-throttle.ts";
 import { createWorkerReminderRuntime } from "./worker-reminder.ts";
+import { WRITING_REQUIREMENTS_TITLE, WRITING_STYLE_RULES, WRITING_SCOPE_EXCLUSION, renderWritingDoctrineRequirements } from "./writing-reminder.ts";
 import { createWorkerNestedLifecycle } from "./worker-nested-lifecycle.ts";
 import { describeSpecDefect, splitModelSpec, type SlateConfig, type ThreadType } from "./state.ts";
 import { PI_BUILTIN_TOOL_NAMES, SLATE_TOOL_NAMES } from "./worker-extensions.ts";
@@ -86,8 +87,8 @@ export function isJudgementThreadType(type: unknown): type is (typeof JUDGEMENT_
 // import that deep subpath. The node test pins this copy to pi-ai's declaration.
 export const OPENAI_PROMPT_CACHE_KEY_MAX_LENGTH = 64;
 
-// Common writing guidance reaches every trusted worker configuration.
-// Reviewer guidance is added only for judgement thread types.
+// Configuration permission gates writing guidance in both role forms.
+// Judgement thread types receive the short form and reviewer charter.
 export const WORKER_PREAMBLE = [
 	"You are a worker thread executing ONE bounded action for an orchestrator.",
 	"Do the action fully, then stop.",
@@ -102,8 +103,22 @@ export const WORKER_PREAMBLE = [
 	"A script run by Slate's codemode tool can itself call only active tools. Another tool it calls, such as an MCP gateway, may forward to a deferred tool.",
 ].join(" ");
 
-export const WORKER_WRITING_GUIDANCE =
-	"Use short, active sentences. Write sentences a non-native reader understands on one reading. Do not use semicolons or contractions. Apply these rules to your prose. Exclude research logs, worker task text, and the project's own agent instruction file. Describe only the current state in the README, docs, code comments and the project's own agent instruction file, not removed features or past behavior, but allow change records such as pull request descriptions, commit bodies, release notes and issues to describe removals and past behavior.";
+const WORKER_CURRENT_STATE_GUIDANCE = "Describe only the current state in the README, docs, code comments and the project's own agent instruction file, not removed features or past behavior, but allow change records such as pull request descriptions, commit bodies, release notes and issues to describe removals and past behavior.";
+
+export const REVIEWER_WRITING_GUIDANCE =
+	`Use short, active sentences. Write sentences a non-native reader understands on one reading. Do not use semicolons or contractions. Apply these rules to your prose. ${WRITING_SCOPE_EXCLUSION} ${WORKER_CURRENT_STATE_GUIDANCE}`;
+
+export const WORKER_DESIGN_SCOPE_EXCEPTION = "A high-level design remains governed even inside a research log.";
+
+export const WORKER_WRITING_GUIDANCE = [
+	`${WRITING_REQUIREMENTS_TITLE}:`,
+	WRITING_STYLE_RULES.map(({ text }) => text).join(" "),
+	renderWritingDoctrineRequirements(),
+	"",
+	WRITING_SCOPE_EXCLUSION,
+	WORKER_DESIGN_SCOPE_EXCEPTION,
+	WORKER_CURRENT_STATE_GUIDANCE,
+].join("\n");
 
 export const REVIEWER_CHARTER = `- Trace, don't guess: cite evidence from code actually read (file:line
   or diff hunk) for every claim about behavior. Read third-party /
@@ -144,7 +159,8 @@ export const REVIEWER_CHARTER = `- Trace, don't guess: cite evidence from code a
 `;
 
 export function workerPreamble(trusted: boolean, reviewerCharter: boolean): string {
-	const prose = trusted ? `${WORKER_PREAMBLE} ${WORKER_WRITING_GUIDANCE}` : WORKER_PREAMBLE;
+	const guidance = reviewerCharter ? REVIEWER_WRITING_GUIDANCE : WORKER_WRITING_GUIDANCE;
+	const prose = trusted ? `${WORKER_PREAMBLE} ${guidance}` : WORKER_PREAMBLE;
 	return reviewerCharter === true ? `${prose}\n${REVIEWER_CHARTER}` : prose;
 }
 
