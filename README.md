@@ -17,7 +17,7 @@ Slate comes from the [YouTrackDB](https://github.com/JetBrains/youtrackdb) team,
 
 ## Quick start
 
-Use pi 1.4.0 or later. Older pi can load Slate but is unsupported. Slate has no runtime version warning. Install and authenticate [pi](https://pi.dev/docs/latest/quickstart), then pin Slate in your project:
+Use pi 1.5.2 or later. Older pi can load Slate but is unsupported. Slate has no runtime version warning. Install and authenticate [pi](https://pi.dev/docs/latest/quickstart), then pin Slate in your project:
 
 ```bash
 pi install -l npm:ytdb-slate@<version>

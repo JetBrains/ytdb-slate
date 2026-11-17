@@ -181,7 +181,7 @@ test("workers suppress real cache refreshes without changing host or saved setti
         await session.settingsManager.flush();
         session.settingsManager.reload();
         assert.equal(session.settingsManager.getCacheWarmingMode(), "off", "reload retains the isolated override");
-        assert.equal(hostSettings.getCacheWarmingMode(), mode ?? "streaming");
+        assert.equal(hostSettings.getCacheWarmingMode(), mode ?? "idle");
         assert.equal(readFileSync(globalFile, "utf8"), globalJson);
         assert.equal(readFileSync(projectFile, "utf8"), projectJson);
       } finally {
