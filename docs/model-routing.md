@@ -70,11 +70,27 @@ forecasts. Membership changes do not rescale them.
 | --- | --- | ---: | ---: | --- | --- | --- | --- |
 | `luna-6` | `max` | 35 | 2 | `openai` | `openai/gpt-6-luna` | Auxiliary tasks only, such as file location, check-result collection, or routine text management such as modifying research logs. Never primary research, implementation, design, or review. Consumer-contract work only when auxiliary. | Luna cautions below |
 | `claude-sonnet-5.5` | `high` | 35 | 25 | `anthropic` | `anthropic/claude-sonnet-5-5` | none | scope caution below |
+| `sol-6.2` | `high` | 73 | 9 | `openai` | `openai/gpt-6.2-sol` | Default thread choice. | Sol cautions below |
+| `astra-6.2` | `high` | 80 | 19 | `openai` | `openai/gpt-6.2-astra` | Reviewer for each proved DESIGN-TRIGGERING focus area, in adversarial design review and in implementation area review. Do not select Astra 6.2 as the default implementer. | none |
 | `sol-6.1` | `high` | 66 | 9 | `openai` | `openai/gpt-6.1-sol` | Default thread choice. | Sol cautions below |
 | `gemini-3.8-flash` | `medium` | 43 | 14 | `google-vertex` | `google-vertex/gemini-3.8-flash` | Default thread choice. Generally prefer over Luna when available. A more specific active guideline overrides this general Flash preference. | reviewer and evidence caution below |
 | `claude-opus-5.5` | `high` | 70 | 30 | `anthropic` | `anthropic/claude-opus-5-5` | Reviewer for each proved DESIGN-TRIGGERING focus area, in adversarial design review and in implementation area review. Do not select Opus 5.5 as the default implementer. | scope caution below |
 | `gpt-6-astra` | `medium` | 67 | 28 | `openai` | `openai/gpt-6-astra` | Do not select Astra as the default implementer. Prefer Sol 6.1 over Astra. | none |
 | `fable-5-2` | `high` | 84 | 75 | `anthropic` | `anthropic/claude-fable-5-2` | Do not select Fable 5.2 for routine work. If a lower-capability model repeatedly fails at implementation, first ask Fable 5.2 to investigate and provide detailed repair instructions. Let the implementer try those instructions. Use Fable 5.2 as the implementer only if that guided attempt also fails. Treat that use as an exception. Select another suitable model for later implementation work. Existing approval requirements and repair limits still apply. | none |
+
+The nine definitions above include six default models. Their order is
+`luna-6`, `claude-sonnet-5.5`, `sol-6.2`, `gemini-3.8-flash`, `astra-6.2`,
+and `fable-5-2`.
+
+With `include` omitted, `sol-6.1`, `gpt-6-astra`, and `claude-opus-5.5` are
+outside the pool. Slate refuses a dispatch that names one of them.
+A main session on an older Sol, Astra, or Opus route has no logical model
+by default. Main-session recovery stops and asks for a model choice.
+Handoff adoption pauses.
+
+To use these models, set an explicit `include`
+that lists every wanted model. The two new physical routes must exist in
+the pi model registry for the installation.
 
 Sonnet and Opus use this caution: `May exceed explicit scope or infer permission from earlier requests. Check changes against stated exclusions and approval requirements.`
 
@@ -99,8 +115,16 @@ Flash uses this caution: `Do not use as a reviewer. It relies too much on passin
 The independent shipped compressor list contains one entry. It is
 `claude-sonnet-5.5` at `medium`. Ordinary Sonnet remains at `high`.
 
-The project set every shipped rating on 2026-11-12 by proportional scaling of
-its earlier project judgments. Fable 5.2 ratings are project judgments with no
+Sol 6.2 and Astra 6.2 ratings are project judgments dated 2026-11-18.
+They have no benchmark source.
+The project scales Sol 6.2 capability from Sol 6.1.
+It copies Sol 6.2 cost from Sol 6.1.
+
+Astra 6.2 capability is a direct project decision.
+The project scales its cost from `gpt-6-astra`.
+
+The other shipped ratings use project judgments proportionally scaled on 2026-11-12.
+Fable 5.2 ratings are project judgments with no
 benchmark source. Custom `add` and `replace` ratings are ranked against this
 shipped scale. Earlier Sol 6.1 and Sonnet 5.5 judgments had no new benchmark
 evidence. DeepSWE v1.1 by DataCurve and reviewed supporting evidence informed
@@ -143,7 +167,7 @@ new session.
 }
 ```
 
-Omitted `include` starts with all seven shipped ordinary definitions. An explicit
+Omitted `include` starts with the six default logical models. An explicit
 empty `include` starts with an empty ordinary pool. `exclude` applies last and
 wins.
 
@@ -200,6 +224,9 @@ Omitted fields keep their existing values. A replacement that changes `effort`
 must also supply both ratings. Repeating the existing effort does not require
 the ratings. Every supplied field follows the same rules as an `add` field.
 
+A replacement changes only the definition. It does not change pool membership.
+A replaced model outside the default pool stays outside until `include` names it.
+
 Complete `replace` example:
 
 ```json
@@ -208,12 +235,12 @@ Complete `replace` example:
     "models": {
       "replace": [
         {
-          "model": "sol-6.1",
+          "model": "sol-6.2",
           "effort": "max",
-          "capabilityRating": 66,
+          "capabilityRating": 73,
           "costRating": 9,
           "preferredProvider": "gateway",
-          "providers": { "gateway": "openai/gpt-6.1-sol" },
+          "providers": { "gateway": "openai/gpt-6.2-sol" },
           "guidelines": ["repository-wide implementation"],
           "cautions": []
         }

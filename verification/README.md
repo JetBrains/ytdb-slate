@@ -927,38 +927,38 @@ exact current production renders are:
 
 | fixture | paths | portable characters | lines |
 | --- | ---: | ---: | ---: |
-| shipped logical section | 0 | 4575 | 12 |
-| trusted shipped-default doctrine | 5 | 9383 | 75 |
+| shipped logical section | 0 | 4327 | 11 |
+| trusted shipped-default doctrine | 5 | 9135 | 74 |
 | untrusted doctrine | 4 | 2711 | 33 |
-| draft pull requests, shipped policy | 6 | 9453 | 76 |
-| capped workers, shipped policy | 5 | 10730 | 85 |
-| draft plus capped workers | 6 | 10800 | 86 |
-| deferred issues plus capped workers | 5 | 10804 | 86 |
-| routing recommendations plus capped workers | 5 | 10783 | 86 |
-| draft plus deferred issues and capped workers | 6 | 10874 | 87 |
-| draft plus routing recommendations and capped workers | 6 | 10849 | 87 |
-| deferred issues plus routing recommendations and capped workers | 5 | 10857 | 87 |
-| canonical maximal baseline with all workflow options | 6 | 10923 | 88 |
-| maximal baseline with an open change | 6 | 11121 | 89 |
-| maximal baseline with source and legacy root log | 6 | 11351 | 91 |
-| dogfood config and extension roster | 6 | 10048 | 87 |
-| 19,400-character policy plus draft, source and legacy log | 6 | 26053 | 89 |
-| same policy plus draft and deferred issues, source and legacy log | 6 | 26127 | 90 |
-| same policy plus routing recommendations, source and legacy log | 5 | 26036 | 89 |
-| same policy plus deferred issues and routing recommendations, source and legacy log | 5 | 26110 | 90 |
-| same policy plus draft and routing recommendations, source and legacy log | 6 | 26102 | 90 |
-| same boundary composition plus deferred issues | 6 | 26176 | 91 |
-| valid shipped policy plus 88 capped tools, source and legacy log | 6 | 29025 | 174 |
+| draft pull requests, shipped policy | 6 | 9205 | 75 |
+| capped workers, shipped policy | 5 | 10482 | 84 |
+| draft plus capped workers | 6 | 10552 | 85 |
+| deferred issues plus capped workers | 5 | 10556 | 85 |
+| routing recommendations plus capped workers | 5 | 10535 | 85 |
+| draft plus deferred issues and capped workers | 6 | 10626 | 86 |
+| draft plus routing recommendations and capped workers | 6 | 10601 | 86 |
+| deferred issues plus routing recommendations and capped workers | 5 | 10609 | 86 |
+| canonical maximal baseline with all workflow options | 6 | 10675 | 87 |
+| maximal baseline with an open change | 6 | 10873 | 88 |
+| maximal baseline with source and legacy root log | 6 | 11103 | 90 |
+| dogfood config and extension roster | 6 | 9800 | 86 |
+| 19,400-character policy plus draft, source and legacy log | 6 | 26053 | 88 |
+| same policy plus draft and deferred issues, source and legacy log | 6 | 26127 | 89 |
+| same policy plus routing recommendations, source and legacy log | 5 | 26036 | 88 |
+| same policy plus deferred issues and routing recommendations, source and legacy log | 5 | 26110 | 89 |
+| same policy plus draft and routing recommendations, source and legacy log | 6 | 26102 | 89 |
+| same boundary composition plus deferred issues | 6 | 26176 | 90 |
+| valid shipped policy plus 88 capped tools, source and legacy log | 6 | 28777 | 173 |
 
 The capped worker baseline has two units and four tools. Each unit label has 128
 characters. Each tool name has 64 characters. Each description has 140
 characters. The dogfood fixture reads `.pi/slate.json` and represents its two
 configured extension units.
 
-The canonical 10,923-character baseline uses all seven shipped logical models,
+The canonical 10,675-character baseline uses all six default logical models,
 all three workflow options, and the capped worker roster. With an open change,
-a direct source folder, and a legacy root log, it measures 11,351 characters.
-Its required five-percent value is 11,919. The 26,300 whole-doctrine ceiling
+a direct source folder, and a legacy root log, it measures 11,103 characters.
+Its required five-percent value is 11,659. The 26,300 whole-doctrine ceiling
 keeps that reserve. The exact fixtures cover all eight workflow-option
 combinations.
 
@@ -979,28 +979,30 @@ not reserve-bearing canonical baselines.
 
 The over-cap counterfactual keeps the shipped logical policy valid and adds 88
 supported capped worker tools. With an open change, source, and legacy log, its
-29,025 portable characters exceed the ceiling by 2,725 characters.
+28,777 portable characters exceed the ceiling by 2,477 characters.
 This transformed fixture replaces the retired six-copy physical model-row shape.
 It does not assume an old per-row or per-tool increment. Removing the whole-
 doctrine comparison makes the counterfactual pass and therefore breaks the
 check.
 
-Exact literals are maintenance tripwires. Any doctrine-size change requires a
-fresh production render and matching updates in `docs/context-budget.md`, this
-file, `verification/resolver-checks.mjs`, `test/doctrine-contract.test.ts`, and
-`test/config-loading.test.ts` (its two doctrine metric assertions).
+Exact literals are maintenance tripwires. A changed fixture requires a fresh production render.
+Update matching copies in `docs/context-budget.md` (including the phase-row table),
+`verification/README.md`, `verification/resolver-checks.mjs`,
+`test/doctrine-contract.test.ts`, `test/config-loading.test.ts`,
+`test/logical-model-policy.test.ts`, and `test/focused-decisions-contract.test.ts`.
+Check the phase-row table with `test/workflow-context-budget.test.ts`.
 The logical limits remain 19,400 characters and 105 lines. The all-tail limit
 remains 24,600 characters. The whole-doctrine ceiling is 26,300 characters.
 
-The shipped model policy section has a separate limit of 4,804 portable
-characters and 12 lines. The character limit is the measured 4,575 characters
+The shipped model policy section has a separate limit of 4,544 portable
+characters and 11 lines. The character limit is the measured 4,327 characters
 plus five percent reserve, rounded up. The line limit has no reserve.
-An eighth model needs a new user approval. A higher limit requires a new user
+A seventh default model needs a new user approval. A higher limit requires a new user
 approval.
 
 For the comparison with the fixed earlier commit, both sides receive the same
-candidate shipped policy input. The earlier code renders that input through
-trusted project configuration. A check requires equal resolved ordinary policy rows in the same order.
+candidate shipped policy input. The earlier code uses explicit default membership and adds candidate definitions
+that it does not define. Trusted project configuration supplies these rows. A check requires equal resolved ordinary policy rows in the same order.
 The check compares model names, both ratings, effort, preferred providers,
 permitted provider routes, guidelines and cautions. It excludes source metadata.
 This comparison does not measure growth of the shipped policy text.
