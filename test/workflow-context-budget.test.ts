@@ -172,7 +172,7 @@ test("preservation share controls every phase and session coordinate", async () 
   const start = classificationStart[key]!;
   assert.deepEqual(start, preservationStart[key]!.map((n) => n - 1), `source-stage preservation proof ${key}`);
   const ceilings = [start[0] + 566, start[1] + extra + 3061];
-  assert.deepEqual(actual, [start[0] + 342, start[1] + extra + 3058]);
+  assert.deepEqual(actual, [start[0] + 342 + workflowDoctrineDelta, start[1] + extra + 3058 + workflowDoctrineDelta]);
   actual.forEach((value, i) => {
    checkLimit(value, ceilings[i]!, key);
    checkLimit(ceilings[i]!, ceilings[i]!, key);
@@ -375,8 +375,10 @@ const classificationStart: Record<string, [number, number]> = {
   "9 off ordinary": [161011, 263918], "9 off nested": [176251, 263918],
   "9 on ordinary": [172523, 275430], "9 on nested": [187763, 275430],
 };
+// Compare the four-model doctrine with the doctrine in the fixed classification inputs.
+const workflowDoctrineDelta = -772;
 const phaseTotals = Object.fromEntries(Object.entries(classificationStart)
-  .map(([key, pair]) => [key, [pair[0] + 342, pair[1] + 3058]]));
+  .map(([key, pair]) => [key, [pair[0] + 342 + workflowDoctrineDelta, pair[1] + 3058 + workflowDoctrineDelta]]));
 
 test("placement keeps exception membership, phase shares and literal worker ceilings", async () => {
   const has = (set: Read[]) => set.some(([id]) => id === "RECORD_WRITE_RECOVERY_DOC");
@@ -546,7 +548,7 @@ function table(rows: string[], costs: string[], entries: string[]): string {
     "Only exceeded stored limits become the row's start total plus its approved share. All other limits stay fixed.",
     "The classification and recovery allowance applies independently to each required and maximum row.",
     "Research candidate ceilings are 78,275 required and 151,209 maximum bytes.",
-    "Actual research totals are 78,051 required and 151,206 maximum bytes.",
+    "Actual research totals are 77,279 required and 150,434 maximum bytes.",
     "Each phase and session row permits at most 566 required and 3,061 maximum bytes above the classification and recovery start. No sibling saving transfers.",
     "The protected pool retains 187 bytes. Unused share moves only by recorded user decision.",
     "",
@@ -639,7 +641,7 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
     sources[documentName(exported[id]!)] = union(entries.flatMap((r) => sections(source(id), r[4]))).map(([a, b]) => source(id).slice(a, b)).join("");
   }
   const doctrines = await Promise.all([render(false), render(true)]);
-  assert.deepEqual(doctrines.map((text) => bytes(text.split(directory).join(""))), [9574, 9644]);
+  assert.deepEqual(doctrines.map((text) => bytes(text.split(directory).join(""))), [8802, 8872]);
   doctrines.forEach((text, i) => { sources[`doctrine-${i}`] = text; });
   validateLimitKeys(limits);
   for (const key of expectedKeys) {
@@ -715,7 +717,7 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
     checkLimit(maximum, pair[1], `design-track maximum ${scenario}`);
     return `| ${publishing} | ${required} | ${tokens(required)} | ${maximum} | ${tokens(maximum)} | ${pair[1]} | ${tokens(pair[1])} |`;
   });
-  assert.deepEqual(measured[0], { key: "1 off ordinary", requiredBytes: 78051, maximumBytes: 151206, proposed: [81954, 158767] });
+  assert.deepEqual(measured[0], { key: "1 off ordinary", requiredBytes: 77279, maximumBytes: 150434, proposed: [81143, 157956] });
   checkChildCeiling(measured[0].requiredBytes, measured[0].maximumBytes);
   checkChildCeiling(78274, 151208);
   checkChildCeiling(78275, 151209);

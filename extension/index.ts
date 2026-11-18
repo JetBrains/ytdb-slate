@@ -14,7 +14,7 @@
  * Modules:
  *   state.ts    — thread/episode records, session-scoped persistence
  *   worker.ts   — in-process worker AgentSessions (recursion-guarded)
- *   episodes.ts — episode compression (Sonnet-default, D5)
+ *   episodes.ts — episode compression (Sol 6.2 default, D5)
  *   threads.ts  — ThreadManager: queueing, dispatch lifecycle
  *   tools.ts    — thread / threads / episode tools
  *   handoff.ts  — absolute-token context-budget auto-pause (with threshold-

@@ -360,7 +360,7 @@ if (mode) {
         const updated = new Promise<void>(resolve => { update = resolve; });
         let finished = false, nested = 0;
         session.subscribe(event => {
-          // pi 1.4.0 dist/extensions/codemode/execute.js:445-485 publishes
+          // pi 1.5.2 dist/extensions/codemode/execute.js:445-485 publishes
           // the first update before synchronous waiter registration. Resolve
           // only here, then await before settlement. Never abort in the handler.
           if (event.type === 'tool_execution_update' && event.toolCallId === 'activation-call') update();

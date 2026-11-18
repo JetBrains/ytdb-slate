@@ -1,4 +1,5 @@
 import {
+	DEFAULT_LOGICAL_MODEL_NAMES,
 	LOGICAL_MODEL_EFFORTS,
 	SHIPPED_COMPRESSOR_MODELS,
 	SHIPPED_LOGICAL_MODELS,
@@ -218,7 +219,7 @@ export function resolveLogicalModelPolicy(input: ResolveLogicalPolicyInput): Rea
 		}
 		definitions.set(name, { ...parsed, ...(inherited && Object.keys(inherited).length > 0 ? { source: inherited } : {}) });
 	}
-	const initial = include ?? SHIPPED_LOGICAL_MODELS.map((item) => item.model);
+	const initial = include ?? DEFAULT_LOGICAL_MODEL_NAMES;
 	for (const name of initial) if (!definitions.has(name)) errors.push(`router.models.include references unknown model ${JSON.stringify(name)}.`);
 	const excluded = new Set(exclude ?? []);
 	for (const name of excluded) if (!definitions.has(name)) errors.push(`router.models.exclude references unknown model ${JSON.stringify(name)}.`);

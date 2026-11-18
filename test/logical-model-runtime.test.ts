@@ -56,10 +56,10 @@ test("runtime freezes one usable policy and keeps prompt, effective view, and de
 	assert.ok(Object.isFrozen(runtime));
 	assert.ok(Object.isFrozen(runtime.policy));
 	assert.deepEqual(runtime.criticalErrors, []);
-	assert.equal(runtime.policy?.ordinary.length, 7);
+	assert.equal(runtime.policy?.ordinary.length, 4);
 	assert.equal(runtime.definition("sol-6.1")?.capabilityRating, 66);
 	assert.equal(runtime.effortFor("claude-sonnet-5.5"), "high");
-	assert.match(runtime.promptText() ?? "", /gpt-6-astra/);
+	assert.match(runtime.promptText() ?? "", /astra-6.2/);
 	assert.match(runtime.effectiveText(), /fixedEffort=max/);
 	assert.equal(warnings.length, 1);
 	assert.match(warnings[0]!, /Legacy key modelFailover is ignored/);
@@ -68,7 +68,7 @@ test("runtime freezes one usable policy and keeps prompt, effective view, and de
 test("untrusted configuration cannot alter policy or inject warnings", () => {
 	const runtime = createLogicalRuntime({ trusted: false, projectConfig: { router: { models: { include: [] } }, episodeModel: "bad" } });
 	assert.deepEqual(runtime.criticalErrors, []);
-	assert.equal(runtime.policy?.ordinary.length, 7);
+	assert.equal(runtime.policy?.ordinary.length, 4);
 	assert.deepEqual(runtime.warnings, []);
 });
 
@@ -113,8 +113,8 @@ test("routes use remembered, preferred, then declared providers and publish only
 test("reverse mapping reports zero, one, and many and accepts only a matching trusted identity", () => {
 	const ordinary = createLogicalRuntime({ trusted: true });
 	assert.deepEqual(ordinary.reverseMap({ provider: "absent", model: "none" }), { kind: "none" });
-	assert.deepEqual(ordinary.reverseMap({ provider: "openai", model: "gpt-6.1-sol" }), {
-		kind: "one", logicalModel: "sol-6.1", source: "exact-route",
+	assert.deepEqual(ordinary.reverseMap({ provider: "openai", model: "gpt-6.2-sol" }), {
+		kind: "one", logicalModel: "sol-6.2", source: "exact-route",
 	});
 	const shared = createLogicalRuntime({ trusted: true, projectConfig: policyWithSharedRoute() });
 	const ambiguous = shared.reverseMap({ provider: "openai", model: "gpt-6-luna" });
@@ -123,6 +123,24 @@ test("reverse mapping reports zero, one, and many and accepts only a matching tr
 	assert.deepEqual(shared.reverseMap({ provider: "openai", model: "gpt-6-luna" }, "shared-alias"), {
 		kind: "one", logicalModel: "shared-alias", source: "trusted-identity",
 	});
+});
+
+test("older physical routes have no default dispatch or reverse mapping", () => {
+  const defaults = createLogicalRuntime({ trusted: true });
+  const admission = defaults.admit()!;
+  for (const [name, provider, model] of [
+    ["sol-6.1", "openai", "gpt-6.1-sol"],
+    ["gpt-6-astra", "openai", "gpt-6-astra"],
+    ["claude-opus-5.5", "anthropic", "claude-opus-5-5"],
+    ["claude-sonnet-5.5", "anthropic", "claude-sonnet-5-5"],
+    ["gemini-3.8-flash", "google-vertex", "gemini-3.8-flash"],
+  ]) {
+    assert.equal(defaults.startRoute(name!, admission.snapshot), undefined);
+    assert.deepEqual(defaults.reverseMap({ provider: provider!, model: model! }), { kind: "none" });
+    const included = createLogicalRuntime({ trusted: true, projectConfig: { router: { models: { include: [name] } } } });
+    assert.equal(included.startRoute(name!, included.admit()!.snapshot)?.model, model);
+    assert.deepEqual(included.reverseMap({ provider: provider!, model: model! }), { kind: "one", logicalModel: name, source: "exact-route" });
+  }
 });
 
 test("route validation uses exact policy permission, Pi registry, credentials, and effort support", async () => {

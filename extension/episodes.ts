@@ -527,13 +527,17 @@ async function attemptCompression(
 	const model = findModel(ctx, { provider: candidate.provider, id: candidate.model });
 	if (!model) return { kind: "unknown" as const, reason: "The validated compressor route disappeared from Pi's registry." };
 	if (!await resolveUsableAuth(ctx, model)) return { kind: "unknown" as const, reason: "The validated compressor credentials disappeared before execution." };
+	const major = /^gpt-(\d+)(?:\D|$)/.exec(model.id)?.[1];
+	const requestModel = model.provider === "openai" && major !== undefined && Number(major) >= 6
+		? { ...model, contextWindow: Math.max(model.contextWindow, 1_050_000) }
+		: model;
 	const evidence = new CompressorRetryEvidence();
 	let final: unknown;
 	let threw = false;
 	try {
 		final = await retryAssistantCall(
 			async () => {
-				const response = await ctx.modelRegistry.streamSimple(model, {
+				const response = await ctx.modelRegistry.streamSimple(requestModel, {
 					messages: [{ role: "user", content: [{ type: "text", text: promptText }], timestamp: Date.now() }],
 				}, {
 					maxTokens: COMPRESSOR_MAX_TOKENS, ...(candidate.effort === "off" ? {} : { reasoning: candidate.effort }), signal,
