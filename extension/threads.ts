@@ -194,7 +194,10 @@ function lastAssistantMessage(messages: unknown[]): WorkerAssistantMsg | undefin
 	return undefined;
 }
 
-/** Remove generated hidden context and the first exact loaded-episode prompt. */
+/**
+ * Exclude the writing reminder, independent-call reminder and action-folder message
+ * by identity, regardless of visibility. Remove the first exact loaded-episode prompt.
+ */
 export function messagesForCompression(messages: unknown[], injectedPrompt?: string): unknown[] {
 	const filtered = messages.filter((message) => {
 		const candidate = message as { role?: unknown; customType?: unknown } | null;

@@ -325,14 +325,7 @@ This net is outside CI, the load check and the ladder. It proves the real
 hook, steer, next-turn, provider and persistence paths. It proves `display: false`
 structurally, not visual TUI invisibility. Check that presentation manually.
 
-Re-run it after these changes:
-
-- Requirement text, rendering, cadence or gates in `extension/writing-reminder.ts`.
-- Reminder config in `extension/writing.ts`.
-- Reminder hooks or reset ordering in `extension/mode.ts`.
-- The handoff `forceNext` assignment in `extension/handoff.ts`.
-- Custom-message type, options, steer delivery or next-turn delivery.
-- The canary, harness, pi pin, RPC shape or JSONL shape.
+See the [writing-reminder integration re-run rules](verification/README.md#boundary-and-re-run-rules).
 
 A change to `extension/handoff.ts` still requires the full ladder. Run the
 pure-resolver checks for reminder policy, config, mode, doctrine or ordering

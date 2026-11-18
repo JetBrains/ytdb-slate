@@ -1,4 +1,4 @@
-f665552cd1acd5682d30f6cf58bea0233cbc5b852600849ebff17a27c0d7ddd3  AGENTS.md
+4a9fba96f4b6687dcf8341af52c080f9de46287ef5c275a76e381b79f5d6ff5c  AGENTS.md
 
 61940421be01ad68afb621eb7d08627824a06a2f1c99b67aeeec144807d0362e  CHANGELOG.md
 
@@ -70,7 +70,7 @@ a527dcd58276be7808e0a284add5f1dc08036ee9a522db85a4d5aeab3dd7b2f2  docs/review-pe
 
 f18298e3a2b41c6c77fb92e7410618df557e494374e4392b5085a626d00f01c8  docs/user-notes.md
 
-cac33e0a0468e6701af36d2eb196fb7e2400269b519da3dfc2d1e1adc6b8fd19  docs/writing-guidance.md
+58db53438d906b3a8afd95fcc861c6af68017f1b50dfc0c52f2a540554c6def9  docs/writing-guidance.md
 
 66bc810df6425aafe09fbfaea92ef4eaa14a9259c174cddcd05802ef3d66cd54  issues/001-user-supplied-model-profiles.md
 

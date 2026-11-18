@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync }
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { register } from "node:module";
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createLogicalRuntime } from "../extension/logical-model-runtime.ts";
 import { bindFakeWorkerRequest } from "./worker-request-contract-fixture.ts";
@@ -780,7 +780,12 @@ test("partial streaming text does not become a completed fact after history rewr
   assert.match(result.episodeText, /failed before the worker produced a response/);
 });
 
-test("a partial stream with recorded billing evidence compresses without any completed fact", { timeout: 1000 }, async (t) => {
+test("a partial stream with recorded billing evidence compresses without any completed fact", { timeout: 1000 },
+  (t) => assertPartialStreamCompression(t, "stop"));
+test("failed compression retains no output for an empty completed record despite a billed partial stream", { timeout: 1000 },
+  (t) => assertPartialStreamCompression(t, "aborted"));
+
+async function assertPartialStreamCompression(t: TestContext, compressorStop: "stop" | "aborted"): Promise<void> {
   const cwd = temporaryProject(t);
   const ran = model("test", "worker");
   const compressor = model("test", "compressor");
@@ -805,7 +810,7 @@ test("a partial stream with recorded billing evidence compresses without any com
   compressorStub.complete = async (...args: unknown[]) => {
     compressionCalls++;
     compressorPrompt = promptTextOf(args[1]);
-    return completeResponse({ input: 1, output: 1, cost: { total: 0.01 } });
+    return completeResponse({ input: 1, output: 1, cost: { total: 0.01 } }, compressorStop);
   };
   const snapshots: unknown[] = [];
   const result = await managerWithSessions([session], {}, fixtureRuntime(), capturingStore(snapshots)).dispatch(
@@ -829,8 +834,21 @@ test("a partial stream with recorded billing evidence compresses without any com
   );
   assert.ok(compressorPrompt.includes("The action's task was:\nbill without a completed fact\n\nTranscript:"));
   assert.doesNotMatch(compressorPrompt, /UNFINISHED BILLED DELTA|SUMMARY-EMPTY|WRITING-EMPTY/);
+  if (compressorStop === "aborted") {
+    const durable = readFileSync(result.episode.file, "utf8");
+    assert.equal(durable, result.episodeText);
+    const bodyStart = durable.indexOf("## Intent\n");
+    assert.ok(bodyStart >= 0);
+    assert.match(durable.slice(0, bodyStart), /^> date: [^|\n]+ \| compressor: \(uncompressed fallback\)$/m);
+    assert.equal(durable.slice(bodyStart), [
+      "## Intent", "bill without a completed fact", "", "## Key Findings",
+      "(Compression was cancelled. The bounded completed result was retained. Raw final worker output follows.)",
+      "", "", "", "## Open Issues", "The worker prompt threw without cancellation evidence.", "",
+    ].join("\n"));
+  } else {
+    assert.match(result.episodeText, /## Intent\ncompressed/);
+  }
   assert.doesNotMatch(result.episodeText, /UNFINISHED BILLED DELTA|SUMMARY-EMPTY|WRITING-EMPTY/);
-  assert.match(result.episodeText, /## Intent\ncompressed/);
   assert.doesNotMatch(result.episodeText, /\[final assistant text/);
   assert.doesNotMatch(result.episodeText, /\[completed tool result/);
   await assertDurableConsumers({
@@ -850,7 +868,7 @@ test("a partial stream with recorded billing evidence compresses without any com
     laterTask: "later partial-stream consumer",
     laterContains: [/threw without cancellation evidence/],
   });
-});
+}
 
 test("finalized response evidence survives a rewritten worker message list", { timeout: 1000 }, async (t) => {
   const cwd = temporaryProject(t);

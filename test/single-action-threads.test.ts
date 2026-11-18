@@ -464,6 +464,10 @@ test("production dispatch excludes hidden action messages at the compressor boun
     mkdirSync(join(root, ".pi/slate/episodes"), { recursive: true });
     writeFileSync(prior, "PRIOR");
     store.episodes.set("t99.e1", { id: "t99.e1", threadId: "t99", task: "prior", status: "ok", file: prior, createdAt: 1 });
+    const writing = { role: "custom", customType: "slate-writing-reminder", content: "shared writing prose", display: true };
+    const lookalike = { role: "assistant", stopReason: "stop", content: [{ type: "text", text: writing.content }] };
+    const completed = { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "completed fact" }] };
+    const tool = { role: "toolResult", content: [{ type: "text", text: "tool fact" }] };
     for (const contextEpisodeIds of [[], ["t99.e1"]]) for (const rewritten of [false, true]) {
       const manager = new IsolatedManager(store, {}, undefined, fixtureRuntime());
       const internal = manager as any;
@@ -476,8 +480,7 @@ test("production dispatch excludes hidden action messages at the compressor boun
           // A history rewrite can move retained context into the action slice.
           if (rewritten) session.messages.unshift(user);
           else session.messages.push(user);
-          session.messages.push({ role: "assistant", stopReason: "stop", content: [{ type: "text", text: "completed fact" }] });
-          session.messages.push({ role: "toolResult", content: [{ type: "text", text: "tool fact" }] });
+          session.messages.push(completed, writing, lookalike, tool);
         },
       };
       internal.openWorkerFor = async (args: any) => {
@@ -490,9 +493,10 @@ test("production dispatch excludes hidden action messages at the compressor boun
       assert.ok(calls.length > 0, JSON.stringify(result));
       const captured = calls.at(-1)!;
       assert.equal(captured.task, "compress action");
-      assert.doesNotMatch(JSON.stringify(captured.messages), /Action temporary folder:|\/tmp\/action\./);
-      assert.match(JSON.stringify(captured.messages), /completed fact/);
-      assert.match(JSON.stringify(captured.messages), /tool fact/);
+      assert.deepEqual(captured.messages, [
+        ...(!rewritten && contextEpisodeIds.length === 0 ? [{ role: "user", content: "compress action" }] : []),
+        completed, lookalike, tool,
+      ], `compressor messages with prior episodes=${contextEpisodeIds.length} and rewrite=${rewritten}`);
       assert.equal(session.messages.filter((message) => (message as any).customType === ACTION_TEMPORARY_MESSAGE_TYPE).length, 1);
       assert.equal(result.episode.task, "compress action");
     }

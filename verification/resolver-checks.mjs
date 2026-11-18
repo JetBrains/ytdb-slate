@@ -6618,16 +6618,106 @@ The accounting covers:`),
 				.replace(/(^|[^:])\/\/[^\n]*/g, "$1 ");
 
 			const ts = (await import(pathToFileURL(join(REPO, "node_modules/typescript/lib/typescript.js")).href)).default;
-			const workerAst = ts.createSourceFile("worker.ts", workerSource, ts.ScriptTarget.Latest, true);
-			const writingAst = ts.createSourceFile("writing-reminder.ts", readFileSync(join(REPO, "extension", "writing-reminder.ts"), "utf8"), ts.ScriptTarget.Latest, true);
-			const writingEdges = (source) => source.statements.filter(node => ts.isImportDeclaration(node) || ts.isExportDeclaration(node) && node.moduleSpecifier)
-				.filter(node => source === writingAst || /writing|mode\.ts/.test(node.moduleSpecifier.text))
-				.map(node => node.getText(source));
-			const exactWritingEdges = [
-				['import { REVIEWER_WRITING_GUIDANCE, WORKER_WRITING_GUIDANCE } from "./writing-reminder.ts";',
-				 'export { REVIEWER_WRITING_GUIDANCE, WORKER_DESIGN_SCOPE_EXCEPTION, WORKER_WRITING_GUIDANCE } from "./writing-reminder.ts";'],
-				['import type { WritingFindingSummary } from "./writing.ts";'],
-			];
+			const parse = (name, source) => ts.createSourceFile(name, source, ts.ScriptTarget.Latest, true);
+			const workerAst = parse("worker.ts", workerRawSource);
+			const threadsAst = parse("threads.ts", threadsRawSource);
+			const writingSource = readFileSync(join(REPO, "extension", "writing-reminder.ts"), "utf8");
+			const writingAst = parse("writing-reminder.ts", writingSource);
+			const edge = (kind, specifier, names) => JSON.stringify([kind, specifier, [...names].sort()]);
+			const workerForms = ["REVIEWER_WRITING_GUIDANCE", "WORKER_WRITING_GUIDANCE"];
+			function writingBoundary(source, moduleName) {
+				const edges = [];
+				const sends = [];
+				let forbidden = false;
+				const shared = moduleName === "writing";
+				const collectEdge = (kind, specifier, bindings, unexpectedShape) => {
+					if (specifier && ts.isStringLiteralLike(specifier) && (shared || /writing|(?:^|\/)mode(?:\.[cm]?[jt]s)?$/.test(specifier.text))) {
+						const names = !unexpectedShape && bindings && (ts.isNamedImports(bindings) || ts.isNamedExports(bindings))
+							? bindings.elements.map(binding => `${binding.isTypeOnly ? "type " : ""}${binding.propertyName ? binding.propertyName.text + " as " : ""}${binding.name.text}`)
+							: ["<other>"];
+						edges.push(edge(kind, specifier.text, names));
+					}
+				};
+				const isName = (node, name) => node && ts.isIdentifier(node) && node.text === name;
+				function visit(node) {
+					if (ts.isImportDeclaration(node)) {
+						const clause = node.importClause;
+						collectEdge(clause?.isTypeOnly ? "import type" : "import", node.moduleSpecifier,
+							clause?.namedBindings, clause?.name || node.attributes);
+					} else if (ts.isExportDeclaration(node) && node.moduleSpecifier) {
+						collectEdge(node.isTypeOnly ? "export type" : "export", node.moduleSpecifier, node.exportClause, node.attributes);
+					} else if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) {
+						collectEdge("import equals", node.moduleReference.expression);
+					} else if (ts.isCallExpression(node)) {
+						const target = node.expression;
+						if (target.kind === ts.SyntaxKind.ImportKeyword || isName(target, "require")) {
+							collectEdge(target.kind === ts.SyntaxKind.ImportKeyword ? "dynamic import" : "require", node.arguments[0]);
+						}
+						const name = ts.isPropertyAccessExpression(target) ? target.name.text
+							: ts.isElementAccessExpression(target) && ts.isStringLiteralLike(target.argumentExpression) ? target.argumentExpression.text
+								: ts.isIdentifier(target) ? target.text : undefined;
+						if (!shared && (name === "sendCustomMessage" || name === "originalSendCustomMessage")) sends.push(node);
+					}
+					if (!shared && (ts.isIdentifier(node) || ts.isStringLiteralLike(node)) &&
+						["sendMessage", "slate-writing-reminder", "renderWritingReminder", "renderWritingReminderMessage", "measureWritingTurn", "loadWritingChecker"].includes(node.text)) {
+						forbidden = true;
+					}
+					ts.forEachChild(node, visit);
+				}
+				visit(source);
+				const expected = {
+					worker: [edge("import", "./writing-reminder.ts", workerForms),
+						edge("export", "./writing-reminder.ts", [...workerForms, "WORKER_DESIGN_SCOPE_EXCEPTION"])],
+					threads: [edge("import", "./writing-reminder.ts", ["isWritingReminderMessage"])],
+					writing: [edge("import type", "./writing.ts", ["WritingFindingSummary"])],
+				}[moduleName];
+				if (source.parseDiagnostics.length || forbidden || JSON.stringify(edges.sort()) !== JSON.stringify(expected.sort())) return false;
+				// Only the action-folder send and the worker's managed forwarding call belong here.
+				if (shared) return true;
+				if (sends.length !== 1) return false;
+				const [send] = sends;
+				const [message, options] = send.arguments;
+				if (send.questionDotToken || send.typeArguments?.length) return false;
+				if (moduleName === "worker") {
+					return isName(send.expression, "originalSendCustomMessage") && send.arguments.length === 1 &&
+						ts.isSpreadElement(message) && isName(message.expression, "args");
+				}
+				const target = send.expression;
+				const [property] = options && ts.isObjectLiteralExpression(options) ? options.properties : [];
+				return ts.isPropertyAccessExpression(target) && !target.questionDotToken &&
+					target.name.text === "sendCustomMessage" && isName(target.expression, "created") &&
+					send.arguments.length === 2 && isName(message, "actionMessage") &&
+					options.properties?.length === 1 && !!property && ts.isPropertyAssignment(property) &&
+					(ts.isIdentifier(property.name) || ts.isStringLiteralLike(property.name)) && property.name.text === "triggerTurn" &&
+					property.initializer.kind === ts.SyntaxKind.FalseKeyword;
+			}
+			const workerControl = `
+				import {
+					WORKER_WRITING_GUIDANCE, REVIEWER_WRITING_GUIDANCE,
+				} from './writing-reminder.ts'
+				export {
+					WORKER_WRITING_GUIDANCE, WORKER_DESIGN_SCOPE_EXCEPTION, REVIEWER_WRITING_GUIDANCE,
+				} from './writing-reminder.ts'
+				trackManaged(() => originalSendCustomMessage(...args))
+			`;
+			const threadControl = `
+				import { isWritingReminderMessage } from './writing-reminder.ts'
+				if (actionMessage) void created.sendCustomMessage(actionMessage,  {
+					'triggerTurn': false,
+				})
+			`;
+			const writingBoundaryControls = [
+				["worker formatting", "worker", workerControl, true],
+				["thread formatting", "threads", threadControl, true],
+				["changed options", "threads", threadControl.replace("false", "true"), false],
+				["second send", "threads", threadControl + "\ncreated['sendCustomMessage'](actionMessage, { triggerTurn: false });", false],
+				["changed export kind", "worker", workerControl.replace("export {", "export type {"), false],
+				["changed imported name", "worker", workerControl.replace("WORKER_WRITING_GUIDANCE,", "OTHER_GUIDANCE,"), false],
+				["forbidden renderer", "worker", workerControl + "\nrenderWritingReminder();", false],
+				["dynamic load", "worker", workerControl + '\nvoid import("./writing-reminder.ts");', false],
+				["runtime import", "writing", 'import { WritingFindingSummary } from "./writing.ts";', false],
+			].filter(([, name, source, expected]) => writingBoundary(parse(`${name}.ts`, source), name) !== expected)
+				.map(([label]) => label);
 			const opener = workerAst.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === "openWorkerSession");
 			const shared = workerAst.statements.find(node => ts.isVariableStatement(node)
 				&& node.declarationList.declarations.some(d => d.name.getText(workerAst) === "workerCodemodeLoad"));
@@ -6754,7 +6844,7 @@ The accounting covers:`),
 				["parallel tool guidance appears exactly once across every worker configuration", [worker.workerPreamble(false, false), worker.workerPreamble(true, false), worker.workerPreamble(false, true), worker.workerPreamble(true, true)].every((preamble) => preamble.split(parallelToolRule).length === 2), { base: worker.workerPreamble(false, false), writing: worker.workerPreamble(true, false), reviewer: worker.workerPreamble(false, true), both: worker.workerPreamble(true, true) }],
 				["the two cost-reason sentences appear exactly once across every worker configuration", [worker.workerPreamble(false, false), worker.workerPreamble(true, false), worker.workerPreamble(false, true), worker.workerPreamble(true, true)].every((preamble) => reasonSentences.every((sentence) => preamble.split(sentence).length === 2)), { sentences: reasonSentences, base: worker.workerPreamble(false, false) }],
 				["false trust omits writing guidance with or without the reviewer charter", worker.workerPreamble(false, false) === commonPreamble && !worker.workerPreamble(false, true).includes(reviewGuidance), { plain: worker.workerPreamble(false, false), reviewer: worker.workerPreamble(false, true) }],
-				["worker assembly imports only the role forms and defines no writing sender", JSON.stringify([writingEdges(workerAst), writingEdges(writingAst)]) === JSON.stringify(exactWritingEdges) && !/sendMessage|sendCustomMessage\s*\(|slate-writing-reminder|renderWritingReminder|measureWritingTurn|loadWritingChecker/.test(workerSource + threadsSource.replace("created.sendCustomMessage(actionMessage, { triggerTurn: false })", "")), "static writing-related edges and sender call sites"],
+				["worker assembly imports only the role forms and defines no writing sender", writingBoundary(workerAst, "worker") && writingBoundary(threadsAst, "threads") && writingBoundary(writingAst, "writing") && writingBoundaryControls.length === 0, { scope: "writing-related edges and direct sender calls", mismatchedControls: writingBoundaryControls }],
 				["shared exports remain available through worker assembly", ["WORKER_WRITING_GUIDANCE", "REVIEWER_WRITING_GUIDANCE", "WORKER_DESIGN_SCOPE_EXCEPTION"].every(name => worker[name] === reminder[name]), "full, short and design-in-log exception"],
 				["permitted non-review configuration enables the 2479-byte preamble with writing guidance", worker.WORKER_WRITING_GUIDANCE === currentGuidance && worker.workerPreamble(true, false) === `${commonPreamble} ${currentGuidance}` && Buffer.byteLength(worker.workerPreamble(true, false)) === 2479, worker.workerPreamble(true, false)],
 				["reviewer variants keep exact writing bytes", worker.REVIEWER_WRITING_GUIDANCE === reviewGuidance && worker.workerPreamble(true, true) === `${commonPreamble} ${reviewGuidance}\n${worker.REVIEWER_CHARTER}`, worker.REVIEWER_WRITING_GUIDANCE],

@@ -254,14 +254,14 @@ holds the document copy.
 
 The scope exclusion has manual copies in this guide, resolver fixtures,
 `test/doctrine-contract.test.ts`, and the integration canary.
-`extension/worker.ts` derives both worker forms from the shared export.
+`extension/writing-reminder.ts` defines both worker forms with this exclusion.
 `AGENTS.md` carries equivalent scope prose. Update applicable copies together.
 
 The check counts literal occurrences and cannot detect a generated copy, while
 issue 317 tracks the general solution.
 
 `extension/mode.ts` renders the shared exports directly.
-`extension/worker.ts` uses the writing title, style and roster exports.
+`extension/worker.ts` imports the full and short guidance forms.
 Neither holds a manual roster. The shell harness uses canary evidence.
 
 ## What it costs when it is on
