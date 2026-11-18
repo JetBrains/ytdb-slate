@@ -1,6 +1,6 @@
 {
-  "defaultProvider": "anthropic",
-  "defaultModel": "claude-fable-5-2",
+  "defaultProvider": "openai",
+  "defaultModel": "gpt-6.2-astra",
   "defaultThinkingLevel": "high",
   "packages": [
     "../../main",
