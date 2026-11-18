@@ -510,6 +510,10 @@ Logical-model routing does not change this context-window setting. Pi's registry
 remains the runtime source for context capacity. Slate validates permitted routes
 against that registry but does not compare it with a second profile window.
 
+Compression requests are the one exception. On an OpenAI GPT-6-or-later route, a
+compression request uses a context window of at least 1,050,000 tokens, as
+[model-routing.md](model-routing.md) § Shipped definitions describes.
+
 ## Accepted limitations
 
 - When context is near the 256,000-token default, one turn that adds more

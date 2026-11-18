@@ -14,7 +14,7 @@
 
 be281e2388e09b15abb6257bfe75ed989bf5aabf896addf572ad195a5e7be739  docs/configuration.md
 
-814bbc7b46edaf5c17dc73a622b9a9e45ff6d8536b4d27e692be110bc8cd7e17  docs/context-budget.md
+99c767dadd4e77a3234c7370466e407e92bb169f3339b00d64e6550a5293e7f0  docs/context-budget.md
 
 0fa1dc5b979304aae079c6bdfaa8b772be9e6401ac82bd1958ca77255e390a96  docs/delivery-packages.md
 
