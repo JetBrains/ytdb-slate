@@ -84,8 +84,8 @@ The project must be trusted before Slate reads this file. Start a new session af
 | `writing.findings` | boolean | `true` | Include the latest model-visible writing findings in the hidden reminder. An invalid value warns and falls back to `true`. Measurement continues when this value is `false`. The status line follows `writing.showStatus`. |
 | `doctrineExtraPath` | string | — | Markdown whose **content** is appended to the orchestrator doctrine (project-specific workflow additions). |
 | `reviewPerspectivesPath` | string | — | Review charters, each declaring its own finding-ID prefix. The doctrine references this **path**; the orchestrator reads the file alongside the shipped review rules. |
-| `router.models` | object | shipped six-model default pool | Ordinary membership and definitions. `include` replaces the starting membership, including with an empty list. `add` accepts complete new definitions. `replace` changes selected fields. `exclude` applies last. Within each model definition, lists and provider maps replace shipped fields. The home and project configuration files merge first. |
-| `router.compressor.models` | array of `{ model, effort }` | `[{"model":"claude-sonnet-5.5","effort":"medium"}]` | Independent ordered compressor list. An explicit empty list blocks work. |
+| `router.models` | object | shipped four-model default pool | Ordinary membership and definitions. `include` replaces the starting membership, including with an empty list. `add` accepts complete new definitions. `replace` changes selected fields. `exclude` applies last. Within each model definition, lists and provider maps replace shipped fields. The home and project configuration files merge first. |
+| `router.compressor.models` | array of `{ model, effort }` | `[{"model":"sol-6.2","effort":"low"}]` | Independent ordered compressor list. An explicit empty list blocks work. |
 
 Notification settings define permissions and text policy. Slate validates these settings at session start. Slate registers terminal, bell, native and push delivery channels. A channel is one delivery route. Slate registers no notification tool. See [Notifications](#notifications) for automatic delivery and setup.
 
@@ -548,6 +548,34 @@ Repeat from an inactive tmux window with the documented passthrough permission.
 
 Record the host, client, versions, settings and observed result.
 Do not report unavailable checks as successful delivery.
+
+## Default routing and compression
+
+The default ordinary pool is `luna-6`, `sol-6.2`, `astra-6.2`, and `fable-5-2`, in that order.
+A dispatch naming `gemini-3.8-flash` or `claude-sonnet-5.5` is refused unless `router.models.include` names it.
+A main session on a Sonnet or Gemini route has no logical model by default.
+The same applies to older Sol, Astra, and Opus routes.
+Main recovery stops and asks for a model choice. Handoff adoption pauses.
+
+The default compressor is `sol-6.2` at `low`.
+Ordinary Sol 6.2 keeps effort `high`.
+Compression sends completed worker content to provider `openai` by default.
+Without the `openai/gpt-6.2-sol` route or OpenAI credentials, every episode
+keeps the bounded uncompressed result with the existing compression-failure notice.
+Compression requests on OpenAI GPT-6-or-later routes use a context window of at least 1,050,000 tokens.
+A larger registered window is kept. Only the compression request model changes.
+Worker sessions, the main session, registry entries, prices, cost tiers and route identity stay unchanged.
+
+Above 272,000 input tokens, the provider bills long-context rates for the full request.
+The provider accepts at most 922,000 input tokens.
+It rejects larger input, which produces the existing compression-failure notice.
+
+The 300,000-character transcript limit and 4,096-token output limit still apply.
+The task and diagnostics add input beyond the transcript limit.
+Compression requests stay outside worker pacing.
+
+`claude-sonnet-5.5` is unused by default.
+It can be named in `router.models.include` or `router.compressor.models`.
 
 ## Extended example
 

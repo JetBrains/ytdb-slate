@@ -141,13 +141,13 @@ const SHIPPED_DEFINITIONS: LogicalModelDefinition[] = [
 ];
 
 export const DEFAULT_LOGICAL_MODEL_NAMES: readonly string[] = deepFreeze([
-	"luna-6", "claude-sonnet-5.5", "sol-6.2", "gemini-3.8-flash", "astra-6.2", "fable-5-2",
+	"luna-6", "sol-6.2", "astra-6.2", "fable-5-2",
 ]);
 
 export const SHIPPED_LOGICAL_MODELS: readonly LogicalModelDefinition[] = deepFreeze(SHIPPED_DEFINITIONS);
 
 export const SHIPPED_COMPRESSOR_MODELS: readonly LogicalCompressorEntry[] = deepFreeze([
-	{ model: "claude-sonnet-5.5", effort: "medium" },
+	{ model: "sol-6.2", effort: "low" },
 ]);
 
 export const LOGICAL_MODEL_SOURCE_NOTES = deepFreeze({

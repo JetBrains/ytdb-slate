@@ -135,13 +135,13 @@ test("logical doctrine production renders match published portable measurements"
     { path: "/fixture/b", source: "y".repeat(128), isDirectory: true, tools: [{ name: "c".repeat(64), description: "f".repeat(140) }, { name: "d".repeat(64), description: "g".repeat(140) }] },
   ], paths: [], toolNames: [] };
   const metric = (text: string) => ({ portable: text.split(docsDirectory).join("").length, lines: text.split("\n").length, paths: text.split(docsDirectory).length - 1 });
-  assert.deepEqual(metric(runtime.promptText()!), { portable: 4327, lines: 11, paths: 0 });
-  assert.deepEqual(metric(await renderDoctrine(runtime)), { portable: 9135, lines: 74, paths: 5 });
+  assert.deepEqual(metric(runtime.promptText()!), { portable: 3803, lines: 9, paths: 0 });
+  assert.deepEqual(metric(await renderDoctrine(runtime)), { portable: 8611, lines: 72, paths: 5 });
   assert.deepEqual(metric(await renderDoctrine(runtime, {}, false)), { portable: 2711, lines: 33, paths: 4 });
-  assert.deepEqual(metric(await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped)), { portable: 10675, lines: 87, paths: 6 });
+  assert.deepEqual(metric(await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped)), { portable: 10151, lines: 85, paths: 6 });
   const change = { current: `change-20260101T000000Z-${"a".repeat(32)}`, source: `change-20260101T000001Z-${"b".repeat(32)}`, legacy: true };
   const linked = await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped, change);
-  assert.deepEqual(metric(linked), { portable: 11103, lines: 90, paths: 6 });
+  assert.deepEqual(metric(linked), { portable: 10579, lines: 88, paths: 6 });
   assert.ok(metric(linked).portable * 1.05 < 26300);
   assert.match(linked, /Follow each log's first entry to read the full source chain and accounting/);
   assert.match(linked, /Read-only legacy root log: research-log.md/);
@@ -199,7 +199,7 @@ test("every declared doctrine composition fits the original production hook", { 
     return [runtime(), null, runtime({ router: { compressor: { models: [] } } }), runtime(replace(19401 - runtime(replace(1)).promptText()!.length)), runtime(projectRoster)];
   };
   const samePolicy = { router: { models: {
-    include: ["luna-6", "claude-sonnet-5.5", "sol-6.2", "gemini-3.8-flash", "astra-6.2", "fable-5-2"],
+    include: ["luna-6", "sol-6.2", "astra-6.2", "fable-5-2"],
     replace: SHIPPED_LOGICAL_MODELS.filter((row) => !["sol-6.2", "astra-6.2", "fable-5-2"].includes(row.model)).map(({ source, ...row }) => row),
     add: SHIPPED_LOGICAL_MODELS.filter((row) => ["sol-6.2", "astra-6.2", "fable-5-2"].includes(row.model)).map(({ source, ...row }) => row),
   } } };

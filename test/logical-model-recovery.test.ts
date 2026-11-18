@@ -33,8 +33,10 @@ function policy(): LogicalModelPolicy {
 
 const noPreferences = { providers: Object.freeze(Object.create(null) as Record<string, string>), compressorIndex: 0, resetEpoch: 0 };
 
-test("shipped six-model recovery preserves capability order and the Luna-Sonnet tie", () => {
-  const value = createLogicalRuntime({ trusted: true }).policy!;
+test("explicit six-model recovery preserves capability order and the Luna-Sonnet tie", () => {
+  const defaults = createLogicalRuntime({ trusted: true }).policy!;
+  assert.deepEqual(ordinaryModelRecoveryOrder(defaults, "sol-6.2").map((row) => row.model), ["sol-6.2", "astra-6.2", "luna-6", "fable-5-2"]);
+  const value = createLogicalRuntime({ trusted: true, projectConfig: { router: { models: { include: ["luna-6", "claude-sonnet-5.5", "sol-6.2", "gemini-3.8-flash", "astra-6.2", "fable-5-2"] } } } }).policy!;
   assert.deepEqual(value.ordinary.filter((row) => row.capabilityRating === 35).map((row) => row.model), ["luna-6", "claude-sonnet-5.5"]);
   assert.deepEqual(ordinaryModelRecoveryOrder(value, "sol-6.2").map((row) => row.model),
     ["sol-6.2", "astra-6.2", "gemini-3.8-flash", "fable-5-2", "luna-6", "claude-sonnet-5.5"]);

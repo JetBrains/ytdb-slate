@@ -78,13 +78,13 @@ forecasts. Membership changes do not rescale them.
 | `gpt-6-astra` | `medium` | 67 | 28 | `openai` | `openai/gpt-6-astra` | Do not select Astra as the default implementer. Prefer Sol 6.1 over Astra. | none |
 | `fable-5-2` | `high` | 84 | 75 | `anthropic` | `anthropic/claude-fable-5-2` | Do not select Fable 5.2 for routine work. If a lower-capability model repeatedly fails at implementation, first ask Fable 5.2 to investigate and provide detailed repair instructions. Let the implementer try those instructions. Use Fable 5.2 as the implementer only if that guided attempt also fails. Treat that use as an exception. Select another suitable model for later implementation work. Existing approval requirements and repair limits still apply. | none |
 
-The nine definitions above include six default models. Their order is
-`luna-6`, `claude-sonnet-5.5`, `sol-6.2`, `gemini-3.8-flash`, `astra-6.2`,
-and `fable-5-2`.
+The nine definitions above include four default models. Their order is
+`luna-6`, `sol-6.2`, `astra-6.2`, and `fable-5-2`.
 
-With `include` omitted, `sol-6.1`, `gpt-6-astra`, and `claude-opus-5.5` are
-outside the pool. Slate refuses a dispatch that names one of them.
-A main session on an older Sol, Astra, or Opus route has no logical model
+With `include` omitted, `sol-6.1`, `gpt-6-astra`, `claude-opus-5.5`,
+`gemini-3.8-flash`, and `claude-sonnet-5.5` are outside the pool.
+Slate refuses a dispatch that names one unless `router.models.include` names it.
+A main session on an older Sol, Astra, Opus, Sonnet, or Gemini route has no logical model
 by default. Main-session recovery stops and asks for a model choice.
 Handoff adoption pauses.
 
@@ -112,8 +112,27 @@ Sol uses these cautions in order:
 
 Flash uses this caution: `Do not use as a reviewer. It relies too much on passing tests and exact-size assertions. Verify source citations and distinguish proposed behavior from existing behavior.`
 
-The independent shipped compressor list contains one entry. It is
-`claude-sonnet-5.5` at `medium`. Ordinary Sonnet remains at `high`.
+The independent shipped compressor list contains one entry: `sol-6.2` at `low`.
+Ordinary Sol 6.2 keeps effort `high`.
+Compression sends completed worker content to provider `openai` by default.
+Without the `openai/gpt-6.2-sol` route or OpenAI credentials, every episode
+keeps the bounded uncompressed result with the existing compression-failure notice.
+
+Compression requests on OpenAI GPT-6-or-later routes use a context window
+of at least 1,050,000 tokens. A larger registered window is kept.
+Only the request model changes. Worker sessions, the main session, registry
+entries, route identity, prices and cost tiers stay unchanged.
+
+Above 272,000 input tokens, the provider bills long-context rates for the full request.
+The provider accepts at most 922,000 input tokens.
+It rejects larger input, which produces the existing compression-failure notice.
+
+The 300,000-character transcript limit and 4,096-token output limit still apply.
+The task and diagnostics add input beyond the transcript limit.
+Compression requests stay outside worker pacing.
+
+`claude-sonnet-5.5` is unused by default.
+It can be named in `router.models.include` or `router.compressor.models`.
 
 Sol 6.2 and Astra 6.2 ratings are project judgments dated 2026-11-18.
 They have no benchmark source.
@@ -167,7 +186,7 @@ new session.
 }
 ```
 
-Omitted `include` starts with the six default logical models. An explicit
+Omitted `include` starts with the four default logical models. An explicit
 empty `include` starts with an empty ordinary pool. `exclude` applies last and
 wins.
 
@@ -253,7 +272,7 @@ Complete `replace` example:
 A supplied provider map, guidance list, or caution list replaces the whole field.
 Slate does not merge those values. Replacing an unrelated field preserves source
 attribution for unchanged fields. Compressor membership is independent from
-ordinary membership. Omitting it inherits Sonnet at `medium`. An explicit empty
+ordinary membership. Omitting it inherits Sol 6.2 at `low`. An explicit empty
 compressor list is a blocking error. No hidden compressor follows it.
 
 Unknown fields, duplicate names, incomplete definitions, invalid ratings, invalid
