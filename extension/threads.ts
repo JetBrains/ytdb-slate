@@ -56,6 +56,7 @@ import {
 } from "./worker.ts";
 import { EMPTY_WORKER_EXTENSION_SET, type WorkerExtensionSet } from "./worker-extensions.ts";
 import { isWorkerReminderMessage, workerReminderDeliveryMissing } from "./worker-reminder.ts";
+import { isWritingReminderMessage } from "./writing-reminder.ts";
 import { NESTED_SETTLEMENT_WARNING_PREFIX } from "./worker-nested-lifecycle.ts";
 import { loadImplementationReviewGuidance, validateReviewPerspectives, type ReviewFileReader } from "./review-perspectives.ts";
 
@@ -197,7 +198,7 @@ function lastAssistantMessage(messages: unknown[]): WorkerAssistantMsg | undefin
 export function messagesForCompression(messages: unknown[], injectedPrompt?: string): unknown[] {
 	const filtered = messages.filter((message) => {
 		const candidate = message as { role?: unknown; customType?: unknown } | null;
-		return !isWorkerReminderMessage(message) &&
+		return !isWorkerReminderMessage(message) && !isWritingReminderMessage(message) &&
 			!(candidate?.role === "custom" && candidate.customType === ACTION_TEMPORARY_MESSAGE_TYPE);
 	});
 	if (injectedPrompt === undefined) return filtered;

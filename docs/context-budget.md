@@ -288,7 +288,7 @@ The review-rules cap is 24,403 UTF-8 bytes, enforced by the resolver checks.
 A separate checked ceiling limits the delivered review rules to 24,203 bytes.
 For publishing-off ordinary research, the classification and recovery ceilings are 78,275 required and 151,209 maximum bytes.
 The **protected pool** is context reserved for later workflow documentation.
-It allocates 15 of 202 bytes and retains 187 bytes.
+The protected pool owns 211 bytes (187 + 5 + 17 + 2). This ownership adds no measured headroom.
 The safe-write allocation does not draw from that pool.
 
 ### Worker writing preamble
@@ -594,7 +594,7 @@ The classification and recovery allowance applies independently to each required
 Research candidate ceilings are 78,275 required and 151,209 maximum bytes.
 Actual research totals are 77,279 required and 150,434 maximum bytes.
 Each phase and session row permits at most 566 required and 3,061 maximum bytes above the classification and recovery start. No sibling saving transfers.
-The protected pool retains 187 bytes. Unused share moves only by recorded user decision.
+The protected pool owns 211 bytes (187 + 5 + 17 + 2). This ownership adds no measured headroom. Unused share moves only by recorded user decision.
 
 | Phase | Publishing | Plan | Required bytes | Estimated tokens | Byte limit | Token limit | Conditional maximum bytes | Estimated tokens | Byte limit | Token limit |
 | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |

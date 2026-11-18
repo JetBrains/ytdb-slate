@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -60,6 +61,14 @@ const EXPECTED_CHARTER_BY_THREAD_TYPE = {
   general: false,
 } as const satisfies Record<ThreadType, boolean>;
 
+const PREAMBLE_HASHES = [
+  "88207299b39a6fae68e9dab951d0e533de8db4eaa65e2fb952570c9b5bb703e5",
+  "cb14ff2698d4bb46a1d3395a54903f4f76e0016d2f368eeb32721e0e82c4d924",
+  "531d7ffb9245e6302d9a28e56fdd3ca22d0470598cf193e896f19e1cce8331e9",
+  "a957880a436c0944ddd83ca41409f61a1effc85d7669e51b6112701e74189d4a",
+];
+const digest = (text: string) => createHash("sha256").update(text).digest("hex");
+
 const PARALLEL_TOOL_RULE =
   "Issue all independent tool calls simultaneously in one worker turn. Use separate turns only when results depend on each other or conflict.";
 const COST_REASON_SENTENCES = [
@@ -86,6 +95,11 @@ test("workerPreamble keeps unchanged reviewer guidance independent of writing tr
     [untrusted, trusted, untrustedReviewer, trustedReviewer].map((preamble) => Buffer.byteLength(preamble)),
     [1317, 2479, 3472, 4016],
   );
+  assert.deepEqual([untrusted, trusted, untrustedReviewer, trustedReviewer].map(digest), PREAMBLE_HASHES);
+  assert.deepEqual([WORKER_WRITING_GUIDANCE, REVIEWER_WRITING_GUIDANCE].map(digest), [
+    "843d2b18183011d985de68e1d38e8d5cea6be77530ecca33a976c101f629af2f",
+    "bbdef61a465a839c7b92a759416e35973f5d26f543651dee80855317e20ef6eb",
+  ]);
   assert.equal(untrustedReviewer.match(/^- /gm)?.length, 10);
   assert.equal(trustedReviewer.match(/^- /gm)?.length, 10);
   assert.doesNotMatch(untrusted, /Trace, don't guess/);
@@ -94,11 +108,13 @@ test("workerPreamble keeps unchanged reviewer guidance independent of writing tr
   assert.match(trustedReviewer, /Trace, don't guess/);
 });
 
-test("real worker assembly delivers the charter only to review thread types", async () => {
+test("real worker assembly delivers the charter only to review thread types", { timeout: 5000 }, async () => {
   const root = mkdtempSync(join(tmpdir(), "slate-reviewer-charter-test."));
   const opened: Array<Record<string, unknown>> = [];
   const reports: string[] = [];
+  const sent: unknown[] = [];
   const fakeSession = {
+    async sendCustomMessage(message: unknown) { sent.push(message); },
     model: undefined,
     thinkingLevel: "medium",
     modelRuntime: { getRegisteredProviderIds: () => [] },
@@ -167,10 +183,11 @@ test("real worker assembly delivers the charter only to review thread types", as
         assert.equal(text.split(WRITING_SCOPE_EXCLUSION).length - 1, permitted ? 1 : 0);
         assert.equal(text.split("A high-level design remains governed even inside a research log.").length - 1, count);
         for (const { text: item } of DESIGN_REQUIREMENTS) assert.equal(text.includes(item), false);
-        assert.equal(Buffer.byteLength(text), permitted ? (hasCharter ? 4016 : 2479) : (hasCharter ? 3472 : 1317));
+        assert.equal(digest(text), PREAMBLE_HASHES[Number(permitted) + 2 * Number(hasCharter)]);
       }
     }
     assert.equal(opened.length, cases.length * 4);
+    assert.deepEqual(sent, [], "worker assembly sends no writing message");
     assert.deepEqual(reports, []);
   } finally {
     codingAgentStub.createAgentSession = originalCreateAgentSession;

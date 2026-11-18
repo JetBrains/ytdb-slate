@@ -550,7 +550,7 @@ function table(rows: string[], costs: string[], entries: string[]): string {
     "Research candidate ceilings are 78,275 required and 151,209 maximum bytes.",
     "Actual research totals are 77,279 required and 150,434 maximum bytes.",
     "Each phase and session row permits at most 566 required and 3,061 maximum bytes above the classification and recovery start. No sibling saving transfers.",
-    "The protected pool retains 187 bytes. Unused share moves only by recorded user decision.",
+    "The protected pool owns 211 bytes (187 + 5 + 17 + 2). This ownership adds no measured headroom. Unused share moves only by recorded user decision.",
     "",
     "| Phase | Publishing | Plan | Required bytes | Estimated tokens | Byte limit | Token limit | Conditional maximum bytes | Estimated tokens | Byte limit | Token limit |",
     "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
@@ -723,7 +723,11 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
   checkChildCeiling(78275, 151209);
   assert.ok(source("CONTEXT_BUDGET_DOC").includes("ceilings are 78,275 required and 151,209 maximum bytes."));
   assert.ok(source("CONTEXT_BUDGET_DOC").includes("G is 2,593 bytes."));
-  assert.ok(source("CONTEXT_BUDGET_DOC").includes("retains 187 bytes."));
+  const budget = source("CONTEXT_BUDGET_DOC");
+  const ownership = "The protected pool owns 211 bytes (187 + 5 + 17 + 2). This ownership adds no measured headroom.";
+  assert.equal(budget.split(ownership).length - 1, 2);
+  assert.match(budget, /reserved for later workflow documentation\.\nThe protected pool owns/);
+  assert.doesNotMatch(budget, /retains 187 bytes|allocates 15 of 202 bytes/);
   assert.throws(() => checkChildCeiling(78276, 144496), /child required reservation/);
   assert.throws(() => checkChildCeiling(75532, 151210), /child maximum reservation/);
   checkLimit(75856, limits["1 off ordinary"][0], "wider required control");
@@ -731,7 +735,7 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
   assert.throws(() => checkChildCeiling(78276, 151209), /child required reservation/);
   assert.throws(() => checkChildCeiling(78275, 151210), /child maximum reservation/);
   const publication = table(rows, costs, entries);
-  assert.equal(bytes(publication), 11913, "approved publication bytes");
+  assert.equal(bytes(publication), 11971, "approved publication bytes");
   if (process.env.SLATE_PHASE_INSPECT === "1") console.log(JSON.stringify({ measured, references: scan(sources), publication, excluded, costs }));
   assert.equal(Object.keys(limits).length, 36);
   assert.equal(rows.length, 36);

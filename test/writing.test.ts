@@ -4,6 +4,7 @@ import type { ExtensionAPI, ExtensionContext, TurnEndEvent } from "@earendil-wor
 import { registerSlateMode } from "../extension/mode.ts";
 import {
   DESIGN_REQUIREMENTS,
+  isWritingReminderMessage,
   renderWritingReminder,
   renderWritingReminderMessage,
   WRITING_REQUIREMENTS,
@@ -34,7 +35,10 @@ import {
 
 test("worker writing guidance uses shared writing exports without design requirements", async () => {
   const { WORKER_WRITING_GUIDANCE, WORKER_DESIGN_SCOPE_EXCEPTION } = await import("../extension/worker.ts");
-  const { WRITING_REQUIREMENTS_TITLE, WRITING_STYLE_RULES, renderWritingDoctrineRequirements } = await import("../extension/writing-reminder.ts");
+  const shared = await import("../extension/writing-reminder.ts");
+  const { WRITING_REQUIREMENTS_TITLE, WRITING_STYLE_RULES, renderWritingDoctrineRequirements } = shared;
+  assert.equal(WORKER_WRITING_GUIDANCE, shared.WORKER_WRITING_GUIDANCE);
+  assert.equal(WORKER_DESIGN_SCOPE_EXCEPTION, shared.WORKER_DESIGN_SCOPE_EXCEPTION);
   const lines = WORKER_WRITING_GUIDANCE.split("\n");
   assert.deepEqual(lines.slice(0, 12), [
     `${WRITING_REQUIREMENTS_TITLE}:`,
@@ -48,6 +52,22 @@ test("worker writing guidance uses shared writing exports without design require
   assert.equal(lines.length, 16);
   assert.equal(Buffer.byteLength(WORKER_WRITING_GUIDANCE), 1161);
   for (const { text } of DESIGN_REQUIREMENTS) assert.equal(WORKER_WRITING_GUIDANCE.includes(text), false);
+});
+
+test("writing reminder identity ignores content and presentation and fails closed on malformed input", () => {
+  const exact = { role: "custom", customType: "slate-writing-reminder" };
+  assert.equal(isWritingReminderMessage(exact), true);
+  assert.equal(isWritingReminderMessage({
+    ...exact, display: true, get content() { throw new Error("not identity"); },
+  }), true);
+  for (const value of [
+    undefined, null, 42, "slate-writing-reminder", () => exact,
+    { ...exact, role: "assistant" },
+    { ...exact, customType: "slate-worker-reminder" },
+    { role: "custom" },
+    { ...exact, get role() { throw new Error("invalid role"); } },
+    { ...exact, get customType() { throw new Error("invalid type"); } },
+  ]) assert.equal(isWritingReminderMessage(value), false);
 });
 
 const DEFAULT_CONFIG = {

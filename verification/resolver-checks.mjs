@@ -905,6 +905,10 @@ try {
 			...designCopySources.map(([name, source]) => [`${name} design`, designLines.filter((line) => literalOccurrences(source, line) < 1)]),
 		]);
 		const exactScope = "Exclude research logs, worker task text, and the project's own agent instruction file.";
+		const designInLog = "A high-level design remains governed even inside a research log.";
+		const currentState = "Describe only the current state in the README, docs, code comments and the project's own agent instruction file, not removed features or past behavior, but allow change records such as pull request descriptions, commit bodies, release notes and issues to describe removals and past behavior.";
+		const exactWorker = [`${writingTitle}:`, styleLines.join(" "), ...writingLines.map(line => `- ${line}`), "", exactScope, designInLog, currentState].join("\n");
+		const exactReviewer = `Use short, active sentences. Write sentences a non-native reader understands on one reading. Do not use semicolons or contractions. Apply these rules to your prose. ${exactScope} ${currentState}`;
 		const exactReminder = [
 			`${writingTitle}:`,
 			styleLines.join(" "),
@@ -932,6 +936,7 @@ try {
 			["scope source exact", reminder.WRITING_SCOPE_EXCLUSION === exactScope, reminder.WRITING_SCOPE_EXCLUSION],
 			["doctrine scope exact and indented", reminder.renderWritingScopeExclusion("   ") === `   ${exactScope}`, reminder.renderWritingScopeExclusion("   ")],
 			["reminder exact", reminder.renderWritingReminder() === exactReminder, reminder.renderWritingReminder()],
+			["role forms are exact", reminder.WORKER_WRITING_GUIDANCE === exactWorker && reminder.REVIEWER_WRITING_GUIDANCE === exactReviewer && reminder.WORKER_DESIGN_SCOPE_EXCEPTION === designInLog, "independent ordered rosters and literal role guidance"],
 			["parsed reminder rosters exactly match code order and text", (() => { const parsed = parseReminderRosters(reminder.renderWritingReminder()); return parsed.shape && JSON.stringify(parsed.writing) === JSON.stringify(writingLines) && JSON.stringify(parsed.design) === JSON.stringify(designLines); })(), parseReminderRosters(reminder.renderWritingReminder())],
 		]);
 
@@ -1016,6 +1021,7 @@ try {
 		const quotationBytes = [worstSummary.failQuotation, worstSummary.styleQuotation].map((quote) => Buffer.byteLength(quote ?? "", "utf8"));
 		const absolutePathShape = /(?:[\\/]{2}[^\s\\/]+[\\/][^\s\\/]+|\/[^\s/]+\/[^\s/]+|[A-Za-z]:[\\/][^\s\\/]+(?:[\\/][^\s\\/]+)*)/;
 		checkAll("writing-reminder-size", "the multibyte two-class render stays inside the measured bound with reserve and keeps its structural labels", [
+			["canonical content byte counts remain exact", [reminderContent, worstReminderContent, reminder.WORKER_WRITING_GUIDANCE, reminder.REVIEWER_WRITING_GUIDANCE].map(text => Buffer.byteLength(text)).join(",") === "1357,1845,1161,543", "clean, findings, full, short"],
 			["both helper-derived quotations reach the 120-byte cap", helperExcerpt.startsWith("⟦") && quotationBytes.length === 2 && quotationBytes.every((bytes) => bytes === 120), { helperExcerpt, quotationBytes }],
 			["the 2000-byte bound keeps five percent reserve", worstReminderBytes <= 2000 && hasReminderReserve(worstReminderBytes, 2000), { bytes: worstReminderBytes, bound: 2000, reserveRequired: Math.ceil(worstReminderBytes * 1.05), reserve: 2000 - worstReminderBytes }],
 			["two quotation lines render with cap-derived counts, balanced frames, and visible truncation markers", quotationLines.length === 2 && new RegExp(`^- Fail \\(${checker.MAX_FINDINGS - 1}\\): ⟦.*…⟧$`).test(quotationLines[0]) && /^- Style \(1\): ⟦.*…⟧$/.test(quotationLines[1]), quotationLines],
@@ -6613,6 +6619,15 @@ The accounting covers:`),
 
 			const ts = (await import(pathToFileURL(join(REPO, "node_modules/typescript/lib/typescript.js")).href)).default;
 			const workerAst = ts.createSourceFile("worker.ts", workerSource, ts.ScriptTarget.Latest, true);
+			const writingAst = ts.createSourceFile("writing-reminder.ts", readFileSync(join(REPO, "extension", "writing-reminder.ts"), "utf8"), ts.ScriptTarget.Latest, true);
+			const writingEdges = (source) => source.statements.filter(node => ts.isImportDeclaration(node) || ts.isExportDeclaration(node) && node.moduleSpecifier)
+				.filter(node => source === writingAst || /writing|mode\.ts/.test(node.moduleSpecifier.text))
+				.map(node => node.getText(source));
+			const exactWritingEdges = [
+				['import { REVIEWER_WRITING_GUIDANCE, WORKER_WRITING_GUIDANCE } from "./writing-reminder.ts";',
+				 'export { REVIEWER_WRITING_GUIDANCE, WORKER_DESIGN_SCOPE_EXCEPTION, WORKER_WRITING_GUIDANCE } from "./writing-reminder.ts";'],
+				['import type { WritingFindingSummary } from "./writing.ts";'],
+			];
 			const opener = workerAst.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === "openWorkerSession");
 			const shared = workerAst.statements.find(node => ts.isVariableStatement(node)
 				&& node.declarationList.declarations.some(d => d.name.getText(workerAst) === "workerCodemodeLoad"));
@@ -6739,6 +6754,8 @@ The accounting covers:`),
 				["parallel tool guidance appears exactly once across every worker configuration", [worker.workerPreamble(false, false), worker.workerPreamble(true, false), worker.workerPreamble(false, true), worker.workerPreamble(true, true)].every((preamble) => preamble.split(parallelToolRule).length === 2), { base: worker.workerPreamble(false, false), writing: worker.workerPreamble(true, false), reviewer: worker.workerPreamble(false, true), both: worker.workerPreamble(true, true) }],
 				["the two cost-reason sentences appear exactly once across every worker configuration", [worker.workerPreamble(false, false), worker.workerPreamble(true, false), worker.workerPreamble(false, true), worker.workerPreamble(true, true)].every((preamble) => reasonSentences.every((sentence) => preamble.split(sentence).length === 2)), { sentences: reasonSentences, base: worker.workerPreamble(false, false) }],
 				["false trust omits writing guidance with or without the reviewer charter", worker.workerPreamble(false, false) === commonPreamble && !worker.workerPreamble(false, true).includes(reviewGuidance), { plain: worker.workerPreamble(false, false), reviewer: worker.workerPreamble(false, true) }],
+				["worker assembly imports only the role forms and defines no writing sender", JSON.stringify([writingEdges(workerAst), writingEdges(writingAst)]) === JSON.stringify(exactWritingEdges) && !/sendMessage|sendCustomMessage\s*\(|slate-writing-reminder|renderWritingReminder|measureWritingTurn|loadWritingChecker/.test(workerSource + threadsSource.replace("created.sendCustomMessage(actionMessage, { triggerTurn: false })", "")), "static writing-related edges and sender call sites"],
+				["shared exports remain available through worker assembly", ["WORKER_WRITING_GUIDANCE", "REVIEWER_WRITING_GUIDANCE", "WORKER_DESIGN_SCOPE_EXCEPTION"].every(name => worker[name] === reminder[name]), "full, short and design-in-log exception"],
 				["permitted non-review configuration enables the 2479-byte preamble with writing guidance", worker.WORKER_WRITING_GUIDANCE === currentGuidance && worker.workerPreamble(true, false) === `${commonPreamble} ${currentGuidance}` && Buffer.byteLength(worker.workerPreamble(true, false)) === 2479, worker.workerPreamble(true, false)],
 				["reviewer variants keep exact writing bytes", worker.REVIEWER_WRITING_GUIDANCE === reviewGuidance && worker.workerPreamble(true, true) === `${commonPreamble} ${reviewGuidance}\n${worker.REVIEWER_CHARTER}`, worker.REVIEWER_WRITING_GUIDANCE],
 				["reviewer variants match the current measured byte boundaries", Buffer.byteLength(worker.workerPreamble(false, true)) === 3472 && Buffer.byteLength(worker.workerPreamble(true, true)) === 4016, { reviewer: Buffer.byteLength(worker.workerPreamble(false, true)), both: Buffer.byteLength(worker.workerPreamble(true, true)) }],
@@ -7752,6 +7769,7 @@ The accounting covers:`),
 		skip("worker-reminder-compression", "extension/threads.ts could not be loaded");
 	} else {
 		const reminderMessage = { role: "custom", customType: "slate-worker-reminder", content: "reminder" };
+		const writingMessage = { role: "custom", customType: "slate-writing-reminder", content: "result", display: true };
 		const otherCustom = { role: "custom", customType: "other", content: "keep" };
 		const injected = { role: "user", content: "loaded episode text" };
 		const assistant = { role: "assistant", content: "result" };
@@ -7766,6 +7784,11 @@ The accounting covers:`),
 			["action message exclusion preserves worker and tool evidence that quotes the path", (() => { const user = { role: "user", content: "task" }, tool = { role: "toolResult", content: action.content }, failed = { role: "assistant", stopReason: "error", content: action.content }; return JSON.stringify(threads.messagesForCompression([action, user, tool, failed, action])) === JSON.stringify([user, tool, failed]); })(), "generated custom type only"],
 			["all reminder copies are removed without an injected prompt", JSON.stringify(threads.messagesForCompression([reminderMessage, assistant, reminderMessage, otherCustom])) === JSON.stringify([assistant, otherCustom]), threads.messagesForCompression([reminderMessage, assistant, reminderMessage, otherCustom])],
 			["all reminder copies and one exact injected prompt are removed together", JSON.stringify(threads.messagesForCompression([compacted, reminderMessage, injected, assistant, reminderMessage, otherCustom], "loaded episode text")) === JSON.stringify([compacted, assistant, otherCustom]), threads.messagesForCompression([compacted, reminderMessage, injected, assistant, reminderMessage, otherCustom], "loaded episode text")],
+			["writing exclusion uses exact identity, not text or display", (() => {
+				const lookalike = { ...writingMessage, role: "assistant" };
+				const kept = threads.messagesForCompression([writingMessage, lookalike, assistant, otherCustom]);
+				return kept.length === 3 && kept[0] === lookalike && kept[1] === assistant && kept[2] === otherCustom;
+			})(), "visible writing custom message and ordinary lookalikes"],
 			["an unrelated custom type is retained", threads.messagesForCompression([otherCustom, reminderMessage])[0] === otherCustom, threads.messagesForCompression([otherCustom, reminderMessage])],
 			["an exact prompt is retained when no injected prompt is named", threads.messagesForCompression([injected, reminderMessage])[0] === injected, threads.messagesForCompression([injected, reminderMessage])],
 		]);

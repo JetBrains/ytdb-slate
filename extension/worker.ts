@@ -51,7 +51,7 @@ import type { LogicalModelEffort } from "./logical-model-definitions.ts";
 import type { RecoveryCandidate } from "./logical-model-recovery.ts";
 import { RequestThrottleAbort, type RequestThrottle } from "./request-throttle.ts";
 import { createWorkerReminderRuntime } from "./worker-reminder.ts";
-import { WRITING_REQUIREMENTS_TITLE, WRITING_STYLE_RULES, WRITING_SCOPE_EXCLUSION, renderWritingDoctrineRequirements } from "./writing-reminder.ts";
+import { REVIEWER_WRITING_GUIDANCE, WORKER_WRITING_GUIDANCE } from "./writing-reminder.ts";
 import { createWorkerNestedLifecycle } from "./worker-nested-lifecycle.ts";
 import { describeSpecDefect, splitModelSpec, type SlateConfig, type ThreadType } from "./state.ts";
 import { PI_BUILTIN_TOOL_NAMES, SLATE_TOOL_NAMES } from "./worker-extensions.ts";
@@ -104,22 +104,7 @@ export const WORKER_PREAMBLE = [
 	"A script run by Slate's codemode tool can itself call only active tools. Another tool it calls, such as an MCP gateway, may forward to a deferred tool.",
 ].join(" ");
 
-const WORKER_CURRENT_STATE_GUIDANCE = "Describe only the current state in the README, docs, code comments and the project's own agent instruction file, not removed features or past behavior, but allow change records such as pull request descriptions, commit bodies, release notes and issues to describe removals and past behavior.";
-
-export const REVIEWER_WRITING_GUIDANCE =
-	`Use short, active sentences. Write sentences a non-native reader understands on one reading. Do not use semicolons or contractions. Apply these rules to your prose. ${WRITING_SCOPE_EXCLUSION} ${WORKER_CURRENT_STATE_GUIDANCE}`;
-
-export const WORKER_DESIGN_SCOPE_EXCEPTION = "A high-level design remains governed even inside a research log.";
-
-export const WORKER_WRITING_GUIDANCE = [
-	`${WRITING_REQUIREMENTS_TITLE}:`,
-	WRITING_STYLE_RULES.map(({ text }) => text).join(" "),
-	renderWritingDoctrineRequirements(),
-	"",
-	WRITING_SCOPE_EXCLUSION,
-	WORKER_DESIGN_SCOPE_EXCEPTION,
-	WORKER_CURRENT_STATE_GUIDANCE,
-].join("\n");
+export { REVIEWER_WRITING_GUIDANCE, WORKER_DESIGN_SCOPE_EXCEPTION, WORKER_WRITING_GUIDANCE } from "./writing-reminder.ts";
 
 export const REVIEWER_CHARTER = `- Trace, don't guess: cite evidence from code actually read (file:line
   or diff hunk) for every claim about behavior. Read third-party /

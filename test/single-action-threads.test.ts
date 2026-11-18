@@ -275,6 +275,7 @@ test("action folders join shutdown and completion across terminal outcomes", { t
       setThinkingLevel(level: string) { session.thinkingLevel = level; },
       async sendCustomMessage(message: unknown, options: unknown) {
         assert.deepEqual(options, { triggerTurn: false });
+        assert.equal((message as { customType?: unknown }).customType, "slate-action-temporary");
         if (mode === "message-error") throw new Error("message append failed");
         session.messages.push({ role: "custom", ...message as object });
       },
@@ -1404,14 +1405,16 @@ test("cancellation after finalized assistant text then an empty abort retains a 
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("episode compression excludes worker reminders and only the injected user prompt", () => {
+test("compression list excludes both reminder identities and only the injected user prompt", () => {
   const injected = { role: "user", content: "loaded episode text" };
   const assistant = { role: "assistant", content: "result" };
   const compacted = { role: "compactionSummary", content: "summary" };
   const reminder = { role: "custom", customType: "slate-worker-reminder", content: "reminder" };
-  const otherCustom = { role: "custom", customType: "other", content: "keep" };
+  const writing = { role: "custom", customType: "slate-writing-reminder", content: "writing prose" };
+  const visible = { ...writing, display: true };
+  const otherCustom = { ...writing, customType: "other" };
   assert.deepEqual(
-    messagesForCompression([compacted, reminder, injected, assistant, reminder, otherCustom], "loaded episode text"),
+    messagesForCompression([compacted, writing, reminder, injected, assistant, reminder, visible, otherCustom], "loaded episode text"),
     [compacted, assistant, otherCustom],
   );
   assert.deepEqual(messagesForCompression([reminder, assistant, reminder]), [assistant]);
@@ -1423,6 +1426,14 @@ test("episode compression excludes worker reminders and only the injected user p
   }
   const hidden = { role: "custom", ...actionTemporaryMessage("slate-changes/change/tmp/action.aaaaaa") };
   assert.deepEqual(messagesForCompression([hidden, assistant, hidden]), [assistant]);
+  const lookalikes = [
+    { ...writing, role: "assistant" },
+    { ...writing, role: "user" },
+    { ...writing, role: "toolResult", isError: true },
+  ];
+  const kept = messagesForCompression([writing, ...lookalikes, visible]);
+  assert.equal(kept.length, lookalikes.length);
+  lookalikes.forEach((entry, index) => assert.strictEqual(kept[index], entry));
   const generated = "loaded episode text\n\n## Action\n\ntask";
   const user = { role: "user", content: generated }, tool = { role: "toolResult", content: generated }, failure = { role: "assistant", stopReason: "error", content: generated };
   assert.deepEqual(messagesForCompression([user, tool, failure, user], generated), [tool, failure, user]);
@@ -1431,7 +1442,7 @@ test("episode compression excludes worker reminders and only the injected user p
 
 async function dispatchWithUnpairedToolResult(
   handledToolResult: boolean,
-  compactionEvent?: "successful" | "aborted" | "missing-result",
+  compactionEvent?: "successful" | "aborted" | "missing-result" | "retained",
   retainFolder = false,
 ) {
   const root = mkdtempSync(join(tmpdir(), "slate-reminder-miss-"));
@@ -1462,6 +1473,12 @@ async function dispatchWithUnpairedToolResult(
         const toolResult = { role: "toolResult", toolCallId: "call-1", toolName: "read", content: [{ type: "text", text: "data" }] };
         const assistant = { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "done" }], usage: {} };
         session.messages.push(toolResult);
+        if (compactionEvent === "retained") {
+          session.messages.push(
+            { role: "custom", customType: "slate-worker-reminder", content: "independent evidence" },
+            { role: "custom", customType: "slate-writing-reminder", content: "fabricated writing evidence" },
+          );
+        }
         if (compactionEvent === "successful") {
           session.messages.push({ role: "custom", customType: "slate-worker-reminder", content: "reminder" });
           session.messages.splice(0, session.messages.length, { role: "compactionSummary", content: "summary" });
@@ -1507,6 +1524,12 @@ async function dispatchWithUnpairedToolResult(
     rmSync(root, { recursive: true, force: true });
   }
 }
+
+test("raw action history retains independent reminder evidence beside writing context", { timeout: 1000 }, async () => {
+  const result = await dispatchWithUnpairedToolResult(true, "retained");
+  assert.equal(result.episode.status, "ok");
+  assert.doesNotMatch(JSON.stringify(result), /reminder is missing/);
+});
 
 test("a missing worker reminder warns without changing a successful action", { timeout: 1000 }, async () => {
   const result = await dispatchWithUnpairedToolResult(true);

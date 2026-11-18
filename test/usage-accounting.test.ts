@@ -13,7 +13,7 @@ import { bindFakeWorkerRequest } from "./worker-request-contract-fixture.ts";
 register("../verification/test-resolve-hooks.mjs", import.meta.url);
 
 const load = <T>(specifier: string): Promise<T> => import(specifier) as Promise<T>;
-const { ThreadManager } = await load<typeof import("../extension/threads.ts")>("../extension/threads.ts");
+const { ThreadManager, messagesForCompression } = await load<typeof import("../extension/threads.ts")>("../extension/threads.ts");
 const { compressEpisode, createCompletedFactRecorder, writeFailedEpisode } = await load<typeof import("../extension/episodes.ts")>("../extension/episodes.ts");
 const { SlateStore, sanitizeEpisodeRecord } = await load<typeof import("../extension/state.ts")>("../extension/state.ts");
 const { registerSlateTools } = await load<typeof import("../extension/tools.ts")>("../extension/tools.ts");
@@ -790,7 +790,11 @@ test("a partial stream with recorded billing evidence compresses without any com
       content: [{ type: "text", text: "UNFINISHED BILLED DELTA" }],
       usage: { input: 4, output: 2, cost: { total: 0.2 } },
     };
-    current.messages.push(message);
+    current.messages.push(
+      { role: "compactionSummary", summary: "SUMMARY-EMPTY", tokensBefore: 1 },
+      { role: "custom", customType: "slate-writing-reminder", content: "WRITING-EMPTY", display: false },
+      message,
+    );
     // One real history-compaction event is this action's only billing evidence.
     current.emit({ type: "compaction_end", result: { usage: { input: 7, output: 3, cost: { total: 0.4 } } } });
     current.emit({ type: "message_update", message, assistantMessageEvent: { type: "text_delta", delta: "UNFINISHED BILLED DELTA" } });
@@ -823,8 +827,10 @@ test("a partial stream with recorded billing evidence compresses without any com
     "\n\n[dispatch diagnostics: The worker prompt threw without cancellation evidence.]",
     "a partial stream contributes no completed fact to the compression input",
   );
-  assert.doesNotMatch(compressorPrompt, /UNFINISHED BILLED DELTA/);
-  assert.doesNotMatch(result.episodeText, /UNFINISHED BILLED DELTA/);
+  assert.ok(compressorPrompt.includes("The action's task was:\nbill without a completed fact\n\nTranscript:"));
+  assert.doesNotMatch(compressorPrompt, /UNFINISHED BILLED DELTA|SUMMARY-EMPTY|WRITING-EMPTY/);
+  assert.doesNotMatch(result.episodeText, /UNFINISHED BILLED DELTA|SUMMARY-EMPTY|WRITING-EMPTY/);
+  assert.match(result.episodeText, /## Intent\ncompressed/);
   assert.doesNotMatch(result.episodeText, /\[final assistant text/);
   assert.doesNotMatch(result.episodeText, /\[completed tool result/);
   await assertDurableConsumers({
@@ -853,19 +859,25 @@ test("finalized response evidence survives a rewritten worker message list", { t
   const session = fakeSession((current) => {
     const message = {
       role: "assistant", stopReason: "error", errorMessage: "provider stopped",
-      content: [{ type: "text", text: "FINALIZED WORK BEFORE REWRITE" }],
+      content: [{ type: "text", text: "FINALIZED WORK BEFORE REWRITE quotes SHARED PROSE" }],
       usage: { input: 2, output: 1, cost: { total: 0.05 } },
     };
     current.messages.push(message);
+    const tool = { role: "toolResult", content: [{ type: "text", text: "FINAL TOOL quotes SHARED PROSE" }] };
+    current.emit({ type: "tool_execution_end", toolName: "read", result: tool, isError: false });
     current.emit({ type: "message_end", message });
-    current.messages.length = 0;
+    current.messages.splice(0, current.messages.length,
+      { role: "compactionSummary", summary: "SUMMARY-NONEMPTY", tokensBefore: 1 },
+      { role: "custom", customType: "slate-writing-reminder", content: "WRITING-NONEMPTY quotes SHARED PROSE", display: false },
+    );
     throw new Error("host rewrote the transcript");
   }, ran);
   let compressionCalls = 0;
+  let request = "";
   compressorStub.complete = async (...args: unknown[]) => {
     compressionCalls++;
-    assert.match(JSON.stringify(args[1]), /FINALIZED WORK BEFORE REWRITE/);
-    return completeResponse({ input: 1, output: 1, cost: { total: 0.01 } });
+    request = promptTextOf(args[1]);
+    return completeResponse({ input: 1 }, "aborted");
   };
   const result = await managerWithSessions([session]).dispatch(
     { ...TEST_ROUTE, task: "preserve finalized rewritten response", type: "general" },
@@ -874,7 +886,14 @@ test("finalized response evidence survives a rewritten worker message list", { t
   );
   assert.equal(compressionCalls, 1);
   assert.equal(result.episode.status, "failed");
-  assert.doesNotMatch(result.episodeText, /failed before the worker produced a response/);
+  assert.ok(request.includes("The action's task was:\npreserve finalized rewritten response\n\nTranscript:"));
+  const facts = "[completed tool result: read]\nFINAL TOOL quotes SHARED PROSE\n\n[final assistant text, stop reason=error]\nFINALIZED WORK BEFORE REWRITE quotes SHARED PROSE";
+  assert.equal(transcriptOf(request), facts + "\n\n[dispatch diagnostics: The worker prompt threw without cancellation evidence.]");
+  assert.doesNotMatch(request, /SUMMARY-NONEMPTY|WRITING-NONEMPTY/);
+  assert.ok(result.episodeText.includes("compressor: (uncompressed fallback)"));
+  assert.ok(result.episodeText.includes(facts));
+  assert.doesNotMatch(result.episodeText, /SUMMARY-NONEMPTY|WRITING-NONEMPTY/);
+  assert.equal(readFileSync(result.episode.file, "utf8"), result.episodeText);
 });
 
 test("finalized length text remains a completed fact without changing successful outcome semantics", { timeout: 1000 }, async (t) => {
@@ -1016,7 +1035,9 @@ test("ThreadManager bounds multi-block assistant event and observation capture b
     enterPrompt();
     await assistantGate;
     const message = { role: "assistant", stopReason: "stop", content: blocks, usage: {} };
-    current.messages.push(message);
+    current.messages.push(message, {
+      role: "custom", customType: "slate-writing-reminder", content: "NOT AN OBSERVATION", display: false,
+    });
     current.emit({ type: "message_end", message });
   }, ran);
   const snapshots: unknown[] = [];
@@ -2735,6 +2756,34 @@ test("logical compressor production pipeline succeeds after Pi retries the same 
   assert.equal(result.compressor, "retry/compress");
   assert.deepEqual(result.compressorUsage, { input: 5, output: 1 });
   assert.equal(result.costUsd, 0.1 + 0.2);
+});
+
+test("compatibility compression serializes exactly the supplied message list", { timeout: 2000 }, async (t) => {
+  const cwd = temporaryProject(t);
+  const compressor = { ...model("only", "compress"), reasoning: true, thinkingLevelMap: { medium: "medium" } };
+  const runtime = createLogicalRuntime({
+    trusted: true,
+    projectConfig: { router: { compressor: { models: [{ model: "claude-sonnet-5.5", effort: "medium" }] }, models: { replace: [{ model: "claude-sonnet-5.5", preferredProvider: "only", providers: { only: "compress" } }] } } },
+  });
+  const writing = { role: "custom", customType: "slate-writing-reminder", content: "WRITING IDENTITY", display: false };
+  const answer = assistant({}, "ORDINARY ANSWER");
+  const raw = [writing, answer];
+  const requests: string[] = [];
+  compressorStub.complete = async (...args: unknown[]) => {
+    requests.push(transcriptOf(promptTextOf(args[1])));
+    return completeResponse({});
+  };
+  for (const [index, messages] of [raw, messagesForCompression(raw)].entries()) {
+    const admission = runtime.admit(); assert.ok(admission);
+    const result = await compressEpisode({
+      ctx: context(cwd, [compressor]), episodeId: `t${index + 1}.e1`, threadId: `t${index + 1}`, threadName: "compatibility",
+      task: "keep supplied evidence", status: "ok", messages,
+      observations: { stored: false, reason: "no-final-message", grammar: "absent" },
+      logicalRuntime: runtime, admission, retryPolicy: { enabled: true, maxRetries: 0, baseDelayMs: 0 },
+    });
+    assert.match(result.text, /## Intent\ncompressed/);
+  }
+  assert.deepEqual(requests, [JSON.stringify([writing, answer]), JSON.stringify([answer])]);
 });
 
 test("logical compressor retains bounded completed output for disabled, cancelled, malformed, and thrown outcomes", { timeout: 2_000 }, async (t) => {

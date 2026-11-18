@@ -14,7 +14,7 @@ c3ec46232ae59a874141e6528bebf5a079f492e72048f86474166fde53d58d20  docs/blast-rad
 
 be281e2388e09b15abb6257bfe75ed989bf5aabf896addf572ad195a5e7be739  docs/configuration.md
 
-9414cc53f9691b5ed60809dae0dc466547213dfb8f234348be09fd4eaef691f5  docs/context-budget.md
+69977e53cb44102c57a4180cad452b0e0966c1d53682d232876cc0bac7a91679  docs/context-budget.md
 
 a19eef7bf9a86c2cf57f5f510534791c02320b6ce2259eabc3a9e7099d8254c5  docs/delivery-packages.md
 
