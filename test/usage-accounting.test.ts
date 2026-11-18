@@ -2719,7 +2719,7 @@ test("logical compressor production pipeline succeeds after Pi retries the same 
   const cwd = temporaryProject(t);
   const runtime = createLogicalRuntime({
     trusted: true,
-    projectConfig: { router: { models: { replace: [{ model: "claude-sonnet-5.5", preferredProvider: "retry", providers: { retry: "compress" } }] } } },
+    projectConfig: { router: { compressor: { models: [{ model: "claude-sonnet-5.5", effort: "medium" }] }, models: { replace: [{ model: "claude-sonnet-5.5", preferredProvider: "retry", providers: { retry: "compress" } }] } } },
   });
   const admission = runtime.admit(); assert.ok(admission);
   const compressor = { ...model("retry", "compress"), reasoning: true, thinkingLevelMap: { medium: "medium" } };
@@ -2741,7 +2741,7 @@ test("logical compressor retains bounded completed output for disabled, cancelle
   const cwd = temporaryProject(t);
   const runtime = createLogicalRuntime({
     trusted: true,
-    projectConfig: { router: { models: { replace: [{ model: "claude-sonnet-5.5", preferredProvider: "only", providers: { only: "compress" } }] } } },
+    projectConfig: { router: { compressor: { models: [{ model: "claude-sonnet-5.5", effort: "medium" }] }, models: { replace: [{ model: "claude-sonnet-5.5", preferredProvider: "only", providers: { only: "compress" } }] } } },
   });
   const compressor = { ...model("only", "compress"), reasoning: true, thinkingLevelMap: { medium: "medium" } };
   const scenarios = [

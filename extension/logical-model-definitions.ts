@@ -11,6 +11,13 @@ export type LogicalFieldSource = {
 	decided: "2026-11-12";
 	basis: "Project judgment proportionally scaled on 2026-11-12 without a benchmark source for this rating"
 		| "Project judgment proportionally scaled on 2026-11-12 from earlier judgments informed by DeepSWE v1.1 and reviewed supporting evidence";
+} | {
+	publisher: "Slate project";
+	decided: "2026-11-18";
+	basis: "Project judgment scaled from Sol 6.1 without a benchmark source"
+		| "Project judgment copied from Sol 6.1 without a benchmark source"
+		| "Project judgment scaled from gpt-6-astra without a benchmark source"
+		| "Direct project decision without a benchmark source";
 };
 
 export interface LogicalModelSource {
@@ -120,16 +127,31 @@ const SHIPPED_DEFINITIONS: LogicalModelDefinition[] = [
 		preferredProvider: "anthropic", providers: providers("anthropic", "claude-fable-5-2"),
 		guidelines: ["Do not select Fable 5.2 for routine work.", "If a lower-capability model repeatedly fails at implementation, first ask Fable 5.2 to investigate and provide detailed repair instructions. Let the implementer try those instructions. Use Fable 5.2 as the implementer only if that guided attempt also fails. Treat that use as an exception. Select another suitable model for later implementation work. Existing approval requirements and repair limits still apply."], cautions: [], source: source(true),
 	},
+	{
+		model: "sol-6.2", capabilityRating: 73, effort: "high", costRating: 9,
+		preferredProvider: "openai", providers: providers("openai", "gpt-6.2-sol"),
+		guidelines: ["default thread choice"], cautions: [SOL_CAUTION, "Broad searches can return text from excluded private paths. State path limits in the task and use path-limited commands.", "For cross-runtime process and networking fixes, verify exit, slot ownership and silent output on every supported runtime before closing the repair.", "When shortening text to fit a size budget, may drop or weaken duties. Require a duty-by-duty comparison of the text before and after the cut."], source: { capabilityRating: { publisher: "Slate project", decided: "2026-11-18", basis: "Project judgment scaled from Sol 6.1 without a benchmark source" }, costRating: { publisher: "Slate project", decided: "2026-11-18", basis: "Project judgment copied from Sol 6.1 without a benchmark source" }, guidelines: fieldSource() },
+	},
+	{
+		model: "astra-6.2", capabilityRating: 80, effort: "high", costRating: 19,
+		preferredProvider: "openai", providers: providers("openai", "gpt-6.2-astra"),
+		guidelines: ["Reviewer for each proved DESIGN-TRIGGERING focus area, in adversarial design review and in implementation area review.", "Do not select Astra 6.2 as the default implementer."], cautions: [],
+		source: { capabilityRating: { publisher: "Slate project", decided: "2026-11-18", basis: "Direct project decision without a benchmark source" }, costRating: { publisher: "Slate project", decided: "2026-11-18", basis: "Project judgment scaled from gpt-6-astra without a benchmark source" }, guidelines: { publisher: "Slate project", decided: "2026-11-18", basis: "Direct project decision without a benchmark source" } },
+	},
 ];
+
+export const DEFAULT_LOGICAL_MODEL_NAMES: readonly string[] = deepFreeze([
+	"luna-6", "sol-6.2", "astra-6.2", "fable-5-2",
+]);
 
 export const SHIPPED_LOGICAL_MODELS: readonly LogicalModelDefinition[] = deepFreeze(SHIPPED_DEFINITIONS);
 
 export const SHIPPED_COMPRESSOR_MODELS: readonly LogicalCompressorEntry[] = deepFreeze([
-	{ model: "claude-sonnet-5.5", effort: "medium" },
+	{ model: "sol-6.2", effort: "low" },
 ]);
 
 export const LOGICAL_MODEL_SOURCE_NOTES = deepFreeze({
-	ratings: "The project set every shipped rating on 2026-11-12 by proportional scaling of its earlier project judgments. Fable 5.2 ratings are project judgments with no benchmark source. Earlier Sol 6.1 and Sonnet 5.5 judgments had no new benchmark evidence. DeepSWE v1.1 by DataCurve and reviewed supporting evidence informed the other earlier judgments",
+	ratings: "The project set ratings for Sol 6.2 and Astra 6.2 on 2026-11-18 without benchmark sources. Sol 6.2 capability is scaled from Sol 6.1 and its cost is copied from Sol 6.1. Astra 6.2 capability is a direct project decision and its cost is scaled from gpt-6-astra. The other shipped ratings use project judgments proportionally scaled on 2026-11-12. Fable 5.2 ratings are project judgments with no benchmark source. Earlier Sol 6.1 and Sonnet 5.5 judgments had no new benchmark evidence. DeepSWE v1.1 by DataCurve and reviewed supporting evidence informed the other earlier judgments",
 	guidance: "Project-authored advisory guidance informed by DeepSWE v1.1 focus analysis and approved project inference",
 	source: "https://deepswe.datacurve.ai/artifacts/v1.1/leaderboard-live.json",
 	retrieved: "2026-09-11",

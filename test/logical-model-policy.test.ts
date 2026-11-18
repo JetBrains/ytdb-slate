@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
-import { SHIPPED_COMPRESSOR_MODELS, SHIPPED_LOGICAL_MODELS, type LogicalModelDefinition } from "../extension/logical-model-definitions.ts";
+import { DEFAULT_LOGICAL_MODEL_NAMES, SHIPPED_COMPRESSOR_MODELS, SHIPPED_LOGICAL_MODELS, type LogicalModelDefinition } from "../extension/logical-model-definitions.ts";
 import { resolveLogicalModelPolicy, type LogicalModelPolicy } from "../extension/logical-model-resolver.ts";
 import { renderEffectiveLogicalModelPolicy, renderLogicalModelPrompt } from "../extension/logical-model-render.ts";
 import { REVIEWED_LOGICAL_MODEL_EDGES, REVIEWED_NON_LITERAL_MODULE_SITES, analyzeLogicalModelSources, scanLogicalModelImports } from "../verification/logical-model-import-check.ts";
@@ -30,17 +30,16 @@ const EXPECTED_DEFAULT_PROMPT_LINES = [
   "| logical model | capability rating | cost rating | guidelines | cautions |",
   "| --- | ---: | ---: | --- | --- |",
   "| luna-6 | 35 | 2 | auxiliary tasks only, such as file location, check-result collection, or routine text management such as modifying research logs / never primary research, implementation, design, or review / consumer-contract work only when auxiliary | May treat supplied repair context as permission to implement despite explicit task limits. Restrict write access for record-only work and verify the changed files. / Do not use Luna to handle complex texts. / May shorten long file paths in tool calls. Give the full path and require a read-back of the edited lines. / May undo its own checked writes before it ends. Check the final file state after every record task. / For an append, anchor one single-block edit on the exact current last line, then read back the tail. / May report state outside the task scope incorrectly. Verify such a claim before acting on it. |",
-  "| claude-sonnet-5.5 | 35 | 25 | none | May exceed explicit scope or infer permission from earlier requests. Check changes against stated exclusions and approval requirements. |",
-  "| sol-6.1 | 66 | 9 | default thread choice | When blocked, may substitute unapproved resources or perform destructive cleanup. Require permission before either action. Do not run a dependency install that the project rules forbid. Ask first. / Broad searches can return text from excluded private paths. State path limits in the task and use path-limited commands. / For cross-runtime process and networking fixes, verify exit, slot ownership and silent output on every supported runtime before closing the repair. / When shortening text to fit a size budget, may drop or weaken duties. Require a duty-by-duty comparison of the text before and after the cut. |",
-  "| gemini-3.8-flash | 43 | 14 | default thread choice / generally prefer over Luna when available / a more specific active guideline overrides this general Flash preference | Do not use as a reviewer. It relies too much on passing tests and exact-size assertions. Verify source citations and distinguish proposed behavior from existing behavior. |",
-  "| claude-opus-5.5 | 70 | 30 | Reviewer for each proved DESIGN-TRIGGERING focus area, in adversarial design review and in implementation area review. / Do not select Opus 5.5 as the default implementer. | May exceed explicit scope or infer permission from earlier requests. Check changes against stated exclusions and approval requirements. |",
-  "| gpt-6-astra | 67 | 28 | Do not select Astra as the default implementer. / Prefer Sol 6.1 over Astra. | none |",
+
+  "| sol-6.2 | 73 | 9 | default thread choice | When blocked, may substitute unapproved resources or perform destructive cleanup. Require permission before either action. Do not run a dependency install that the project rules forbid. Ask first. / Broad searches can return text from excluded private paths. State path limits in the task and use path-limited commands. / For cross-runtime process and networking fixes, verify exit, slot ownership and silent output on every supported runtime before closing the repair. / When shortening text to fit a size budget, may drop or weaken duties. Require a duty-by-duty comparison of the text before and after the cut. |",
+
+  "| astra-6.2 | 80 | 19 | Reviewer for each proved DESIGN-TRIGGERING focus area, in adversarial design review and in implementation area review. / Do not select Astra 6.2 as the default implementer. | none |",
   "| fable-5-2 | 84 | 75 | Do not select Fable 5.2 for routine work. / If a lower-capability model repeatedly fails at implementation, first ask Fable 5.2 to investigate and provide detailed repair instructions. Let the implementer try those instructions. Use Fable 5.2 as the implementer only if that guided attempt also fails. Treat that use as an exception. Select another suitable model for later implementation work. Existing approval requirements and repair limits still apply. | none |",
 ] as const;
 
 function plain<T>(value: T): T { return JSON.parse(JSON.stringify(value)) as T; }
 
-const COMPLETE_DEFAULTS = [
+const COMPLETE_DEFINITIONS = [
   {"model":"luna-6","capabilityRating":35,"effort":"max","costRating":2,"preferredProvider":"openai","providers":{"openai":"gpt-6-luna"},"guidelines":["auxiliary tasks only, such as file location, check-result collection, or routine text management such as modifying research logs","never primary research, implementation, design, or review","consumer-contract work only when auxiliary"],"cautions":["May treat supplied repair context as permission to implement despite explicit task limits. Restrict write access for record-only work and verify the changed files.","Do not use Luna to handle complex texts.","May shorten long file paths in tool calls. Give the full path and require a read-back of the edited lines.","May undo its own checked writes before it ends. Check the final file state after every record task.","For an append, anchor one single-block edit on the exact current last line, then read back the tail.","May report state outside the task scope incorrectly. Verify such a claim before acting on it."], "source": SOURCE },
   {"model":"claude-sonnet-5.5","capabilityRating":35,"effort":"high","costRating":25,"preferredProvider":"anthropic","providers":{"anthropic":"claude-sonnet-5-5"},"guidelines":[],"cautions":["May exceed explicit scope or infer permission from earlier requests. Check changes against stated exclusions and approval requirements."], "source": PROJECT_SOURCE },
   {"model":"sol-6.1","capabilityRating":66,"effort":"high","costRating":9,"preferredProvider":"openai","providers":{"openai":"gpt-6.1-sol"},"guidelines":["default thread choice"],"cautions":["When blocked, may substitute unapproved resources or perform destructive cleanup. Require permission before either action. Do not run a dependency install that the project rules forbid. Ask first.","Broad searches can return text from excluded private paths. State path limits in the task and use path-limited commands.","For cross-runtime process and networking fixes, verify exit, slot ownership and silent output on every supported runtime before closing the repair.","When shortening text to fit a size budget, may drop or weaken duties. Require a duty-by-duty comparison of the text before and after the cut."], "source": PROJECT_SOURCE },
@@ -48,7 +47,11 @@ const COMPLETE_DEFAULTS = [
   {"model":"claude-opus-5.5","capabilityRating":70,"effort":"high","costRating":30,"preferredProvider":"anthropic","providers":{"anthropic":"claude-opus-5-5"},"guidelines":["Reviewer for each proved DESIGN-TRIGGERING focus area, in adversarial design review and in implementation area review.","Do not select Opus 5.5 as the default implementer."],"cautions":["May exceed explicit scope or infer permission from earlier requests. Check changes against stated exclusions and approval requirements."], "source": SOURCE },
   {"model":"gpt-6-astra","capabilityRating":67,"effort":"medium","costRating":28,"preferredProvider":"openai","providers":{"openai":"gpt-6-astra"},"guidelines":["Do not select Astra as the default implementer.","Prefer Sol 6.1 over Astra."],"cautions":[], "source": SOURCE },
   {"model":"fable-5-2","capabilityRating":84,"effort":"high","costRating":75,"preferredProvider":"anthropic","providers":{"anthropic":"claude-fable-5-2"},"guidelines":["Do not select Fable 5.2 for routine work.","If a lower-capability model repeatedly fails at implementation, first ask Fable 5.2 to investigate and provide detailed repair instructions. Let the implementer try those instructions. Use Fable 5.2 as the implementer only if that guided attempt also fails. Treat that use as an exception. Select another suitable model for later implementation work. Existing approval requirements and repair limits still apply."],"cautions":[], "source": PROJECT_SOURCE },
+  {"model":"sol-6.2","capabilityRating":73,"effort":"high","costRating":9,"preferredProvider":"openai","providers":{"openai":"gpt-6.2-sol"},"guidelines":["default thread choice"],"cautions":["When blocked, may substitute unapproved resources or perform destructive cleanup. Require permission before either action. Do not run a dependency install that the project rules forbid. Ask first.","Broad searches can return text from excluded private paths. State path limits in the task and use path-limited commands.","For cross-runtime process and networking fixes, verify exit, slot ownership and silent output on every supported runtime before closing the repair.","When shortening text to fit a size budget, may drop or weaken duties. Require a duty-by-duty comparison of the text before and after the cut."], "source": { capabilityRating: { publisher: "Slate project", decided: "2026-11-18", basis: "Project judgment scaled from Sol 6.1 without a benchmark source" }, costRating: { publisher: "Slate project", decided: "2026-11-18", basis: "Project judgment copied from Sol 6.1 without a benchmark source" }, guidelines: EARLIER_GUIDANCE_SOURCE } },
+  {"model":"astra-6.2","capabilityRating":80,"effort":"high","costRating":19,"preferredProvider":"openai","providers":{"openai":"gpt-6.2-astra"},"guidelines":["Reviewer for each proved DESIGN-TRIGGERING focus area, in adversarial design review and in implementation area review.","Do not select Astra 6.2 as the default implementer."],"cautions":[], "source": { capabilityRating: { publisher: "Slate project", decided: "2026-11-18", basis: "Direct project decision without a benchmark source" }, costRating: { publisher: "Slate project", decided: "2026-11-18", basis: "Project judgment scaled from gpt-6-astra without a benchmark source" }, guidelines: { publisher: "Slate project", decided: "2026-11-18", basis: "Direct project decision without a benchmark source" } } },
 ];
+const DEFAULT_NAMES = ["luna-6", "sol-6.2", "astra-6.2", "fable-5-2"];
+const COMPLETE_DEFAULTS = DEFAULT_NAMES.map((name) => COMPLETE_DEFINITIONS.find((row) => row.model === name)!);
 
 test("project configuration selects the exact approved logical defaults", () => {
   const config = JSON.parse(readFileSync(join(process.cwd(), ".pi", "slate.json"), "utf8"));
@@ -61,7 +64,7 @@ test("project configuration selects the exact approved logical defaults", () => 
   const resolution = resolve(config);
   assert.deepEqual(resolution.policy?.ordinary.map(({ source: _source, ...row }) => plain(row)),
     COMPLETE_DEFAULTS.map(({ source: _source, ...row }) => row));
-  assert.deepEqual(resolution.policy?.compressor, [{ model: "claude-sonnet-5.5", effort: "medium" }]);
+  assert.deepEqual(resolution.policy?.compressor, [{ model: "sol-6.2", effort: "low" }]);
 });
 
 test("documented add and replace JSON examples resolve through production policy", () => {
@@ -82,36 +85,62 @@ test("documented add and replace JSON examples resolve through production policy
 
   const replaced = resolve(example("replace"));
   assert.deepEqual(replaced.errors, []);
-  assert.deepEqual(plain(replaced.policy?.definitions["sol-6.1"]), {
-    model: "sol-6.1",
-    capabilityRating: 66,
+  const expectedReplacement = {
+    model: "sol-6.2",
+    capabilityRating: 73,
     effort: "max",
     costRating: 9,
     preferredProvider: "gateway",
-    providers: { gateway: "openai/gpt-6.1-sol" },
+    providers: { gateway: "openai/gpt-6.2-sol" },
     guidelines: ["repository-wide implementation"],
     cautions: [],
-  });
+  };
+  assert.deepEqual(plain(replaced.policy?.definitions["sol-6.2"]), expectedReplacement);
+  assert.deepEqual(plain(replaced.policy?.ordinary.find((row) => row.model === "sol-6.2")),
+    expectedReplacement);
 });
 
 test("shipped definitions match the complete approved literal", () => {
-  assert.deepEqual(plain(SHIPPED_LOGICAL_MODELS), COMPLETE_DEFAULTS);
-  assert.deepEqual(SHIPPED_COMPRESSOR_MODELS, [{ model: "claude-sonnet-5.5", effort: "medium" }]);
-  assert.equal(SHIPPED_LOGICAL_MODELS.length, 7);
-  assert.deepEqual(plain(SHIPPED_LOGICAL_MODELS[6]), COMPLETE_DEFAULTS[6]);
+  assert.deepEqual(DEFAULT_LOGICAL_MODEL_NAMES, DEFAULT_NAMES);
+  assert.deepEqual(plain(SHIPPED_LOGICAL_MODELS), COMPLETE_DEFINITIONS);
+  assert.deepEqual(SHIPPED_COMPRESSOR_MODELS, [{ model: "sol-6.2", effort: "low" }]);
+  assert.equal(SHIPPED_LOGICAL_MODELS.length, 9);
+  assert.deepEqual(plain(SHIPPED_LOGICAL_MODELS[6]), COMPLETE_DEFINITIONS[6]);
   assert.equal(SHIPPED_LOGICAL_MODELS.every((row) => Object.isFrozen(row) && Object.isFrozen(row.providers) && Object.isFrozen(row.guidelines) && Object.isFrozen(row.cautions) && Object.isFrozen(row.source) && Object.isFrozen(row.source?.capabilityRating)), true);
 });
 
 test("shipped policy section enforces its approved character and line limits", () => {
-  const within = (text: string) => text.length <= 4804 && text.split("\n").length <= 12;
+  const within = (text: string) => text.length <= 3994 && text.split("\n").length <= 9;
   const text = renderLogicalModelPrompt(resolve().policy!).text!;
   assert.equal(within(text), true);
-  const at = text + "x".repeat(4804 - text.length);
-  assert.equal(at.length, 4804);
+  assert.equal(Math.ceil(text.length * 1.05), 3994);
+  const fifth = renderLogicalModelPrompt(resolve({ router: { models: { include: [...DEFAULT_NAMES, "gpt-6-astra"] } } }).policy!).text!;
+  assert.equal(fifth.split("\n").length, 10);
+  assert.equal(within(fifth), false);
+  const at = text + "x".repeat(3994 - text.length);
+  assert.equal(at.length, 3994);
   assert.equal(within(at), true);
-  assert.equal(within(at + "x"), false, "4,805 characters fail");
-  assert.equal((text + "\nextra row").split("\n").length, 13);
-  assert.equal(within(text + "\nextra row"), false, "thirteenth line fails");
+  assert.equal(within(at + "x"), false, "3,995 characters fail");
+  assert.equal((text + "\nextra row").split("\n").length, 10);
+  assert.equal(within(text + "\nextra row"), false, "tenth line fails");
+});
+
+test("older definitions remain exact and explicit membership restores their rows", () => {
+  const ordinary = resolve().policy!;
+  for (const name of ["sol-6.1", "gpt-6-astra", "claude-opus-5.5", "claude-sonnet-5.5", "gemini-3.8-flash"]) {
+    const expected = COMPLETE_DEFINITIONS.find((row) => row.model === name)!;
+    assert.deepEqual(plain(ordinary.definitions[name]), expected);
+    assert.equal(ordinary.ordinary.some((row) => row.model === name), false);
+    assert.equal(renderLogicalModelPrompt(ordinary).text!.includes(`| ${name} |`), false);
+    const included = resolve({ router: { models: { include: [name] } } }).policy!;
+    assert.deepEqual(plain(included.ordinary), [expected]);
+    assert.ok(renderLogicalModelPrompt(included).text!.includes(`| ${name} | ${expected.capabilityRating} | ${expected.costRating} |`));
+    const replaced = resolve({ router: { models: { replace: [{ model: name, costRating: 1 }] } } }).policy!;
+    assert.equal(replaced.definitions[name]!.costRating, 1);
+    assert.deepEqual(replaced.ordinary, ordinary.ordinary);
+  }
+  assert.deepEqual(resolve({ router: { models: { add: [validCustom], exclude: ["sol-6.2"] } } }).policy!.ordinary.map((row) => row.model),
+    ["luna-6", "astra-6.2", "fable-5-2", "custom-model"]);
 });
 
 test("Fable has a distinct shipped name and exact permitted route", () => {
@@ -139,7 +168,7 @@ test("trusted membership applies include then add then exclusion while compresso
 test("include empty is distinct from omission and add still applies", () => {
   assert.deepEqual(resolve({ router: { models: { include: [] } } }).policy?.ordinary, []);
   assert.deepEqual(resolve({ router: { models: { include: [], add: [validCustom] } } }).policy?.ordinary.map((row) => row.model), ["custom-model"]);
-  assert.equal(resolve().policy?.ordinary.length, 7);
+  assert.equal(resolve().policy?.ordinary.length, 4);
 });
 
 test("replace inherits fields and replaces maps and lists as whole values", () => {
@@ -287,7 +316,7 @@ test("the trust gate does not consume or report untrusted project values", () =>
   const value = Object.defineProperty({}, "router", { enumerable: true, get() { reads++; throw new Error("must not read"); } });
   const result = resolve(value, false);
   assert.equal(reads, 0);
-  assert.equal(result.policy?.ordinary.length, 7);
+  assert.equal(result.policy?.ordinary.length, 4);
   assert.deepEqual([result.errors, result.warnings], [[], []]);
 });
 
@@ -300,19 +329,20 @@ test("the default prompt equals one complete independent literal for every row a
 });
 
 test("prompt rendering pins exact instructions, columns, sanitation, and determinism", () => {
-  const result = resolve({ router: { models: { replace: [{ model: "sol-6.1", guidelines: ["safe | forged\n| row | <tag> `code` \u202esecret"], cautions: [] }] } } });
+  const result = resolve({ router: { models: { replace: [{ model: "sol-6.2", guidelines: ["safe | forged\n| row | <tag> `code` \u202esecret"], cautions: [] }] } } });
   const first = renderLogicalModelPrompt(result.policy!);
   assert.deepEqual(first, renderLogicalModelPrompt(result.policy!));
   assert.ok(first.text);
   assert.equal(first.text.split("\n").slice(1, 3).join("\n"), EXPECTED_ROUTER_PROMPT_INSTRUCTIONS.join("\n"));
   assert.match(first.text, /\| logical model \| capability rating \| cost rating \| guidelines \| cautions \|/);
+  assert.ok(first.text.includes("safe") && first.text.includes("forged"));
   assert.doesNotMatch(first.text, /forged\n|<tag>|`code`|\u202e|preferredProvider=|fixedEffort=|permission [a-z]+\//i);
   assert.doesNotMatch(first.text, /benchmark|raw rate|capability band|relative reference cost/i);
 });
 
 test("trusted replacements remove shipped model rules from prompt and effective output", () => {
-  const replacements = ["luna-6", "sol-6.1", "gemini-3.8-flash", "gpt-6-astra"].map((model) => ({ model, guidelines: [`custom guidance for ${model}`] }));
-  const resolution = resolve({ router: { models: { replace: replacements } } });
+  const replacements = ["luna-6", "sol-6.2", "gemini-3.8-flash", "astra-6.2"].map((model) => ({ model, guidelines: [`custom guidance for ${model}`] }));
+  const resolution = resolve({ router: { models: { include: [...DEFAULT_NAMES, "gemini-3.8-flash"], replace: replacements } } });
   assert.ok(resolution.policy);
   const prompt = renderLogicalModelPrompt(resolution.policy).text;
   const effective = renderEffectiveLogicalModelPolicy(resolution);
@@ -386,7 +416,7 @@ test("prompt line budget accepts 105 and rejects 106 with membership attribution
 });
 
 test("effective output is a complete literal for success and compressor-only permission", () => {
-  const resolution = resolve({ modelFailover: {}, router: { models: { include: ["sol-6.1"] } } });
+  const resolution = resolve({ modelFailover: {}, router: { models: { include: ["sol-6.1"] }, compressor: { models: [{ model: "claude-sonnet-5.5", effort: "medium" }] } } });
   assert.equal(renderEffectiveLogicalModelPolicy(resolution, { providers: { "sol-6.1": "openai" }, compressorModel: "claude-sonnet-5.5" }), `Effective logical model policy
 Status: usable.
 Warnings and ignored legacy keys:
@@ -428,7 +458,7 @@ Runtime evidence limits: static policy does not prove task quality, registry pre
 });
 
 test("effective output is a complete literal for invalid remembered values", () => {
-  const resolution = resolve({ router: { models: { include: ["sol-6.1"] } } });
+  const resolution = resolve({ router: { models: { include: ["sol-6.1"] }, compressor: { models: [{ model: "claude-sonnet-5.5", effort: "medium" }] } } });
   const text = renderEffectiveLogicalModelPolicy(resolution, { providers: { "sol-6.1": "secret; forged=value" }, compressorModel: "secret-compressor" });
   assert.equal(text, `Effective logical model policy
 Status: usable.

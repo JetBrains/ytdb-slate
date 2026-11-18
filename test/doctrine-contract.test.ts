@@ -110,10 +110,10 @@ test("logical doctrine uses the cached static runtime policy without physical ro
   assert.match(doctrine, /Effort is fixed by policy/);
   assert.match(doctrine, /Model routing policy:/);
   assert.match(doctrine, /\| luna-6 \| 35 \| 2 \| auxiliary tasks only,[^|]+routine text management such as modifying research logs[^|]+\|[^|]+Do not use Luna to handle complex texts\.[^|]+ \|/);
-  assert.match(doctrine, /\| sol-6\.1 \| 66 \| 9 \| default thread choice \|/);
+  assert.match(doctrine, /\| sol-6\.2 \| 73 \| 9 \| default thread choice \|/);
   assert.match(doctrine, /Apply a more specific active guideline when it states an exception to a general preference\./);
-  assert.match(doctrine, /\| claude-opus-5\.5 \| 70 \| 30 \| Reviewer for each proved DESIGN-TRIGGERING focus area, in adversarial design review and in implementation area review\. \/ Do not select Opus 5\.5 as the default implementer\. \|/);
-  assert.match(doctrine, /\| gpt-6-astra \| 67 \| 28 \| Do not select Astra as the default implementer\. \/ Prefer Sol 6\.1 over Astra\. \| none \|/);
+  assert.match(doctrine, /\| astra-6\.2 \| 80 \| 19 \| Reviewer for each proved DESIGN-TRIGGERING focus area, in adversarial design review and in implementation area review\. \/ Do not select Astra 6\.2 as the default implementer\. \|/);
+  assert.doesNotMatch(doctrine, /\| (sol-6\.1|gpt-6-astra|claude-opus-5\.5) \|/);
   assert.doesNotMatch(doctrine, /preferredProvider|permission openai\/|registry prices|context window|`effort`/);
   assert.match(doctrine, /orchestrator selects the model for a no-area track under the same ordinary guidance/);
 });
@@ -135,13 +135,13 @@ test("logical doctrine production renders match published portable measurements"
     { path: "/fixture/b", source: "y".repeat(128), isDirectory: true, tools: [{ name: "c".repeat(64), description: "f".repeat(140) }, { name: "d".repeat(64), description: "g".repeat(140) }] },
   ], paths: [], toolNames: [] };
   const metric = (text: string) => ({ portable: text.split(docsDirectory).join("").length, lines: text.split("\n").length, paths: text.split(docsDirectory).length - 1 });
-  assert.deepEqual(metric(runtime.promptText()!), { portable: 4575, lines: 12, paths: 0 });
-  assert.deepEqual(metric(await renderDoctrine(runtime)), { portable: 9383, lines: 75, paths: 5 });
+  assert.deepEqual(metric(runtime.promptText()!), { portable: 3803, lines: 9, paths: 0 });
+  assert.deepEqual(metric(await renderDoctrine(runtime)), { portable: 8611, lines: 72, paths: 5 });
   assert.deepEqual(metric(await renderDoctrine(runtime, {}, false)), { portable: 2711, lines: 33, paths: 4 });
-  assert.deepEqual(metric(await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped)), { portable: 10923, lines: 88, paths: 6 });
+  assert.deepEqual(metric(await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped)), { portable: 10151, lines: 85, paths: 6 });
   const change = { current: `change-20260101T000000Z-${"a".repeat(32)}`, source: `change-20260101T000001Z-${"b".repeat(32)}`, legacy: true };
   const linked = await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped, change);
-  assert.deepEqual(metric(linked), { portable: 11351, lines: 91, paths: 6 });
+  assert.deepEqual(metric(linked), { portable: 10579, lines: 88, paths: 6 });
   assert.ok(metric(linked).portable * 1.05 < 26300);
   assert.match(linked, /Follow each log's first entry to read the full source chain and accounting/);
   assert.match(linked, /Read-only legacy root log: research-log.md/);
@@ -193,14 +193,15 @@ test("every declared doctrine composition fits the original production hook", { 
   await verifyReference(reference);
   const basePrefix = reference.directory;
   const runtimes = (create: typeof createLogicalRuntime, directory: string) => {
-    const replace = (n: number): SlateConfig => ({ router: { models: { replace: [{ model: "sol-6.1", guidelines: ["x".repeat(n)], cautions: [] }] } } });
-    const runtime = (projectConfig?: SlateConfig) => create({ trusted: true, projectConfig, documentationDirectory: directory });
+    const replace = (n: number): SlateConfig => ({ router: { models: { ...(create === reference.create ? samePolicy.router!.models : {}), replace: [...(create === reference.create ? samePolicy.router!.models!.replace!.filter((row) => row.model !== "luna-6") : []), { model: "luna-6", guidelines: ["x".repeat(n)], cautions: [] }] } } });
+    const runtime = (projectConfig?: SlateConfig) => create({ trusted: true, projectConfig: projectConfig === undefined && create === reference.create ? samePolicy : projectConfig, documentationDirectory: directory });
     const projectRoster: SlateConfig = { router: { models: { include: ["sol-6.1"], replace: [{ model: "sol-6.1", guidelines: ["x"], cautions: [] }] } } };
     return [runtime(), null, runtime({ router: { compressor: { models: [] } } }), runtime(replace(19401 - runtime(replace(1)).promptText()!.length)), runtime(projectRoster)];
   };
-  const samePolicy: SlateConfig = { router: { models: {
-    replace: SHIPPED_LOGICAL_MODELS.filter((row) => row.model !== "fable-5-2").map(({ source, ...row }) => row),
-    add: SHIPPED_LOGICAL_MODELS.filter((row) => row.model === "fable-5-2").map(({ source, ...row }) => row),
+  const samePolicy = { router: { models: {
+    include: ["luna-6", "sol-6.2", "astra-6.2", "fable-5-2"],
+    replace: SHIPPED_LOGICAL_MODELS.filter((row) => !["sol-6.2", "astra-6.2", "fable-5-2"].includes(row.model)).map(({ source, ...row }) => row),
+    add: SHIPPED_LOGICAL_MODELS.filter((row) => ["sol-6.2", "astra-6.2", "fable-5-2"].includes(row.model)).map(({ source, ...row }) => row),
   } } };
   const oldRuntimes = runtimes(reference.create, basePrefix), newRuntimes = runtimes(createLogicalRuntime, prefix);
   oldRuntimes[0] = reference.create({ trusted: true, projectConfig: samePolicy, documentationDirectory: basePrefix });

@@ -211,7 +211,7 @@ test("invalid object settings warn and complete real entry startup through eithe
           assert.equal(sanitizeCacheKeyEnabled(loaded.cacheKeyEnabled, () => {}), true);
           assert.deepEqual(sanitizeRequestThrottle(loaded.requestThrottle, () => {}), REQUEST_THROTTLE_DEFAULTS);
           await api.commands.get("slate").handler("effective", ctx);
-          assert.match(f.warnings.at(-1)!, /sol-6\.1/);
+          assert.match(f.warnings.at(-1)!, /sol-6\.2/);
           assert.doesNotMatch(f.warnings.at(-1)!, /Status: blocked|No parent-session runtime/);
         } finally { await api.emit("session_shutdown", {}, ctx); }
       });
@@ -247,7 +247,7 @@ test("empty home enables the trusted default doctrine in an untrusted session", 
   const metrics = (text: string) => ({ portable: text.split(docsDirectory).join("").length,
     paths: text.split(docsDirectory).length - 1, lines: text.split("\n").length });
   assert.deepEqual(metrics(withoutHome), { portable: 2711, paths: 4, lines: 33 });
-  assert.deepEqual(metrics(homeEnabled), { portable: 9383, paths: 5, lines: 75 });
+  assert.deepEqual(metrics(homeEnabled), { portable: 8611, paths: 5, lines: 72 });
 });
 
 test("real entry shares home routing, doctrine, writing cadence and startup settings in untrusted sessions", { timeout: 10000 }, async (t) => {
