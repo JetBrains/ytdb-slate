@@ -381,27 +381,43 @@ Slate does not select worker actions by prompt size. Pi owns worker compaction
 and context overflow behavior. `model-routing.md` documents logical selection,
 validation, and recovery.
 
-| Worker context item | Measured UTF-8 bytes per copy | Copies after N turns | Cumulative appearances across N requests |
-| --- | ---: | ---: | ---: |
-| Simultaneous-tool-call reminder | 330 text; 383 converted request message; 499 persisted JSONL line | N - 1 | N × (N - 1) / 2 |
+Slate queues one hidden tool reminder per eligible tool round. When writing
+is due and permitted, the same reminder adds the role's writing guidance.
+The following figures measure each form in UTF-8 bytes on Pi 1.5.2.
 
-The reminder tells a worker to issue independent tool calls in one turn. `N` is
-the total number of provider turns in one action. The first `N - 1` turns have
-tool results that reach the reminder handler. The final turn returns the answer.
+| Worker reminder form | Content | Converted without timestamp | Provider-facing object | Saved JSON Lines record |
+| --- | ---: | ---: | ---: | ---: |
+| Tools only | 330 | 383 | 409 | 499 |
+| Tools with full writing guidance | 1,493 | 1,563 | 1,589 | 1,679 |
+| Tools with short writing guidance | 875 | 930 | 956 | 1,046 |
 
-The 330-byte figure is the exact ASCII production text. The 383-byte figure is
-the compact JSON form after pi converts the reminder to a provider request user
-message with one text part. It excludes the volatile timestamp.
+The standalone writing form includes its header. It uses 1,180 bytes for
+the full form and 562 for the short form. Slate caps it at 1,180 content bytes
+with no reserve. The combined reminder keeps the tools opening and replaces
+the writing header with two line feeds. This adds 1,163 or 545 content bytes.
+Slate checks the increment against the same cap. The cap does not cover tools
+text or serialization.
 
-The 499-byte figure measures one compact persisted `custom_message` JSONL line
-from pi 1.4.0. It includes two eight-character identifiers, the timestamp, JSON framing
-and the final line-feed byte. These figures contain no installed path, so the
-portable and rendered counts are identical.
+Pi converts each reminder to a user message with one text part. The
+provider-facing figure includes the timestamp. The saved record includes
+two eight-character identifiers, a timestamp and the final line feed.
+Escaped line feeds make the serialized increase 1,180 or 547 bytes per
+appearance. The figures measure compact JavaScript Object Notation (JSON).
+They include no installed path. They do not measure network bytes or tokens.
 
-Before automatic compaction, transcript storage grows in proportion to the number
-of turns. Cumulative request appearances grow with the square of the number of
-turns. Provider cache reads can lower billed input without changing the number of
-logical appearances.
+| Worker context item | Copies after N requests | Cumulative appearances across N requests |
+| --- | ---: | ---: |
+| Tool reminder, any form | N - 1 | N × (N - 1) / 2 |
+
+The row assumes a fresh session and `N` requests. The first `N - 1` turns
+complete with qualifying tool results. Each continuation takes the reminder
+immediately and every later request retains it. At cadence `k`, writing first
+joins the tool reminder during turn `k + 1`. It joins again every `k` turns
+while the same conditions hold. Each combined reminder from turn `i` adds
+its serialized increase to each of the next `N - i` requests.
+No additional reminder is sent. Queue order, retries, failover and compaction
+can change delivery and retention. The row does not bound total request cost.
+Provider cache reads can reduce billed input without reducing appearances.
 
 ### Implementation reference and specialist charters
 

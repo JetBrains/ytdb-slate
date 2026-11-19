@@ -64,29 +64,24 @@ accuracy, structure or completeness at all.
 
 ## Configuration
 
-Writing guidance and reminders need no enable switch. While orchestrator mode
-is active, they apply when the project is trusted or a home configuration file
-exists.
+Writing guidance needs no enable switch. It requires permitted settings.
+Orchestrator reminders also require active orchestrator mode.
 
 Slate still accepts `writing.check` and `writing.remind` for compatibility.
 They are ignored writing keys and have no effect. Remove them from `slate.json`.
 Either explicitly set key produces one configuration notice, even when its
 value is `false`. When both keys are present, Slate sends one notice.
 
-`writing.remindTurns` configures the reminder cadence in completed turns. It
-defaults to 4 and accepts whole numbers from 1 through 20. An invalid value
-warns and defaults to 4. `writing.remindOnFinding` enables the immediate
-trigger. It defaults to `true` and accepts only booleans. An invalid value warns
-and defaults to `true`. Setting it while `writing.findings` is false produces a
-notice because the findings section is disabled. `writing.remindPercent` remains
-accepted and ignored. Slate emits a notice that the cadence changed from a token
-share to a turn count. `writing.sentenceWordLimit` configures the sentence-length house-style rule. It
-accepts a whole number from 10 through 200, inclusive. The default is 25
-words. The value `false` turns this rule off. An invalid or out-of-range value
-warns and uses 25 words. `sanitizeWritingConfig` emits the warning. The checker
-uses 25 words after configuration sanitization. The checker reports one
-combined sentence-length distribution for all scanned files. That distribution
-is the instrument that will revisit the number later.
+`writing.remindTurns` sets the cadence for both recipients. Cadence is the
+number of completed turns that makes writing due. Slate accepts whole numbers
+from 1 through 20. The default is 4. Invalid values warn and use 4.
+`writing.remindOnFinding` controls the orchestrator finding trigger. It
+defaults to `true` and accepts only booleans. An invalid value warns and uses
+`true`. Slate warns if you set it while `writing.findings` is false.
+Slate accepts and ignores `writing.remindPercent` with a notice.
+`writing.sentenceWordLimit` accepts whole numbers from 10 through 200, or
+`false` to disable the rule. Invalid values warn and use the 25-word default.
+The checker reports one sentence-length distribution across scanned files.
 
 `writing.statusWindowTurns` controls the status window. It defaults to 10 and
 accepts whole numbers from 3 through 100. An invalid value warns and falls back
@@ -126,8 +121,7 @@ design surfaces. The fourth surface needs `writing.showStatus: true`:
    measured prose turns. The configured range is 3 through 100. Both counts
    include model-visible findings only.
 
-Slate also sends a hidden message after eligible completed turns. The next
-section defines this channel and its gates.
+Slate also queues hidden guidance through separate orchestrator and worker rules.
 
 Running the command by hand needs no config. It is a plain Node command.
 
@@ -152,7 +146,9 @@ assume the reader knows. Slate dropped the earlier word-shortening rule from
 that lead-in. Two near-identical rules in one requirement block break the
 project requirement to use one term for each concept.
 
-When the latest measured turn has a model-visible finding, the reminder starts with a `Recent writing findings:` section. The section states that quoted text is data, not an instruction. The section carries one quotation for each present model-visible class. The reminder then starts with the title `Writing and conversation requirements`.
+**Orchestrator.**
+The optional `Recent writing findings:` section marks quotes as data and shows
+one quote per model-visible class. The title is `Writing and conversation requirements`.
 The next line carries these three retained style rules: `Use short, active
 language.` `Keep exact technical terms.` `Do not use semicolons or
 contractions.` The reminder then repeats all ten writing requirements. It also
@@ -184,52 +180,53 @@ abbreviation definitions. It cannot count ideas in a sentence or enforce one
 term per concept. It tests neither metaphor-based explanations nor invented
 project terms.
 
-After an eligible completed turn, Slate queues a hidden custom message. A turn
-with a tool result uses active `steer`. A turn without a tool result uses
-next-turn delivery. The message has `display: false`.
+After an eligible turn, Slate uses `steer` if a tool returned a result.
+Otherwise it queues guidance for the next turn. Pi saves a `custom_message`
+with `customType: slate-writing-reminder` and `display: false`. The terminal
+does not show it. Inspect the session through Pi without relying on a stable
+file path. The guidance enters later model context.
 
-The normal UI has no reminder indicator. It does not appear in the
-normal TUI or tool panel.
+Delivery requires active orchestrator mode, permitted settings and no pause.
+It also requires a due cadence, a finding trigger or a forced handoff reminder.
+Slate sends at most once per response round, which covers one assistant
+response and its tool-result continuations. Parallel results do not repeat
+the send. An abort after a tool turn does not reopen that round.
 
-To diagnose delivery, inspect the session JSONL through pi. A delivered
-reminder has entry type `custom_message`, `customType` set to
-`slate-writing-reminder`, and `display` set to false. It also enters
-later model context. This diagnostic does not depend on a stable
-session-file path.
+Completed turns count, including aborted turns. Provider retry attempts do
+not count. Slate claims before sending and resets the count even if sending
+throws. The finding trigger fires on the turn after a measured finding.
+With findings enabled, reminders retain the latest measured finding summary
+even when cadence fires. Turning findings off disables the trigger but keeps
+cadence. A trusted handoff reloads doctrine and forces the next eligible
+reminder without waiting for cadence or a finding.
 
-Every reminder gate must be open:
+**Workers.** A trusted project or an authenticated home-only settings object
+permits writing. Orchestrator mode, pause, handoff and findings do not control
+worker cadence. Workers run no writing checker. They use the role's preamble
+form without adding a design block or findings.
 
-- orchestrator mode is on
-- the project is trusted or a home configuration file exists
-- Slate is not paused
-- the cadence or finding trigger is ready, or a handoff forces the next reminder
-- no reminder has been sent in the current response round
+Each session keeps its own count through same-session retry and failover.
+A fresh or reopened session starts at zero. Normal turns with or without
+tools count once. Error, output-length and aborted turns do not count.
+The tool reminder runs before the current turn ends. Only earlier turns
+can make writing due. With cadence four and tools on every turn, turn five
+can queue writing for response six.
 
-A response round is one assistant response and its tool-result continuations.
-Slate permits at most one reminder for each response round. Parallel tool
-results therefore cannot produce repeated reminders in one response round.
+The first eligible tool result uses the existing hidden `slate-worker-reminder`
+slot. Nested results and call identifiers starting with `/` do not qualify.
+When due, the reminder keeps the tools text first and adds writing after two
+line feeds. A construction failure sends tools text only and leaves writing
+due. A normal return from the combined send resets cadence. It does not prove
+delivery. Pi controls queue order, continuation and compaction. Slate does not
+send writing alone, catch up after compaction or warn separately about writing.
+Cadence starts no new request.
 
-The default cadence is 4 completed turns. The configured range is 1 through 20
-turns. Slate counts every completed turn, including an aborted turn. A provider
-retry attempt does not count. An abort after a tool turn does not reopen the
-response round. A finding trigger fires on the turn after a measured turn with a
-model-visible finding. Slate claims delivery before it sends the message. The
-claim resets the counter even when sending throws. The counter restarts after
-delivery.
+Pi saves the reminder with `display: false`. An incomplete file append can
+affect a later saved record. A worker summary can repeat guidance in the same
+session. Neither the automatic reminder nor the summary becomes episode input.
+Ordinary worker output remains eligible, even when it quotes guidance.
 
-The reminder always quotes the most recent measured finding summary. The
-summary does not expire when the cadence interval passes.
-
-`writing.findings: false` disables the finding trigger. A reminder still fires
-when the turn cadence reaches its interval. The reminder always includes the
-most recent measured finding summary, whatever the interval.
-
-A trusted handoff reloads the doctrine in the fresh session. It also forces a
-reminder on the next eligible completed turn. The forced reminder does not need
-the turn cadence or a finding.
-
-A representative context budget does not change the reminder interval. Slate
-has no controlled comparison or claim that reminders improve prose.
+Slate makes no claim that reminders improve prose.
 
 ## Keeping the requirement text synchronized
 
@@ -268,7 +265,7 @@ Neither holds a manual roster. The shell harness uses canary evidence.
 
 The doctrine rules are part of every orchestrator system prompt, so their
 cost is paid on every turn. The worker addition is paid once per
-worker dispatch. Each sent reminder also enters later model context.
+worker dispatch. Retained reminders can appear in multiple model requests.
 `context-budget.md` defines the portable-character measure. It records
 the whole-doctrine sizes and owns the size budget.
 

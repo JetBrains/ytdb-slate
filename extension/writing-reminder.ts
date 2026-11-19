@@ -244,7 +244,7 @@ export function renderWritingScopeExclusion(indent = ""): string {
 	return `${indent}${WRITING_SCOPE_EXCLUSION}`;
 }
 
-const WRITING_REMINDER_HEADER = "[slate] Reminder:";
+export const WRITING_REMINDER_HEADER = "[slate] Reminder:";
 
 const WRITING_REQUIREMENT_LINES = [
 	`${WRITING_REQUIREMENTS_TITLE}:`,

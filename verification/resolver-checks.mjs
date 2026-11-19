@@ -6666,7 +6666,7 @@ The accounting covers:`),
 				}
 				visit(source);
 				const expected = {
-					worker: [edge("import", "./writing-reminder.ts", workerForms),
+					worker: [edge("import", "./writing-reminder.ts", [...workerForms, "WRITING_REMINDER_HEADER"]),
 						edge("export", "./writing-reminder.ts", [...workerForms, "WORKER_DESIGN_SCOPE_EXCEPTION"])],
 					threads: [edge("import", "./writing-reminder.ts", ["isWritingReminderMessage"])],
 					writing: [edge("import type", "./writing.ts", ["WritingFindingSummary"])],
@@ -6693,7 +6693,7 @@ The accounting covers:`),
 			}
 			const workerControl = `
 				import {
-					WORKER_WRITING_GUIDANCE, REVIEWER_WRITING_GUIDANCE,
+					WORKER_WRITING_GUIDANCE, REVIEWER_WRITING_GUIDANCE, WRITING_REMINDER_HEADER,
 				} from './writing-reminder.ts'
 				export {
 					WORKER_WRITING_GUIDANCE, WORKER_DESIGN_SCOPE_EXCEPTION, REVIEWER_WRITING_GUIDANCE,
@@ -6776,7 +6776,7 @@ The accounting covers:`),
 			}
 			if (opener) findGuard(opener);
 			checkAll("worker-reminder-wiring", "worker reminder loader, handler, tool exclusion, and dispatch warning wiring stays intact", [
-				["worker creates the internal session-local runtime directly", /import\s*\{\s*createWorkerReminderRuntime\s*\}\s*from\s*["']\.\/worker-reminder\.ts["']/.test(workerSource) && /const\s+workerReminder\s*=\s*createWorkerReminderRuntime\(\)/.test(workerSource), workerSource.match(/import[^\n]*worker-reminder[^\n]*/)?.[0] ?? "not found"],
+				["worker creates the internal session-local runtime directly", /import\s*\{\s*createWorkerReminderRuntime\s*\}\s*from\s*["']\.\/worker-reminder\.ts["']/.test(workerSource) && /const\s+workerReminder\s*=\s*createWorkerReminderRuntime\(configPermitted\s*\?/.test(workerSource), workerSource.match(/import[^\n]*worker-reminder[^\n]*/)?.[0] ?? "not found"],
 				["every loader receives the reminder, guarded codemode, and last lifecycle factory", (workerSource.match(/new\s+DefaultResourceLoader\s*\(/g) ?? []).length === 1 && shared && opener && shared.end <= opener.pos && guardedAwait && synchronousAssignment && !/await import\("\.\/worker-codemode\.ts"\)/.test(opener.getText(workerAst)) && /const factory = codemode\.createWorkerCodemodeComponent\(warn\)/.test(workerSource) && /extensionFactories[\s\S]*workerReminder\.extension[\s\S]*factory: codemodeFactory[\s\S]*factory: nestedLifecycle\.extension/.test(loaderBlock), loaderBlock],
 				["only the opener loads the component at runtime", edges.length === 1 && edges[0].file === join("extension", "worker.ts") && edges[0].dynamic && edges[0].text === 'import("./worker-codemode.ts")', edges],
 				["component delegates directly to pi without queue or reader", (() => {
@@ -6786,7 +6786,7 @@ The accounting covers:`),
 				})(), "direct registration and no wrapper"],
 				["component metadata and returned factory are validated", /WORKER_CODEMODE_COMPONENT_NAME !== "slate-worker-codemode"/.test(workerSource) && /typeof codemode\.createWorkerCodemodeComponent !== "function"/.test(workerSource) && /typeof factory !== "function"/.test(workerSource), "name, creator, factory"],
 				["factory wiring is independent of the allowlist and prompt cache key", loaderStart >= 0 && reloadStart > loaderStart && allowlistStart > reloadStart && !/promptCacheKey/.test(loaderBlock) && (loaderBlock.match(/workerReminder\.extension/g) ?? []).length === 1, { loaderStart, reloadStart, allowlistStart, promptCacheKey: loaderBlock.match(/promptCacheKey/)?.[0] ?? "absent", factoryCount: (loaderBlock.match(/workerReminder\.extension/g) ?? []).length }],
-				["handlers register directly in the internal factory rather than session_start", /pi\.on\(\s*["']message_end["']/.test(workerReminderSource) && /pi\.on\(\s*["']tool_result["']/.test(workerReminderSource) && !/["']session_start["']/.test(workerReminderSource), workerReminderSource.match(/pi\.on\([^\n]*/g) ?? []],
+				["the internal factory registers message and tool handlers without startup or turn-boundary hooks", /pi\.on\(\s*["']message_end["']/.test(workerReminderSource) && /pi\.on\(\s*["']tool_result["']/.test(workerReminderSource) && !/["'](?:session_start|turn_end)["']/.test(workerReminderSource), workerReminderSource.match(/pi\.on\([^\n]*/g) ?? []],
 				["loaded extensions are read exactly once after reload and before the allowlist gate", (workerSource.match(/loader\.getExtensions\(\)/g) ?? []).length === 1 && /const\s+loaded\s*=\s*loader\.getExtensions\(\)/.test(loadedBlock), { count: (workerSource.match(/loader\.getExtensions\(\)/g) ?? []).length, loadedBlock }],
 				["non-codemode loader errors use the sanitized warning channel before the allowlist gate", /const\s+warn\s*=/.test(warningBlock) && /for\s*\(\s*const\s+err\s+of\s+loaded\.errors\s*\?\?\s*\[\]\s*\)/.test(loadedBlock) && /if\s*\(opts\.report\)\s*\{\s*opts\.report\(msg\);\s*retained = true;/.test(warningBlock) && /if\s*\(\(!opts\.report \|\| notifyHost\) && ctx\.hasUI\)/.test(warningBlock) && /ctx\.ui\.notify\(msg, "warning"\)/.test(warningBlock) && /if\s*\(!retained\)\s*\{\s*try\s*\{\s*console\.warn\(msg\)/.test(warningBlock) && /createWorkerNestedLifecycle\(message => warn\(message, true\),/.test(warningBlock) && /sanitizeForNotify\(String\(err\.path\)\)[\s\S]*sanitizeForNotify\(String\(err\.error\)\)/.test(loadedBlock), loadedBlock],
 				["extension tool collection and collision rejection stay inside the allowlist gate", /loaded\.extensions/.test(allowlistBlock) && /const\s+collisions\s*:\s*string\[\]\s*=\s*\[\]/.test(allowlistBlock) && /if\s*\(collisions\.length\s*>\s*0\)/.test(allowlistBlock), allowlistBlock.match(/loaded\.extensions|collisions\.length/g) ?? []],
@@ -6844,7 +6844,7 @@ The accounting covers:`),
 				["parallel tool guidance appears exactly once across every worker configuration", [worker.workerPreamble(false, false), worker.workerPreamble(true, false), worker.workerPreamble(false, true), worker.workerPreamble(true, true)].every((preamble) => preamble.split(parallelToolRule).length === 2), { base: worker.workerPreamble(false, false), writing: worker.workerPreamble(true, false), reviewer: worker.workerPreamble(false, true), both: worker.workerPreamble(true, true) }],
 				["the two cost-reason sentences appear exactly once across every worker configuration", [worker.workerPreamble(false, false), worker.workerPreamble(true, false), worker.workerPreamble(false, true), worker.workerPreamble(true, true)].every((preamble) => reasonSentences.every((sentence) => preamble.split(sentence).length === 2)), { sentences: reasonSentences, base: worker.workerPreamble(false, false) }],
 				["false trust omits writing guidance with or without the reviewer charter", worker.workerPreamble(false, false) === commonPreamble && !worker.workerPreamble(false, true).includes(reviewGuidance), { plain: worker.workerPreamble(false, false), reviewer: worker.workerPreamble(false, true) }],
-				["worker assembly imports only the role forms and defines no writing sender", writingBoundary(workerAst, "worker") && writingBoundary(threadsAst, "threads") && writingBoundary(writingAst, "writing") && writingBoundaryControls.length === 0, { scope: "writing-related edges and direct sender calls", mismatchedControls: writingBoundaryControls }],
+				["worker assembly imports only the role forms and header and defines no separate writing sender", writingBoundary(workerAst, "worker") && writingBoundary(threadsAst, "threads") && writingBoundary(writingAst, "writing") && writingBoundaryControls.length === 0, { scope: "writing-related edges and direct sender calls", mismatchedControls: writingBoundaryControls }],
 				["shared exports remain available through worker assembly", ["WORKER_WRITING_GUIDANCE", "REVIEWER_WRITING_GUIDANCE", "WORKER_DESIGN_SCOPE_EXCEPTION"].every(name => worker[name] === reminder[name]), "full, short and design-in-log exception"],
 				["permitted non-review configuration enables the 2479-byte preamble with writing guidance", worker.WORKER_WRITING_GUIDANCE === currentGuidance && worker.workerPreamble(true, false) === `${commonPreamble} ${currentGuidance}` && Buffer.byteLength(worker.workerPreamble(true, false)) === 2479, worker.workerPreamble(true, false)],
 				["reviewer variants keep exact writing bytes", worker.REVIEWER_WRITING_GUIDANCE === reviewGuidance && worker.workerPreamble(true, true) === `${commonPreamble} ${reviewGuidance}\n${worker.REVIEWER_CHARTER}`, worker.REVIEWER_WRITING_GUIDANCE],

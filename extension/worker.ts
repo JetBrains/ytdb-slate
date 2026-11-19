@@ -51,13 +51,14 @@ import type { LogicalModelEffort } from "./logical-model-definitions.ts";
 import type { RecoveryCandidate } from "./logical-model-recovery.ts";
 import { RequestThrottleAbort, type RequestThrottle } from "./request-throttle.ts";
 import { createWorkerReminderRuntime } from "./worker-reminder.ts";
-import { REVIEWER_WRITING_GUIDANCE, WORKER_WRITING_GUIDANCE } from "./writing-reminder.ts";
+import { REVIEWER_WRITING_GUIDANCE, WORKER_WRITING_GUIDANCE, WRITING_REMINDER_HEADER } from "./writing-reminder.ts";
 import { createWorkerNestedLifecycle } from "./worker-nested-lifecycle.ts";
 import { describeSpecDefect, splitModelSpec, type SlateConfig, type ThreadType } from "./state.ts";
 import { PI_BUILTIN_TOOL_NAMES, SLATE_TOOL_NAMES } from "./worker-extensions.ts";
 
 export type WorkerSession = Awaited<ReturnType<typeof createAgentSession>>["session"] & {
 	workerReminderHandledToolResult(): boolean;
+	workerReminderCompletedTurn: ReturnType<typeof createWorkerReminderRuntime>["completedTurn"];
 	/** Close extension-managed Pi operation admission before terminal settlement. */
 	closeManagedOperations(): void;
 	/** Abort and join startup, admitted operations, and Pi idle state. */
@@ -534,7 +535,10 @@ export async function openWorkerSession(opts: {
 	// Absolute units come from the host resolver, never from JSON path fields.
 	// Pi still controls which extensions are present in the host registry.
 	const extensionPaths = configPermitted ? (opts.extensionPaths ?? []) : [];
-	const workerReminder = createWorkerReminderRuntime();
+	const workerReminder = createWorkerReminderRuntime(configPermitted ? {
+		interval: opts.config?.writing?.remindTurns,
+		standalone: `${WRITING_REMINDER_HEADER}\n\n${opts.reviewerCharter === true ? REVIEWER_WRITING_GUIDANCE : WORKER_WRITING_GUIDANCE}`,
+	} : undefined);
 	const warn = (msg: string, notifyHost = false) => {
 		let retained = false;
 		try {
@@ -739,6 +743,7 @@ export async function openWorkerSession(opts: {
 	};
 	const workerSession = Object.assign(session, {
 		workerReminderHandledToolResult: workerReminder.handledToolResult,
+		workerReminderCompletedTurn: workerReminder.completedTurn,
 		closeManagedOperations(): void {
 			managedAdmissionOpen = false;
 			nestedLifecycle.close();

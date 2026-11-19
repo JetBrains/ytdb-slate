@@ -5,7 +5,9 @@ import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { after, test } from "node:test";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { convertToLlm, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { WORKER_REMINDER_TEXT, WORKER_REMINDER_CUSTOM_TYPE } from "../extension/worker-reminder.ts";
+import { WORKER_WRITING_GUIDANCE, REVIEWER_WRITING_GUIDANCE, WRITING_REMINDER_HEADER } from "../extension/writing-reminder.ts";
 import { registerSlateMode } from "../extension/mode.ts";
 import { SlateStore } from "../extension/state.ts";
 import { createLogicalRuntime } from "../extension/logical-model-runtime.ts";
@@ -631,6 +633,31 @@ function table(rows: string[], costs: string[], entries: string[]): string {
     "<!-- workflow-phase:end -->"
   ].join("\n");
 }
+test("both worker reminder publications match the measured representations", () => {
+  const timestamp = 1730000000000;
+  const rows = [
+    ["Tools only", "", 0, 0, 330, 383, 409, 499],
+    ["Tools with full writing guidance", WORKER_WRITING_GUIDANCE, 1180, 1163, 1493, 1563, 1589, 1679],
+    ["Tools with short writing guidance", REVIEWER_WRITING_GUIDANCE, 562, 545, 875, 930, 956, 1046],
+  ] as const;
+  const docs = [paths.CONTEXT_BUDGET_DOC, join(directory, "../verification/README.md")].map((file) => readFileSync(file, "utf8"));
+  for (const [form, body, standaloneBytes, addedBytes, ...expected] of rows) {
+    const standalone = body && `${WRITING_REMINDER_HEADER}\n\n${body}`;
+    const increment = body && `\n\n${body}`;
+    const content = WORKER_REMINDER_TEXT + increment;
+    const [converted] = convertToLlm([{ role: "custom", content, customType: WORKER_REMINDER_CUSTOM_TYPE, display: false, timestamp }]);
+    assert.ok(converted);
+    const { timestamp: convertedTimestamp, ...withoutTimestamp } = converted;
+    assert.equal(convertedTimestamp, timestamp);
+    const record = { type: "custom_message", id: "12345678", parentId: "abcdefgh", timestamp: new Date(timestamp).toISOString(),
+      customType: WORKER_REMINDER_CUSTOM_TYPE, content, display: false };
+    const actual = [bytes(content), bytes(JSON.stringify(withoutTimestamp)), bytes(JSON.stringify(converted)), bytes(JSON.stringify(record) + "\n")];
+    assert.deepEqual([bytes(standalone), bytes(increment), ...actual], [standaloneBytes, addedBytes, ...expected], form);
+    const row = `| ${form} | ${expected.map((count) => count.toLocaleString("en-US")).join(" | ")} |`;
+    for (const doc of docs) assert.equal(doc.split("\n").filter((line) => line === row).length, 1, form);
+  }
+});
+
 test("workflow phase budgets, reference coverage, and exact publication", { timeout: 10000 }, async () => {
   membership(exported);
   const spine = source("TRACK_WORKFLOW_DOC").split("The mandatory phases run in this order:\n\n")[1]!.split("\n\n")[0]!.replace(/\n   /g, " ").split("\n").map((line) => line.replace(/^\d+\. /, ""));

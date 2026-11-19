@@ -1318,70 +1318,70 @@ Run the hand-run integration net from the repository root:
 bash verification/run-worker-reminder-check.sh --repo .
 ```
 
-The harness starts one real offline pi session. A deterministic in-process
-provider makes the orchestrator call the real `thread` tool. The worker issues
-two independent built-in `read` calls in one turn, receives the hidden reminder
-on its continuation request, returns a fixed marker and produces an episode.
-The scratch config keeps `workerExtensions` empty and sets `cacheKeyEnabled` to
-`false`. The TypeScript canary loads through the same jiti module aliases as
-Slate. It registers the native provider on the host and on every test-created
-`ModelRuntime`. The same native provider serves the worker and the compressor
-through Pi's model registry. The harness checks each request path separately.
-The canary restores its `ModelRuntime.create` wrapper during session shutdown
-when it still owns that method.
+Each case starts a real offline Pi session with a deterministic in-process
+provider. The orchestrator calls the real `thread` tool. The worker uses
+built-in reads, including two independent calls in one turn. Normal cases
+set `workerExtensions` to an empty allowlist and `cacheKeyEnabled` to `false`.
+The canary loads through Pi's module aliases. It registers the provider
+on the host and on each test-created `ModelRuntime`. It restores its wrapper
+on shutdown when it still owns the method.
 
-On the reference machine, the run takes about five seconds. The hard bound is
-GNU `timeout`: TERM after 60 seconds and KILL five seconds later. Exit **0** means
-every assertion passed. Exit **1** means at least one check failed. Exit **2**
-means the harness refused to start because its invocation, tools, checkout,
-canary, pi binary or exact version pin did not satisfy a precondition.
+The driver checks each case against its expected roster. It checks load and
+session health, exact requests by role and route, tool results, steering
+order, hidden records, compressor input, and durable episodes. The normal
+cases compare tools-only and combined delivery with the same work and
+answer. The matched threshold cases start with the same nonempty history.
+Only the combined case compacts after the answer. Both store the same exact
+observation even though compaction moves the answer before the startup
+offset. Separate cases check overflow and output-length recovery, disabled
+compaction, cancelled and failed summaries, rejection of an oversized form,
+and both steering modes. Model-selected work and a compaction handler's
+follow-up have separate controls.
 
-The 18 result lines assert these properties:
+| Worker reminder form | Content | Converted without timestamp | Provider-facing object | Saved JSON Lines record |
+| --- | ---: | ---: | ---: | ---: |
+| Tools only | 330 | 383 | 409 | 499 |
+| Tools with full writing guidance | 1,493 | 1,563 | 1,589 | 1,679 |
+| Tools with short writing guidance | 875 | 930 | 956 | 1,046 |
 
-1. Pi exits zero within the timeout.
-2. The RPC, host-session and worker-session JSON Lines parse completely.
-3. Pi emits no `extension_error` event.
-4. The `/slate` command comes from the checkout under test.
-5. The Pi-registered provider handles orchestrator, worker and compressor calls offline.
-6. One real thread dispatch completes with status `ok`.
-7. The worker makes one two-read request and one fixed-marker continuation request.
-8. Both built-in read results persist in their exact unchanged shape.
-9. Exactly one worker reminder persists with the exact type, text and `display: false`.
-10. The reminder follows both tool results and precedes the continuation assistant message.
-11. The continuation provider context contains exactly one reminder.
-12. The provider sees exactly two worker calls, two orchestrator calls and one compressor call.
-13. The delivered reminder produces no false reminder-miss warning.
-14. The compressor request contains no reminder text or custom type.
-15. The durable episode exists and contains no reminder text or custom type.
-16. An empty worker-extension allowlist and disabled cache key do not prevent delivery.
-17. The orchestrator receives the result and returns its fixed completion marker.
-18. The roster reports every expected identifier exactly once.
+All sizes are UTF-8 bytes on Pi 1.5.2. The normal runs measure full and
+tools-only provider objects with timestamps and the saved lines with line
+feeds. The real worker role tests also measure the short form at both points.
+The context-budget test uses Pi's conversion and a fixed record fixture for
+all three rows. The standalone full
+and short writing forms use 1,180 and 562 bytes including the header. The
+1,180-byte cap limits standalone writing and separately limits the writing
+increment. It does not limit the combined serialized object. The combined
+forms add 1,163 and 545 content bytes, or 1,180 and 547 serialized bytes per
+retained appearance. These are not wire or billing sizes. The worker-action
+section in the context budget gives the repetition assumptions.
 
-The run proves one clean worker path through factory loading, tool-result hooks,
-steer delivery, provider context, worker JSON Lines and episode filtering. It
-proves that successful delivery produces no false reminder-miss warning. A single
-clean run cannot prove that a real missing reminder produces the warning. The
-pure `worker-reminder-detection` and `worker-reminder-wiring` checks, plus the
-unit tests in `test/single-action-threads.test.ts`, carry that property. The run
-proves `display: false` structurally. It does not prove visual invisibility in
-the terminal user interface. Check that presentation manually. It also does not
-prove concurrent session isolation. The pure `worker-reminder-state` family
-covers two interleaved factory instances.
+GNU `timeout` bounds each Pi process with TERM after 60 seconds and KILL five
+seconds later. Exit **0** means every assertion passed. Exit **1** means a check
+failed. Exit **2** means a precondition failed.
+
+The harness checks `display: false` structurally. Check terminal presentation
+separately. The host tests exercise actual worker reopening, retries and
+failover. The factory tests exercise interleaved sessions. Successful delivery
+must not raise a reminder-miss warning. The `worker-reminder-detection` and
+`worker-reminder-wiring` resolver checks and the single-action unit tests
+cover the missing-reminder rule.
 
 A clean run removes its disposable scratch directory. A failed run keeps the
 directory and inlines pi stderr and stdout. The child starts through `env -i`,
 uses dead proxy settings and sets `PI_OFFLINE=1`. The provider performs no
 network operation. This setup is not an operating-system network sandbox.
 
-Re-run this harness after changes to `extension/worker-reminder.ts`, reminder
-factory loading or error handling in `extension/worker.ts`, action-slice
-detection or compression filtering in `extension/threads.ts`, custom-message
-shape or steer delivery, either harness file, the pi pin, or an asserted RPC,
-provider-evidence or JSON Lines shape.
+Re-run this harness after changes to the worker reminder, shared writing
+forms or cadence validation, worker settings, factory loading or loader-error
+reporting in `extension/worker.ts`, completed-turn input, observation capture,
+warning detection or episode filtering. Re-run it after changes to steer
+delivery, either harness file, the Pi pin, or the asserted RPC, provider evidence
+or JSON Lines shapes.
 
 | file | role |
 | --- | --- |
-| `run-worker-reminder-check.sh` | driver, isolated scratch environment, real pi session, evidence parser, 18-result roster and artifact policy |
+| `run-worker-reminder-check.sh` | driver, isolated scratch environment, real pi session, evidence parser, per-case rosters and artifact policy |
 | `worker-reminder-canary.ts` | deterministic offline provider, orchestrator and worker scripts, call classification and provider-context evidence |
 
 # Packaging guards — `run-packaging-checks.sh`

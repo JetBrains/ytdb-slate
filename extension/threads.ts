@@ -906,6 +906,11 @@ export class ThreadManager {
 					completedFacts.addTool(tool.toolName, tool.result, tool.isError);
 					if (tool.isError) toolErrors.set(tool.toolName, (toolErrors.get(tool.toolName) ?? 0) + 1);
 				}
+			} else if (event.type === "turn_end") {
+				const message = (event as unknown as { message: WorkerAssistantMsg }).message;
+				if (message?.role === "assistant") {
+					(session ?? startupSession)?.workerReminderCompletedTurn?.(message.stopReason);
+				}
 			} else if (event.type === "auto_retry_start") {
 				// Keep the failed attempt until another assistant response actually replaces it.
 				// Pi can cancel during backoff without producing a replacement message.
@@ -1420,7 +1425,7 @@ export class ThreadManager {
 			zeroFindings: false,
 		};
 		try {
-			const finalMessage = lastAssistantMessage(actionMessages);
+			const finalMessage = actionCompacted ? latestAssistant : lastAssistantMessage(actionMessages);
 			observation = captureObservation(ctx.cwd, episodeId, finalMessage ? (finalMessage.content ?? []) : undefined, this.runtimeFolder);
 			const warningsBeforeObservation = warnings.length;
 			if (!observation.stored && observation.reason === "write-failed" && "warning" in observation) routeWarn(observation.warning);

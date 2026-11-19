@@ -2,6 +2,7 @@ import { writeFileSync } from "node:fs";
 import {
 	type AssistantMessage,
 	type TranscriptContext,
+	getCurrentSystemPrompt,
 	getCurrentTools,
 	type Model,
 	type SimpleStreamOptions,
@@ -15,7 +16,14 @@ const MODEL = "worker-reminder-model";
 const EVIDENCE = process.env.SLATE_WORKER_REMINDER_EVIDENCE;
 const PROJECT = process.env.SLATE_WORKER_REMINDER_PROJECT;
 const WORKER_TASK = "WORKER_REMINDER_CANARY_ACTION_51c824";
-const WORKER_SUCCESS = "WORKER_REMINDER_CONTINUATION_OK_51c824";
+const PROFILE = process.env.SLATE_WORKER_REMINDER_PROFILE ?? "normal";
+const THRESHOLD = PROFILE === "threshold" || PROFILE === "handler" || PROFILE.startsWith("compact-");
+const OVERFLOW = PROFILE === "overflow" || PROFILE === "overflow-disabled" || PROFILE === "length";
+const INPUT_BUDGET = 3000;
+const OVERFLOW_ERROR = "context_length_exceeded: canary request exceeds 3000 test tokens";
+const QUEUED_GUIDANCE = "CANARY_EARLIER_GUIDANCE_51c824";
+const HANDLER_GUIDANCE = "CANARY_COMPACTION_FOLLOW_UP_51c824";
+const WORKER_SUCCESS = "WORKER_REMINDER_CONTINUATION_OK_51c824" + (THRESHOLD ? "\n" + "Saved final answer. ".repeat(36).trimEnd() : "");
 const HOST_SUCCESS = "WORKER_REMINDER_DISPATCH_OK_51c824";
 const REMINDER_TYPE = "slate-worker-reminder";
 const REMINDER_TEXT =
@@ -35,7 +43,7 @@ None.
 ## Open Issues
 None.`;
 
-const evidence: { calls: Array<{ kind: string; ordinal: number; context: ReturnType<typeof snapshot> }>; registrations: { host: number; runtime: number }; expected: Record<string, string> } = { calls: [], registrations: { host: 0, runtime: 0 }, expected: { API, PROVIDER, MODEL, WORKER_TASK, WORKER_SUCCESS, HOST_SUCCESS, REMINDER_TYPE, REMINDER_TEXT, COMPRESSED_EPISODE } };
+const evidence: { calls: Array<{ kind: string; ordinal: number; provider: string; model: string; context: ReturnType<typeof snapshot> }>; registrations: { host: number; runtime: number }; expected: Record<string, string> } = { calls: [], registrations: { host: 0, runtime: 0 }, expected: { API, PROVIDER, MODEL, WORKER_TASK, WORKER_SUCCESS, HOST_SUCCESS, REMINDER_TYPE, REMINDER_TEXT, COMPRESSED_EPISODE } };
 
 function textOf(content: unknown): string {
 	if (typeof content === "string") return content;
@@ -46,8 +54,9 @@ function textOf(content: unknown): string {
 function message(
 	model: Model<any>,
 	content: AssistantMessage["content"],
-	stopReason: Exclude<AssistantMessage["stopReason"], "pending" | "error" | "aborted">,
+	stopReason: Exclude<AssistantMessage["stopReason"], "pending">,
 	input = 100,
+	output = 1,
 ): AssistantMessage {
 	return {
 		role: "assistant",
@@ -57,10 +66,10 @@ function message(
 		model: model.id,
 		usage: {
 			input,
-			output: 1,
+			output,
 			cacheRead: 0,
 			cacheWrite: 0,
-			totalTokens: input + 1,
+			totalTokens: input + output,
 			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 		},
 		stopReason,
@@ -72,11 +81,10 @@ function completedStream(output: AssistantMessage) {
 	const stream = createAssistantMessageEventStream();
 	queueMicrotask(() => {
 		stream.push({ type: "start", partial: { ...output, stopReason: "pending" } });
-		stream.push({
-			type: "done",
-			reason: output.stopReason as Exclude<AssistantMessage["stopReason"], "pending" | "error" | "aborted">,
-			message: output,
-		});
+		const reason = output.stopReason;
+		if (reason === "pending") throw new Error("Expected a completed response");
+		if (reason === "error" || reason === "aborted") stream.push({ type: "error", reason, error: output });
+		else stream.push({ type: "done", reason, message: output });
 		stream.end();
 	});
 	return stream;
@@ -94,17 +102,20 @@ function snapshot(context: TranscriptContext) {
 				toolName: value.toolName,
 				toolCallId: value.toolCallId,
 				display: value.display,
+				bytes: Buffer.byteLength(JSON.stringify(item)),
 			};
 		}),
 	};
 }
 
 function classify(context: TranscriptContext) {
+	if (getCurrentSystemPrompt(context.messages)?.startsWith("You are a context summarization assistant.")) return "summary";
 	const texts = context.messages.map((item) => textOf(item?.content));
 	const tools = getCurrentTools(context.messages).map((tool) => tool.name);
 	if (texts.some((text) => text.includes("You are compressing one completed action of a worker thread"))) return "compressor";
 	if (tools.includes("thread")) return "orchestrator";
-	if (texts.some((text) => text.includes(WORKER_TASK))) return "worker";
+	if (texts.some((text) => text.includes(WORKER_TASK) || text === HANDLER_GUIDANCE || text.startsWith(REMINDER_TEXT) ||
+		(OVERFLOW && text.startsWith("The conversation history before this point was compacted") && text.includes("WORKER_HISTORY_SUMMARY_51c824")))) return "worker";
 	return "unknown";
 }
 
@@ -116,7 +127,8 @@ function persist() {
 function fakeStream(model: Model<any>, context: TranscriptContext, _options?: SimpleStreamOptions) {
 	const kind = classify(context);
 	const prior = evidence.calls.filter((call) => call.kind === kind).length;
-	evidence.calls.push({ kind, ordinal: prior + 1, context: snapshot(context) });
+	const texts = context.messages.map(item => textOf(item.content));
+	evidence.calls.push({ kind, ordinal: prior + 1, provider: model.provider, model: model.id, context: snapshot(context) });
 	persist();
 
 	if (kind === "orchestrator" && prior === 0) {
@@ -134,14 +146,47 @@ function fakeStream(model: Model<any>, context: TranscriptContext, _options?: Si
 			},
 		}], "toolUse"));
 	}
+	// Approximate tokens from the actual provider messages, not the run label.
+	const tokens = (value: unknown) => Math.ceil(Buffer.byteLength(JSON.stringify(value)) / 4);
+	const reply = (content: AssistantMessage["content"], stop: "toolUse" | "stop", normalInput: number) =>
+		completedStream(message(model, content, stop, THRESHOLD ? tokens(context.messages) : normalInput, THRESHOLD ? tokens(content) : 1));
+	if (kind === "summary") {
+		if (PROFILE === "compact-fail") {
+			return completedStream({ ...message(model, [], "error", 0, 0), errorMessage: "Canary summary refused." });
+		}
+		return reply([{ type: "text", text: "WORKER_HISTORY_SUMMARY_51c824" }], "stop", 100);
+	}
 	if (kind === "worker" && prior === 0) {
-		return completedStream(message(model, [
+		return reply([
 			{ type: "toolCall", id: "worker-read-alpha", name: "read", arguments: { path: `${PROJECT}/alpha.txt` } },
 			{ type: "toolCall", id: "worker-read-beta", name: "read", arguments: { path: `${PROJECT}/beta.txt` } },
-		], "toolUse", 200));
+		], "toolUse", 200);
 	}
 	if (kind === "worker" && prior === 1) {
-		return completedStream(message(model, [{ type: "text", text: WORKER_SUCCESS }], "stop", 220));
+		return reply([
+			{ type: "toolCall", id: "worker-read-again", name: "read", arguments: { path: `${PROJECT}/alpha.txt` } },
+		], "toolUse", 210);
+	}
+	if (kind === "worker" && prior >= 2 && OVERFLOW) {
+		const input = tokens(context.messages);
+		if (input > INPUT_BUDGET) {
+			if (PROFILE === "length") {
+				return completedStream(message(model, [{ type: "text", text: "CANARY_TRUNCATED_51c824" }], "length", input, 3));
+			}
+			return completedStream({ ...message(model, [], "error", input, 0), errorMessage: OVERFLOW_ERROR });
+		}
+		return reply([{ type: "text", text: WORKER_SUCCESS }], "stop", input);
+	}
+	if (kind === "worker" && prior === 2 && PROFILE === "model" && texts.some(text => text.startsWith(REMINDER_TEXT + "\n\n"))) {
+		return reply([{ type: "toolCall", id: "worker-read-extra", name: "read", arguments: { path: `${PROJECT}/beta.txt` } }], "toolUse", 220);
+	}
+	if (kind === "worker" && ((prior === 3 && PROFILE === "model") ||
+		(prior === 3 && PROFILE === "steer-one" && texts.includes(QUEUED_GUIDANCE)) ||
+		(prior === 3 && PROFILE === "handler" && texts.includes(HANDLER_GUIDANCE)))) {
+		return reply([{ type: "text", text: WORKER_SUCCESS }], "stop", 200);
+	}
+	if (kind === "worker" && prior === 2) {
+		return reply([{ type: "text", text: WORKER_SUCCESS }], "stop", 220);
 	}
 	if (kind === "compressor" && prior === 0) {
 		return completedStream(message(model, [{ type: "text", text: COMPRESSED_EPISODE }], "stop", 300));

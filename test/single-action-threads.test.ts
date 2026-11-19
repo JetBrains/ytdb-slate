@@ -1448,6 +1448,7 @@ async function dispatchWithUnpairedToolResult(
   handledToolResult: boolean,
   compactionEvent?: "successful" | "aborted" | "missing-result" | "retained",
   retainFolder = false,
+  observeTurn?: (reason: unknown) => void,
 ) {
   const root = mkdtempSync(join(tmpdir(), "slate-reminder-miss-"));
   try {
@@ -1469,6 +1470,7 @@ async function dispatchWithUnpairedToolResult(
       thinkingLevel: "off",
       sessionFile: undefined,
       workerReminderHandledToolResult: () => handledToolResult,
+      workerReminderCompletedTurn: observeTurn,
       subscribe(listener: (event: Record<string, unknown>) => void) {
         listeners.add(listener);
         return () => listeners.delete(listener);
@@ -1477,6 +1479,13 @@ async function dispatchWithUnpairedToolResult(
         const toolResult = { role: "toolResult", toolCallId: "call-1", toolName: "read", content: [{ type: "text", text: "data" }] };
         const assistant = { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "done" }], usage: {} };
         session.messages.push(toolResult);
+        if (observeTurn) {
+          const content = ["call-1", "skipped-call"].map((id) => ({ type: "toolCall", id, name: "read", arguments: {} }));
+          for (const listener of listeners) {
+            listener({ type: "turn_end", message: { role: "assistant", stopReason: "toolUse", content }, toolResults: [toolResult] });
+            listener({ type: "turn_end", message: { role: "assistant", stopReason: "aborted", content }, toolResults: [] });
+          }
+        }
         if (compactionEvent === "retained") {
           session.messages.push(
             { role: "custom", customType: "slate-worker-reminder", content: "independent evidence" },
@@ -1528,6 +1537,12 @@ async function dispatchWithUnpairedToolResult(
     rmSync(root, { recursive: true, force: true });
   }
 }
+
+test("worker turn subscriber forwards the reported reason after incomplete tool batches", { timeout: 1000 }, async () => {
+  const reasons: unknown[] = [];
+  await dispatchWithUnpairedToolResult(false, undefined, false, (reason) => reasons.push(reason));
+  assert.deepEqual(reasons, ["toolUse", "aborted"]);
+});
 
 test("raw action history retains independent reminder evidence beside writing context", { timeout: 1000 }, async () => {
   const result = await dispatchWithUnpairedToolResult(true, "retained");

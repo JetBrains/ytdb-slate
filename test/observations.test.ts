@@ -458,6 +458,7 @@ async function dispatchOnce(opts: {
   root: string;
   message?: unknown;
   noMessage?: boolean;
+  compact?: boolean;
   /** Called when the fake worker turn ends, so a one-shot throw arms just before the capture. */
   arm?: () => void;
   defineCtx?: (ctx: Record<string, unknown>) => void;
@@ -472,7 +473,11 @@ async function dispatchOnce(opts: {
   const store = new SlateStore(pi);
   opts.onStore?.(store);
   const manager = new ThreadManager(store, {}, undefined, fixtureRuntime());
-  const messages: unknown[] = [];
+  const messages: unknown[] = opts.compact ? [
+    { role: "user", content: "startup prompt" },
+    { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "startup response" }] },
+    { role: "custom", content: "startup context" },
+  ] : [];
   const subscribers = new Set<(event: unknown) => void>();
   const session = {
     messages,
@@ -494,16 +499,27 @@ async function dispatchOnce(opts: {
         messages.push(withUsage);
         for (const listener of subscribers) listener({ type: "message_end", message: withUsage });
       }
+      if (opts.compact) {
+        messages.splice(0, 3, { role: "compactionSummary", content: "startup response" });
+        for (const listener of subscribers) listener({ type: "compaction_end", result: {} });
+      }
       opts.arm?.();
     },
   };
   const view = manager as unknown as {
     live: Map<string, unknown>;
-    openWorkerFor(args: { requestContract: import("../extension/worker.ts").WorkerRequestContract }): Promise<{ session: unknown; baseline: unknown }>;
+    openWorkerFor(args: {
+      requestContract: import("../extension/worker.ts").WorkerRequestContract;
+      observeSession: (worker: typeof session) => void;
+    }): Promise<{ session: unknown; baseline: unknown }>;
   };
-  view.openWorkerFor = async ({ requestContract }) => {
+  view.openWorkerFor = async ({ requestContract, observeSession }) => {
     opts.onOpen?.();
     bindFakeWorkerRequest(session, requestContract);
+    if (opts.compact) {
+      observeSession(session);
+      for (const listener of subscribers) listener({ type: "message_end", message: messages[1] });
+    }
     view.live.set(opts.dispatch?.threadId ?? "t1", session);
     return { session, baseline: {} };
   };
@@ -550,6 +566,29 @@ test("dispatch joins text around non-text blocks and distinguishes malformed war
     });
     assert.ok(malformed.warnings.some((warning) => warning.includes("malformed findings row")));
     assert.ok(malformed.warnings.some((warning) => warning.includes("Put a file and line or line range in the location field, with no pipe character.")));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("observation survives a compacted projection and excludes startup text", { timeout: 1000 }, async () => {
+  const root = temporaryRoot();
+  try {
+    const answer = "Exact post-start answer.\nNo findings.";
+    const withAnswer = await dispatchOnce({
+      root, compact: true,
+      message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: answer }] },
+    });
+    const observation = withAnswer.episode.observations as { stored?: boolean; path?: string } | undefined;
+    assert.equal(observation?.stored, true);
+    assert.ok(observation?.path);
+    assert.deepEqual(readFileSync(join(root, observation.path)), Buffer.from(answer));
+
+    const withoutAnswer = await dispatchOnce({ root, compact: true, noMessage: true });
+    assert.deepEqual(withoutAnswer.episode.observations, {
+      stored: false, reason: "no-final-message", grammar: "absent",
+    });
+    assert.ok(withoutAnswer.warnings.some((warning) => warning.includes("produced no final response")));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
