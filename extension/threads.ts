@@ -206,25 +206,39 @@ function projectedActionAnswer(
 	const candidate = branch[end];
 	if (candidate?.type !== "message" || candidate.message.role !== "assistant") return undefined;
 
-	// An omitted response still has a source entry but projects no message.
-	// Do not fall back to an earlier assistant when the final source is omitted.
-	const retained = manager.buildSessionProjection().entries.find(entry => entry.sourceEntry.id === candidate.id);
-	if (retained) return lastAssistantMessage(retained.messages);
-	if (candidate.message.stopReason !== "stop") return undefined;
-
-	// Find the cut that left this answer out. A later compaction can keep
-	// the answer again. Pi applies the edits visible just before the cut.
-	const throughAnswer = new Set(branch.slice(0, end + 1).map(entry => entry.id));
-	let cut = -1;
-	for (let i = branch.length - 1; i > end; i--) {
-		const entry = branch[i]!;
-		if (entry.type !== "compaction") continue;
-		if (throughAnswer.has(entry.firstKeptEntryId)) break;
-		cut = i;
+	const settled = manager.buildSessionProjection().entries;
+	const retainedSource = (id: string) => settled.find(entry => entry.sourceEntry.id === id);
+	function replaySource(id: string, index: number) {
+		// Use the edits visible before the cut that ended the last retained interval.
+		const throughSource = new Set(branch.slice(0, index + 1).map(entry => entry.id));
+		let cut = -1;
+		for (let i = branch.length - 1; i > index; i--) {
+			const entry = branch[i]!;
+			if (entry.type !== "compaction") continue;
+			if (throughSource.has(entry.firstKeptEntryId)) break;
+			cut = i;
+		}
+		if (cut === -1) return undefined;
+		return buildSessionProjection(branch, branch[cut - 1]!.id).entries.find(entry => entry.sourceEntry.id === id);
 	}
-	if (cut === -1) return undefined;
-	const beforeCut = buildSessionProjection(branch, branch[cut - 1]!.id);
-	return lastAssistantMessage(beforeCut.entries.find(item => item.sourceEntry.id === candidate.id)?.messages ?? []);
+
+	const reason = candidate.message.stopReason;
+	const canBeRecoveryAttempt = reason === "error" || reason === "length";
+	const retained = retainedSource(candidate.id);
+	const finalSource = retained ?? (reason === "stop" || canBeRecoveryAttempt ? replaySource(candidate.id, end) : undefined);
+	if (canBeRecoveryAttempt && finalSource?.messages.length === 0) {
+		// A discarded attempt leaves the last completed answer in this action.
+		// A completed answer with an empty projection still ends the search.
+		for (let i = end - 1; i > boundary; i--) {
+			const entry = branch[i]!;
+			if (entry.type === "message" && entry.message.role === "assistant" && entry.message.stopReason === "stop") {
+				const completed = retainedSource(entry.id) ?? replaySource(entry.id, i);
+				return lastAssistantMessage(completed?.messages ?? []);
+			}
+		}
+		return undefined;
+	}
+	return lastAssistantMessage((reason === "stop" ? finalSource : retained)?.messages ?? []);
 }
 
 /**

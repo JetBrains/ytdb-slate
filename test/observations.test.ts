@@ -461,6 +461,7 @@ async function dispatchOnce(opts: {
   compact?: boolean;
   cut?: "plain" | "edited" | "omitted" | "partial-then-omitted" | "retained-omission" | "retained-restoration" | "partial";
   projection?: "empty-startup" | "detached-startup";
+  settle?: (manager: SessionManager) => void;
   /** Called when the fake worker turn ends, so a one-shot throw arms just before the capture. */
   arm?: () => void;
   defineCtx?: (ctx: Record<string, unknown>) => void;
@@ -480,7 +481,7 @@ async function dispatchOnce(opts: {
     { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "startup response" }] },
     { role: "custom", content: "startup context" },
   ] : [];
-  const sessionManager = opts.compact || opts.cut || opts.projection ? SessionManager.inMemory(opts.root) : undefined;
+  const sessionManager = opts.compact || opts.cut || opts.projection || opts.settle ? SessionManager.inMemory(opts.root) : undefined;
   for (const message of messages) sessionManager?.appendMessage(message as Parameters<SessionManager["appendMessage"]>[0]);
   const subscribers = new Set<(event: unknown) => void>();
   const session = {
@@ -519,7 +520,10 @@ async function dispatchOnce(opts: {
         sessionManager?.appendMessage(withUsage as Parameters<SessionManager["appendMessage"]>[0]);
         for (const listener of subscribers) listener({ type: "message_end", message: withUsage });
       }
-      if (sessionManager && opts.cut) {
+      if (sessionManager && opts.settle) {
+        opts.settle(sessionManager);
+        messages.splice(0, messages.length, ...sessionManager.buildSessionProjection().messages);
+      } else if (sessionManager && opts.cut) {
         const candidate = sessionManager.getLeafId();
         assert.ok(candidate);
         if (opts.cut === "edited") {
@@ -668,6 +672,67 @@ test("observation replays only a completed answer at the cut that removed it", {
         assert.equal(observation?.stored, true, cut);
         assert.ok(observation?.path, cut);
         assert.deepEqual(readFileSync(join(root, observation.path)), Buffer.from(answer), cut);
+      }
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("observation skips discarded recovery attempts within the saved action boundary", { timeout: 5000 }, async () => {
+  const root = temporaryRoot();
+  try {
+    for (const compact of [false, true]) {
+      for (const [scenario, answer] of [
+        ["retained", "original completed answer"],
+        ["summarized", "edited before summarization"],
+        ["withheld", undefined],
+        ["withheld-cut", undefined],
+        ["replacement", "later completed answer"],
+        ["partial-only", undefined],
+        ["visible-error-cut", undefined],
+      ] as const) {
+        const result = await dispatchOnce({
+          root, compact, noMessage: scenario === "partial-only",
+          message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "original completed answer" }] },
+          settle(manager) {
+            const assistant = (stopReason: "stop" | "toolUse" | "error" | "length", text: string) =>
+              manager.appendMessage({ role: "assistant", stopReason, content: [{ type: "text", text }] } as
+                Parameters<SessionManager["appendMessage"]>[0]);
+            if (scenario === "summarized") {
+              const original = manager.getLeafId();
+              assert.ok(original);
+              manager.appendContextEdit(original, { content: "edited before summarization" });
+              manager.appendCompaction("cut the completed answer", null, 100);
+              manager.appendContextEdit(original, { content: "edit outside the retained range" });
+            }
+            assistant("toolUse", "intervening tool partial");
+            manager.appendMessage({
+              role: "toolResult", toolCallId: "probe", toolName: "probe", isError: false,
+              content: [{ type: "text", text: "intervening tool result" }], timestamp: 1,
+            });
+            if (scenario === "withheld" || scenario === "withheld-cut") {
+              manager.appendContextEdit(assistant("stop", "withheld answer"), null);
+              if (scenario === "withheld-cut") manager.appendCompaction("cut the withheld answer", null, 100);
+            }
+            const attempt = assistant(scenario === "summarized" ? "length" : "error", "recovery attempt");
+            if (scenario !== "visible-error-cut") manager.appendContextEdit(attempt, null);
+            if (scenario === "summarized" || scenario === "visible-error-cut") {
+              manager.appendCompaction("cut the recovery attempt", null, 100);
+            }
+            if (scenario === "replacement") assistant("stop", "later completed answer");
+          },
+        });
+        const label = `${scenario}, startup entries: ${compact}`;
+        const observation = result.episode.observations as { stored?: boolean; path?: string } | undefined;
+        if (answer === undefined) {
+          assert.deepEqual(observation, { stored: false, reason: "no-final-message", grammar: "absent" }, label);
+          assert.equal(result.warnings.filter(warning => warning.includes("produced no final response")).length, 1, label);
+        } else {
+          assert.equal(observation?.stored, true, label);
+          assert.ok(observation?.path, label);
+          assert.deepEqual(readFileSync(join(root, observation.path)), Buffer.from(answer), label);
+        }
       }
     }
   } finally {

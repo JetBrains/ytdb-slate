@@ -22,6 +22,7 @@ import {
 	type SimpleStreamOptions,
 } from "@earendil-works/pi-ai";
 import { createLogicalRuntime } from "../extension/logical-model-runtime.ts";
+import { hasZeroFindings } from "../extension/observations.ts";
 import { SlateStore, THREAD_TYPES, type ThreadType } from "../extension/state.ts";
 import { ThreadManager } from "../extension/threads.ts";
 import { registerSlateTools } from "../extension/tools.ts";
@@ -385,7 +386,10 @@ type MatrixScenario =
 	| "observation-length-recover"
 	| "observation-partial-stop-omit"
 	| "observation-partial-length-cancel"
-	| "observation-partial-length-recover";
+	| "observation-partial-length-recover"
+	| "observation-retry-cancel"
+	| "observation-retry-cut-cancel"
+	| "observation-retry-stop-omit";
 
 interface MatrixState {
 	scenario: MatrixScenario;
@@ -532,7 +536,9 @@ function matrixProvider(state: MatrixState, provider: string, id: string) {
 		}
 		let kind: "tool" | "error" | "overflow" | "text" | "summary" = summarizing ? "summary" : "text";
 		if (!summarizing && state.scenario === "recovery-effort" && provider === "matrix-primary") kind = "error";
-		if (!summarizing && state.scenario === "included-retry-success" && provider === "matrix-primary" && state.primaryCalls === 2) kind = "error";
+		const retryObservation = state.scenario.startsWith("observation-retry-");
+		if (!summarizing && provider === "matrix-primary" && state.primaryCalls === 2 &&
+			(state.scenario === "included-retry-success" || (retryObservation && state.scenario !== "observation-retry-stop-omit"))) kind = "error";
 		if (!summarizing && state.scenario === "recovery-compaction-refusal") {
 			// The primary route exhausts its retries. The accepted fallback answers once,
 			// and its follow-up request overflows the window, so Pi starts compaction.
@@ -568,8 +574,9 @@ function matrixProvider(state: MatrixState, provider: string, id: string) {
 		}
 		const partialScenario = state.scenario.startsWith("observation-partial-");
 		const partial = partialScenario && !summarizing && state.primaryCalls === 2;
-		const output = matrixMessage(requestModel, partial ? "tool" : kind, responseText);
-		if (state.observationEvents && !summarizing) {
+		const output = matrixMessage(requestModel, partial ? "tool" : kind,
+			retryObservation ? (state.primaryCalls === 1 ? "No findings." : "follow-up completed answer") : responseText);
+		if (state.observationEvents && !retryObservation && !summarizing) {
 			const startup = state.primaryCalls === 1;
 			const length = partialScenario
 				? state.primaryCalls === 3 && state.scenario.startsWith("observation-partial-length-")
@@ -773,6 +780,8 @@ async function runWorkerRequestMatrixScenario(
 	const observeAnswer = scenario.startsWith("observation-");
 	const cancelObservation = scenario === "observation-length-cancel" || scenario === "observation-partial-length-cancel";
 	const retryCadence = scenario === "cadence-retry" || scenario === "cadence-failover";
+	const retryObservation = scenario.startsWith("observation-retry-");
+	const cancelRetry = retryObservation && scenario !== "observation-retry-stop-omit";
 	const root = mkdtempSync(join(tmpdir(), `slate-worker-matrix-${scenario}-`));
 	const project = join(root, "project");
 	const agent = join(root, "agent");
@@ -781,8 +790,12 @@ async function runWorkerRequestMatrixScenario(
 	mkdirSync(agent, { recursive: true });
 	mkdirSync(home, { recursive: true });
 	const settings = {
-		retry: { enabled: true, maxRetries: retryCadence || scenario === "recovery-effort" || scenario === "recovery-compaction-refusal" || scenario === "included-retry-success" ? 1 : 0, baseDelayMs: 0 },
-		compaction: scenario === "compaction" || scenario === "compaction-refusal" || scenario === "recovery-compaction-refusal" || scenario === "compaction-then-cancel" || (observeAnswer && !scenario.startsWith("observation-boundary"))
+		retry: {
+			enabled: true,
+			maxRetries: cancelRetry || retryCadence || scenario === "recovery-effort" || scenario === "recovery-compaction-refusal" || scenario === "included-retry-success" ? 1 : 0,
+			baseDelayMs: cancelRetry ? 1_000 : 0,
+		},
+		compaction: scenario === "compaction" || scenario === "compaction-refusal" || scenario === "recovery-compaction-refusal" || scenario === "compaction-then-cancel" || (observeAnswer && !retryObservation && !scenario.startsWith("observation-boundary"))
 			? { enabled: true, reserveTokens: 50, keepRecentTokens: 20 }
 			: { enabled: false },
 	};
@@ -877,7 +890,16 @@ export default function (pi: ExtensionAPI) {
       return { compaction: { summary: "test checkpoint", firstKeptEntryId: firstKept.id, tokensBefore: event.preparation.tokensBefore } };
     }
   });
-  if (state.observationEvents) {
+  if (state.scenario.startsWith("observation-retry-")) {
+    pi.on("turn_end", (event) => {
+      if (state.primaryCalls === 1 && state.scenario === "observation-retry-cut-cancel") return { entries: [
+        { type: "compaction", firstKeptEntryId: null, summary: "summarize the completed review" },
+      ] };
+      if (state.primaryCalls === 2 && state.scenario === "observation-retry-stop-omit") return { entries: [
+        { type: "context_edit", targetId: event.messageEntryId, replacement: null },
+      ] };
+    });
+  } else if (state.observationEvents) {
     pi.on("turn_end", (event) => {
       if (state.primaryCalls === 1) return { entries: [
         { type: "custom_message", customType: "observation-startup-tail", content: "retained startup tail", display: false },
@@ -1055,7 +1077,8 @@ export default function (pi: ExtensionAPI) {
     await state.startupToolEventGate;
   });
   pi.on("agent_settled", () => {
-    if ((state.scenario === "deferred-command-error" || state.scenario === "included-retry-success") && !state.includedScheduled) {
+    if ((state.scenario === "deferred-command-error" || state.scenario === "included-retry-success" ||
+        state.scenario.startsWith("observation-retry-")) && !state.includedScheduled) {
       state.includedScheduled = true;
       pi.sendUserMessage(state.scenario === "deferred-command-error" ? "/boom" : "included request with Pi retry", { expandPromptTemplates: true });
     }
@@ -1160,6 +1183,10 @@ export default function (pi: ExtensionAPI) {
 								state.observationEvents?.push(event.type + ":" + event.message.stopReason);
 							} else if (event.type === "entry_appended") {
 								state.observationEvents?.push(event.type + ":" + event.entry.type);
+								if (cancelRetry && event.entry.type === "context_edit" && event.entry.replacement === null) {
+									state.observationFinalId = event.entry.targetId;
+									queueMicrotask(() => cancelController.abort());
+								}
 							} else if (event.type === "compaction_end" && event.result !== undefined && !event.aborted) {
 								state.observationEvents?.push(event.type + ":" + event.reason);
 								if (cancelObservation) cancelController.abort();
@@ -1183,7 +1210,7 @@ export default function (pi: ExtensionAPI) {
 						: `run ${scenario}`),
 			},
 			ctx,
-			cancelObservation || scenario === "compaction-then-cancel" || scenario === "startup-caller-cancel-completed-tool" || scenario === "startup-caller-cancel-no-fact" || scenario === "startup-caller-cancel-fact-and-failure"
+			cancelRetry || cancelObservation || scenario === "compaction-then-cancel" || scenario === "startup-caller-cancel-completed-tool" || scenario === "startup-caller-cancel-no-fact" || scenario === "startup-caller-cancel-fact-and-failure"
 				? cancelController.signal
 				: undefined,
 		);
@@ -1354,7 +1381,7 @@ export default function (pi: ExtensionAPI) {
 			? SessionManager.open(join(transcriptDir, readdirSync(transcriptDir).find(name => name.endsWith(".jsonl"))!)).buildSessionProjection()
 			: undefined;
 		return { result, rejectedError: undefined as Error | undefined, state, transcript, episodeBytes, laterPrompt, restored,
-			snapshotCount: snapshots.length, episodeFileCount, observationFiles, observationBytes, projected };
+			snapshotCount: snapshots.length, episodeFileCount, observationFiles, observationBytes, projected, runtimeFolder: store.runtimeFolder };
 	} finally {
 		secondRequestGate.resolve();
 		startupOpenGate.resolve();
@@ -1481,6 +1508,59 @@ test("worker observations do not use a retained tool partial after final omissio
 				assert.deepEqual(observation, { stored: false, reason: "no-final-message", grammar: "absent" });
 				assert.deepEqual(observationFiles, []);
 				assert.equal(observationBytes, undefined);
+			}
+		});
+	}
+});
+
+test("worker observations retain a completed review after cancellation of an included retry", { timeout: 30_000 }, async (t) => {
+	for (const scenario of ["observation-retry-cancel", "observation-retry-cut-cancel", "observation-retry-stop-omit"] as const) {
+		await t.test(scenario, { timeout: 10_000 }, async () => {
+			const { result, state, observationFiles, observationBytes, projected, episodeBytes, restored, transcript, runtimeFolder } =
+				await runWorkerRequestMatrixScenario(scenario, false, undefined, 2, "reviewer");
+			const withheld = scenario === "observation-retry-stop-omit";
+			const cut = scenario === "observation-retry-cut-cancel";
+			assert.equal(state.includedScheduled, true);
+			assert.deepEqual([state.primaryCalls, state.fallbackCalls, state.otherCalls, state.toolCalls, state.compactionCalls], [2, 0, 0, 0, 0],
+				"only the review and included follow-up reached the provider");
+			assert.equal(state.startupMessageCount, 0);
+			assert.ok(projected);
+			const finalReason = withheld ? "stop" : "error";
+			const discarded = projected.entries.find(({ sourceEntry }) => sourceEntry.type === "message" &&
+				sourceEntry.message.role === "assistant" && sourceEntry.message.stopReason === finalReason &&
+				(withheld ? extractContextText({ messages: [sourceEntry.message] }) === "follow-up completed answer"
+					: sourceEntry.id === state.observationFinalId));
+			assert.ok(discarded, "reopening preserves the omitted source and its identity");
+			assert.deepEqual(discarded.messages, []);
+			assert.ok(transcript.split("\n").some(line => line.includes('"type":"context_edit"') &&
+				line.includes(`"targetId":"${discarded.sourceEntry.id}"`) && line.includes('"replacement":null')));
+			assert.equal(projected.messages.some(message => message.role === "assistant" &&
+				extractContextText({ messages: [message] }) === "No findings."), !cut);
+			assert.equal(projected.entries.some(({ sourceEntry }) => sourceEntry.type === "compaction"), cut);
+			assert.match(episodeBytes, /No findings\./, "the completed review remains in the episode facts");
+			assert.equal(result.episode.status, withheld ? "ok" : "failed");
+			assert.equal(result.thread.status, withheld ? "successful" : "failed");
+			const observation = result.episode.observations;
+			assert.deepEqual(restored.episodes.get(result.episode.id)?.observations, observation);
+			assert.equal(result.warnings.filter(warning => warning.includes("produced no final response")).length, withheld ? 1 : 0);
+			assert.ok(!result.warnings.some(warning => warning.includes("findings row") && !warning.includes("produced no final response")));
+			const header = episodeBytes.split("\n\n").slice(0, 2).join("\n\n").split("\n");
+			if (withheld) {
+				assert.deepEqual(observation, { stored: false, reason: "no-final-message", grammar: "absent" });
+				assert.deepEqual(observationFiles, []);
+				assert.equal(observationBytes, undefined);
+				assert.ok(header.includes("> observations: not stored | reason: no-final-message | grammar: absent"));
+			} else {
+				assert.equal(result.thread.outcomeReason, "worker action was cancelled");
+				assert.ok(header.includes("> failure: worker action was cancelled"));
+				assert.match(episodeBytes, /\[final assistant text, stop reason=stop\]\nNo findings\.\n\n## Open Issues\nworker action was cancelled\n$/);
+				assert.doesNotMatch(episodeBytes, /Connection error\.|summarize the completed review/);
+				assert.deepEqual(observationBytes, Buffer.from("No findings."));
+				assert.equal(hasZeroFindings(observationBytes.toString("utf8")), true);
+				const path = `.pi/slate/${runtimeFolder}/observations/${result.episode.id}.md`;
+				assert.deepEqual(observationFiles, [`${result.episode.id}.md`]);
+				assert.deepEqual(observation, { stored: true, path, bytes: 12, truncated: false, grammar: "absent" });
+				assert.ok(header.includes(`> observations: stored | path: ${path} | bytes: 12 | truncated: no | grammar: absent`));
 			}
 		});
 	}
