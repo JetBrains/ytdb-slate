@@ -382,7 +382,10 @@ type MatrixScenario =
 	| "observation-boundary-cut-omit"
 	| "observation-boundary-cut-followup"
 	| "observation-length-cancel"
-	| "observation-length-recover";
+	| "observation-length-recover"
+	| "observation-partial-stop-omit"
+	| "observation-partial-length-cancel"
+	| "observation-partial-length-recover";
 
 interface MatrixState {
 	scenario: MatrixScenario;
@@ -426,6 +429,8 @@ interface MatrixState {
 	cadenceCalls?: Array<{ provider: string; messages: string[]; reminderBytes: number[]; stop: string; error?: string }>;
 	commandArgs?: string;
 	observationEvents?: string[];
+	observationPartialId?: string;
+	observationFinalId?: string;
 	startupMessageCount?: number;
 	compactionHistoryCalls: number;
 	compactionTurnPrefixCalls: number;
@@ -561,14 +566,20 @@ function matrixProvider(state: MatrixState, provider: string, id: string) {
 				call === 1 || failover && call === 2 ? "error" :
 				call === 0 || call === (failover ? 3 : 2) || call === (failover ? 4 : 3) ? "tool" : "text";
 		}
-		const output = matrixMessage(requestModel, kind, responseText);
+		const partialScenario = state.scenario.startsWith("observation-partial-");
+		const partial = partialScenario && !summarizing && state.primaryCalls === 2;
+		const output = matrixMessage(requestModel, partial ? "tool" : kind, responseText);
 		if (state.observationEvents && !summarizing) {
 			const startup = state.primaryCalls === 1;
-			const length = state.primaryCalls === 2 && state.scenario.startsWith("observation-length-");
+			const length = partialScenario
+				? state.primaryCalls === 3 && state.scenario.startsWith("observation-partial-length-")
+				: state.primaryCalls === 2 && state.scenario.startsWith("observation-length-");
 			const text = startup ? "startup observation fact " + "startup ".repeat(80) : length ? "discarded length attempt"
+				: partial ? "earlier tool partial"
+				: partialScenario ? state.primaryCalls === 3 ? "omitted stop answer" : "distinct answer after length recovery"
 				: state.scenario === "observation-length-recover" ? "recovered length answer"
 				: state.primaryCalls === 3 ? "later follow-up answer" : "original observation answer";
-			output.content = [{ type: "text", text }];
+			output.content = [{ type: "text", text }, ...(partial ? output.content : [])];
 			if (length) output.stopReason = "length";
 			if (startup && (state.scenario === "observation-edit" || state.scenario === "observation-open-failed")) {
 				output.usage.input = 99_990;
@@ -760,6 +771,7 @@ async function runWorkerRequestMatrixScenario(
 ) {
 	const cadence = scenario.startsWith("cadence-");
 	const observeAnswer = scenario.startsWith("observation-");
+	const cancelObservation = scenario === "observation-length-cancel" || scenario === "observation-partial-length-cancel";
 	const retryCadence = scenario === "cadence-retry" || scenario === "cadence-failover";
 	const root = mkdtempSync(join(tmpdir(), `slate-worker-matrix-${scenario}-`));
 	const project = join(root, "project");
@@ -858,9 +870,11 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_before_compact", (event) => {
     state.compactionEvents.push({ phase: "start", reason: event.reason, willRetry: event.willRetry });
     if (state.observationEvents) {
-      const tail = event.branchEntries.find(entry => entry.type === "custom_message" && entry.customType === "observation-startup-tail");
-      if (!tail) throw new Error("missing startup tail before compaction");
-      return { compaction: { summary: "test checkpoint", firstKeptEntryId: tail.id, tokensBefore: event.preparation.tokensBefore } };
+      const firstKept = event.branchEntries.find(entry => state.observationPartialId
+        ? entry.id === state.observationPartialId
+        : entry.type === "custom_message" && entry.customType === "observation-startup-tail");
+      if (!firstKept) throw new Error("missing retained entry before compaction");
+      return { compaction: { summary: "test checkpoint", firstKeptEntryId: firstKept.id, tokensBefore: event.preparation.tokensBefore } };
     }
   });
   if (state.observationEvents) {
@@ -868,6 +882,16 @@ export default function (pi: ExtensionAPI) {
       if (state.primaryCalls === 1) return { entries: [
         { type: "custom_message", customType: "observation-startup-tail", content: "retained startup tail", display: false },
       ] };
+      if (state.scenario.startsWith("observation-partial-")) {
+        if (state.primaryCalls === 2) state.observationPartialId = event.messageEntryId;
+        if (state.primaryCalls === 3) {
+          state.observationFinalId = event.messageEntryId;
+          if (state.scenario === "observation-partial-stop-omit") return { entries: [
+            { type: "context_edit", targetId: event.messageEntryId, replacement: null },
+            { type: "compaction", firstKeptEntryId: state.observationPartialId, summary: "keep the earlier tool turn" },
+          ] };
+        }
+      }
       if (state.scenario === "observation-edit") return { entries: [
         { type: "context_edit", targetId: event.messageEntryId, replacement: { content: "settled edited answer" } },
       ] };
@@ -1138,7 +1162,7 @@ export default function (pi: ExtensionAPI) {
 								state.observationEvents?.push(event.type + ":" + event.entry.type);
 							} else if (event.type === "compaction_end" && event.result !== undefined && !event.aborted) {
 								state.observationEvents?.push(event.type + ":" + event.reason);
-								if (scenario === "observation-length-cancel") cancelController.abort();
+								if (cancelObservation) cancelController.abort();
 							}
 						});
 					},
@@ -1159,7 +1183,7 @@ export default function (pi: ExtensionAPI) {
 						: `run ${scenario}`),
 			},
 			ctx,
-			scenario === "observation-length-cancel" || scenario === "compaction-then-cancel" || scenario === "startup-caller-cancel-completed-tool" || scenario === "startup-caller-cancel-no-fact" || scenario === "startup-caller-cancel-fact-and-failure"
+			cancelObservation || scenario === "compaction-then-cancel" || scenario === "startup-caller-cancel-completed-tool" || scenario === "startup-caller-cancel-no-fact" || scenario === "startup-caller-cancel-fact-and-failure"
 				? cancelController.signal
 				: undefined,
 		);
@@ -1409,6 +1433,54 @@ test("worker observations use the settled action projection", { timeout: 30_000 
 				assert.ok(discarded, "the raw attempt remains in the retained entry range");
 				assert.deepEqual(discarded.messages, []);
 				assert.match(transcript, /"type":"context_edit"[^\n]+"replacement":null/);
+			}
+		});
+	}
+});
+
+test("worker observations do not use a retained tool partial after final omission", { timeout: 30_000 }, async (t) => {
+	const prefix = ["message_end:stop", "entry_appended:custom_message", "turn_end:stop", "message_end:toolUse", "turn_end:toolUse"];
+	const overflow = ["message_end:length", "turn_end:length", "entry_appended:context_edit", "compaction_end:overflow"];
+	for (const [scenario, tail, answer, cancelled] of [
+		["observation-partial-stop-omit", ["message_end:stop", "entry_appended:context_edit", "entry_appended:compaction", "turn_end:stop"], undefined, false],
+		["observation-partial-length-cancel", overflow, undefined, true],
+		["observation-partial-length-recover", [...overflow, "message_end:stop", "turn_end:stop"], "distinct answer after length recovery", false],
+	] as const) {
+		await t.test(scenario, { timeout: 10_000 }, async () => {
+			const { result, state, observationFiles, observationBytes, projected, episodeBytes, restored } =
+				await runWorkerRequestMatrixScenario(scenario, false, undefined, 2, "reviewer");
+			assert.deepEqual(state.observationEvents, [...prefix, ...tail]);
+			assert.deepEqual([state.primaryCalls, state.fallbackCalls, state.otherCalls, state.toolCalls], [answer ? 4 : 3, 0, 0, 1]);
+			assert.equal(result.episode.status, cancelled ? "failed" : "ok");
+			assert.equal(result.thread.status, cancelled ? "failed" : "successful");
+			if (cancelled) {
+				assert.match(result.thread.outcomeReason ?? "", /worker action was cancelled/);
+				assert.match(episodeBytes, /worker action was cancelled/);
+			}
+			assert.match(episodeBytes, /startup observation fact/);
+			assert.match(episodeBytes, /retained matrix tool result/);
+			assert.match(episodeBytes, scenario === "observation-partial-stop-omit" ? /omitted stop answer/ : /discarded length attempt/);
+			assert.ok(state.observationPartialId);
+			assert.ok(state.observationFinalId);
+			assert.ok(projected);
+			const partial = projected.entries.find(entry => entry.sourceEntry.id === state.observationPartialId);
+			assert.equal(extractContextText({ messages: partial?.messages }), "earlier tool partial");
+			assert.ok(projected.messages.some(message => message.role === "toolResult" && !message.isError &&
+				extractContextText({ messages: [message] }) === "retained matrix tool result"));
+			const discarded = projected.entries.find(entry => entry.sourceEntry.id === state.observationFinalId);
+			assert.ok(discarded, "the final attempt remains in the retained entry range");
+			assert.deepEqual(discarded.messages, []);
+			const observation = result.episode.observations;
+			assert.deepEqual(restored.episodes.get(result.episode.id)?.observations, observation);
+			assert.equal(result.warnings.filter(warning => warning.includes("produced no final response")).length, answer ? 0 : 1);
+			if (answer) {
+				assert.equal(observation?.stored, true);
+				assert.equal(observationFiles?.length, 1);
+				assert.deepEqual(observationBytes, Buffer.from(answer));
+			} else {
+				assert.deepEqual(observation, { stored: false, reason: "no-final-message", grammar: "absent" });
+				assert.deepEqual(observationFiles, []);
+				assert.equal(observationBytes, undefined);
 			}
 		});
 	}

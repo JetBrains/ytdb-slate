@@ -201,25 +201,19 @@ function projectedActionAnswer(
 	const branch = manager.getBranch();
 	const boundary = startupLeaf === null ? -1 : branch.findIndex(entry => entry.id === startupLeaf);
 	if (startupLeaf !== null && boundary === -1) return undefined;
-	const action = branch.slice(boundary + 1);
-	const actionIds = new Set(action.map(entry => entry.id));
-	const { entries } = manager.buildSessionProjection();
-	for (let i = entries.length - 1; i >= 0; i--) {
-		const entry = entries[i]!;
-		if (!actionIds.has(entry.sourceEntry.id)) continue;
-		const answer = lastAssistantMessage(entry.messages);
-		if (answer !== undefined) return answer;
-	}
+	const end = branch.findLastIndex((entry, index) =>
+		index > boundary && entry.type === "message" && entry.message.role === "assistant");
+	const candidate = branch[end];
+	if (candidate?.type !== "message" || candidate.message.role !== "assistant") return undefined;
 
-	// Recover only the last completed answer, not an earlier partial response.
-	const last = action.findLastIndex(entry => entry.type === "message" && entry.message.role === "assistant");
-	const candidate = action[last];
-	if (candidate?.type !== "message" || candidate.message.role !== "assistant" || candidate.message.stopReason !== "stop") return undefined;
-	if (entries.some(entry => entry.sourceEntry.id === candidate.id)) return undefined;
+	// An omitted response still has a source entry but projects no message.
+	// Do not fall back to an earlier assistant when the final source is omitted.
+	const retained = manager.buildSessionProjection().entries.find(entry => entry.sourceEntry.id === candidate.id);
+	if (retained) return lastAssistantMessage(retained.messages);
+	if (candidate.message.stopReason !== "stop") return undefined;
 
 	// Find the cut that left this answer out. A later compaction can keep
 	// the answer again. Pi applies the edits visible just before the cut.
-	const end = boundary + 1 + last;
 	const throughAnswer = new Set(branch.slice(0, end + 1).map(entry => entry.id));
 	let cut = -1;
 	for (let i = branch.length - 1; i > end; i--) {

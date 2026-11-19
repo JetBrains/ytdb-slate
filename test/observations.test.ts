@@ -459,7 +459,7 @@ async function dispatchOnce(opts: {
   message?: unknown;
   noMessage?: boolean;
   compact?: boolean;
-  cut?: "plain" | "edited" | "omitted" | "partial-then-omitted" | "retained-omission" | "partial";
+  cut?: "plain" | "edited" | "omitted" | "partial-then-omitted" | "retained-omission" | "retained-restoration" | "partial";
   projection?: "empty-startup" | "detached-startup";
   /** Called when the fake worker turn ends, so a one-shot throw arms just before the capture. */
   arm?: () => void;
@@ -496,11 +496,19 @@ async function dispatchOnce(opts: {
       return () => subscribers.delete(listener);
     },
     prompt: async () => {
-      if (opts.cut === "partial-then-omitted") {
+      let partial: string | undefined;
+      if (opts.cut === "partial-then-omitted" || opts.cut === "retained-restoration") {
         assert.ok(sessionManager);
-        sessionManager.appendMessage({
-          role: "assistant", stopReason: "toolUse", content: [{ type: "text", text: "earlier partial text" }],
+        partial = sessionManager.appendMessage({
+          role: "assistant", stopReason: "toolUse", content: [
+            { type: "text", text: "earlier partial text" },
+            { type: "toolCall", id: "probe", name: "probe", arguments: {} },
+          ],
         } as Parameters<SessionManager["appendMessage"]>[0]);
+        sessionManager.appendMessage({
+          role: "toolResult", toolCallId: "probe", toolName: "probe", isError: false,
+          content: [{ type: "text", text: "retained result" }], timestamp: 1,
+        });
       }
       if (!opts.noMessage) {
         const message = opts.message ?? { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "No findings." }] };
@@ -518,11 +526,14 @@ async function dispatchOnce(opts: {
           sessionManager.appendCompaction("summarize the original answer", null, 100);
           sessionManager.appendCompaction("keep the answer again", candidate, 100);
           sessionManager.appendContextEdit(candidate, { content: "Exact edited answer." });
-        } else if (opts.cut.endsWith("omitted") || opts.cut === "retained-omission") {
+        } else if (opts.cut.endsWith("omitted") || opts.cut === "retained-omission" || opts.cut === "retained-restoration") {
           sessionManager.appendContextEdit(candidate, null);
         }
         sessionManager.appendCompaction("summarize the answer",
-          opts.cut === "retained-omission" ? candidate : null, 100);
+          partial ?? (opts.cut === "retained-omission" ? candidate : null), 100);
+        if (opts.cut === "retained-restoration") {
+          sessionManager.appendContextEdit(candidate, { content: "Later edit restores the answer." });
+        }
         if (opts.cut === "edited") {
           sessionManager.appendContextEdit(candidate, { content: "Edit outside the retained context." });
           sessionManager.appendCompaction("summarize again without the answer", null, 100);
@@ -639,6 +650,7 @@ test("observation replays only a completed answer at the cut that removed it", {
       ["omitted", undefined],
       ["partial-then-omitted", undefined],
       ["retained-omission", undefined],
+      ["retained-restoration", "Later edit restores the answer."],
       ["partial", undefined],
     ] as const) {
       const result = await dispatchOnce({
@@ -651,11 +663,34 @@ test("observation replays only a completed answer at the cut that removed it", {
       const observation = result.episode.observations as { stored?: boolean; path?: string } | undefined;
       if (answer === undefined) {
         assert.deepEqual(observation, { stored: false, reason: "no-final-message", grammar: "absent" }, cut);
+        assert.ok(result.warnings.some(warning => warning.includes("produced no final response")), cut);
       } else {
         assert.equal(observation?.stored, true, cut);
         assert.ok(observation?.path, cut);
         assert.deepEqual(readFileSync(join(root, observation.path)), Buffer.from(answer), cut);
       }
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("observation keeps visible tool and error endings", { timeout: 2000 }, async () => {
+  const root = temporaryRoot();
+  try {
+    for (const stopReason of ["toolUse", "error"] as const) {
+      const result = await dispatchOnce({
+        root, compact: true,
+        message: {
+          role: "assistant", stopReason, errorMessage: "worker error",
+          content: [{ type: "text", text: "Visible ending." }],
+        },
+      });
+      const observation = result.episode.observations as { stored: boolean; path?: string };
+      assert.equal(result.episode.status, stopReason === "error" ? "failed" : "ok");
+      assert.equal(observation.stored, true);
+      assert.ok(observation.path);
+      assert.deepEqual(readFileSync(join(root, observation.path)), Buffer.from("Visible ending."));
     }
   } finally {
     rmSync(root, { recursive: true, force: true });
