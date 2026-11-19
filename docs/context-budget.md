@@ -17,7 +17,7 @@ For example, 40% of the `anthropic/claude-sonnet-5-5` window is 400,000 tokens.
 For `openai/gpt-6.1-sol`, 40% is 108,800 tokens.
 An absolute budget states the token count directly.
 
-## The OpenAI pricing cliff
+## OpenAI long-context pricing
 
 For `openai/gpt-6.1-sol`, a request above 272,000 input tokens uses long-context
 rates for the full request. The input and cache rates double.
@@ -32,18 +32,14 @@ The registered rates in dollars per million tokens are:
 | Cache write | 2.50 | 5 |
 
 An agent loop resends the conversation on each turn.
-While the conversation stays above 272,000 input tokens, each request uses
-the long-context rates. The purpose of the built-in default budget is to
-pause the orchestrator before a request crosses this boundary.
+A prompt cache hit can lower the cost of reused input tokens.
+Cached tokens still count toward the pricing boundary and the context window.
 
-## Defaults
+## Default
 
-- **256,000** — the built-in default, ≈16K under the 272K boundary
-  so the pause turn and the handoff brief itself stay on
-  short-context rates.
-- **`anthropic/.*` → 400,000** — a built-in override for Anthropic
-  models, preserving continuity with the previous 40%-of-1M default
-  on flagship Claude.
+The built-in budget is **400,000 tokens** for every provider.
+The [clamp](#the-clamp) can lower the effective budget for smaller windows.
+The budget is a pause threshold, not a price limit.
 
 ## Configuration
 
@@ -60,38 +56,32 @@ or an object:
 ```json
 {
   "contextBudget": {
-    "tokens": 256000,
+    "tokens": 350000,
     "overrides": [
-      { "match": "openai/gpt-6\\.1-sol", "tokens": 240000 },
-      { "match": "anthropic/.*", "tokens": 400000 }
+      { "match": "openai/gpt-6\\.1-sol", "tokens": 240000 }
     ]
   }
 }
 ```
 
-Each override's `match` is an anchored regex tested against the full
-`provider/id` spec. The FIRST matching override wins, in config
-order. Precedence overall: user override → user scalar (`tokens`) →
-built-in `anthropic/.*` rule → built-in default. Invalid input is
-warned about and never silently changes behavior; what applies
-afterwards depends on where the damage is:
+Each override's `match` is a regular expression that matches the full
+`provider/id` value. Slate uses the first matching override in file order.
+Without a match, Slate uses `tokens` if set, or the built-in default.
+Slate warns about invalid input:
 
 - An invalid WHOLE value (bad number, wrong type) is treated as if
   `contextBudget` were unset: legacy percent mode if
-  `pauseThresholdPercent` is configured, built-in budget defaults
-  otherwise.
-- An invalid `tokens` inside an otherwise valid object is dropped —
-  the object still opts into budget mode, so the built-in defaults
-  fill the scalar layer.
-- An invalid override entry is skipped — the next layer of the
-  precedence chain applies.
+  `pauseThresholdPercent` is configured, or the built-in budget otherwise.
+- Slate drops an invalid `tokens` value from an otherwise valid object.
+  The object still selects budget mode.
+- Slate skips an invalid override entry.
 
 Legacy note: `pauseThresholdPercent` is deprecated; it keeps its
 exact old semantics only when it is set AND `contextBudget` is
 absent or entirely invalid — an invalid budget sanitizes to absent
 and never disables the percent. A PARTIALLY invalid object (e.g.
 `{"tokens": -1}`) remains a valid budget object: budget mode with
-built-in defaults, percent ignored.
+the built-in budget, percent ignored.
 
 ## The clamp
 
@@ -113,16 +103,20 @@ immediately but mid-session settings-file edits do not. If the settings reader
 fails, Slate keeps its fallback of 16,384. The formula and half-window floor
 above remain unchanged.
 
-| Context window | Effective budget |
-| --- | --- |
-| 200K | 150,848 |
-| 272K | 222,848 |
-| 400K | 256,000 (default binds) |
-| 1M (Anthropic) | 400,000 |
+With the built-in budget and the default compaction reserve:
 
-Rationale: the clamp guarantees the pause fires before pi's
-auto-compaction and leaves room to write the handoff brief; the
-half-window floor keeps small-window models usable.
+| Context window (tokens) | Effective budget (tokens) |
+| --- | --- |
+| 200,000 | 150,848 |
+| 272,000 | 222,848 |
+| 400,000 | 350,848 |
+| 1,000,000 | 400,000 |
+
+The clamp subtracts a 32,768-token margin from Pi's compaction threshold
+(the context window minus the reserve). The half-window floor can reduce
+this margin. With a large reserve, the floor can put the pause threshold
+above Pi's compaction threshold. Slate can cancel the first threshold
+compaction and pause instead. This does not guarantee room for the brief.
 
 ## Writing-reminder cadence
 
@@ -516,26 +510,20 @@ compression request uses a context window of at least 1,050,000 tokens, as
 
 ## Accepted limitations
 
-- When context is near the 256,000-token default, one turn that adds more
-  than 16,000 tokens can cross 272,000 input tokens and incur long-context rates.
-  This applies to `openai/gpt-6.1-sol` after the `modelOverrides` step in
-  § "Using GPT-6.1 Sol's full 1.05M window" if the default budget stays.
-  With the default compaction reserve, the clamp keeps that budget at 256,000.
-  With the registered 272,000-token window, the clamp instead gives 222,848,
-  so this limitation does not apply there. Override to 240,000 to increase
-  the margin.
-- The 32K margin in the clamp covers typical turns, not extreme
-  single-turn ingestion (several parallel large file reads) — hand
-  off earlier or set a lower override when running tier-priced
-  models hard.
-- The pause-fires-before-compaction guarantee holds for single-turn
-  ingestion under 32,768 tokens — and only where the margin branch
-  of the clamp binds (context window ≥ ~98K with the default
-  16,384-token reserve); on smaller, floor-clamped windows the
-  pre-compaction margin is narrower. Beyond the margin a pass-through
-  compaction can land in the same cycle and the handoff brief is
-  written from compacted context — episodes and thread state survive
-  on disk, so handoff still functions.
+- If the effective pause threshold exceeds the active model's pricing
+  boundary, a request can use the higher rates before Slate pauses.
+  This can happen with an expanded window or a larger registered window.
+  For example, Pi registers `openai-codex/gpt-6.1-sol` with a 500,000-token
+  window. With the default reserve, the built-in pause threshold is 400,000
+  tokens, above the pricing boundary of 272,000 input tokens.
+  To leave more room before the boundary, set a lower budget, such as
+  240,000 tokens. Match the override to the active `provider/id`.
+  The example override matches only `openai/gpt-6.1-sol`.
+  One large turn can still cross the pricing boundary before the pause.
+- A large turn can cross both the pause and compaction thresholds.
+  If Slate has already paused, Pi can compact the context before the
+  orchestrator writes the handoff brief. Episodes and thread state remain
+  on disk.
 - The doctrine sizes above cover the stated fixtures only. A project that
   injects `doctrineExtraPath` or `orchestratorPromptDocs` pays for those on top.
   A larger worker-extension roster also adds context beyond the representative
