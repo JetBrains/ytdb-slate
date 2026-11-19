@@ -823,7 +823,7 @@ export interface SlateConfig {
 	requestThrottle?: RequestThrottleConfig | SanitizedRequestThrottle; // raw or session-sanitized per-model worker request pacing — see request-throttle.ts
 	maxConcurrent?: number; // per-manager action cap, validated as a positive safe integer with fallback 8. See docs/design-principles.md §5.
 	pauseThresholdPercent?: number; // DEPRECATED: legacy percent-based auto-pause (default 40); applies only when set AND contextBudget is absent or entirely invalid (invalid sanitizes to absent — a partially invalid object stays budget mode)
-	contextBudget?: number | ContextBudgetObject; // absolute orchestrator token budget; bare number = { tokens: N }; {} opts into built-in defaults (256k, 400k for anthropic/*) — see handoff.ts
+	contextBudget?: number | ContextBudgetObject; // A number sets the token budget. An empty object uses the 400,000-token default.
 	orchestratorModeDefault?: boolean; // seed orchestrator mode ON for fresh interactive sessions (unsaved until first real mutation)
 	orchestratorPromptDocs?: string[]; // role-guideline docs appended to the orchestrator prompt (source-relative paths resolved by config.ts)
 	workerPromptDocs?: string[]; // role-guideline docs appended to worker system prompts (source-relative paths resolved by config.ts)

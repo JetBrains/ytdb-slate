@@ -1300,11 +1300,14 @@ try {
 			check("writing-reminder-budget", false, "extension/handoff.ts loads for effective-budget verification", handoffLoad.error?.stack ?? handoffLoad.error);
 			check("writing-reminder-handoff-order", false, "extension/handoff.ts loads for real adoption-order verification", handoffLoad.error?.stack ?? handoffLoad.error);
 		} else {
+			const overrideConfig = { tokens: 110_000, overrides: [{ match: "p/special", tokens: 500_000 }] };
 			const branchBudgets = {
-				override: handoff.effectiveContextBudgetForModel({ tokens: 110_000, overrides: [{ match: "p/special", tokens: 500_000 }] }, "p/special", 200_000, 16_384),
+				wideOverride: handoff.effectiveContextBudgetForModel(overrideConfig, "p/special", 1_000_000, 16_384),
+				clampedOverride: handoff.effectiveContextBudgetForModel(overrideConfig, "p/special", 200_000, 16_384),
 				scalar: handoff.effectiveContextBudgetForModel({ tokens: 120_000 }, "p/other", 500_000, 16_384),
 				anthropic: handoff.effectiveContextBudgetForModel(undefined, "anthropic/model", 1_000_000, 16_384),
-				global: handoff.effectiveContextBudgetForModel(undefined, "openai/model", 1_000_000, 16_384),
+				openai: handoff.effectiveContextBudgetForModel(undefined, "openai/model", 1_000_000, 16_384),
+				clampedDefault: handoff.effectiveContextBudgetForModel(undefined, "openai/model", 400_000, 16_384),
 			};
 			const budgetHandlers = {};
 			const budgetPi = { on: (event, handler) => { (budgetHandlers[event] ??= []).push(handler); }, sendMessage() {} };
@@ -1317,11 +1320,13 @@ try {
 			);
 			const budgetCtx = { cwd: WORK, isProjectTrusted: () => true, model: { provider: "p", id: "special" } };
 			const hookBudget = budgetHooks.effectiveContextBudget(500_000, budgetCtx);
-			checkAll("writing-reminder-budget", "the production budget path accepts an already-read window and covers override, scalar, provider default, global default, and clamp branches", [
-				["override then clamp", branchBudgets.override === 150_848, branchBudgets],
+			checkAll("writing-reminder-budget", "the production budget path accepts an already-read window and covers override, scalar, shared default, and clamp", [
+				["explicit override can exceed the built-in default", branchBudgets.wideOverride === 500_000, branchBudgets],
+				["override then clamp", branchBudgets.clampedOverride === 150_848, branchBudgets],
 				["scalar", branchBudgets.scalar === 120_000, branchBudgets],
 				["anthropic default", branchBudgets.anthropic === 400_000, branchBudgets],
-				["global default", branchBudgets.global === 256_000, branchBudgets],
+				["openai default", branchBudgets.openai === 400_000, branchBudgets],
+				["default clamps on a 400,000-token window", branchBudgets.clampedDefault === 350_848, branchBudgets],
 				["real hook uses config instead of bare window", hookBudget === 120_000, hookBudget],
 			]);
 

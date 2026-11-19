@@ -12,9 +12,9 @@
 
 33eed092de61cd847813460d9d454ec84e6b507358168da61c939bf42b00ccc9  docs/change-records.md
 
-be281e2388e09b15abb6257bfe75ed989bf5aabf896addf572ad195a5e7be739  docs/configuration.md
+25804d8d48d9afdc6e1d9a94223d785fc529dcd002c6c01c1a6c2f35fd346b87  docs/configuration.md
 
-99c767dadd4e77a3234c7370466e407e92bb169f3339b00d64e6550a5293e7f0  docs/context-budget.md
+ede54793fe3c03b59539185a1b7a65425aef2135f09245ae1c17fcd5658d9563  docs/context-budget.md
 
 0fa1dc5b979304aae079c6bdfaa8b772be9e6401ac82bd1958ca77255e390a96  docs/delivery-packages.md
 
