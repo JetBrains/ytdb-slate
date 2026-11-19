@@ -1330,13 +1330,24 @@ The driver checks each case against its expected roster. It checks load and
 session health, exact requests by role and route, tool results, steering
 order, hidden records, compressor input, and durable episodes. The normal
 cases compare tools-only and combined delivery with the same work and
-answer. The matched threshold cases start with the same nonempty history.
-Only the combined case compacts after the answer. Both store the same exact
-observation even though compaction moves the answer before the startup
-offset. Separate cases check overflow and output-length recovery, disabled
-compaction, cancelled and failed summaries, rejection of an oversized form,
-and both steering modes. Model-selected work and a compaction handler's
-follow-up have separate controls.
+answer. Both durable episode bodies must include the answer marker and two
+distinct tool-result markers copied from the actual compressor input. Neither
+that input nor the durable episodes may contain an automatic reminder.
+
+A case omits `writing.remindTurns` and checks four exact tools-only sends before
+the combined send in round five. Worker request six is the first to include
+writing. A separate interval-three case verifies that an output-length stop
+does not advance cadence and a later normal completion does.
+
+The matched threshold cases start with the same nonempty history. Only the
+combined case compacts after the answer. Both store the same exact observation
+even though compaction moves the answer before the startup offset. The harness
+checks exact saved answer bytes after overflow and output-length recovery, and
+the failure diagnostic in both the tool result and episode when compaction is
+disabled. Cancelled and failed summaries, rejection of an oversized form and
+both steering modes have separate cases. Model-selected work and a compaction
+handler's follow-up have separate controls. The handler case expects a different
+answer after the follow-up.
 
 | Worker reminder form | Content | Converted without timestamp | Provider-facing object | Saved JSON Lines record |
 | --- | ---: | ---: | ---: | ---: |
@@ -1356,14 +1367,22 @@ forms add 1,163 and 545 content bytes, or 1,180 and 547 serialized bytes per
 retained appearance. These are not wire or billing sizes. The worker-action
 section in the context budget gives the repetition assumptions.
 
-GNU `timeout` bounds each Pi process with TERM after 60 seconds and KILL five
-seconds later. Exit **0** means every assertion passed. Exit **1** means a check
-failed. Exit **2** means a precondition failed.
+GNU `timeout` sends TERM after 60 seconds and KILL five seconds later if needed.
+The remote procedure call (RPC) controller requires prompt acceptance, agent
+settlement and a zero exit code from its child. Signal termination fails even
+after settlement. Exit **0** means every assertion passed. Exit **1** means a
+check failed. Exit **2** means a precondition failed. The driver stops starting
+cases and exits **130** on handled cancellation. The harness tests do not prove
+process-group cleanup or immediate cancellation of an active case when only the
+driver receives a signal.
 
 The harness checks `display: false` structurally. Check terminal presentation
 separately. The host tests exercise actual worker reopening, retries and
-failover. The factory tests exercise interleaved sessions. Successful delivery
-must not raise a reminder-miss warning. The `worker-reminder-detection` and
+failover. The session opener (`openWorkerSession`) configures worker cadence.
+`ThreadManager` forwards reported turn completions during dispatch. The host
+test that opens a session directly installs its own completion subscriber.
+The factory tests exercise interleaved sessions. Successful delivery must not
+raise a reminder-miss warning. The `worker-reminder-detection` and
 `worker-reminder-wiring` resolver checks and the single-action unit tests
 cover the missing-reminder rule.
 
@@ -1375,9 +1394,10 @@ network operation. This setup is not an operating-system network sandbox.
 Re-run this harness after changes to the worker reminder, shared writing
 forms or cadence validation, worker settings, factory loading or loader-error
 reporting in `extension/worker.ts`, completed-turn input, observation capture,
-warning detection or episode filtering. Re-run it after changes to steer
-delivery, either harness file, the Pi pin, or the asserted RPC, provider evidence
-or JSON Lines shapes.
+warning detection or episode filtering. Re-run it after changes to configuration
+source merging or permission checks for worker writing in `extension/config.ts`.
+Re-run it after changes to custom messages, steer delivery, either harness file,
+the Pi pin, or the asserted RPC, provider evidence or JSON Lines shapes.
 
 | file | role |
 | --- | --- |

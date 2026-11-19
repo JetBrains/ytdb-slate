@@ -18,32 +18,44 @@ const PROJECT = process.env.SLATE_WORKER_REMINDER_PROJECT;
 const WORKER_TASK = "WORKER_REMINDER_CANARY_ACTION_51c824";
 const PROFILE = process.env.SLATE_WORKER_REMINDER_PROFILE ?? "normal";
 const THRESHOLD = PROFILE === "threshold" || PROFILE === "handler" || PROFILE.startsWith("compact-");
-const OVERFLOW = PROFILE === "overflow" || PROFILE === "overflow-disabled" || PROFILE === "length";
+const LENGTH_CADENCE = PROFILE === "length-cadence";
+const OVERFLOW = PROFILE === "overflow" || PROFILE === "overflow-disabled" || PROFILE === "length" || LENGTH_CADENCE;
 const INPUT_BUDGET = 3000;
 const OVERFLOW_ERROR = "context_length_exceeded: canary request exceeds 3000 test tokens";
 const QUEUED_GUIDANCE = "CANARY_EARLIER_GUIDANCE_51c824";
 const HANDLER_GUIDANCE = "CANARY_COMPACTION_FOLLOW_UP_51c824";
 const WORKER_SUCCESS = "WORKER_REMINDER_CONTINUATION_OK_51c824" + (THRESHOLD ? "\n" + "Saved final answer. ".repeat(36).trimEnd() : "");
+const HANDLER_SUCCESS = WORKER_SUCCESS + "\nExact handler follow-up answer.";
 const HOST_SUCCESS = "WORKER_REMINDER_DISPATCH_OK_51c824";
 const REMINDER_TYPE = "slate-worker-reminder";
 const REMINDER_TEXT =
 	"Reminder: ALL INDEPENDENT TOOL CALLS MUST be issued SIMULTANEOUSLY in ONE TURN. Use separate turns only when results depend on each other or conflict. When codemode is available, use it to run independent tool calls together, chain dependent calls, or filter large output while keeping large intermediate data in script variables.";
-const COMPRESSED_EPISODE = `## Intent
+function compressedEpisode(texts: string[]) {
+	const markers = [PROFILE === "overflow-disabled" && !texts.some(text => text.includes(WORKER_SUCCESS))
+		? OVERFLOW_ERROR : "WORKER_REMINDER_CONTINUATION_OK_51c824", "ALPHA_CANARY_RESULT", "BETA_CANARY_RESULT"];
+	const findings = markers.flatMap(marker => {
+		const input = texts.find(text => text.includes(marker));
+		if (input === undefined) return [];
+		const position = input.indexOf(marker);
+		return ["- " + input.slice(position, position + marker.length)];
+	}).join("\n");
+	return `## Intent
 Complete the deterministic worker reminder canary action.
 
 ## Actions Taken
 - Read both independent canary fixtures in one tool-bearing turn.
 
 ## Key Findings
-- The worker reminder continuation completed.
+${findings}
 
 ## Artifacts Changed
 None.
 
 ## Open Issues
 None.`;
+}
 
-const evidence: { calls: Array<{ kind: string; ordinal: number; provider: string; model: string; context: ReturnType<typeof snapshot> }>; registrations: { host: number; runtime: number }; expected: Record<string, string> } = { calls: [], registrations: { host: 0, runtime: 0 }, expected: { API, PROVIDER, MODEL, WORKER_TASK, WORKER_SUCCESS, HOST_SUCCESS, REMINDER_TYPE, REMINDER_TEXT, COMPRESSED_EPISODE } };
+const evidence: { calls: Array<{ kind: string; ordinal: number; provider: string; model: string; context: ReturnType<typeof snapshot> }>; registrations: { host: number; runtime: number }; expected: Record<string, string> } = { calls: [], registrations: { host: 0, runtime: 0 }, expected: { API, PROVIDER, MODEL, WORKER_TASK, WORKER_SUCCESS, HOST_SUCCESS, REMINDER_TYPE, REMINDER_TEXT } };
 
 function textOf(content: unknown): string {
 	if (typeof content === "string") return content;
@@ -167,7 +179,20 @@ function fakeStream(model: Model<any>, context: TranscriptContext, _options?: Si
 			{ type: "toolCall", id: "worker-read-again", name: "read", arguments: { path: `${PROJECT}/alpha.txt` } },
 		], "toolUse", 210);
 	}
-	if (kind === "worker" && prior >= 2 && OVERFLOW) {
+	if (kind === "worker" && LENGTH_CADENCE) {
+		if (prior === 2) {
+			return completedStream(message(model, [{ type: "text", text: "CANARY_TRUNCATED_51c824" }], "length", tokens(context.messages), 3));
+		}
+		if (prior === 3 || prior === 4) {
+			return reply([{ type: "toolCall", id: `worker-read-round-${prior + 1}`, name: "read", arguments: { path: `${PROJECT}/alpha.txt` } }], "toolUse", 220);
+		}
+		if (prior === 5) return reply([{ type: "text", text: WORKER_SUCCESS }], "stop", 220);
+	}
+	if (kind === "worker" && PROFILE === "default" && prior >= 2 && prior <= 5) {
+		if (prior === 5) return reply([{ type: "text", text: WORKER_SUCCESS }], "stop", 220);
+		return reply([{ type: "toolCall", id: `worker-read-round-${prior + 1}`, name: "read", arguments: { path: `${PROJECT}/alpha.txt` } }], "toolUse", 220);
+	}
+	if (kind === "worker" && prior >= 2 && OVERFLOW && !LENGTH_CADENCE) {
 		const input = tokens(context.messages);
 		if (input > INPUT_BUDGET) {
 			if (PROFILE === "length") {
@@ -180,16 +205,18 @@ function fakeStream(model: Model<any>, context: TranscriptContext, _options?: Si
 	if (kind === "worker" && prior === 2 && PROFILE === "model" && texts.some(text => text.startsWith(REMINDER_TEXT + "\n\n"))) {
 		return reply([{ type: "toolCall", id: "worker-read-extra", name: "read", arguments: { path: `${PROJECT}/beta.txt` } }], "toolUse", 220);
 	}
+	if (kind === "worker" && prior === 3 && PROFILE === "handler" && texts.includes(HANDLER_GUIDANCE)) {
+		return reply([{ type: "text", text: HANDLER_SUCCESS }], "stop", 200);
+	}
 	if (kind === "worker" && ((prior === 3 && PROFILE === "model") ||
-		(prior === 3 && PROFILE === "steer-one" && texts.includes(QUEUED_GUIDANCE)) ||
-		(prior === 3 && PROFILE === "handler" && texts.includes(HANDLER_GUIDANCE)))) {
+		(prior === 3 && PROFILE === "steer-one" && texts.includes(QUEUED_GUIDANCE)))) {
 		return reply([{ type: "text", text: WORKER_SUCCESS }], "stop", 200);
 	}
 	if (kind === "worker" && prior === 2) {
 		return reply([{ type: "text", text: WORKER_SUCCESS }], "stop", 220);
 	}
 	if (kind === "compressor" && prior === 0) {
-		return completedStream(message(model, [{ type: "text", text: COMPRESSED_EPISODE }], "stop", 300));
+		return completedStream(message(model, [{ type: "text", text: compressedEpisode(texts) }], "stop", 300));
 	}
 	if (kind === "orchestrator" && prior === 1) {
 		return completedStream(message(model, [{ type: "text", text: HOST_SUCCESS }], "stop", 400));

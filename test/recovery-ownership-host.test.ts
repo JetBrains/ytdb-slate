@@ -373,7 +373,16 @@ type MatrixScenario =
 	| "startup-assistant-then-ordinary-success"
 	| "compaction-then-cancel"
 	| "recovery-compaction-refusal"
-	| "action-command-args";
+	| "action-command-args"
+	| "observation-edit"
+	| "observation-open-failed"
+	| "observation-boundary"
+	| "observation-boundary-cut"
+	| "observation-boundary-cut-edit"
+	| "observation-boundary-cut-omit"
+	| "observation-boundary-cut-followup"
+	| "observation-length-cancel"
+	| "observation-length-recover";
 
 interface MatrixState {
 	scenario: MatrixScenario;
@@ -416,6 +425,8 @@ interface MatrixState {
 	requestCaptures?: string[];
 	cadenceCalls?: Array<{ provider: string; messages: string[]; reminderBytes: number[]; stop: string; error?: string }>;
 	commandArgs?: string;
+	observationEvents?: string[];
+	startupMessageCount?: number;
 	compactionHistoryCalls: number;
 	compactionTurnPrefixCalls: number;
 	compactionEvents?: Array<{ phase: "start" | "success"; reason: string; willRetry: boolean }>;
@@ -551,6 +562,19 @@ function matrixProvider(state: MatrixState, provider: string, id: string) {
 				call === 0 || call === (failover ? 3 : 2) || call === (failover ? 4 : 3) ? "tool" : "text";
 		}
 		const output = matrixMessage(requestModel, kind, responseText);
+		if (state.observationEvents && !summarizing) {
+			const startup = state.primaryCalls === 1;
+			const length = state.primaryCalls === 2 && state.scenario.startsWith("observation-length-");
+			const text = startup ? "startup observation fact " + "startup ".repeat(80) : length ? "discarded length attempt"
+				: state.scenario === "observation-length-recover" ? "recovered length answer"
+				: state.primaryCalls === 3 ? "later follow-up answer" : "original observation answer";
+			output.content = [{ type: "text", text }];
+			if (length) output.stopReason = "length";
+			if (startup && (state.scenario === "observation-edit" || state.scenario === "observation-open-failed")) {
+				output.usage.input = 99_990;
+				output.usage.totalTokens = 99_991;
+			}
+		}
 		if (state.scenario === "cadence-queued-error" && kind === "error") output.errorMessage = "Canary permanent input refusal.";
 		if (cadence) {
 			for (const part of output.content) if (part.type === "toolCall") part.id = "cadence-tool-" + cadence.length;
@@ -735,6 +759,7 @@ async function runWorkerRequestMatrixScenario(
 	scenario: MatrixScenario, openChange = false, task?: string, remindTurns = 2, role: ThreadType = "general",
 ) {
 	const cadence = scenario.startsWith("cadence-");
+	const observeAnswer = scenario.startsWith("observation-");
 	const retryCadence = scenario === "cadence-retry" || scenario === "cadence-failover";
 	const root = mkdtempSync(join(tmpdir(), `slate-worker-matrix-${scenario}-`));
 	const project = join(root, "project");
@@ -745,7 +770,7 @@ async function runWorkerRequestMatrixScenario(
 	mkdirSync(home, { recursive: true });
 	const settings = {
 		retry: { enabled: true, maxRetries: retryCadence || scenario === "recovery-effort" || scenario === "recovery-compaction-refusal" || scenario === "included-retry-success" ? 1 : 0, baseDelayMs: 0 },
-		compaction: scenario === "compaction" || scenario === "compaction-refusal" || scenario === "recovery-compaction-refusal" || scenario === "compaction-then-cancel"
+		compaction: scenario === "compaction" || scenario === "compaction-refusal" || scenario === "recovery-compaction-refusal" || scenario === "compaction-then-cancel" || (observeAnswer && !scenario.startsWith("observation-boundary"))
 			? { enabled: true, reserveTokens: 50, keepRecentTokens: 20 }
 			: { enabled: false },
 	};
@@ -767,6 +792,7 @@ async function runWorkerRequestMatrixScenario(
 	const state: MatrixState = {
 		scenario,
 		...(cadence ? { cadenceCalls: [] } : {}),
+		...(observeAnswer ? { observationEvents: [] } : {}),
 		...(scenario === "compaction" || openChange ? { systemCaptures: [], requestCaptures: [] } : {}),
 		compactionEvents: [],
 		startupRunEnded: false,
@@ -831,7 +857,44 @@ export default function (pi: ExtensionAPI) {
   });
   pi.on("session_before_compact", (event) => {
     state.compactionEvents.push({ phase: "start", reason: event.reason, willRetry: event.willRetry });
+    if (state.observationEvents) {
+      const tail = event.branchEntries.find(entry => entry.type === "custom_message" && entry.customType === "observation-startup-tail");
+      if (!tail) throw new Error("missing startup tail before compaction");
+      return { compaction: { summary: "test checkpoint", firstKeptEntryId: tail.id, tokensBefore: event.preparation.tokensBefore } };
+    }
   });
+  if (state.observationEvents) {
+    pi.on("turn_end", (event) => {
+      if (state.primaryCalls === 1) return { entries: [
+        { type: "custom_message", customType: "observation-startup-tail", content: "retained startup tail", display: false },
+      ] };
+      if (state.scenario === "observation-edit") return { entries: [
+        { type: "context_edit", targetId: event.messageEntryId, replacement: { content: "settled edited answer" } },
+      ] };
+      if (state.scenario === "observation-boundary") return { entries: [
+        { type: "compaction", firstKeptEntryId: event.messageEntryId, summary: "turn boundary checkpoint" },
+      ] };
+      if (state.primaryCalls === 2 && state.scenario.startsWith("observation-boundary-cut")) {
+        if (state.scenario === "observation-boundary-cut-followup") {
+          pi.sendUserMessage("Follow up on the completed work.", { deliverAs: "followUp" });
+        }
+        const edit = state.scenario === "observation-boundary-cut-edit" ? { content: "edited before the cut" } : null;
+        return { entries: [
+          ...(state.scenario === "observation-boundary-cut-edit" || state.scenario === "observation-boundary-cut-omit"
+            ? [{ type: "context_edit", targetId: event.messageEntryId, replacement: edit }] : []),
+          { type: "compaction", firstKeptEntryId: null, summary: "summarize the entire context" },
+        ] };
+      }
+    });
+    pi.on("session_start", async () => {
+      pi.setThinkingLevel("max");
+      const settled = new Promise<void>((resolve) => {
+        const off = pi.on("agent_settled", () => { off(); resolve(); });
+      });
+      pi.sendUserMessage("startup before observation test");
+      await settled;
+    });
+  }
   pi.on("session_compact", (event) => {
     state.compactionEvents.push({ phase: "success", reason: event.reason, willRetry: event.willRetry });
   });
@@ -955,7 +1018,7 @@ export default function (pi: ExtensionAPI) {
     state.startupRequestSettled = true;
   });
   pi.on("session_start", async () => {
-    if (state.scenario !== "startup-rejected-open") return;
+    if (state.scenario !== "startup-rejected-open" && state.scenario !== "observation-open-failed") return;
     // An independent startup handler fails after the refusal. Pi reports each
     // handler error separately, so worker opening rejects with this error.
     state.independentStartupFailure = true;
@@ -1060,6 +1123,30 @@ export default function (pi: ExtensionAPI) {
 			runtime,
 			{ enabled: true, maxRetries: retryCadence ? 1 : 0, baseDelayMs: 0 },
 		);
+		if (observeAnswer) {
+			const access = manager as unknown as { openWorkerFor: ThreadManager["openWorkerFor"] };
+			const openWorkerFor = access.openWorkerFor.bind(manager);
+			access.openWorkerFor = async args => {
+				const opened = await openWorkerFor({
+					...args,
+					observeSession(worker) {
+						args.observeSession?.(worker);
+						worker.subscribe(event => {
+							if ((event.type === "message_end" || event.type === "turn_end") && event.message.role === "assistant") {
+								state.observationEvents?.push(event.type + ":" + event.message.stopReason);
+							} else if (event.type === "entry_appended") {
+								state.observationEvents?.push(event.type + ":" + event.entry.type);
+							} else if (event.type === "compaction_end" && event.result !== undefined && !event.aborted) {
+								state.observationEvents?.push(event.type + ":" + event.reason);
+								if (scenario === "observation-length-cancel") cancelController.abort();
+							}
+						});
+					},
+				});
+				state.startupMessageCount = opened.session.messages.length;
+				return opened;
+			};
+		}
 		const dispatch = manager.dispatch(
 			{
 				model: "matrix",
@@ -1072,7 +1159,7 @@ export default function (pi: ExtensionAPI) {
 						: `run ${scenario}`),
 			},
 			ctx,
-			scenario === "compaction-then-cancel" || scenario === "startup-caller-cancel-completed-tool" || scenario === "startup-caller-cancel-no-fact" || scenario === "startup-caller-cancel-fact-and-failure"
+			scenario === "observation-length-cancel" || scenario === "compaction-then-cancel" || scenario === "startup-caller-cancel-completed-tool" || scenario === "startup-caller-cancel-no-fact" || scenario === "startup-caller-cancel-fact-and-failure"
 				? cancelController.signal
 				: undefined,
 		);
@@ -1235,7 +1322,15 @@ export default function (pi: ExtensionAPI) {
 			.filter((name) => name.endsWith(".jsonl"))
 			.map((name) => readFileSync(join(transcriptDir, name), "utf8"))
 			.join("\n");
-		return { result, rejectedError: undefined as Error | undefined, state, transcript, episodeBytes, laterPrompt, restored, snapshotCount: snapshots.length, episodeFileCount };
+		const observationDir = join(project, ".pi", "slate", store.runtimeFolder, "observations");
+		const observationFiles = existsSync(observationDir) ? readdirSync(observationDir) : [];
+		const observation = result.episode.observations;
+		const observationBytes = observeAnswer && observation?.stored ? readFileSync(join(project, observation.path)) : undefined;
+		const projected = observeAnswer
+			? SessionManager.open(join(transcriptDir, readdirSync(transcriptDir).find(name => name.endsWith(".jsonl"))!)).buildSessionProjection()
+			: undefined;
+		return { result, rejectedError: undefined as Error | undefined, state, transcript, episodeBytes, laterPrompt, restored,
+			snapshotCount: snapshots.length, episodeFileCount, observationFiles, observationBytes, projected };
 	} finally {
 		secondRequestGate.resolve();
 		startupOpenGate.resolve();
@@ -1251,6 +1346,73 @@ export default function (pi: ExtensionAPI) {
 		rmSync(root, { recursive: true, force: true });
 	}
 }
+
+test("worker observations use the settled action projection", { timeout: 30_000 }, async (t) => {
+	const startup = ["message_end:stop", "entry_appended:custom_message", "turn_end:stop"];
+	for (const [scenario, events, calls, answer, failure] of [
+		["observation-edit", ["compaction_end:threshold", "message_end:stop", "entry_appended:context_edit", "turn_end:stop"], 2, "settled edited answer"],
+		["observation-open-failed", ["compaction_end:threshold"], 1, undefined, /independent startup handler failed/],
+		["observation-boundary", ["message_end:stop", "entry_appended:compaction", "turn_end:stop"], 2, "original observation answer"],
+		["observation-boundary-cut", ["message_end:stop", "entry_appended:compaction", "turn_end:stop"], 2, "original observation answer"],
+		["observation-boundary-cut-edit", ["message_end:stop", "entry_appended:context_edit", "entry_appended:compaction", "turn_end:stop"], 2, "edited before the cut"],
+		["observation-boundary-cut-omit", ["message_end:stop", "entry_appended:context_edit", "entry_appended:compaction", "turn_end:stop"], 2, undefined],
+		["observation-boundary-cut-followup", ["message_end:stop", "entry_appended:compaction", "turn_end:stop", "message_end:stop", "turn_end:stop"], 3, "later follow-up answer"],
+		["observation-length-cancel", ["message_end:length", "turn_end:length", "entry_appended:context_edit", "compaction_end:overflow"], 2, undefined, /worker action was cancelled/],
+		["observation-length-recover", ["message_end:length", "turn_end:length", "entry_appended:context_edit", "compaction_end:overflow", "message_end:stop", "turn_end:stop"], 3, "recovered length answer"],
+	] as const) {
+		await t.test(scenario, { timeout: 10_000 }, async () => {
+			const { result, state, observationFiles, observationBytes, projected, episodeBytes, restored, transcript } =
+				await runWorkerRequestMatrixScenario(scenario);
+			assert.deepEqual(state.observationEvents, [...startup, ...events]);
+			assert.deepEqual([state.primaryCalls, state.fallbackCalls, state.otherCalls], [calls, 0, 0]);
+			assert.equal(result.episode.status, failure ? "failed" : "ok");
+			assert.equal(result.thread.status, failure ? "failed" : "successful");
+			assert.match(episodeBytes, /startup observation fact/);
+			assert.ok(projected);
+			const messages = projected.messages;
+			const finalIndex = messages.findLastIndex(message => message.role === "assistant");
+			const observation = result.episode.observations;
+			assert.deepEqual(restored.episodes.get(result.episode.id)?.observations, observation);
+			if (answer !== undefined) {
+				assert.equal(observation?.stored, true);
+				assert.equal(observationFiles?.length, 1);
+				assert.deepEqual(observationBytes, Buffer.from(answer));
+				if (scenario === "observation-boundary-cut" || scenario === "observation-boundary-cut-edit") {
+					assert.equal(finalIndex, -1, "compaction removed the answer from model context");
+				} else {
+					assert.equal(extractContextText({ messages: [messages[finalIndex]] }), answer);
+				}
+			} else {
+				assert.deepEqual(observation, { stored: false, reason: "no-final-message", grammar: "absent" });
+				assert.deepEqual(observationFiles, []);
+				assert.equal(observationBytes, undefined);
+				assert.equal(finalIndex, -1);
+			}
+			if (failure) {
+				assert.match(result.thread.outcomeReason ?? "", failure);
+				assert.match(episodeBytes, failure);
+			}
+			if (scenario === "observation-boundary" || scenario === "observation-edit") {
+				assert.ok(state.startupMessageCount !== undefined && state.startupMessageCount > 1);
+				assert.equal(finalIndex < state.startupMessageCount, scenario === "observation-boundary");
+				assert.match(episodeBytes, /original observation answer/);
+			}
+			if (scenario.startsWith("observation-boundary-cut")) {
+				assert.match(transcript, /"type":"compaction"[^\n]+"summary":"summarize the entire context"/);
+				assert.match(episodeBytes, /original observation answer/);
+				assert.equal(state.compactionCalls, 0);
+			}
+			if (scenario.startsWith("observation-length-")) {
+				assert.match(episodeBytes, /discarded length attempt/);
+				const discarded = projected.entries.find(entry => entry.sourceEntry.type === "message" &&
+					entry.sourceEntry.message.role === "assistant" && entry.sourceEntry.message.stopReason === "length");
+				assert.ok(discarded, "the raw attempt remains in the retained entry range");
+				assert.deepEqual(discarded.messages, []);
+				assert.match(transcript, /"type":"context_edit"[^\n]+"replacement":null/);
+			}
+		});
+	}
+});
 
 test("worker cadence skips retry errors and survives same-session failover", { timeout: 20_000 }, async () => {
 	for (const scenario of ["cadence-retry", "cadence-failover"] as const) {

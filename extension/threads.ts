@@ -12,9 +12,7 @@ import { sanitizeMaxConcurrent } from "./concurrency.ts";
 import { allocateActionTemporary, finishActionTemporary, retainedActionTemporary, type ActionTemporary } from "./action-temporary.ts";
 import { readFileSync } from "node:fs";
 import { basename } from "node:path";
-import {
-	type ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import { buildSessionProjection, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { WorkerRetryEvidence, executeRecovery, type CompressorRetryPolicy } from "./logical-model-adapters.ts";
 import type { LogicalRuntime } from "./logical-model-runtime.ts";
 import type { RecoveryAdmission, RecoveryCandidate } from "./logical-model-recovery.ts";
@@ -192,6 +190,47 @@ function lastAssistantMessage(messages: unknown[]): WorkerAssistantMsg | undefin
 		if (m.role === "assistant") return m;
 	}
 	return undefined;
+}
+
+type OpenedWorkerSession = Awaited<ReturnType<typeof openWorkerSession>>;
+
+/** Select the settled action answer by its source entry, even across compaction. */
+function projectedActionAnswer(
+	manager: WorkerSession["sessionManager"], startupLeaf: string | null,
+): WorkerAssistantMsg | undefined {
+	const branch = manager.getBranch();
+	const boundary = startupLeaf === null ? -1 : branch.findIndex(entry => entry.id === startupLeaf);
+	if (startupLeaf !== null && boundary === -1) return undefined;
+	const action = branch.slice(boundary + 1);
+	const actionIds = new Set(action.map(entry => entry.id));
+	const { entries } = manager.buildSessionProjection();
+	for (let i = entries.length - 1; i >= 0; i--) {
+		const entry = entries[i]!;
+		if (!actionIds.has(entry.sourceEntry.id)) continue;
+		const answer = lastAssistantMessage(entry.messages);
+		if (answer !== undefined) return answer;
+	}
+
+	// Recover only the last completed answer, not an earlier partial response.
+	const last = action.findLastIndex(entry => entry.type === "message" && entry.message.role === "assistant");
+	const candidate = action[last];
+	if (candidate?.type !== "message" || candidate.message.role !== "assistant" || candidate.message.stopReason !== "stop") return undefined;
+	if (entries.some(entry => entry.sourceEntry.id === candidate.id)) return undefined;
+
+	// Find the cut that left this answer out. A later compaction can keep
+	// the answer again. Pi applies the edits visible just before the cut.
+	const end = boundary + 1 + last;
+	const throughAnswer = new Set(branch.slice(0, end + 1).map(entry => entry.id));
+	let cut = -1;
+	for (let i = branch.length - 1; i > end; i--) {
+		const entry = branch[i]!;
+		if (entry.type !== "compaction") continue;
+		if (throughAnswer.has(entry.firstKeptEntryId)) break;
+		cut = i;
+	}
+	if (cut === -1) return undefined;
+	const beforeCut = buildSessionProjection(branch, branch[cut - 1]!.id);
+	return lastAssistantMessage(beforeCut.entries.find(item => item.sourceEntry.id === candidate.id)?.messages ?? []);
 }
 
 /**
@@ -465,10 +504,10 @@ export class ThreadManager {
 		 * The action keeps this reference even when opening fails later, so the
 		 * failed result can still read the startup work of its own session.
 		 */
-		observeSession?: (session: WorkerSession) => void;
+		observeSession?: (session: OpenedWorkerSession) => void;
 		/** Record an ordinary startup failure at the point the open promise observes it. */
 		observeStartupFailure?: (detail: string) => void;
-	}): Promise<{ session: WorkerSession }> {
+	}): Promise<{ session: OpenedWorkerSession }> {
 		if (this.teardownStarted) {
 			throw new DispatchAbort(`slate: worker startup for thread ${args.thread.id} was cancelled during session teardown`);
 		}
@@ -479,8 +518,8 @@ export class ThreadManager {
 		let finishOpening!: () => void;
 		const openingDone = new Promise<void>((resolve) => { finishOpening = resolve; });
 		this.openingWorkers.add(openingDone);
-		let opening: WorkerSession | undefined;
-		let session: WorkerSession;
+		let opening: OpenedWorkerSession | undefined;
+		let session: OpenedWorkerSession;
 		let opened = false;
 		try {
 			// Startup preparation belongs to the owned opening lifetime. A synchronous
@@ -748,15 +787,16 @@ export class ThreadManager {
 			}
 		};
 
-		let session: WorkerSession | undefined;
+		let session: OpenedWorkerSession | undefined;
 		/** The worker session this action opened, kept readable after a failed open. */
-		let startupSession: WorkerSession | undefined;
+		let startupSession: OpenedWorkerSession | undefined;
 		let shutdownPromise: Promise<void> | undefined;
 		const closeOwnedWorker = () => shutdownPromise ??= this.closeWorker(thread.id, session ?? startupSession);
 		registerShutdown?.(closeOwnedWorker);
 		let unsubscribe: (() => void) | undefined;
 		let onAbort: (() => void) | undefined;
 		let messagesBefore = 0;
+		let startupLeaf: string | null | undefined;
 		let actionMessageFailure: unknown;
 		let actionCompacted = false;
 		/** The refusal of this action, reported to the caller exactly once. */
@@ -1050,6 +1090,7 @@ export class ThreadManager {
 			if (!appliedValidation.ok) throw new DispatchAbort(`Logical worker startup stopped before billed work: ${appliedValidation.reason}`);
 
 			messagesBefore = session.messages.length;
+			startupLeaf = session.sessionManager?.getLeafId();
 			// Startup assistant messages remain completed facts, but they cannot
 			// classify the ordinary task or a slash command that returns no response.
 			latestAssistant = undefined;
@@ -1425,7 +1466,10 @@ export class ThreadManager {
 			zeroFindings: false,
 		};
 		try {
-			const finalMessage = actionCompacted ? latestAssistant : lastAssistantMessage(actionMessages);
+			// Failed opens never save an action boundary. Use their existing history slice.
+			const finalMessage = session && startupLeaf !== undefined
+				? projectedActionAnswer(session.sessionManager, startupLeaf)
+				: lastAssistantMessage(actionMessages);
 			observation = captureObservation(ctx.cwd, episodeId, finalMessage ? (finalMessage.content ?? []) : undefined, this.runtimeFolder);
 			const warningsBeforeObservation = warnings.length;
 			if (!observation.stored && observation.reason === "write-failed" && "warning" in observation) routeWarn(observation.warning);

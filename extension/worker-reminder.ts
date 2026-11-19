@@ -19,11 +19,11 @@ function combinedReminder(standalone: string): string | undefined {
 export interface WorkerReminderRuntime {
 	extension: ExtensionFactory;
 	handledToolResult(): boolean;
-	completedTurn(reason: unknown): void;
 }
 
 /** Create one hidden reminder component with session-local cadence and delivery evidence. */
-export function createWorkerReminderRuntime(writing?: { interval?: number; standalone: string }): WorkerReminderRuntime {
+export function createWorkerReminderRuntime(writing?: { interval?: number; standalone: string }):
+	WorkerReminderRuntime & { completedTurn(reason: unknown): void } {
 	const interval = isWritingRemindTurns(writing?.interval) ? writing.interval : DEFAULT_REMIND_TURNS;
 	const standalone = writing?.standalone;
 	let turns = 0;

@@ -10,7 +10,7 @@
 # terminal user interface stays a manual check.
 #
 # Usage: bash verification/run-worker-reminder-check.sh --repo .
-# Exit status: 0 all checks passed · 1 a check failed · 2 refused to start.
+# Exit status: 0 all checks passed · 1 a check failed · 2 refused to start · 130 cancelled.
 # =============================================================================
 set -uo pipefail
 
@@ -53,7 +53,7 @@ THRESHOLD=0
 STARTUP_HISTORY=0
 case "$PROFILE" in
 	threshold|handler|compact-*) THRESHOLD=1; STARTUP_HISTORY=1 ;;
-	overflow|overflow-disabled|length) STARTUP_HISTORY=1 ;;
+	overflow|overflow-disabled|length|length-cadence) STARTUP_HISTORY=1 ;;
 esac
 STARTUP_ARGS=()
 WORKER_EXTENSIONS='[]'
@@ -76,7 +76,7 @@ RPC_IN="$LAB/rpc.in"
 STDOUT="$LAB/pi.out"
 STDERR="$LAB/pi.err"
 ANALYSIS="$LAB/analysis.json"
-if [ "$PROFILE" != normal ] && [ "$PROFILE" != model ]; then
+if [ "$PROFILE" != normal ] && [ "$PROFILE" != model ] && [ "$PROFILE" != default ]; then
 	STARTUP="$LAB/reminder-startup-probe.mjs"
 	STARTUP_ARGS=(-e "$STARTUP")
 	WORKER_EXTENSIONS='["reminder-startup-probe[.]mjs$"]'
@@ -84,7 +84,7 @@ if [ "$PROFILE" != normal ] && [ "$PROFILE" != model ]; then
 	RESERVE=996750
 	case "$PROFILE" in
 		overflow-disabled) ENABLED=false ;;
-		overflow|length) RESERVE=1000 ;;
+		overflow|length|length-cadence) RESERVE=1000 ;;
 	esac
 	STEERING=""
 	[ "$PROFILE" != steer-all ] || STEERING=',"steeringMode":"all"'
@@ -158,6 +158,8 @@ export default function (pi) {
 JS
 fi
 
+WRITING='{}'
+if [ "$CADENCE" != omitted ]; then WRITING="{ \"remindTurns\": $CADENCE }"; fi
 cat > "$PROJECT/.pi/slate.json" <<JSON || die "could not write scratch slate config"
 {
   "orchestratorModeDefault": true,
@@ -184,7 +186,7 @@ cat > "$PROJECT/.pi/slate.json" <<JSON || die "could not write scratch slate con
   },
   "workerExtensions": $WORKER_EXTENSIONS,
   "cacheKeyEnabled": false,
-  "writing": { "remindTurns": $CADENCE }
+  "writing": $WRITING
 }
 JSON
 cat > "$AGENT/models.json" <<'JSON' || die "could not write scratch model config"
@@ -231,6 +233,7 @@ START_NS="$(date +%s%N)"
 const { readFileSync } = require("node:fs");
 const { spawn } = require("node:child_process");
 const { createInterface } = require("node:readline");
+const { constants } = require("node:os");
 const [input, pi, repo, canary, ...extensions] = process.argv.slice(2);
 const child = spawn("timeout", ["--kill-after=5", "60", pi, "--no-extensions", "-e", repo, "-e", canary,
   ...extensions, "--mode", "rpc", "-a", "--provider", "slate-worker-reminder-fake", "--model", "worker-reminder-model"],
@@ -251,8 +254,15 @@ createInterface({ input: child.stdout }).on("line", line => {
   if (accepted && settled) finish();
 });
 child.stdin.on("error", error => { console.error(error); failure = true; });
-child.on("error", error => { console.error(error); process.exitCode = 1; });
-child.on("close", code => { process.exitCode = code || (accepted && settled && !failure ? 0 : 1); });
+child.on("error", error => { console.error(error); failure = true; });
+child.on("close", (code, signal) => {
+  if (signal) {
+    console.error(`Pi timeout process terminated by ${signal}`);
+    process.exitCode = constants.signals[signal] ? 128 + constants.signals[signal] : 1;
+  } else {
+    process.exitCode = code === 0 && accepted && settled && !failure ? 0 : code || 1;
+  }
+});
 child.stdin.write(readFileSync(input));
 RPC
 ) > "$STDOUT" 2> "$STDERR"
@@ -274,12 +284,14 @@ const { createHash } = require("node:crypto");
 const [outFile, hostFile, workerFile, evidenceFile, project, repo, analysisFile, profile] = process.argv.slice(2);
 const unsuccessfulCompaction = profile === "compact-cancel" || profile === "compact-fail";
 const thresholdCase = profile === "threshold" || profile === "handler" || unsuccessfulCompaction;
-const overflowCase = ["overflow", "overflow-disabled", "length"].includes(profile);
+const defaultCadence = profile === "default";
+const lengthCadence = profile === "length-cadence";
+const overflowCase = ["overflow", "overflow-disabled", "length"].includes(profile) || lengthCadence;
 const queued = "CANARY_EARLIER_GUIDANCE_51c824";
 const handler = "CANARY_COMPACTION_FOLLOW_UP_51c824";
 const overflowDiagnostic = "context_length_exceeded: canary request exceeds 3000 test tokens";
 const answerMarker = "WORKER_REMINDER_CONTINUATION_OK_51c824";
-const expectedAnswer = answerMarker + (thresholdCase ? "\n" + "Saved final answer. ".repeat(36).trimEnd() : "");
+const ordinaryAnswer = answerMarker + (thresholdCase ? "\n" + "Saved final answer. ".repeat(36).trimEnd() : "");
 const REMINDER_TYPE = "slate-worker-reminder";
 const REMINDER_TEXT = "Reminder: ALL INDEPENDENT TOOL CALLS MUST be issued SIMULTANEOUSLY in ONE TURN. Use separate turns only when results depend on each other or conflict. When codemode is available, use it to run independent tool calls together, chain dependent calls, or filter large output while keeping large intermediate data in script variables.";
 const MISS_WARNING = "slate: a worker tool result reached the reminder handler, but the reminder is missing";
@@ -320,7 +332,7 @@ const firstToolCalls=assistantEntries[0]?.message?.content?.filter((part)=>part?
 const commands=rpc.values.find((o)=>o?.type==="response"&&o.command==="get_commands")?.data?.commands??[];
 const slatePath=commands.find((c)=>c?.name==="slate")?.sourceInfo?.path??"";
 const config=JSON.parse(fs.readFileSync(`${project}/.pi/slate.json`,"utf8"));
-const writingDue=config.writing.remindTurns===1;
+const writingDue=config.writing?.remindTurns===1;
 const combined=writingDue && profile!=="rejected";
 const crossesThreshold = thresholdCase && combined;
 const compacts = crossesThreshold && !unsuccessfulCompaction;
@@ -329,12 +341,15 @@ const handlerExtra = compacts && profile === "handler";
 const modelExtra = combined && profile === "model";
 const oneExtra = profile === "steer-one";
 const overflowFailed = overflowCase && combined && profile === "overflow-disabled";
-const overflowRetried = overflowCase && combined && !overflowFailed;
+const overflowRetried = lengthCadence || (overflowCase && combined && !overflowFailed);
 const furtherCalls = handlerExtra || modelExtra || oneExtra || overflowRetried;
+const expectedAnswer = ordinaryAnswer + (handlerExtra ? "\nExact handler follow-up answer." : "");
 const expectedStatus = overflowFailed ? "failed" : "ok";
+const tailWorkerCount = (furtherCalls ? 1 : 0) + (lengthCadence ? 2 : defaultCadence ? 3 : 0);
 const expectedCalls = ["orchestrator", "worker", "worker", "worker",
-  ...(overflowRetried ? ["summary", "summary"] : compacts || profile === "compact-fail" ? ["summary"] : []),
-  ...(furtherCalls ? ["worker"] : []), "compressor", "orchestrator"];
+  ...(overflowRetried && !lengthCadence ? ["summary", "summary"] :
+    lengthCadence || compacts || profile === "compact-fail" ? ["summary"] : []),
+  ...Array(tailWorkerCount).fill("worker"), "compressor", "orchestrator"];
 const noExtraWorkerCall = calls.map(c => c.kind).join(",") === expectedCalls.join(",");
 const trace = jsonLines(evidenceFile + ".startup");
 const [startup] = trace.values;
@@ -380,17 +395,20 @@ const compactedAfterAnswer = trace.bad.length === 0 && phases ===
     : savedCompactions.length === 0 && shutdown.index >= startup?.offset);
 const second=customEntries[1]?.content;
 const increment=typeof second==="string"?second.slice(REMINDER_TEXT.length):"";
-const exactSecond=combined
-  ? typeof second==="string"&&second.startsWith(REMINDER_TEXT+"\n\n")&&bytes(increment)===1163&&
-    createHash("sha256").update(increment.slice(2)).digest("hex")==="843d2b18183011d985de68e1d38e8d5cea6be77530ecca33a976c101f629af2f"
-  : second===REMINDER_TEXT;
+const exactCombined = (text) => typeof text === "string" && text.startsWith(REMINDER_TEXT + "\n\n") &&
+  bytes(text) === 1493 && createHash("sha256").update(text.slice(REMINDER_TEXT.length + 2)).digest("hex") ===
+    "843d2b18183011d985de68e1d38e8d5cea6be77530ecca33a976c101f629af2f";
+const combinedText = combined ? second : lengthCadence || defaultCadence ? customEntries.at(-1)?.content : undefined;
 const containsReminder=(value)=>value.includes(REMINDER_TEXT)||/slate-(?:worker|writing)-reminder(?![-A-Za-z0-9_])/.test(value)||
-  (combined&&increment.length>2&&value.includes(increment.slice(2)));
+  (exactCombined(combinedText) && value.includes(combinedText.slice(REMINDER_TEXT.length + 2)));
 const savedLines=workerFile?fs.readFileSync(workerFile,"utf8").split("\n").filter((line)=>{
   try { const entry=JSON.parse(line);return entry.type==="custom_message"&&entry.customType===REMINDER_TYPE; } catch { return false; }
 }):[];
+const extraReadRounds = defaultCadence ? [3, 4, 5] : lengthCadence ? [4, 5] : [];
+const roundId = round => `worker-read-round-${round}`;
 const expectedToolResults={"worker-read-alpha":["read","ALPHA_CANARY_RESULT"],"worker-read-beta":["read","BETA_CANARY_RESULT"],"worker-read-again":["read","ALPHA_CANARY_RESULT"],
-  ...(modelExtra ? {"worker-read-extra":["read","BETA_CANARY_RESULT"]} : {})};
+  ...(modelExtra ? {"worker-read-extra":["read","BETA_CANARY_RESULT"]} : {}),
+  ...Object.fromEntries(extraReadRounds.map(round => [roundId(round), ["read", "ALPHA_CANARY_RESULT"]]))};
 const cleanToolResults=toolResults.map((message)=>message.toolCallId).join(",")===Object.keys(expectedToolResults).join(",")&&toolResults.every((message)=>{
   const expected=expectedToolResults[message.toolCallId];
   return expected&&message.toolName===expected[0]&&message.isError===false&&Array.isArray(message.content)&&message.content.length===1&&
@@ -400,24 +418,33 @@ const expectedReminders = [[], [REMINDER_TEXT], oneExtra ? [REMINDER_TEXT] : [RE
 if (oneExtra) expectedReminders.push([REMINDER_TEXT, second]);
 if (modelExtra) expectedReminders.push([REMINDER_TEXT, second, second]);
 if (handlerExtra) expectedReminders.push([second]);
-if (overflowRetried) expectedReminders.push([]);
+// The length-only retry retains both earlier tools reminders. It must not make
+// writing due until the first normal completed turn after the failed attempt.
+if (lengthCadence) expectedReminders.push(
+  [REMINDER_TEXT, REMINDER_TEXT], Array(3).fill(REMINDER_TEXT), [...Array(3).fill(REMINDER_TEXT), combinedText]);
+else if (overflowRetried) expectedReminders.push([]);
+if (defaultCadence) expectedReminders.push(
+  Array(3).fill(REMINDER_TEXT), Array(4).fill(REMINDER_TEXT), [...Array(4).fill(REMINDER_TEXT), combinedText]);
 const serialized = workerCalls.map(call => serializedRequestBytes(call.context.messages));
 const inputTokens = serialized.map(n => Math.ceil(n / 4));
 const cutoff = 3000;
 const badTurn = assistantEntries[2]?.message;
+const lengthAttempt = badTurn?.stopReason === "length" && badTurn.usage.input === inputTokens[2] &&
+  badTurn.usage.output === 3 && textOf(badTurn.content) === "CANARY_TRUNCATED_51c824";
 const recoveryChecks = sameIdleStartup && inputTokens.slice(0, 2).every(n => n <= cutoff) &&
-  (combined ? inputTokens[2] > cutoff && Math.ceil((serialized[2] - additionBytes) / 4) <= cutoff &&
-    badTurn?.usage?.input === inputTokens[2] && (profile === "length" ?
-      badTurn.stopReason === "length" && badTurn.usage.output === 3 && textOf(badTurn.content) === "CANARY_TRUNCATED_51c824" :
-      badTurn.stopReason === "error" && badTurn.errorMessage === overflowDiagnostic)
+  (lengthCadence ? inputTokens[2] <= cutoff && lengthAttempt && config.writing?.remindTurns === 3 :
+    combined ? inputTokens[2] > cutoff && Math.ceil((serialized[2] - additionBytes) / 4) <= cutoff &&
+      (profile === "length" ? lengthAttempt : badTurn?.stopReason === "error" &&
+        badTurn.usage.input === inputTokens[2] && badTurn.errorMessage === overflowDiagnostic)
     : inputTokens[2] <= cutoff) &&
   settings?.retry?.enabled === false && settings?.compaction?.enabled === (profile !== "overflow-disabled") &&
   (overflowRetried ?
     phases === "startup,compact,shutdown" && compact?.reason === "overflow" && compact.willRetry === true &&
       compact.fromExtension === false && savedCompactions.length === 1 &&
-      savedCompactions[0].summary.includes("**Turn Context (split turn):**") &&
-      byKind("summary").length === 2 && byKind("summary")[0].context.messages.some(m => m.content.includes("Idle startup record 0")) &&
-      byKind("summary")[1].context.messages.some(m => m.content.includes(second)) &&
+      byKind("summary")[0]?.context.messages.some(m => m.content.includes("Idle startup record 0")) &&
+      (lengthCadence ? byKind("summary").length === 1 && savedCompactions[0].summary === "WORKER_HISTORY_SUMMARY_51c824" :
+        byKind("summary").length === 2 && savedCompactions[0].summary.includes("**Turn Context (split turn):**") &&
+        byKind("summary")[1].context.messages.some(m => m.content.includes(second))) &&
       workerCalls[3]?.context.messages.some(m => m.content.includes("WORKER_HISTORY_SUMMARY_51c824")) &&
       inputTokens[3] <= cutoff && workerEntries.some(e => e.type === "context_edit" &&
         e.targetId === assistantEntries[2].id && e.replacement === null)
@@ -444,17 +471,24 @@ const extraChecks = unsuccessfulCompaction ?
       JSON.stringify([["toolCall", "read", "worker-read-extra", {path: `${project}/beta.txt`}]])) :
   profile === "handler" ? !handlerExtra || (trace.values[2]?.idle === false &&
     workerCalls.slice(0, 3).every(c => !c.context.messages.some(m => m.content === handler)) &&
+    textOf(assistantEntries[2]?.message?.content) === ordinaryAnswer && expectedAnswer !== ordinaryAnswer &&
     workerCalls[3]?.context.messages.filter(m => m.content === handler).length === 1 &&
     workerEntries.filter(e => e.type === "custom_message" && e.customType === "canary-handler" && e.content === handler && e.display === false).length === 1) :
-  overflowCase ? recoveryChecks : true;
+  overflowCase ? recoveryChecks : defaultCadence ? !Object.hasOwn(config.writing ?? {}, "remindTurns") : true;
+const expectedSavedReminders = defaultCadence ? [...Array(4).fill(REMINDER_TEXT), combinedText] :
+  lengthCadence ? [...Array(3).fill(REMINDER_TEXT), combinedText] :
+    [REMINDER_TEXT, combined ? combinedText : REMINDER_TEXT, ...(modelExtra ? [combinedText] : [])];
 const expectedCustomTypes = [
   ...((thresholdCase || overflowCase) ? Array.from({ length: 12 }, () => "canary-startup") : []),
   REMINDER_TYPE, ...(profile.startsWith("steer-") ? ["canary-earlier"] : []), REMINDER_TYPE,
-  ...(modelExtra ? [REMINDER_TYPE] : []), ...(handlerExtra ? ["canary-handler"] : []),
+  ...Array(expectedSavedReminders.length - 2).fill(REMINDER_TYPE), ...(handlerExtra ? ["canary-handler"] : []),
 ];
 const expectedStops = ["toolUse", "toolUse",
-  overflowFailed || overflowRetried ? (profile === "length" ? "length" : "error") : modelExtra ? "toolUse" : "stop",
-  ...(furtherCalls ? ["stop"] : [])];
+  overflowFailed || overflowRetried ? (profile === "length" || lengthCadence ? "length" : "error") : modelExtra || defaultCadence ? "toolUse" : "stop",
+  ...Array(defaultCadence || lengthCadence ? 2 : 0).fill("toolUse"),
+  ...(tailWorkerCount ? ["stop"] : [])];
+const ordinaryMarkers = [overflowFailed ? overflowDiagnostic : answerMarker, "ALPHA_CANARY_RESULT", "BETA_CANARY_RESULT"];
+const episodeFindings = episodeText.match(/^## Key Findings\n([\s\S]*?)\n\n## Artifacts Changed$/m)?.[1];
 const result={
   extraChecks,
   profileEvidence: { profile, inputTokens, phases, stops: assistantEntries.map(e => e.message.stopReason),
@@ -471,16 +505,23 @@ const result={
       JSON.stringify(batch?.map(call => [call.name, call.id, call.arguments])) === JSON.stringify(i === 0 ? [
         ["read", "worker-read-alpha", {path: `${project}/alpha.txt`}], ["read", "worker-read-beta", {path: `${project}/beta.txt`}],
       ] : [["read", "worker-read-again", {path: `${project}/alpha.txt`}]])) &&
-    assistantEntries.map(e => e.message.stopReason).join(",")===expectedStops.join(",") &&
+    extraReadRounds.every(round => {
+      const content = assistantEntries[round - 1]?.message?.content;
+      return content?.length === 1 && JSON.stringify(content.map(p => [p.type, p.name, p.id, p.arguments])) ===
+        JSON.stringify([["toolCall", "read", roundId(round), {path: `${project}/alpha.txt`}]]);
+    }) && assistantEntries.map(e => e.message.stopReason).join(",")===expectedStops.join(",") &&
     (overflowFailed || textOf(assistantEntries.at(-1)?.message?.content)===expectedAnswer),
   toolResultsClean:cleanToolResults,
   reminderExact:JSON.stringify(workerEntries.filter(e => e.type === "custom_message").map(e => e.customType))===JSON.stringify(expectedCustomTypes)&&
-    customEntries.length===(modelExtra ? 3 : 2)&&customEntries.every((entry)=>entry.display===false)&&
-    customEntries[0].content===REMINDER_TEXT&&exactSecond&&(!modelExtra || customEntries[2].content===second),
+    customEntries.length===expectedSavedReminders.length &&
+    customEntries.every((entry, i) => entry.display===false && entry.content===expectedSavedReminders[i]) &&
+    (!(combined || lengthCadence || defaultCadence) || exactCombined(combinedText)),
   reminderOrder:toolIndexes[1]<customIndexes[0]&&customIndexes[0]<assistantIndexes[1]&&
     assistantIndexes[1]<toolIndexes[2]&&toolIndexes[2]<customIndexes[1]&&customIndexes[1]<assistantIndexes[oneExtra ? 3 : 2]&&
-    (!modelExtra || assistantIndexes[2]<toolIndexes[3]&&toolIndexes[3]<customIndexes[2]&&customIndexes[2]<assistantIndexes[3]),
-  continuationReminder:JSON.stringify(requestReminders.slice(0, expectedReminders.length).map((round)=>round.map((message)=>message.content)))===
+    (!modelExtra || assistantIndexes[2]<toolIndexes[3]&&toolIndexes[3]<customIndexes[2]&&customIndexes[2]<assistantIndexes[3]) &&
+    extraReadRounds.every((round, i) => assistantIndexes[round - 1] < toolIndexes[3 + i] &&
+      toolIndexes[3 + i] < customIndexes[2 + i] && customIndexes[2 + i] < assistantIndexes[round]),
+  continuationReminder:JSON.stringify(requestReminders.map((round)=>round.map((message)=>message.content)))===
     JSON.stringify(expectedReminders) && (profile !== "normal" ||
       (savedLines.map(line => bytes(line) + 1).join(",") === (combined ? "499,1679" : "499,499") &&
         requestReminders.map(round => round.map(message => message.bytes).join(":")).join(",") ===
@@ -499,11 +540,10 @@ const result={
   compressorClean:compressorCalls.length===1&&
     !compressorCalls[0].context.messages.some(message => containsReminder(message.content) || containsReminder(message.customType??"") ||
       message.content.includes("WORKER_HISTORY_SUMMARY_51c824")) &&
-    [overflowFailed ? overflowDiagnostic : answerMarker,"ALPHA_CANARY_RESULT","BETA_CANARY_RESULT"].every(marker =>
-      JSON.stringify(compressorCalls[0].context).includes(marker)),
+    ordinaryMarkers.every(marker => compressorCalls[0].context.messages.some(message => message.content.includes(marker))),
   episodeClean:typeof episodeFile==="string"&&/^runtime-\d{8}T\d{6}Z-[0-9a-f]{32}\/episodes\/t\d+\.e1\.md$/.test(episodeFile.slice((project+"/.pi/slate/").length))&&episodeFile.startsWith(project+"/.pi/slate/")&&episodeText.length>0&&
-    !containsReminder(episodeText),
-  configBoundary:JSON.stringify(config.workerExtensions)===(profile === "normal" || profile === "model" ? '[]' : '["reminder-startup-probe[.]mjs$"]')&&config.cacheKeyEnabled===false&&
+    !containsReminder(episodeText) && episodeFindings === ordinaryMarkers.map(marker => "- " + marker).join("\n"),
+  configBoundary:JSON.stringify(config.workerExtensions)===(profile === "normal" || profile === "model" || defaultCadence ? '[]' : '["reminder-startup-probe[.]mjs$"]')&&config.cacheKeyEnabled===false&&
     config.router?.models?.add?.[0]?.model==="worker-reminder-canary"&&config.router?.compressor?.models?.[0]?.model==="claude-sonnet-5.5"&&
     !Object.hasOwn(config,"episodeModel")&&!Object.hasOwn(config,"modelFailover"),
   hostSuccess:hostCalls.length===2&&textOf(host.values.filter((entry)=>entry?.type==="message"&&entry.message?.role==="assistant").at(-1)?.message?.content)
@@ -525,9 +565,14 @@ NODE
 ANALYZE_RC=$?
 
 EXPECTED="pi-exit json-lines extension-errors working-tree provider-route one-dispatch worker-requests tool-results reminder-exact reminder-order continuation-context call-count silent-loss compressor-input durable-episode config-boundary host-completion"
-if [ "$THRESHOLD" = 1 ]; then EXPECTED="$EXPECTED idle-startup usage-threshold compaction-offset observation-bytes"; fi
+if [ "$THRESHOLD" = 1 ]; then EXPECTED="$EXPECTED idle-startup usage-threshold compaction-offset"; fi
+OBSERVATION=0
+case "$PROFILE:$CADENCE" in
+	threshold:*|handler:*|compact-*:*|overflow:*|overflow-disabled:20|length:*|length-cadence:*)
+		OBSERVATION=1; EXPECTED="$EXPECTED observation-bytes" ;;
+esac
 case "$PROFILE" in
-	normal|model|rejected|steer-*) EXPECTED="$EXPECTED reopened-records" ;;
+	normal|default|model|rejected|steer-*) EXPECTED="$EXPECTED reopened-records" ;;
 esac
 case "$PROFILE" in
 	normal|threshold) ;;
@@ -552,7 +597,7 @@ if truev reminderOrder;then report reminder-order PASS "each reminder follows it
 if truev continuationReminder;then report continuation-context PASS "the provider received each exact reminder in the expected request and order";else report continuation-context FAIL "the continuation requests have missing, extra, reordered, or changed reminders";fi
 if truev noExtraWorkerCall;then report call-count PASS "the provider saw only the expected calls in order";else report call-count FAIL "an expected provider call is missing, reordered, or duplicated";fi
 case "$PROFILE" in
-	normal|model|rejected|steer-*)
+	normal|default|model|rejected|steer-*)
 		if truev reopenedRecords; then report reopened-records PASS "Pi reopened the exact ordinary records and hidden reminders"
 		else report reopened-records FAIL "reopened ordinary records or hidden reminders differ"; fi ;;
 esac
@@ -573,11 +618,14 @@ if [ "$THRESHOLD" = 1 ]; then
   check_threshold idle-startup sameIdleStartup "the idle worker starts with twelve exact history messages"
   check_threshold usage-threshold atThreshold "only the combined final usage exceeds the fixed threshold"
   check_threshold compaction-offset compactedAfterAnswer "the saved answer position reflects the expected compaction outcome"
-  check_threshold observation-bytes observationExact "the stored observation equals the expected final answer byte for byte"
+fi
+if [ "$OBSERVATION" = 1 ]; then
+  if truev observationExact; then report observation-bytes PASS "the stored observation equals the expected final answer byte for byte"
+  else report observation-bytes FAIL "the stored observation or its recorded byte count differs"; fi
 fi
 if truev silentLossClean;then report silent-loss PASS "the delivered reminder produces no false reminder-miss warning";else report silent-loss FAIL "the delivered reminder or returned warnings are inconsistent";fi
-if truev compressorClean;then report compressor-input PASS "the compressor request contains no reminder text or custom type";else report compressor-input FAIL "the worker reminder leaked into the compressor request";fi
-if truev episodeClean;then report durable-episode PASS "the durable episode exists and contains no reminder text or custom type";else report durable-episode FAIL "the durable episode is missing or contains a worker reminder";fi
+if truev compressorClean;then report compressor-input PASS "the compressor received ordinary markers and no automatic reminder or summary";else report compressor-input FAIL "the compressor input lost ordinary markers or includes a reminder or summary";fi
+if truev episodeClean;then report durable-episode PASS "the saved episode body contains the expected compressor findings and no automatic reminder";else report durable-episode FAIL "the saved episode is missing, lacks the expected findings, or includes a reminder";fi
 if truev configBoundary;then report config-boundary PASS "the expected extension allowlist and cacheKeyEnabled:false did not prevent delivery";else report config-boundary FAIL "the required scratch config boundary or delivery proof is missing";fi
 if truev hostSuccess;then report host-completion PASS "the orchestrator received the thread result and returned its fixed marker";else report host-completion FAIL "the orchestrator completion marker is missing";fi
 ROSTER_OK=1
@@ -593,12 +641,13 @@ if [ "$FAIL" -ne 0 ];then KEEP=1;echo;echo "---- pi stderr ----";cat "$STDERR";e
 [ "$FAIL" -eq 0 ]
 )
 
+trap 'exit 130' INT TERM
 verdict=0
-for pair in normal:20 normal:1 threshold:20 threshold:1 rejected:1 steer-one:1 steer-all:1 \
-	model:20 model:1 handler:20 handler:1 compact-cancel:1 compact-fail:1 overflow:20 overflow:1 overflow-disabled:20 overflow-disabled:1 length:20 length:1; do
+for pair in normal:20 normal:1 default:omitted threshold:20 threshold:1 rejected:1 steer-one:1 steer-all:1 \
+	model:20 model:1 handler:20 handler:1 compact-cancel:1 compact-fail:1 overflow:20 overflow:1 overflow-disabled:20 overflow-disabled:1 length:20 length:1 length-cadence:3; do
 	run_case "${pair#*:}" "${pair%:*}"
 	rc=$?
-	if [ "$rc" = 2 ]; then exit 2; fi
+	if [ "$rc" = 2 ] || [ "$rc" = 130 ]; then exit "$rc"; fi
 	if [ "$rc" != 0 ]; then verdict=1; fi
 done
 exit "$verdict"

@@ -1,4 +1,4 @@
-ea4c1c192ee85d26318d45f18d9e0cf162b2bc5c4d9c3896378751ea4713f6f2  AGENTS.md
+0541ed6f1bb0f4cc85f8e3677871885d649df78520dca9acab33cf86b715cdda  AGENTS.md
 
 61940421be01ad68afb621eb7d08627824a06a2f1c99b67aeeec144807d0362e  CHANGELOG.md
 
@@ -12,9 +12,9 @@ c3ec46232ae59a874141e6528bebf5a079f492e72048f86474166fde53d58d20  docs/blast-rad
 
 9a76907f1a1b81bc05b379a982a9e4b68e4f03006df2758b7640ff7f3edfe13c  docs/change-records.md
 
-1c2ab5e71d9dea395ae5eb2624df0555651608456ce93f1cb91329c63311dbfd  docs/configuration.md
+7eaab31145071dc3bee194ab648a8be078f68ae82bb6c6fb345c2a9a65a2361c  docs/configuration.md
 
-2b4b52b67fd44ab322c71ad0cbe1fe6e67ddc636aa569a3dcedac53799b0c9b3  docs/context-budget.md
+b6075d47c2e93f6816bc6f44ada3fef10f7ece0966fca56637d11ce11d2d569d  docs/context-budget.md
 
 a19eef7bf9a86c2cf57f5f510534791c02320b6ce2259eabc3a9e7099d8254c5  docs/delivery-packages.md
 
@@ -70,7 +70,7 @@ a527dcd58276be7808e0a284add5f1dc08036ee9a522db85a4d5aeab3dd7b2f2  docs/review-pe
 
 f18298e3a2b41c6c77fb92e7410618df557e494374e4392b5085a626d00f01c8  docs/user-notes.md
 
-2b5431b3bdb97195aa7aa5ad1ec44dee2f7c524b3032b89f91f43fec824a9e78  docs/writing-guidance.md
+5bfc355ed335a80fd474968e7212f67923c2e05700291e2ff048e1f3541e3999  docs/writing-guidance.md
 
 66bc810df6425aafe09fbfaea92ef4eaa14a9259c174cddcd05802ef3d66cd54  issues/001-user-supplied-model-profiles.md
 
@@ -96,4 +96,4 @@ ff583b7578b55fa21887fde2ca828eb55a6d9efa0851112d830802eae1cc86e4  research/opena
 
 266812b566da8edc5d90936b39bfc7d13e160cd42291aba56b6e00eac3cf5077  research/writing-threshold-provenance.md
 
-613702cde52dbd84cb0fb8366ba077ae8eeeec9d523286d004120f972163e4bd  verification/README.md
+85aef6d7243ea348387346f1cdb45b79c31c66f407585f17573814105439889b  verification/README.md

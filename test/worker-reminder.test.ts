@@ -3,8 +3,8 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { DefaultResourceLoader, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { openWorkerSession } from "../extension/worker.ts";
+import { DefaultResourceLoader, type AgentSession, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { openWorkerSession, type WorkerSession } from "../extension/worker.ts";
 import { REVIEWER_WRITING_GUIDANCE, WORKER_WRITING_GUIDANCE } from "../extension/writing-reminder.ts";
 import {
 	isWorkerReminderMessage,
@@ -12,7 +12,14 @@ import {
 	workerReminderDeliveryMissing,
 	WORKER_REMINDER_CUSTOM_TYPE,
 	WORKER_REMINDER_TEXT,
+	type WorkerReminderRuntime,
 } from "../extension/worker-reminder.ts";
+
+// Cadence is required on the producer results, not on structural inputs.
+type AcceptWorker<Input extends WorkerSession> = Input;
+export type BaseWorkerInput = AcceptWorker<AgentSession & Pick<WorkerSession,
+	"workerReminderHandledToolResult" | "closeManagedOperations" | "settleManagedOperations" |
+	"activeManagedOperationCount" | "includedOperationFailure" | "resetIncludedOperationFailure" | "shutdownWorker">>;
 
 type Handler = (event: unknown, context?: unknown) => unknown;
 
@@ -64,6 +71,9 @@ const toolResult = {
 };
 
 test("worker reminder contract is exact and separate from the writing reminder", () => {
+	const runtime = createWorkerReminderRuntime();
+	const baseRuntime: WorkerReminderRuntime = { extension: runtime.extension, handledToolResult: runtime.handledToolResult };
+	assert.equal(baseRuntime.handledToolResult(), false);
 	assert.equal(WORKER_REMINDER_CUSTOM_TYPE, "slate-worker-reminder");
 	assert.equal(
 		WORKER_REMINDER_TEXT,
@@ -152,9 +162,11 @@ test("factory state is local to concurrently interleaved worker sessions", () =>
 
 const header = "[slate] Reminder:\n\n";
 function toolRound(fixture: ReturnType<typeof reminderFixture>) {
+	const before = fixture.sent.length;
 	fixture.emit("message_end", { message: { role: "assistant" } });
 	fixture.emit("tool_result", toolResult);
-	return (fixture.sent.at(-1)?.message as { content?: string })?.content;
+	assert.equal(fixture.sent.length, before + 1);
+	return (fixture.sent[before]?.message as { content?: string })?.content;
 }
 
 test("cadence uses the reported completion reason, not the tool batch outcome", () => {

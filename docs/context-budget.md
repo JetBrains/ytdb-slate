@@ -314,8 +314,11 @@ The reviewer charter constant is 2,154 bytes.
 The writing addendum needs one separating space. The reviewer charter addendum
 needs one separating newline. The current text uses UTF-8 punctuation, so byte
 and character counts can differ.
-This separate figure states the worker-session cost without presenting
-it as orchestrator doctrine.
+These figures measure the preamble in the worker system prompt.
+Slate assembles it once per session. Each ordinary worker request includes it.
+For example, a worker with full guidance that reads a file and then answers
+carries the 1,162-byte addition in both requests. The 2,324-byte total measures
+logical request content, not billed input.
 
 ### Change-folder guidance
 
@@ -405,19 +408,28 @@ Escaped line feeds make the serialized increase 1,180 or 547 bytes per
 appearance. The figures measure compact JavaScript Object Notation (JSON).
 They include no installed path. They do not measure network bytes or tokens.
 
-| Worker context item | Copies after N requests | Cumulative appearances across N requests |
+| Worker context item | Copies in request N | Cumulative appearances across N requests |
 | --- | ---: | ---: |
 | Tool reminder, any form | N - 1 | N × (N - 1) / 2 |
 
-The row assumes a fresh session and `N` requests. The first `N - 1` turns
-complete with qualifying tool results. Each continuation takes the reminder
-immediately and every later request retains it. At cadence `k`, writing first
-joins the tool reminder during turn `k + 1`. It joins again every `k` turns
-while the same conditions hold. Each combined reminder from turn `i` adds
-its serialized increase to each of the next `N - i` requests.
-No additional reminder is sent. Queue order, retries, failover and compaction
-can change delivery and retention. The row does not bound total request cost.
-Provider cache reads can reduce billed input without reducing appearances.
+The row assumes a fresh session with `N` requests and one normal turn per
+request. Each of the first `N - 1` turns sends one tool reminder after a
+qualifying result. The next request takes it immediately and every later
+request retains it. The number of tool reminders does not show when writing
+arrives. A session can retain tools-only reminders without any writing.
+
+In that sequence, an interval of `k` turns makes writing due after turn `k`.
+Turn `k + 1` offers the first chance to attach writing if it has an eligible
+tool result. Writing must be permitted and fit the cap. The combined send must
+return normally. If the next request takes that reminder, writing first appears
+in request `k + 2`. It joins again every `k` turns under the same conditions.
+If every later request retains it, a combined reminder from turn `i` adds its
+serialized increase to each of the next `N - i` requests. Slate sends no
+additional reminder for writing.
+
+Queue order, retries, failover and compaction can change delivery and retention.
+The row does not bound total request cost. Provider cache reads can reduce billed
+input without reducing appearances.
 
 ### Implementation reference and specialist charters
 

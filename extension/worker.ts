@@ -58,7 +58,6 @@ import { PI_BUILTIN_TOOL_NAMES, SLATE_TOOL_NAMES } from "./worker-extensions.ts"
 
 export type WorkerSession = Awaited<ReturnType<typeof createAgentSession>>["session"] & {
 	workerReminderHandledToolResult(): boolean;
-	workerReminderCompletedTurn: ReturnType<typeof createWorkerReminderRuntime>["completedTurn"];
 	/** Close extension-managed Pi operation admission before terminal settlement. */
 	closeManagedOperations(): void;
 	/** Abort and join startup, admitted operations, and Pi idle state. */
@@ -71,6 +70,10 @@ export type WorkerSession = Awaited<ReturnType<typeof createAgentSession>>["sess
 	resetIncludedOperationFailure(): void;
 	/** Emit worker session_shutdown once, then dispose even when a handler fails. */
 	shutdownWorker(): Promise<void>;
+};
+
+type OpenedWorkerSession = WorkerSession & {
+	workerReminderCompletedTurn: ReturnType<typeof createWorkerReminderRuntime>["completedTurn"];
 };
 
 export const DEFAULT_WORKER_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"];
@@ -476,9 +479,9 @@ export async function openWorkerSession(opts: {
 	/** Internal test seam for the fixed nested-settlement diagnostic interval. */
 	testOnlyNestedWarningMs?: number;
 	report?: (message: string) => void; // lifecycle failures visible to the dispatch and host
-	onCreated?: (session: WorkerSession) => void; // publish ownership and install capture before session_start begins
+	onCreated?: (session: OpenedWorkerSession) => void; // publish ownership and install capture before session_start begins
 	deferShutdownOnOpenFailure?: boolean; // ThreadManager persists captured startup facts before shutdown
-}): Promise<WorkerSession> {
+}): Promise<OpenedWorkerSession> {
 	const { ctx } = opts;
 	const agentDir = getAgentDir();
 

@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { SessionManager, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
   captureObservation,
   durableObservation,
@@ -459,6 +459,8 @@ async function dispatchOnce(opts: {
   message?: unknown;
   noMessage?: boolean;
   compact?: boolean;
+  cut?: "plain" | "edited" | "omitted" | "partial-then-omitted" | "retained-omission" | "partial";
+  projection?: "empty-startup" | "detached-startup";
   /** Called when the fake worker turn ends, so a one-shot throw arms just before the capture. */
   arm?: () => void;
   defineCtx?: (ctx: Record<string, unknown>) => void;
@@ -473,14 +475,17 @@ async function dispatchOnce(opts: {
   const store = new SlateStore(pi);
   opts.onStore?.(store);
   const manager = new ThreadManager(store, {}, undefined, fixtureRuntime());
-  const messages: unknown[] = opts.compact ? [
+  const messages: unknown[] = opts.compact || opts.projection === "detached-startup" ? [
     { role: "user", content: "startup prompt" },
     { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "startup response" }] },
     { role: "custom", content: "startup context" },
   ] : [];
+  const sessionManager = opts.compact || opts.cut || opts.projection ? SessionManager.inMemory(opts.root) : undefined;
+  for (const message of messages) sessionManager?.appendMessage(message as Parameters<SessionManager["appendMessage"]>[0]);
   const subscribers = new Set<(event: unknown) => void>();
   const session = {
     messages,
+    sessionManager,
     model: { provider: "test", id: "worker" },
     thinkingLevel: "off",
     sessionFile: opts.sessionFile,
@@ -491,17 +496,48 @@ async function dispatchOnce(opts: {
       return () => subscribers.delete(listener);
     },
     prompt: async () => {
+      if (opts.cut === "partial-then-omitted") {
+        assert.ok(sessionManager);
+        sessionManager.appendMessage({
+          role: "assistant", stopReason: "toolUse", content: [{ type: "text", text: "earlier partial text" }],
+        } as Parameters<SessionManager["appendMessage"]>[0]);
+      }
       if (!opts.noMessage) {
         const message = opts.message ?? { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "No findings." }] };
         const withUsage = opts.workerCostUsd === undefined
           ? message
           : { ...(message as Record<string, unknown>), usage: { cost: { total: opts.workerCostUsd } } };
         messages.push(withUsage);
+        sessionManager?.appendMessage(withUsage as Parameters<SessionManager["appendMessage"]>[0]);
         for (const listener of subscribers) listener({ type: "message_end", message: withUsage });
       }
-      if (opts.compact) {
-        messages.splice(0, 3, { role: "compactionSummary", content: "startup response" });
+      if (sessionManager && opts.cut) {
+        const candidate = sessionManager.getLeafId();
+        assert.ok(candidate);
+        if (opts.cut === "edited") {
+          sessionManager.appendCompaction("summarize the original answer", null, 100);
+          sessionManager.appendCompaction("keep the answer again", candidate, 100);
+          sessionManager.appendContextEdit(candidate, { content: "Exact edited answer." });
+        } else if (opts.cut.endsWith("omitted") || opts.cut === "retained-omission") {
+          sessionManager.appendContextEdit(candidate, null);
+        }
+        sessionManager.appendCompaction("summarize the answer",
+          opts.cut === "retained-omission" ? candidate : null, 100);
+        if (opts.cut === "edited") {
+          sessionManager.appendContextEdit(candidate, { content: "Edit outside the retained context." });
+          sessionManager.appendCompaction("summarize again without the answer", null, 100);
+        }
+        messages.splice(0, messages.length, ...sessionManager.buildSessionProjection().messages);
+      } else if (sessionManager && opts.compact) {
+        const keep = opts.noMessage ? messages[1] : messages.at(-1);
+        const keptEntry = sessionManager.getBranch().find(entry => entry.type === "message" && entry.message === keep);
+        assert.ok(keptEntry);
+        sessionManager.appendCompaction("startup context summary", keptEntry.id, 100);
+        messages.splice(0, messages.length, ...sessionManager.buildSessionProjection().messages);
         for (const listener of subscribers) listener({ type: "compaction_end", result: {} });
+      } else if (sessionManager && opts.projection === "detached-startup") {
+        sessionManager.branch(sessionManager.getBranch()[1]!.id);
+        messages.splice(0, messages.length, ...sessionManager.buildSessionProjection().messages);
       }
       opts.arm?.();
     },
@@ -589,6 +625,53 @@ test("observation survives a compacted projection and excludes startup text", { 
       stored: false, reason: "no-final-message", grammar: "absent",
     });
     assert.ok(withoutAnswer.warnings.some((warning) => warning.includes("produced no final response")));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("observation replays only a completed answer at the cut that removed it", { timeout: 2000 }, async () => {
+  const root = temporaryRoot();
+  try {
+    for (const [cut, answer] of [
+      ["plain", "original answer"],
+      ["edited", "Exact edited answer."],
+      ["omitted", undefined],
+      ["partial-then-omitted", undefined],
+      ["retained-omission", undefined],
+      ["partial", undefined],
+    ] as const) {
+      const result = await dispatchOnce({
+        root, cut,
+        message: {
+          role: "assistant", stopReason: cut === "partial" ? "toolUse" : "stop",
+          content: [{ type: "text", text: "original answer" }],
+        },
+      });
+      const observation = result.episode.observations as { stored?: boolean; path?: string } | undefined;
+      if (answer === undefined) {
+        assert.deepEqual(observation, { stored: false, reason: "no-final-message", grammar: "absent" }, cut);
+      } else {
+        assert.equal(observation?.stored, true, cut);
+        assert.ok(observation?.path, cut);
+        assert.deepEqual(readFileSync(join(root, observation.path)), Buffer.from(answer), cut);
+      }
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("observation distinguishes an empty startup branch from an unanchored branch", { timeout: 1000 }, async () => {
+  const root = temporaryRoot();
+  try {
+    const empty = await dispatchOnce({ root, projection: "empty-startup" });
+    const observation = empty.episode.observations as { stored?: boolean; path?: string } | undefined;
+    assert.equal(observation?.stored, true);
+    assert.ok(observation?.path);
+    assert.deepEqual(readFileSync(join(root, observation.path)), Buffer.from("No findings."));
+    const detached = await dispatchOnce({ root, projection: "detached-startup" });
+    assert.deepEqual(detached.episode.observations, { stored: false, reason: "no-final-message", grammar: "absent" });
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

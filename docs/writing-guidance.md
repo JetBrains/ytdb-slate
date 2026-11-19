@@ -200,31 +200,34 @@ even when cadence fires. Turning findings off disables the trigger but keeps
 cadence. A trusted handoff reloads doctrine and forces the next eligible
 reminder without waiting for cadence or a finding.
 
-**Workers.** A trusted project or an authenticated home-only settings object
-permits writing. Orchestrator mode, pause, handoff and findings do not control
-worker cadence. Workers run no writing checker. They use the role's preamble
-form without adding a design block or findings.
+**Workers.** Writing needs a trusted project or authenticated home-only
+settings. Orchestrator mode, pause, handoff and findings do not affect worker
+cadence. Workers use their role's preamble without a checker, design block or
+findings.
 
-Each session keeps its own count through same-session retry and failover.
-A fresh or reopened session starts at zero. Normal turns with or without
-tools count once. Error, output-length and aborted turns do not count.
-The tool reminder runs before the current turn ends. Only earlier turns
-can make writing due. With cadence four and tools on every turn, turn five
-can queue writing for response six.
+Cadence starts at zero on open. Retry and failover keep the count within the
+same session. At turn end, Pi's reported `stop` or `toolUse` counts once,
+even with no tools or a skipped tool. Reported `aborted`, `error` and
+`length` do not count. Only earlier turns can make writing due. With cadence
+four and eligible tools on each turn, turn five can queue writing for
+response six.
 
-The first eligible tool result uses the existing hidden `slate-worker-reminder`
-slot. Nested results and call identifiers starting with `/` do not qualify.
-When due, the reminder keeps the tools text first and adds writing after two
-line feeds. A construction failure sends tools text only and leaves writing
-due. A normal return from the combined send resets cadence. It does not prove
-delivery. Pi controls queue order, continuation and compaction. Slate does not
-send writing alone, catch up after compaction or warn separately about writing.
-Cadence starts no new request.
+The first eligible result takes the hidden `slate-worker-reminder` slot.
+Nested results and call identifiers starting with `/` do not qualify. Due
+writing follows the tools text after two line feeds. If construction fails,
+Slate sends tools text only. If the send throws, Slate frees the slot for
+another eligible result in that round. Only a normal combined send resets
+cadence. It does not prove delivery. Without another eligible result, writing
+can stay due at action end.
+
+Slate neither sends writing alone nor catches up after compaction. Slate adds
+no warning or request for writing. Pi controls queue order and continuation.
+The extra context can lead Pi to compact, retry or fail on overflow.
 
 Pi saves the reminder with `display: false`. An incomplete file append can
-affect a later saved record. A worker summary can repeat guidance in the same
-session. Neither the automatic reminder nor the summary becomes episode input.
-Ordinary worker output remains eligible, even when it quotes guidance.
+affect a later record. A worker summary can repeat guidance. Neither the
+reminder nor that summary enters the episode input. Ordinary worker output
+can enter even if it quotes guidance.
 
 Slate makes no claim that reminders improve prose.
 
@@ -263,9 +266,9 @@ Neither holds a manual roster. The shell harness uses canary evidence.
 
 ## What it costs when it is on
 
-The doctrine rules are part of every orchestrator system prompt, so their
-cost is paid on every turn. The worker addition is paid once per
-worker dispatch. Retained reminders can appear in multiple model requests.
+The orchestrator prompt includes doctrine.
+Slate assembles the worker preamble once per session. Ordinary requests
+repeat it. Retained reminders can recur. These counts do not measure billing.
 `context-budget.md` defines the portable-character measure. It records
 the whole-doctrine sizes and owns the size budget.
 
