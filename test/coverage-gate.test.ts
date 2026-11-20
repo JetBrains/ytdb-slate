@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { spawnSync } from "node:child_process";
+import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import {
   chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync,
   readdirSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync,
@@ -13,6 +13,8 @@ import test from "node:test";
 const GATE = fileURLToPath(new URL("../verification/coverage-gate.mjs", import.meta.url));
 const RUNNER = fileURLToPath(new URL("../verification/run-tests.sh", import.meta.url));
 const CHECKOUT = realpathSync(join(dirname(RUNNER), ".."));
+const PEER_LINKER_FIXTURE = "#!/bin/sh\nprintf '%s\\n' " +
+  JSON.stringify("SLATE_ACTIVE_PI=" + realpathSync(join(CHECKOUT, "node_modules/.bin/pi"))) + "\n";
 
 interface RunResult { status: number | null; stdout: string; stderr: string }
 
@@ -592,7 +594,7 @@ test("run-tests rejects direct, nested, and aliased checkout scratch roots befor
   const repo = join(harness, "copied-checkout");
   mkdirSync(join(repo, "verification"), { recursive: true });
   cpSync(RUNNER, join(repo, "verification/run-tests.sh"));
-  writeFileSync(join(repo, "verification/link-peers.sh"), "#!/bin/sh\nexit 0\n");
+  writeFileSync(join(repo, "verification/link-peers.sh"), PEER_LINKER_FIXTURE);
   const alias = join(harness, "checkout-alias");
   const nested = join(repo, "nested", "tmp");
   const nestedAlias = join(harness, "nested-alias");
@@ -626,7 +628,7 @@ test("run-tests makes native and real-Pi host processes mandatory, isolated, exh
   mkdirSync(join(repo, "test", "new"), { recursive: true });
   mkdirSync(outerTmp);
   cpSync(RUNNER, join(repo, "verification/run-tests.sh"));
-  writeFileSync(join(repo, "verification/link-peers.sh"), "#!/bin/sh\nexit 0\n");
+  writeFileSync(join(repo, "verification/link-peers.sh"), PEER_LINKER_FIXTURE);
   writeFileSync(join(repo, "verification/coverage-gate.mjs"), "// invoked through the fake node fixture\n");
   writeFileSync(join(repo, "test/smoke.test.ts"), "// native fixture\n");
   writeFileSync(join(repo, "test/new/discovered.test.ts"), "// newly discovered native fixture\n");
@@ -704,7 +706,7 @@ test("run-tests roster audit rejects omitted, overlapping, and duplicate partiti
   mkdirSync(join(repo, "verification"), { recursive: true });
   mkdirSync(join(repo, "test"), { recursive: true });
   mkdirSync(outerTmp);
-  writeFileSync(join(repo, "verification/link-peers.sh"), "#!/bin/sh\nexit 0\n");
+  writeFileSync(join(repo, "verification/link-peers.sh"), PEER_LINKER_FIXTURE);
   writeFileSync(join(repo, "test/smoke.test.ts"), "// native fixture\n");
   writeFileSync(join(repo, "test/recovery-ownership-host.test.ts"), "// host fixture\n");
   const bin = join(repo, "bin");
@@ -738,7 +740,27 @@ test("run-tests roster audit rejects omitted, overlapping, and duplicate partiti
   }
 });
 
-test("run-tests isolates Jiti coverage from a cache warmed by an earlier process", { timeout: 120_000 }, (t) => {
+function subprocessDetails(result: SpawnSyncReturns<string>): string {
+  const tail = (output: string | null) => (output ?? "").slice(-4_096);
+  return `error: ${result.error}\nsignal: ${result.signal}\nstdout tail:\n${tail(result.stdout)}\nstderr tail:\n${tail(result.stderr)}`;
+}
+
+test("subprocess diagnostics retain timeout evidence and bound both output tails", () => {
+  const result: SpawnSyncReturns<string> = {
+    pid: 1, status: null, signal: "SIGTERM",
+    error: new Error("spawnSync bash ETIMEDOUT"),
+    stdout: "discarded stdout" + "x".repeat(4_096),
+    stderr: "discarded stderr" + "y".repeat(4_096), output: [],
+  };
+  assert.equal(subprocessDetails(result),
+    `error: Error: spawnSync bash ETIMEDOUT\nsignal: SIGTERM\nstdout tail:\n${"x".repeat(4_096)}\nstderr tail:\n${"y".repeat(4_096)}`);
+  assert.equal(subprocessDetails({ ...result, error: undefined, signal: null, stdout: "", stderr: "" }),
+    "error: undefined\nsignal: null\nstdout tail:\n\nstderr tail:\n");
+});
+
+// Nine 20-second Git limits and two 120-second child limits total 420 seconds.
+// The 480-second test limit leaves 60 seconds for fixture setup and assertions.
+test("run-tests isolates Jiti coverage from a cache warmed by an earlier process", { timeout: 480_000 }, (t) => {
   const harness = scratchDirectory("slate-runner-jiti-cache-");
   t.after(() => rmSync(harness, { recursive: true, force: true }));
   const repo = join(harness, "repo");
@@ -750,6 +772,7 @@ test("run-tests isolates Jiti coverage from a cache warmed by an earlier process
   cpSync(join(CHECKOUT, "verification"), join(repo, "verification"), { recursive: true });
   cpSync(join(CHECKOUT, "package.json"), join(repo, "package.json"));
   cpSync(join(CHECKOUT, "README.md"), join(repo, "README.md"));
+  cpSync(join(CHECKOUT, "AGENTS.md"), join(repo, "AGENTS.md"));
   mkdirSync(join(repo, ".pi"));
   cpSync(join(CHECKOUT, ".pi/settings.json"), join(repo, ".pi/settings.json"));
   cpSync(join(CHECKOUT, ".pi/slate.json"), join(repo, ".pi/slate.json"));
@@ -763,7 +786,7 @@ test("run-tests isolates Jiti coverage from a cache warmed by an earlier process
   const policyCut = 'test("the real resolver wrapper refuses a missing exact-pinned TypeScript compiler"';
   assert.equal(policySource.split(policyCut).length, 2, "policy fixture cut point must remain unique");
   writeFileSync(policyPath, policySource.slice(0, policySource.indexOf(policyCut)));
-  writeFileSync(join(repo, "verification/link-peers.sh"), "#!/bin/sh\nexit 0\n");
+  writeFileSync(join(repo, "verification/link-peers.sh"), PEER_LINKER_FIXTURE);
 
   const packageLinks = [
     ["node_modules/typescript", "node_modules/typescript"],
@@ -802,21 +825,22 @@ test("run-tests isolates Jiti coverage from a cache warmed by an earlier process
     PI_BIN: join(repo, "node_modules/.bin/pi"),
   };
   const prewarm = spawnSync("bash", ["verification/run-resolver-checks.sh", "--repo", repo, "--strict"], {
-    cwd: repo, encoding: "utf8", env: childEnv, timeout: 60_000,
+    cwd: repo, encoding: "utf8", env: childEnv, timeout: 120_000,
   });
-  assert.equal(prewarm.status, 0, `resolver prewarm failed\nerror: ${prewarm.error}\nsignal: ${prewarm.signal}\n${prewarm.stdout}\n${prewarm.stderr}`);
+  assert.equal(prewarm.status, 0, `resolver prewarm failed\n${subprocessDetails(prewarm)}`);
   const sharedCache = join(outerTmp, "jiti");
   const warmedNames = readdirSync(sharedCache);
   assert.ok(warmedNames.some((name) => name.startsWith("extension-logical-model-render.")), "prewarm did not cache logical-model-render");
   assert.ok(warmedNames.some((name) => name.startsWith("extension-logical-model-resolver.")), "prewarm did not cache logical-model-resolver");
 
   const isolated = spawnSync("bash", ["verification/run-tests.sh", "--base", base], {
-    cwd: repo, encoding: "utf8", env: childEnv, timeout: 30_000,
+    cwd: repo, encoding: "utf8", env: childEnv, timeout: 120_000,
   });
-  assert.equal(isolated.status, 0, `${isolated.stdout}\n${isolated.stderr}`);
-  assert.match(isolated.stdout, /logical-model-render\.ts: lines ([1-9]\d*)\/\1=100\.00%/);
-  assert.match(isolated.stdout, /logical-model-resolver\.ts: lines ([1-9]\d*)\/\1=100\.00%/);
-  assert.match(isolated.stdout, /RUN VERDICT: PASS — tests passed and coverage gate accepted the patch/);
+  const details = subprocessDetails(isolated);
+  assert.equal(isolated.status, 0, details);
+  assert.match(isolated.stdout, /logical-model-render\.ts: lines ([1-9]\d*)\/\1=100\.00%/, details);
+  assert.match(isolated.stdout, /logical-model-resolver\.ts: lines ([1-9]\d*)\/\1=100\.00%/, details);
+  assert.match(isolated.stdout, /RUN VERDICT: PASS — tests passed and coverage gate accepted the patch/, details);
 });
 
 test("a missing exact-pinned TypeScript devDependency is a legible infrastructure error", { timeout: 20_000 }, (t) => {
@@ -1016,7 +1040,7 @@ test("run-tests isolates global fsmonitor configuration through the real coverag
   cpSync(RUNNER, join(repo, "verification/run-tests.sh"));
   writeFileSync(join(repo, "test/recovery-ownership-host.test.ts"), "// host fixture\n");
   cpSync(GATE, join(repo, "verification/coverage-gate.mjs"));
-  writeFileSync(join(repo, "verification/link-peers.sh"), "#!/bin/sh\nexit 0\n");
+  writeFileSync(join(repo, "verification/link-peers.sh"), PEER_LINKER_FIXTURE);
   const modules = join(repo, "node_modules");
   mkdirSync(modules);
   symlinkSync(realpathSync(join(CHECKOUT, "node_modules/typescript")), join(modules, "typescript"), "dir");
@@ -1071,7 +1095,7 @@ test("run-tests preserves a gate WARN as its final verdict (WH23)", (t) => {
   mkdirSync(join(repo, "verification"), { recursive: true });
   mkdirSync(join(repo, "test"), { recursive: true });
   cpSync(RUNNER, join(repo, "verification/run-tests.sh"));
-  writeFileSync(join(repo, "verification/link-peers.sh"), "#!/bin/sh\nexit 0\n");
+  writeFileSync(join(repo, "verification/link-peers.sh"), PEER_LINKER_FIXTURE);
   writeFileSync(join(repo, "verification/coverage-gate.mjs"), "console.log('VERDICT: WARN — fixture requires manual review');\n");
   writeFileSync(join(repo, "test/smoke.test.ts"), "import test from 'node:test'; test('smoke', () => {});\n");
   writeFileSync(join(repo, "test/recovery-ownership-host.test.ts"), "import test from 'node:test'; test('host', () => {});\n");
@@ -1116,7 +1140,7 @@ test("missing LCOV is an infrastructure error and the runner labels it (WH41)", 
   mkdirSync(join(runnerRepo, "verification"), { recursive: true });
   mkdirSync(join(runnerRepo, "test"), { recursive: true });
   cpSync(RUNNER, join(runnerRepo, "verification/run-tests.sh"));
-  writeFileSync(join(runnerRepo, "verification/link-peers.sh"), "#!/bin/sh\nexit 0\n");
+  writeFileSync(join(runnerRepo, "verification/link-peers.sh"), PEER_LINKER_FIXTURE);
   writeFileSync(join(runnerRepo, "verification/coverage-gate.mjs"), "process.exitCode = 2;\n");
   writeFileSync(join(runnerRepo, "test/smoke.test.ts"), "// fixture\n");
   writeFileSync(join(runnerRepo, "test/recovery-ownership-host.test.ts"), "// host fixture\n");

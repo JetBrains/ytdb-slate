@@ -80,3 +80,4 @@ while IFS=$'\t' read -r name source; do
   [ "$(realpath "$target" 2>/dev/null || true)" = "$source" ] || fail "linked $name but could not verify target $target"
   printf 'link-peers: linked %s to pi copy %s\n' "$name" "$source"
 done <<< "$resolved"
+printf 'SLATE_ACTIVE_PI=%s\n' "$(node -e 'console.log(require("node:fs").realpathSync(process.argv[1]))' "$pi_bin")"

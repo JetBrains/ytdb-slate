@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { SessionManager, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
   captureObservation,
   durableObservation,
@@ -458,6 +458,10 @@ async function dispatchOnce(opts: {
   root: string;
   message?: unknown;
   noMessage?: boolean;
+  compact?: boolean;
+  cut?: "plain" | "edited" | "omitted" | "partial-then-omitted" | "retained-omission" | "retained-restoration" | "partial";
+  projection?: "empty-startup" | "detached-startup";
+  settle?: (manager: SessionManager) => void;
   /** Called when the fake worker turn ends, so a one-shot throw arms just before the capture. */
   arm?: () => void;
   defineCtx?: (ctx: Record<string, unknown>) => void;
@@ -472,10 +476,17 @@ async function dispatchOnce(opts: {
   const store = new SlateStore(pi);
   opts.onStore?.(store);
   const manager = new ThreadManager(store, {}, undefined, fixtureRuntime());
-  const messages: unknown[] = [];
+  const messages: unknown[] = opts.compact || opts.projection === "detached-startup" ? [
+    { role: "user", content: "startup prompt" },
+    { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "startup response" }] },
+    { role: "custom", content: "startup context" },
+  ] : [];
+  const sessionManager = opts.compact || opts.cut || opts.projection || opts.settle ? SessionManager.inMemory(opts.root) : undefined;
+  for (const message of messages) sessionManager?.appendMessage(message as Parameters<SessionManager["appendMessage"]>[0]);
   const subscribers = new Set<(event: unknown) => void>();
   const session = {
     messages,
+    sessionManager,
     model: { provider: "test", id: "worker" },
     thinkingLevel: "off",
     sessionFile: opts.sessionFile,
@@ -486,24 +497,80 @@ async function dispatchOnce(opts: {
       return () => subscribers.delete(listener);
     },
     prompt: async () => {
+      let partial: string | undefined;
+      if (opts.cut === "partial-then-omitted" || opts.cut === "retained-restoration") {
+        assert.ok(sessionManager);
+        partial = sessionManager.appendMessage({
+          role: "assistant", stopReason: "toolUse", content: [
+            { type: "text", text: "earlier partial text" },
+            { type: "toolCall", id: "probe", name: "probe", arguments: {} },
+          ],
+        } as Parameters<SessionManager["appendMessage"]>[0]);
+        sessionManager.appendMessage({
+          role: "toolResult", toolCallId: "probe", toolName: "probe", isError: false,
+          content: [{ type: "text", text: "retained result" }], timestamp: 1,
+        });
+      }
       if (!opts.noMessage) {
         const message = opts.message ?? { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "No findings." }] };
         const withUsage = opts.workerCostUsd === undefined
           ? message
           : { ...(message as Record<string, unknown>), usage: { cost: { total: opts.workerCostUsd } } };
         messages.push(withUsage);
+        sessionManager?.appendMessage(withUsage as Parameters<SessionManager["appendMessage"]>[0]);
         for (const listener of subscribers) listener({ type: "message_end", message: withUsage });
+      }
+      if (sessionManager && opts.settle) {
+        opts.settle(sessionManager);
+        messages.splice(0, messages.length, ...sessionManager.buildSessionProjection().messages);
+      } else if (sessionManager && opts.cut) {
+        const candidate = sessionManager.getLeafId();
+        assert.ok(candidate);
+        if (opts.cut === "edited") {
+          sessionManager.appendCompaction("summarize the original answer", null, 100);
+          sessionManager.appendCompaction("keep the answer again", candidate, 100);
+          sessionManager.appendContextEdit(candidate, { content: "Exact edited answer." });
+        } else if (opts.cut.endsWith("omitted") || opts.cut === "retained-omission" || opts.cut === "retained-restoration") {
+          sessionManager.appendContextEdit(candidate, null);
+        }
+        sessionManager.appendCompaction("summarize the answer",
+          partial ?? (opts.cut === "retained-omission" ? candidate : null), 100);
+        if (opts.cut === "retained-restoration") {
+          sessionManager.appendContextEdit(candidate, { content: "Later edit restores the answer." });
+        }
+        if (opts.cut === "edited") {
+          sessionManager.appendContextEdit(candidate, { content: "Edit outside the retained context." });
+          sessionManager.appendCompaction("summarize again without the answer", null, 100);
+        }
+        messages.splice(0, messages.length, ...sessionManager.buildSessionProjection().messages);
+      } else if (sessionManager && opts.compact) {
+        const keep = opts.noMessage ? messages[1] : messages.at(-1);
+        const keptEntry = sessionManager.getBranch().find(entry => entry.type === "message" && entry.message === keep);
+        assert.ok(keptEntry);
+        sessionManager.appendCompaction("startup context summary", keptEntry.id, 100);
+        messages.splice(0, messages.length, ...sessionManager.buildSessionProjection().messages);
+        for (const listener of subscribers) listener({ type: "compaction_end", result: {} });
+      } else if (sessionManager && opts.projection === "detached-startup") {
+        sessionManager.branch(sessionManager.getBranch()[1]!.id);
+        messages.splice(0, messages.length, ...sessionManager.buildSessionProjection().messages);
       }
       opts.arm?.();
     },
   };
   const view = manager as unknown as {
     live: Map<string, unknown>;
-    openWorkerFor(args: { requestContract: import("../extension/worker.ts").WorkerRequestContract }): Promise<{ session: unknown; baseline: unknown }>;
+    openWorkerFor(args: {
+      requestContract: import("../extension/worker.ts").WorkerRequestContract;
+      observeSession: (worker: typeof session) => void;
+    }): Promise<{ session: unknown; baseline: unknown }>;
   };
-  view.openWorkerFor = async ({ requestContract }) => {
+  view.openWorkerFor = async ({ requestContract, observeSession }) => {
     opts.onOpen?.();
     bindFakeWorkerRequest(session, requestContract);
+    if (opts.compact) {
+      observeSession(session);
+      for (const listener of subscribers) listener({ type: "message_end", message: messages[1] });
+    }
     view.live.set(opts.dispatch?.threadId ?? "t1", session);
     return { session, baseline: {} };
   };
@@ -550,6 +617,161 @@ test("dispatch joins text around non-text blocks and distinguishes malformed war
     });
     assert.ok(malformed.warnings.some((warning) => warning.includes("malformed findings row")));
     assert.ok(malformed.warnings.some((warning) => warning.includes("Put a file and line or line range in the location field, with no pipe character.")));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("observation survives a compacted projection and excludes startup text", { timeout: 1000 }, async () => {
+  const root = temporaryRoot();
+  try {
+    const answer = "Exact post-start answer.\nNo findings.";
+    const withAnswer = await dispatchOnce({
+      root, compact: true,
+      message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: answer }] },
+    });
+    const observation = withAnswer.episode.observations as { stored?: boolean; path?: string } | undefined;
+    assert.equal(observation?.stored, true);
+    assert.ok(observation?.path);
+    assert.deepEqual(readFileSync(join(root, observation.path)), Buffer.from(answer));
+
+    const withoutAnswer = await dispatchOnce({ root, compact: true, noMessage: true });
+    assert.deepEqual(withoutAnswer.episode.observations, {
+      stored: false, reason: "no-final-message", grammar: "absent",
+    });
+    assert.ok(withoutAnswer.warnings.some((warning) => warning.includes("produced no final response")));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("observation replays only a completed answer at the cut that removed it", { timeout: 2000 }, async () => {
+  const root = temporaryRoot();
+  try {
+    for (const [cut, answer] of [
+      ["plain", "original answer"],
+      ["edited", "Exact edited answer."],
+      ["omitted", undefined],
+      ["partial-then-omitted", undefined],
+      ["retained-omission", undefined],
+      ["retained-restoration", "Later edit restores the answer."],
+      ["partial", undefined],
+    ] as const) {
+      const result = await dispatchOnce({
+        root, cut,
+        message: {
+          role: "assistant", stopReason: cut === "partial" ? "toolUse" : "stop",
+          content: [{ type: "text", text: "original answer" }],
+        },
+      });
+      const observation = result.episode.observations as { stored?: boolean; path?: string } | undefined;
+      if (answer === undefined) {
+        assert.deepEqual(observation, { stored: false, reason: "no-final-message", grammar: "absent" }, cut);
+        assert.ok(result.warnings.some(warning => warning.includes("produced no final response")), cut);
+      } else {
+        assert.equal(observation?.stored, true, cut);
+        assert.ok(observation?.path, cut);
+        assert.deepEqual(readFileSync(join(root, observation.path)), Buffer.from(answer), cut);
+      }
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("observation skips discarded recovery attempts within the saved action boundary", { timeout: 5000 }, async () => {
+  const root = temporaryRoot();
+  try {
+    for (const compact of [false, true]) {
+      for (const [scenario, answer] of [
+        ["retained", "original completed answer"],
+        ["summarized", "edited before summarization"],
+        ["withheld", undefined],
+        ["withheld-cut", undefined],
+        ["replacement", "later completed answer"],
+        ["partial-only", undefined],
+        ["visible-error-cut", undefined],
+      ] as const) {
+        const result = await dispatchOnce({
+          root, compact, noMessage: scenario === "partial-only",
+          message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "original completed answer" }] },
+          settle(manager) {
+            const assistant = (stopReason: "stop" | "toolUse" | "error" | "length", text: string) =>
+              manager.appendMessage({ role: "assistant", stopReason, content: [{ type: "text", text }] } as
+                Parameters<SessionManager["appendMessage"]>[0]);
+            if (scenario === "summarized") {
+              const original = manager.getLeafId();
+              assert.ok(original);
+              manager.appendContextEdit(original, { content: "edited before summarization" });
+              manager.appendCompaction("cut the completed answer", null, 100);
+              manager.appendContextEdit(original, { content: "edit outside the retained range" });
+            }
+            assistant("toolUse", "intervening tool partial");
+            manager.appendMessage({
+              role: "toolResult", toolCallId: "probe", toolName: "probe", isError: false,
+              content: [{ type: "text", text: "intervening tool result" }], timestamp: 1,
+            });
+            if (scenario === "withheld" || scenario === "withheld-cut") {
+              manager.appendContextEdit(assistant("stop", "withheld answer"), null);
+              if (scenario === "withheld-cut") manager.appendCompaction("cut the withheld answer", null, 100);
+            }
+            const attempt = assistant(scenario === "summarized" ? "length" : "error", "recovery attempt");
+            if (scenario !== "visible-error-cut") manager.appendContextEdit(attempt, null);
+            if (scenario === "summarized" || scenario === "visible-error-cut") {
+              manager.appendCompaction("cut the recovery attempt", null, 100);
+            }
+            if (scenario === "replacement") assistant("stop", "later completed answer");
+          },
+        });
+        const label = `${scenario}, startup entries: ${compact}`;
+        const observation = result.episode.observations as { stored?: boolean; path?: string } | undefined;
+        if (answer === undefined) {
+          assert.deepEqual(observation, { stored: false, reason: "no-final-message", grammar: "absent" }, label);
+          assert.equal(result.warnings.filter(warning => warning.includes("produced no final response")).length, 1, label);
+        } else {
+          assert.equal(observation?.stored, true, label);
+          assert.ok(observation?.path, label);
+          assert.deepEqual(readFileSync(join(root, observation.path)), Buffer.from(answer), label);
+        }
+      }
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("observation keeps visible tool and error endings", { timeout: 2000 }, async () => {
+  const root = temporaryRoot();
+  try {
+    for (const stopReason of ["toolUse", "error"] as const) {
+      const result = await dispatchOnce({
+        root, compact: true,
+        message: {
+          role: "assistant", stopReason, errorMessage: "worker error",
+          content: [{ type: "text", text: "Visible ending." }],
+        },
+      });
+      const observation = result.episode.observations as { stored: boolean; path?: string };
+      assert.equal(result.episode.status, stopReason === "error" ? "failed" : "ok");
+      assert.equal(observation.stored, true);
+      assert.ok(observation.path);
+      assert.deepEqual(readFileSync(join(root, observation.path)), Buffer.from("Visible ending."));
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("observation distinguishes an empty startup branch from an unanchored branch", { timeout: 1000 }, async () => {
+  const root = temporaryRoot();
+  try {
+    const empty = await dispatchOnce({ root, projection: "empty-startup" });
+    const observation = empty.episode.observations as { stored?: boolean; path?: string } | undefined;
+    assert.equal(observation?.stored, true);
+    assert.ok(observation?.path);
+    assert.deepEqual(readFileSync(join(root, observation.path)), Buffer.from("No findings."));
+    const detached = await dispatchOnce({ root, projection: "detached-startup" });
+    assert.deepEqual(detached.episode.observations, { stored: false, reason: "no-final-message", grammar: "absent" });
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

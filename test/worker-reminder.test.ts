@@ -3,15 +3,23 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { DefaultResourceLoader, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { openWorkerSession } from "../extension/worker.ts";
+import { DefaultResourceLoader, type AgentSession, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { openWorkerSession, type WorkerSession } from "../extension/worker.ts";
+import { REVIEWER_WRITING_GUIDANCE, WORKER_WRITING_GUIDANCE } from "../extension/writing-reminder.ts";
 import {
 	isWorkerReminderMessage,
 	createWorkerReminderRuntime,
 	workerReminderDeliveryMissing,
 	WORKER_REMINDER_CUSTOM_TYPE,
 	WORKER_REMINDER_TEXT,
+	type WorkerReminderRuntime,
 } from "../extension/worker-reminder.ts";
+
+// Cadence is required on the producer results, not on structural inputs.
+type AcceptWorker<Input extends WorkerSession> = Input;
+export type BaseWorkerInput = AcceptWorker<AgentSession & Pick<WorkerSession,
+	"workerReminderHandledToolResult" | "closeManagedOperations" | "settleManagedOperations" |
+	"activeManagedOperationCount" | "includedOperationFailure" | "resetIncludedOperationFailure" | "shutdownWorker">>;
 
 type Handler = (event: unknown, context?: unknown) => unknown;
 
@@ -20,8 +28,12 @@ interface SentMessage {
 	options: unknown;
 }
 
-function reminderFixture(send?: (message: unknown, options: unknown) => void): {
+function reminderFixture(
+	send?: (message: unknown, options: unknown) => void,
+	writing?: Parameters<typeof createWorkerReminderRuntime>[0],
+): {
 	emit: (name: string, event: unknown) => void;
+	completedTurn: (reason: unknown) => void;
 	handledToolResult: () => boolean;
 	sent: SentMessage[];
 } {
@@ -37,9 +49,10 @@ function reminderFixture(send?: (message: unknown, options: unknown) => void): {
 		},
 	} as unknown as ExtensionAPI;
 
-	const runtime = createWorkerReminderRuntime();
+	const runtime = createWorkerReminderRuntime(writing);
 	runtime.extension(api);
 	return {
+		completedTurn: runtime.completedTurn,
 		emit(name, event) {
 			for (const handler of handlers.get(name) ?? []) handler(event);
 		},
@@ -58,6 +71,9 @@ const toolResult = {
 };
 
 test("worker reminder contract is exact and separate from the writing reminder", () => {
+	const runtime = createWorkerReminderRuntime();
+	const baseRuntime: WorkerReminderRuntime = { extension: runtime.extension, handledToolResult: runtime.handledToolResult };
+	assert.equal(baseRuntime.handledToolResult(), false);
 	assert.equal(WORKER_REMINDER_CUSTOM_TYPE, "slate-worker-reminder");
 	assert.equal(
 		WORKER_REMINDER_TEXT,
@@ -142,6 +158,91 @@ test("factory state is local to concurrently interleaved worker sessions", () =>
 
 	assert.equal(first.sent.length, 1);
 	assert.equal(second.sent.length, 1);
+});
+
+const header = "[slate] Reminder:\n\n";
+function toolRound(fixture: ReturnType<typeof reminderFixture>) {
+	const before = fixture.sent.length;
+	fixture.emit("message_end", { message: { role: "assistant" } });
+	fixture.emit("tool_result", toolResult);
+	assert.equal(fixture.sent.length, before + 1);
+	return (fixture.sent[before]?.message as { content?: string })?.content;
+}
+
+test("cadence uses the reported completion reason, not the tool batch outcome", () => {
+	const body = WORKER_WRITING_GUIDANCE;
+	const combined = WORKER_REMINDER_TEXT + "\n\n" + body;
+	const first = reminderFixture(undefined, { interval: 1, standalone: header + body });
+	const second = reminderFixture(undefined, { interval: 1, standalone: header + body });
+	assert.equal(toolRound(first), WORKER_REMINDER_TEXT);
+	for (const reason of ["pending", "error", "length", "aborted"]) first.completedTurn(reason);
+	assert.equal(toolRound(first), WORKER_REMINDER_TEXT);
+	first.completedTurn("toolUse");
+	assert.equal(toolRound(first), combined);
+	assert.equal(toolRound(first), WORKER_REMINDER_TEXT);
+	assert.equal(toolRound(second), WORKER_REMINDER_TEXT);
+	second.completedTurn("stop");
+	assert.equal(toolRound(second), combined);
+});
+
+test("due writing waits through nested results and never sends at turn end", () => {
+	const fixture = reminderFixture(undefined, { interval: 1, standalone: header + WORKER_WRITING_GUIDANCE });
+	fixture.completedTurn("stop");
+	fixture.completedTurn("stop");
+	assert.deepEqual(fixture.sent, []);
+	fixture.emit("tool_result", { ...toolResult, parentToolCallId: "outer" });
+	fixture.emit("tool_result", { ...toolResult, toolCallId: "/inner" });
+	assert.deepEqual(fixture.sent, []);
+	assert.equal(fixture.handledToolResult(), false);
+	assert.equal(toolRound(fixture), WORKER_REMINDER_TEXT + "\n\n" + WORKER_WRITING_GUIDANCE);
+	fixture.emit("tool_result", { ...toolResult, toolCallId: "parallel" });
+	assert.equal(fixture.sent.length, 1);
+});
+
+test("worker forms and the standalone byte boundary include the header", () => {
+	for (const [body, standaloneBytes, incrementBytes, combinedBytes] of [
+		[WORKER_WRITING_GUIDANCE, 1180, 1163, 1493],
+		[REVIEWER_WRITING_GUIDANCE, 562, 545, 875],
+	] as const) {
+		const fixture = reminderFixture(undefined, { interval: 1, standalone: header + body });
+		fixture.completedTurn("stop");
+		assert.equal(Buffer.byteLength(header + body), standaloneBytes);
+		const combined = toolRound(fixture)!;
+		assert.equal(combined, WORKER_REMINDER_TEXT + "\n\n" + body);
+		assert.equal(Buffer.byteLength(combined.slice(WORKER_REMINDER_TEXT.length)), incrementBytes);
+		assert.equal(Buffer.byteLength(combined), combinedBytes);
+	}
+	const oversized = reminderFixture(undefined, { interval: 1, standalone: header + WORKER_WRITING_GUIDANCE + "x" });
+	oversized.completedTurn("stop");
+	assert.equal(toolRound(oversized), WORKER_REMINDER_TEXT);
+	assert.equal(toolRound(oversized), WORKER_REMINDER_TEXT);
+});
+
+test("worker cadence defaults invalid intervals to four and accepts twenty", () => {
+	for (const [interval, expected] of [[undefined, 4], [0, 4], [1.5, 4], [21, 4], [20, 20]] as const) {
+		const fixture = reminderFixture(undefined, { interval, standalone: header + REVIEWER_WRITING_GUIDANCE });
+		for (let turn = 0; turn < expected; turn++) {
+			assert.equal(toolRound(fixture), WORKER_REMINDER_TEXT);
+			fixture.completedTurn("stop");
+		}
+		assert.equal(toolRound(fixture), WORKER_REMINDER_TEXT + "\n\n" + REVIEWER_WRITING_GUIDANCE);
+	}
+});
+
+test("a synchronous combined send failure leaves writing due for the same-round retry", () => {
+	const body = REVIEWER_WRITING_GUIDANCE;
+	const combined = WORKER_REMINDER_TEXT + "\n\n" + body;
+	let attempts = 0;
+	const fixture = reminderFixture(() => {
+		if (++attempts === 1) throw new Error("synchronous send failure");
+	}, { interval: 1, standalone: header + body });
+	fixture.completedTurn("stop");
+	assert.equal(toolRound(fixture), combined);
+	fixture.emit("tool_result", { ...toolResult, toolCallId: "retry" });
+	fixture.emit("tool_result", { ...toolResult, toolCallId: "duplicate" });
+	assert.equal(fixture.sent.length, 2);
+	assert.equal((fixture.sent[1]?.message as { content: string }).content, combined);
+	assert.equal(toolRound(fixture), WORKER_REMINDER_TEXT);
 });
 
 test("worker reminder message predicate rejects malformed and hostile values", () => {

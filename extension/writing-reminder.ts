@@ -44,7 +44,35 @@ export const DESIGN_REQUIREMENTS: readonly WritingRequirement[] = Object.freeze(
 export const WRITING_SCOPE_EXCLUSION =
 	"Exclude research logs, worker task text, and the project's own agent instruction file.";
 
+const WORKER_CURRENT_STATE_GUIDANCE = "Describe only the current state in the README, docs, code comments and the project's own agent instruction file, not removed features or past behavior, but allow change records such as pull request descriptions, commit bodies, release notes and issues to describe removals and past behavior.";
+
+export const REVIEWER_WRITING_GUIDANCE =
+	`Use short, active sentences. Write sentences a non-native reader understands on one reading. Do not use semicolons or contractions. Apply these rules to your prose. ${WRITING_SCOPE_EXCLUSION} ${WORKER_CURRENT_STATE_GUIDANCE}`;
+
+export const WORKER_DESIGN_SCOPE_EXCEPTION = "A high-level design remains governed even inside a research log.";
+
+export const WORKER_WRITING_GUIDANCE = [
+	`${WRITING_REQUIREMENTS_TITLE}:`,
+	WRITING_STYLE_RULES.map(({ text }) => text).join(" "),
+	renderWritingDoctrineRequirements(),
+	"",
+	WRITING_SCOPE_EXCLUSION,
+	WORKER_DESIGN_SCOPE_EXCEPTION,
+	WORKER_CURRENT_STATE_GUIDANCE,
+].join("\n");
+
 export const WRITING_REMINDER_CUSTOM_TYPE = "slate-writing-reminder";
+
+/** Match custom message identity without inspecting presentation or content. */
+export function isWritingReminderMessage(message: unknown): boolean {
+	if (typeof message !== "object" || message === null) return false;
+	try {
+		const candidate = message as { role?: unknown; customType?: unknown };
+		return candidate.role === "custom" && candidate.customType === WRITING_REMINDER_CUSTOM_TYPE;
+	} catch {
+		return false;
+	}
+}
 
 export interface WritingReminderDeliveryDetails {
 	deliveryId: number;
@@ -216,7 +244,7 @@ export function renderWritingScopeExclusion(indent = ""): string {
 	return `${indent}${WRITING_SCOPE_EXCLUSION}`;
 }
 
-const WRITING_REMINDER_HEADER = "[slate] Reminder:";
+export const WRITING_REMINDER_HEADER = "[slate] Reminder:";
 
 const WRITING_REQUIREMENT_LINES = [
 	`${WRITING_REQUIREMENTS_TITLE}:`,

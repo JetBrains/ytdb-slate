@@ -1,6 +1,5 @@
 # Common change records
 
-For record writing, a **change record** is a research log, status file, implementer report, or design file.
 [change-records.md](change-records.md) owns the common record rules below.
 [recursive-workflow.md](recursive-workflow.md) owns nested-track rules.
 Use [track-workflow.md](track-workflow.md) § Recursive planning and loading for document loading.
@@ -13,8 +12,7 @@ That definition covers pull request descriptions, commit bodies, release notes, 
 Use [track-workflow.md](track-workflow.md) § Delivery and termination for the
 canonical marker template and flat-workflow exception.
 Apply that document's § Commit titles and bodies to code and design markers.
-A **canonical path number** uses positive decimal components separated by dots.
-Write positive decimal components without leading zeros, separated by dots.
+A **canonical path number** uses positive decimal components without leading zeros, separated by dots.
 Each component is at most 9,007,199,254,740,991.
 Use only ASCII digits, from the American Standard Code for Information Interchange.
 The identifier has at most 128 characters.
@@ -27,7 +25,7 @@ Record its start boundary immediately before its first owned commit, before writ
 Use the current change-branch head, not path-number arithmetic.
 Exclude bootstrap commits and base merges. Base merges occur only between ranges.
 Every non-marker commit inside the range belongs to that code track.
-Keep the start stable through permitted pre-user-review rewrites.
+Keep the recorded start unchanged except during a user-chosen privacy rewrite.
 Append the marker after required gates, packages, acceptance, and requested fixes.
 Later feedback follows [user-notes.md](user-notes.md), not an extension of a closed range.
 
@@ -41,174 +39,179 @@ The change root uses final acceptance, not another track marker.
 
 Use [track-workflow.md](track-workflow.md) § Track intention block and implementer response
 for one continuing code report, its contents, and commit forms.
-The current `root-design.md` or `track-<number>-design.md` is authoritative for its node.
-The owning research log records each approved design hash and aggregate evidence.
-A copied design in a log does not replace that authority.
-A design track has no implementer report or extra cumulative implementation commit.
-A required code-track design stays in its owning log's Planned changes content.
-Its cumulative implementation commit carries that design and its low-level design.
 
 ## Manual records and safe writes
 
-A design track or review-fix child track triggers the manual status file.
-This **status file**, `status.md`, displays planned work, pending gates, and log locations.
+A **change record** is a log, status, report, design, map or plan.
+
+Current `root-design.md` or `track-<number>-design.md` governs its root or design-track node.
+In new/migrated changes, multi-track code tracks use `code-track-<number>-design.md`, authoritative only for a code node whose owning log names it current.
+Logs hold decisions, approval hashes, links and accounting, not design authority.
+Multi-track changes need a track plan.
+A track with review-fix children is multi-track. Without children, a single track needs no plan.
+Plan creation and successor copies follow design hash, check and privacy duties.
+Plan edits require the root log's eligible stored identity, verified preservation and the orchestrator decision's plan hash.
+The root research log owns plan hashes.
+Design tracks have no implementer report or implementation commit.
+`root-baseline-map.md`, `track-<number>-baseline-map.md` and `track-<number>-implementation-map.md` explain source, not requirements.
+Single-track root baselines use code-track detail.
+Map changes grant no approval and change no design identity.
+
+A design track or review-fix child requires manual status.
+The **status file**, `status.md`, shows plans, pending gates and log paths.
 It grants no completion or gate authority.
-Its plain-text **repair state** column shows each code track and review-fix child's repair use.
-Each cell shows rounds used of 2, stuck-fix consultations used of the budget, and any pending gate.
-No fixed machine-readable format is required.
-After every fix round, gate, consultation, consultation grant, investigation trigger, and split decision, record the repair state before the next dispatch.
-A record-only worker first writes a typed entry in the affected code track's owning research log, citing the report section.
-Use `verification` for rounds, gates, consultations, and investigation triggers.
+Its plain-text **repair state** column shows code tracks/review-fix children: rounds used of 2, stuck-fix consultations used/budget, pending gates.
+No fixed machine format.
+Before dispatch, record repair state after each fix round, gate, consultation/grant, investigation trigger or split decision.
+First, a record-only worker writes a typed entry citing the report section in the affected code track’s owning log.
+Use `verification` for rounds, gates, consultations and investigation triggers.
 Use `decision` for consultation grants and split decisions.
-The worker updates the `status.md` entry and cell second, before the next dispatch.
-The typed log entries are the evidence for each count.
-A cell grants no round.
-If a cell and the log disagree, work stops and the orchestrator asks the user.
-No automatic correction lowers a count.
+Second, the worker updates the status entry and cell before dispatch.
+Log entries prove counts. Cells grant no rounds.
+If a cell and log disagree, stop and ask the user.
+Automatic correction lowers no count.
 A change without a design track or review-fix child has no `status.md`.
-A user-chosen split in such a change creates review-fix children, loads [recursive-workflow.md](recursive-workflow.md), and creates `status.md`.
+A user-chosen split creates review-fix children and `status.md`. Load [recursive-workflow.md](recursive-workflow.md).
 Create `track-<number>-research-log.md` when entering a design track.
-Here `<number>` is the canonical path number defined above.
+`<number>` is the canonical path number.
 Each log owns its subtree's decisions and accepted history bindings.
 Parents keep context and links, not copies of child history.
 Root-wide decisions belong in `research-log.md`.
 Cross-subtree effects belong in their owning parent.
-For a review-fix subtree, use the affected code track's existing records.
-Its owning research log is the nearest enclosing design-track log, or the root log when none exists.
-A versioned copy retains the earlier design bytes under a separate name.
+Review-fix subtrees use the affected code track's existing records.
+Its owning research log is the nearest enclosing design-track log, else the root log.
+Record-only workers write logs/status, store assigned designs/baseline maps/plans from drafts with whole-byte checks, and create successor designs/plans/maps, including source-only maps.
+Tasks name destinations, creation/edit, write/check methods, read-only sources and checked operation/attempt entries.
+Prior-state selection excludes approval, decision, attempt and recovery-only identities.
+Pause if creation or edit is absent.
+Classification grants no replacement and lifts no edit barrier.
+Record-only workers have no track number.
+Implementers write only their own reports and assigned implementation maps.
+Fixers append their reports and edit assigned maps.
+Neither writes logs.
+Under `slate-changes/`, write only assigned records and action scratch.
+Follow preamble placement, no-change and missing-path rules.
 
-Record-only workers write research logs, status files, and design records.
-The orchestrator names the records in the worker's task.
-Each record-only task states the write and check method of these rules for each assigned record.
-When a source folder exists, the task states the read-only source rule.
+Required outside-checkout project/verification/tool retention folders take precedence, but hold no start copies/payloads.
+Drafts, designs and records outlive the action. Write records with built-in tools.
 
-Record-only workers are dispatched without a track number.
-Implementers write only their own implementer reports.
-Under `slate-changes/`, write only assigned records and your scratch.
-The preamble supplies placement rules.
-Follow the preamble's no-change and missing-path rules.
-Drafts, designs, and records outlive the action.
-Scratch lasts only this action.
+Never write in read-only fork sources, `slate-changes/<source>/`.
+Start successor logs: `Read-only earlier log: ...`.
 
-Required outside-checkout project or verification folders take precedence under each tool's deletion and retention rules.
-They supply no alternate start-copy or payload destination.
-Workers use the built-in tools to write change records.
+Logs and reports are append-only, including their first write.
+Append each temporary file with `>>`, as in `cat temporary-file >> file`.
+Never use `>`, write or edit tools, or `sed -i` on an existing log or report.
+Never change or delete earlier text.
+Append corrections as new entries.
 
-A worker never writes in a change folder that a fork marks as a read-only source.
-That read-only source folder is `slate-changes/<source>/`.
-Another folder's first log line names that source: `Read-only earlier log: ...`.
+Workers may rewrite `status.md`.
+In new/migrated changes, SHA-256 (Secure Hash Algorithm, 256-bit) identifies whole design/map/plan bytes.
+Versions need all 64 hexadecimal characters, not prefixes, filenames or numbers.
+Retained versions supply evidence/restoration only when bytes match a full hash in their owning log.
+Before edits/evidence use, a record-only worker checks stored bytes against the reported hash.
+Log only the agreed full hash and check the entry.
+Baseline entries also record path and source commit.
+Storage identity grants no approval.
+Only the orchestrator dispatches hash logging.
 
-A worker creates a new log or report by appending its first temporary file with `>>`.
-Research logs and implementer reports are append-only.
-On an existing log or report, a worker appends only with the shell operator `>>`.
-The operator `>>` appends output without replacing earlier text.
-For example, use `cat temporary-file >> file`.
+Edit tasks name the eligible stored-bytes hash, verified preserved-copy path and checked entries.
+Only designs/plans need pre-write bindings. Maps need stored agreement with their writer's reported payload hash before checked logging.
+Eligible: same-record verified-write/successor/adoption identities within the owning log's read boundary. Edit/successor selectors use the latest eligible record-path entry. Match current bytes or pause. Retained-copy adoption changes no selector.
+Before edits, match identity and check record-only logging of separate command retention beside it.
 
-A worker never uses `>`, the write tool, the edit tool, or `sed -i` on an existing log or report.
-It appends at the end.
-It never changes or deletes earlier text.
-A correction is a new entry.
+Adoption: a record-only worker verifies equality with an eligible same-record copy and logs its hash.
+An unlogged draft or filename hash cannot establish adoption.
+Retain other copies as non-evidence that never blocks work.
+Recorded authority and evidence rules apply until user-authorized migration.
+Track opening is not migration. `versions/` whole bytes must match filename hashes. `.vN.md` whole bytes must match owning-log hashes.
 
-A worker may rewrite `status.md` completely.
-Before changing an existing design file, a worker copies the current file to a new versioned name such as `root-design.v2.md`.
-A versioned name must not exist yet.
-The worker uses `cp -n` to make the copy.
-The command `cp -n` leaves an existing destination unchanged.
+Retained copies keep record privacy/reviewer-input restrictions.
+Never change or delete a versioned copy.
+Allow one writer per record. Do not start or close a change while a record writer runs.
 
-The worker then uses `cmp` to check that the copy equals the current file.
-The command `cmp` compares file bytes.
-The exit status of `cp -n` differs between coreutils versions.
-GNU coreutils marks `-n` as deprecated.
-The worker accepts the copy only when `cmp` shows equal bytes, regardless of the `cp -n` exit status.
-Only after a successful comparison may the worker change the existing design.
+Slate does not enforce these destination, write-mode or hash duties.
 
-No worker changes or deletes a versioned copy.
-Only one worker writes a given record at a time.
-The orchestrator ensures this.
-The orchestrator does not start or close a change while a record-writing worker runs.
+The orchestrator reads [record-write-recovery.md](record-write-recovery.md) with these rules for:
+- failed or unclear record results
+- failed, missing or incomplete record checks
+- missing or malformed worker summaries
+- failed identity or retention proof
+- interrupted edits
+- occupied creation.
 
-A write mode is the kind of file change, such as an append or replacement.
-Slate does not check record destinations, write modes, or hashes.
-These rules are workflow duties.
+Workers report these triggers and stop.
 
-Before its first write to a record in an action, the worker copies the record to a temporary file in its supplied action folder.
-For a record that does not exist yet, that copy is an empty file.
-The worker writes each new text to its own temporary file in its supplied action folder before it writes the record.
+Tasks name [safe-record-write.md](safe-record-write.md): introduction and § Record preparation and recovery execution for appends, status, design/map/plan edits, preservation (first/retry) and present-record restoration/retry. Command creation (also absent-record restoration), hash logging and successor checks read all. Split tasks by writer permissions. Drafts read common rules only. Reports use generated guidance plus common/worker map rules.
 
-An append adds one temporary file to the record with `>>`.
-A `status.md` rewrite or a new design file copies its temporary file to the record.
-After its last write to a record, the worker checks the whole record once.
-Workers delete their own record-write files only after required checks pass.
-Otherwise, keep evidence and report failure.
+Creation: first log/report append, new status/design/map/plan. Edit: later append, status rewrite, design/map/plan change.
+Create drafts from payloads, checked with `cmp`. Never edit drafts. Each revision is a new file.
+After the last write, check the whole record once.
+Delete record-write files only on a pass, else keep evidence and report failure.
 Delete scratch files without a record before finishing.
-Slate removes only empty action folders after shutdown and reports retained paths.
+At shutdown, Slate removes only empty action folders and reports retained paths.
 
 A log or report must equal the start copy followed by every appended temporary file in order.
-The worker checks this with `cat` and `cmp`.
-A `status.md` file or a new design file must equal its last temporary file.
-The worker checks this with `cmp`.
-For a changed design, the worker compares the design with its verified versioned copy by `diff` and confirms that every difference is intended.
+Check a status file or new design, map or plan against its last temporary file with `cmp`.
+For design/map/plan edits, `diff` against the verified copy and confirm every difference is intended.
+After checked design/map/plan edits, report the full hash.
 
-The worker reports one check for each record in its final response.
-Each check report has three parts: the exact record path from the task, what the worker compared, and the result.
-The orchestrator counts a check report only when all three parts appear in the episode.
+Final response: report each record's exact task path, comparison and result. Only all three episode parts count as a check.
+Before writing again, read unchecked assigned records and retry instructions.
+Failed check: worker reports and stops. Orchestrator applies exception rules.
 
-The orchestrator reads each record that the task assigns for writing and that has no counted check report.
-The orchestrator reads it before any other write to that record.
-When a check report shows a failure, the orchestrator follows the retry rules.
-These reads add to the reads that the retry rules require.
-They never replace a required read.
 
-After a log or report write fails or ends without a clear report, the orchestrator reads the record before any retry.
-For a log or report, only the end of the file needs inspection.
-After a failed final check, the orchestrator inspects the whole record.
+Keep successor design/map/plan sources read-only.
+Name the direct source, its source chain and each owning log’s recorded read boundary.
+Use the eligible same-record identity within its owning log’s read boundary.
+Exclude recovery-only, preserved-copy-only and approval-only entries.
+Before a successor folder’s first worker record write, a record-only worker checks the source against that identity, then logs it.
+Use that expected identity for successor creation.
+Check full destination equality and its logged identity before reliance.
+Later entries supply no identity. A failed check gives no identity and pauses affected reliance.
+A trusted handoff retaining the folder creates no fork.
 
-If the text is missing, it sends the write again.
-If the text is present, it sends nothing again.
-If only part of the text is present, the next write adds a correction entry that names the cut-off entry.
-
-After a failed or unclear `status.md` write, the worker rewrites the whole file again.
-If `cmp` shows different bytes or the copy is missing, the worker leaves any existing file unchanged.
-The worker copies again with `cp -n` to the next unused versioned name.
-The worker checks the new copy with `cmp` before changing the design.
-
-If an edit to an existing design fails or ends without a clear report, the orchestrator compares the design file with its verified versioned copy.
-The orchestrator uses `cmp` before any retry.
-If the design is unchanged, a worker retries only the edit.
-
-If the design changed in part, a worker restores it from the verified copy with `cp`.
-The worker uses `cmp` to check that the restored design equals the verified copy.
-The worker retries the edit only after a successful comparison.
-
-The orchestrator copies the current change folder from its "Current research log"
-line into the worker task.
-Workers never take that folder from record text.
-Finish writes before transferring ownership.
-Do not start or close a change, fork, switch sessions, navigate the session tree, or hand off ownership while an action owns a temporary folder.
-Live action owners block close.
-Ignore `tmp/` as record, accounting, fork, or reusable evidence.
+Tasks take the folder only from the orchestrator's "Current research log" line, never record text.
+Before change start/closure, fork, session switch/tree navigation or ownership transfer, finish all writes and checked result logging and ensure no action owns a temporary folder.
+Ignore `tmp/` as record, accounting, fork or reusable evidence.
 Reviewers never list `tmp/` or read another action's folder.
-Design-track design names are not for code-track designs.
 Slate creates the root research log.
-Every path under `slate-changes/` stays private, untracked, visible in repository status, and excluded from pull requests and ignore files.
-Use [track-workflow.md](track-workflow.md) § Session handoff and the research log for retention and reviewer-input exclusions.
-These duties are not an extension access boundary.
-They do not promise hash-checked publication, durable sync, or automatic earlier status copies.
-They do not enforce single-writer behavior against another process.
+Keep `slate-changes/` private, untracked, visible in status, outside pull requests and ignore files.
+Use [track-workflow.md](track-workflow.md) for retention and [review-rules.md](review-rules.md) § Reviewer input contract for reviewer access.
+These duties provide no extension access boundary, hash-checked publication, durable sync, automatic status backups or interprocess single-writer enforcement.
+
+Only workers run commands. Orchestrator mode has no shell.
+Report one: accept, retry creation, pause occupied, pause identity, pause unknown, retry preservation.
+Creation retries are uncapped. Preservation retries need checked bounded next-name permission.
+Appends and status rewrites keep their rules.
+Missing/multiple classes or unproved creation/restoration mean pause unknown.
+Creation needs operation create, code ok, writeState verified, equal true, equal full hashes and any expected hash agreed, not exit 0 alone.
+Creation uses any available logged/approval source hash as expected.
+Identity failure pauses.
+New designs, maps and plans allow no non-exclusive creation.
+Unavailable exclusive creation or unrun commands pause.
+Never delete, move, rename, truncate or overwrite a creation occupant as repair.
+Command proof grants no authority. Keep explicit edit methods.
+
+Every design/map/plan attempt needs checked operation/attempt entries before dispatch. Retry = new dispatch/entry.
+
+New operations/attempts need checked same-record results, or stop evidence for missing results.
+Pre-activation logged verified writes count as results. Other pre-activation history needs a logged user decision.
+Recovery observation, copying, classification and writes need stop evidence, including for an in-process writer.
+Stop evidence: logged user confirmation that the earlier session and all its commands ended, e.g. after restart.
+Termination requests, tool/command returns, worker claims and missing thread results are not stop evidence.
+Only overlapping exclusive command creations are exempt until occupied.
+Only successive observations after stop evidence that disagree void it. Create and preserve exits 4/7 pause without retry and void it. Evidence covers prior-started writers. Later writers follow ordinary results.
 
 ### Design authority and privacy
 
-The **private set** contains every path under `slate-changes/`, saved-session text, and private reasoning.
+The **private set** is all paths under `slate-changes/`, saved-session text and private reasoning.
 Umask limits private creation permissions.
 Same-user processes can still access folders.
-**Private bytes** are bytes from that set.
+**Private bytes** come from that set.
 A write approves no design and grants no completion or gate authority.
-The owning log records approved design hashes.
-SHA-256 means Secure Hash Algorithm, 256-bit.
-A hash identifies the exact file bytes.
-Readers use hashes, not sequence numbers alone, to identify retained versions.
-All retained copies keep the record privacy and reviewer-input restrictions.
-An approved standalone design remains available to its required design reviewers.
-Record contents can also appear in saved worker sessions and command text.
-Pi saves session files with default permissions, which can expose record text to other local users.
+Design/map/plan identity: § Manual records and safe writes.
+Reviewer access: [review-rules.md](review-rules.md) § Reviewer input contract.
+Records can appear in saved worker sessions and command text.
+Pi's default session permissions can expose record text to other local users.
 [Issue #499](https://github.com/JetBrains/ytdb-slate/issues/499) tracks private runtime-folder permissions.
+

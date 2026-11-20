@@ -5,7 +5,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { ThreadManager, type DispatchOptions } from "../extension/threads.ts";
 import { SlateStore } from "../extension/state.ts";
 import { createLogicalRuntime } from "../extension/logical-model-runtime.ts";
-import { REVIEW_PERSPECTIVES, validateReviewPerspectives } from "../extension/review-perspectives.ts";
+import { REVIEW_PERSPECTIVES, validateReviewPerspectives, loadImplementationReviewGuidance } from "../extension/review-perspectives.ts";
 import { REVIEW_COMMON_POLICY_DOC, REVIEW_IMPLEMENTATION_INPUT_DOC, REVIEW_NL_DOC, REVIEW_CB_DOC, WRITING_CHECKER, WRITING_GUIDANCE_DOC } from "../extension/paths.ts";
 import { REVIEWER_CHARTER, changeGuidance, workerPreamble, workerSystemPromptBlocks } from "../extension/worker.ts";
 
@@ -119,6 +119,10 @@ test("selected guidance reaches the worker system blocks in selection order, onc
     assert.doesNotMatch(expected, /may read.*(?:research log|another action)|only.*tracked-range bytes/);
     assert.match(expected, /A design concern is a finding only when evidence links it to a concrete adverse effect/);
     assert.match(expected, /These questions change no trigger, boundary, reviewer count, merge rule, gate, or user authority/);
+    assert.match(expected, /Designs provide context, not correctness proof or a duty to repeat whole-design review/);
+    assert.match(expected, /including early, ordinary and design-track logs/);
+    assert.match(expected, /Supply neither a log-held design nor its extract/);
+    assert.equal(occurrences(expected, "Review the range independently first, then check facts in any supplied implementation map."), selected[0] === "Reviewer I" ? 1 : 0);
     if (selected[0] === "Reviewer I") assert.match(expected, /does not absorb an absent specialist charter/);
     if (selected[0] === "Consumer contract break reviewer") {
       assert.match(expected, /record written by the review base and read by the candidate/);
@@ -128,6 +132,16 @@ test("selected guidance reaches the worker system blocks in selection order, onc
       assert.match(expected, /Can a fallback, retry, default, partial result, ignored status, or unchecked effect appear to be full success\?/);
       assert.match(expected, /These are examples, not required checks or artifacts/);
     }
+  }
+});
+
+test("all twelve perspectives keep the shared input and only Reviewer I receives map order", () => {
+  const input = readFileSync(REVIEW_IMPLEMENTATION_INPUT_DOC, "utf8").trim();
+  const order = "Review the range independently first, then check facts in any supplied implementation map.";
+  for (const role of REVIEW_PERSPECTIVES) {
+    const guidance = loadImplementationReviewGuidance([role.name]);
+    assert.equal(occurrences(guidance, input), 1);
+    assert.equal(occurrences(guidance, order), role.name === "Reviewer I" ? 1 : 0);
   }
 });
 

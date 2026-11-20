@@ -13,11 +13,15 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const EXTENSION_DIR = dirname(fileURLToPath(import.meta.url));
 const DOCS_DIR = join(EXTENSION_DIR, "..", "docs");
 
+export const SAFE_RECORD_WRITE_DOC = join(DOCS_DIR, "safe-record-write.md");
+export const RECORD_WRITE_RECOVERY_DOC = join(DOCS_DIR, "record-write-recovery.md");
+export const SAFE_RECORD_WRITE = join(EXTENSION_DIR, "safe-record-write.mjs");
 export const WRITING_CHECKER = join(EXTENSION_DIR, "writing-check.mjs");
 // Dynamic import specifiers must be file URLs: raw paths break on Windows and
 // treat `#` or `?` in an install directory as URL syntax.
 export const WRITING_CHECKER_URL = pathToFileURL(WRITING_CHECKER).href;
 export const TRACK_WORKFLOW_DOC = join(DOCS_DIR, "track-workflow.md");
+export const MAPS_DOC = join(DOCS_DIR, "maps.md");
 export const CHANGE_RECORDS_DOC = join(DOCS_DIR, "change-records.md");
 export const RECURSIVE_WORKFLOW_DOC = join(DOCS_DIR, "recursive-workflow.md");
 export const PR_PUBLISHING_DOC = join(DOCS_DIR, "pr-publishing.md");

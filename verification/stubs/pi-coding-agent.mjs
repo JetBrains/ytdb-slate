@@ -2,6 +2,7 @@
 // extension/episodes.ts, extension/paths.ts and extension/render.ts. Session
 // factories throw by default; tests can replace methods on codingAgentStub.
 export const CONFIG_DIR_NAME = ".pi";
+export const buildSessionProjection = () => { throw new Error("buildSessionProjection stub called"); };
 export const DEFAULT_COMPACTION_SETTINGS = {
   enabled: true,
   reserveTokens: 16384,

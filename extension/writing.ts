@@ -194,6 +194,10 @@ export function measureWritingTurn(
 /** The known `writing` keys. Report anything else as a likely typo. */
 const WRITING_KEYS = ["check", "remind", "remindPercent", "remindTurns", "remindOnFinding", "sentenceWordLimit", "statusWindowTurns", "showStatus", "findings"];
 
+export function isWritingRemindTurns(value: unknown): value is number {
+	return typeof value === "number" && Number.isSafeInteger(value) && value >= MIN_REMIND_TURNS && value <= MAX_REMIND_TURNS;
+}
+
 /** Validate the raw `writing` config and retain its configurable limits. */
 export function sanitizeWritingConfig(
 	raw: unknown,
@@ -240,7 +244,7 @@ export function sanitizeWritingConfig(
 	let remindTurns = defaults.remindTurns;
 	const rawRemindTurns = read("remindTurns", DEFAULT_REMIND_TURNS);
 	if (rawRemindTurns !== undefined) {
-		if (Number.isSafeInteger(rawRemindTurns) && (rawRemindTurns as number) >= MIN_REMIND_TURNS && (rawRemindTurns as number) <= MAX_REMIND_TURNS) remindTurns = rawRemindTurns as number;
+		if (isWritingRemindTurns(rawRemindTurns)) remindTurns = rawRemindTurns;
 		else warn("slate: ignoring writing.remindTurns — expected a whole number from 1 to 20 (defaulting to 4)");
 	}
 

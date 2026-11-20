@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, sep } from "node:path";
+import { CHANGE_RECORDS_DOC, SAFE_RECORD_WRITE_DOC } from "../extension/paths.ts";
 import { test } from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import extension from "../extension/index.ts";
@@ -313,22 +314,40 @@ test("folder grammar rejects malformed, calendar-invalid, traversal and runtime 
 });
 
 const reportMethodGroups = [
-  ["destination", ["Under `slate-changes/`, write only this report and assigned temporary files."]],
-  ["start copy", [
-    "Before its first report write in each action, the implementer copies the report to a temporary file.",
-    "For a new report, that copy is an empty file.",
-  ]],
-  ["append", [
-    "The implementer writes each new text to its own temporary file.",
-    "It creates a new report by appending its first temporary file with `>>`.",
-    "It appends each temporary file to the report with `>>`.",
-  ]],
-  ["final check", [
-    "After its last write, the implementer checks the whole report once with `cat` and `cmp`.",
-    "The report must equal the start copy followed by every appended temporary file in order.",
-  ]],
-  ["report", ["In the final response, report the check with the report path, comparison, and result.", "Report a failed record check as a failure."]],
+  ["destination", ["Under `slate-changes/`, write only this report, assigned implementation maps and action scratch."]],
+  ["start copy", ["Before each action’s first report write, copy the report to a temporary file.", "For a new report, use an empty copy."]],
+  ["first append", ["Start reports with `>>`. Later appends use only `>>`."]],
+  ["append", ["Write each new text to its own temporary file.", "Create reports with the first `>>` append.", "Append each temporary file with `>>`."]],
+  ["final check", ["After its last write, the implementer checks the whole report once with `cat` and `cmp`.", "The report must equal the start copy followed by every appended temporary file in order."]],
+  ["report", ["Report the path, comparison and result in the final response.", "Report a failed or unclear append or check and stop. Never retry that append."]],
 ] as const;
+
+const mapRules = [
+  "Map duties apply in new or migrated changes.",
+  `For assigned maps, read <${CHANGE_RECORDS_DOC}> § Manual records and safe writes before writing.`,
+  "Maps explain committed source at implementation end.",
+  "For each delivered source commit, fixers update affected statements and the named commit, even if no statement changes.",
+  `Create assigned new maps only with the installed safe-record-write command. Read <${SAFE_RECORD_WRITE_DOC}>: introduction and § Record preparation and recovery execution for edits, preservation and present-record repair, all for command creation (also absent-record restoration). Hash logging and successor checks: record-only.`,
+  "Keep interrupted edits as edits even when their destinations vanish.",
+  "Pause map writes unless the task names the destination, creation or edit, write and check methods, read-only sources and, for edits, the eligible stored-bytes hash and verified preserved-copy path.",
+  "Tasks name checked map-attempt entries.",
+  "Record-only: match stored bytes to the writer's same-attempt report before logging.",
+] as const;
+function assertMapMethod(task: string) {
+  for (const rule of mapRules) assert.equal(task.split(rule).length, 2, rule);
+}
+
+test("runtime map fields remain a subset of common safe-write duties", () => {
+  const common = readFileSync(CHANGE_RECORDS_DOC, "utf8");
+  const owner = common.match(/Tasks name destinations, creation\/edit, write\/check methods, read-only sources and checked operation\/attempt entries\./)![0]!.replace("destinations", "destination").replace("creation/edit", "creation or edit").replace("write/check methods", "write and check methods") + " " + common.match(/Edit tasks name ([^.]+)\./)![1]!;
+  const guidance = readFileSync(new URL("../extension/tools.ts", import.meta.url), "utf8");
+  const runtime = guidance.match(/Pause map writes unless the task names ([^.]+)\./)![1]!;
+  const fields = runtime.replace("and, for edits, ", ", ").split(/, | and /);
+  assert.ok(fields.length >= 4);
+  for (const field of fields) assert.ok(owner.includes(field.replace(/^the /, "")), field);
+  assert.ok(common.includes("Tasks name destinations, creation/edit, write/check methods, read-only sources and checked operation/attempt entries."));
+  assert.ok(common.includes("Edit tasks name the eligible stored-bytes hash, verified preserved-copy path and checked entries."));
+});
 
 function assertReportMethod(task: string) {
   for (const [group, sentences] of reportMethodGroups) {
@@ -367,9 +386,55 @@ test("implementer receives its report path and approved method with and without 
     } else {
       assert.doesNotMatch(task!, /If the source folder|read-only source folder/);
     }
-    guidanceBytes.push(Buffer.byteLength(task!.slice(call.task.length + 2)));
+    assertMapMethod(task!);
+    if (source) assert.ok(task!.includes("If an assigned map exists only in the source folder, pause map writing until a record-only worker creates its successor copy. Do not create a replacement map from scratch."));
+    const originalTask = task!;
+    assert.throws(() => assertReportMethod(originalTask.replace("assigned implementation maps", "assigned maps")));
+    assert.ok(readFileSync(CHANGE_RECORDS_DOC, "utf8").includes("Implementers write only their own reports and assigned implementation maps."));
+    for (const rule of [...mapRules, ...reportMethodGroups.flatMap(([, rules]) => [...rules])]) {
+      const mutated = originalTask.replace(rule, "");
+      assert.notEqual(mutated, originalTask);
+      assert.throws(() => { assertReportMethod(mutated); assertMapMethod(mutated); });
+    }
+    const pause = mapRules[6];
+    for (const field of ["destination", "creation or edit", "read-only sources", "write and check methods", "write and ", "check methods", "eligible stored-bytes hash", "verified preserved-copy path"]) {
+      assert.throws(() => assertMapMethod(originalTask.replace(pause, pause.replace(field, ""))), field);
+    }
+    for (const rule of mapRules.slice(7)) for (const word of rule.match(/\S+/g)!) {
+      assert.throws(() => assertMapMethod(originalTask.replace(rule, rule.replace(word, ""))), word);
+    }
+    for (const duty of ["affected statements", "named commit", "even if no statement changes", "committed source", "at implementation end", "Manual records and safe writes"]) {
+      assert.throws(() => assertMapMethod(originalTask.replace(duty, "")), duty);
+    }
+    for (const fix of ["Agentic-review fix", "User-review fix"]) {
+      await thread.execute("id", { ...call, task: fix, trackNumber: 3 }, undefined, undefined, {});
+      assertMapMethod(task!);
+      assertReportMethod(task!);
+    }
+    task = originalTask;
+    const rendered = task!.slice(call.task.length + 2);
+    const prefix = dirname(CHANGE_RECORDS_DOC) + sep;
+    assert.ok(rendered.includes(`<${CHANGE_RECORDS_DOC}> § Manual records and safe writes`));
+    const portable = rendered.split(prefix).join("");
+    for (const testPrefix of ["/opt/slate/docs/", "/tmp/slate checkout/docs/", "/tmp/映射 é/docs/", "C:\\slate checkout\\docs\\"]) {
+      const relocated = portable.replace("<change-records.md>", `<${testPrefix}change-records.md>`).replace("<safe-record-write.md>", `<${testPrefix}safe-record-write.md>`);
+      assert.equal(Buffer.byteLength(relocated), Buffer.byteLength(portable) + 2 * Buffer.byteLength(testPrefix));
+      assert.equal(relocated.split(testPrefix).join(""), portable);
+    }
+    assert.equal(Buffer.byteLength(rendered), Buffer.byteLength(portable) + 2 * Buffer.byteLength(prefix));
+    guidanceBytes.push(Buffer.byteLength(portable));
   }
-  assert.deepEqual(guidanceBytes, [995, 1377], "production-rendered report guidance bytes, source absent and present");
+  const resultAfterUnclearAppend = (guidance: string, appends: number) => {
+    assertReportMethod(guidance);
+    assert.ok(appends <= 1, "an unclear append cannot be retried");
+  };
+  const duplicate = "payload" + "payload";
+  assert.equal(duplicate, ["payload", "payload"].join(""), "reconstructed concatenation alone accepts a duplicate retry");
+  assert.throws(() => resultAfterUnclearAppend(task!, 2));
+  for (const removed of ["and stop.", "Never retry that append."]) {
+    assert.throws(() => resultAfterUnclearAppend(task!.replace(removed, ""), 1));
+  }
+  assert.deepEqual(guidanceBytes, [1925, 2479], "portable production-rendered guidance bytes, source absent and present");
   const published = readFileSync(new URL("../docs/context-budget.md", import.meta.url), "utf8");
   const format = (bytes: number) => bytes.toLocaleString("en-US");
   assert.ok(published.includes(`Its generated guidance is ${format(guidanceBytes[0]!)} UTF-8 bytes without a source folder.`));
@@ -377,6 +442,101 @@ test("implementer receives its report path and approved method with and without 
   for (const trusted of [false, true]) {
     const preambleBytes = Buffer.byteLength(workerPreamble(trusted, false));
     assert.ok(published.includes(`| ${trusted ? "On" : "Off"} | ${format(preambleBytes)} | ${guidanceBytes.map(format).join(" / ")} | ${guidanceBytes.map((bytes) => format(bytes + preambleBytes)).join(" / ")} |`));
+  }
+});
+
+test("all worker task identities retain literal totals and accepted growth", { timeout: 10000 }, async () => {
+  const expected: Array<[string, number, number, number, number]> = [
+    ["append",14046,17285,3239,17287],
+    ["status creation",14046,17285,3239,17287],
+    ["status rewrite",14046,17285,3239,17287],
+    ["preservation retry",14046,17285,3239,17287],
+    ["map preservation retry",17812,21051,3239,21053],
+    ["draft creation",11775,12085,310,12341],
+    ["activated plan edit",11775,17285,5510,17287],
+    ["design edit",14046,17285,3239,17287],
+    ["restoration and edit retry",14046,17285,3239,17287],
+    ["map edit",17812,21051,3239,21053],
+    ["map restoration and retry",17812,21051,3239,21053],
+    ["map command creation/hash/successor",26693,30331,3638,30353],
+    ["command creation",22927,26565,3638,26587],
+    ["hash logging",22927,26565,3638,26587],
+    ["successor checks",22927,26565,3638,26587],
+    ["Implementer report",1782,1925,143,1926],
+    ["Implementer report/map edit",19594,22976,3382,22979],
+    ["Implementer report/map retry",19594,22976,3382,22979],
+    ["Implementer report/map creation",28475,32256,3781,32279],
+    ["Fixer report",1782,1925,143,1926],
+    ["Fixer report/map edit",19594,22976,3382,22979],
+    ["Fixer report/map retry",19594,22976,3382,22979],
+    ["Fixer report/map creation",28475,32256,3781,32279],
+    ["Implementer report source",2336,2479,143,2480],
+    ["Implementer report/map edit source",20148,23530,3382,23533],
+    ["Implementer report/map retry source",20148,23530,3382,23533],
+    ["Implementer report/map creation source",29029,32810,3781,32833],
+    ["Fixer report source",2336,2479,143,2480],
+    ["Fixer report/map edit source",20148,23530,3382,23533],
+    ["Fixer report/map retry source",20148,23530,3382,23533],
+    ["Fixer report/map creation source",29029,32810,3781,32833],
+  ];
+  const text = (path: string | URL) => readFileSync(path, "utf8").replace(/\r\n/g, "\n");
+  const size = (value: string) => Buffer.byteLength(value);
+  const common = text(CHANGE_RECORDS_DOC);
+  const c = size(common.slice(common.indexOf("## Manual records and safe writes")));
+  const worker = text(SAFE_RECORD_WRITE_DOC);
+  const n = size(worker.slice(0, worker.indexOf("## Command contract"))) + size(worker.slice(worker.indexOf("## Record preparation and recovery execution")));
+  const m = size(text(new URL("../docs/maps.md", import.meta.url)));
+  const actual: Array<[string, number]> = [
+    ["append", c+n], ["status creation", c+n], ["status rewrite", c+n],
+    ["preservation retry", c+n], ["map preservation retry", c+n+m],
+    ["draft creation", c], ["activated plan edit", c+n], ["design edit", c+n],
+    ["restoration and edit retry", c+n], ["map edit", c+n+m], ["map restoration and retry", c+n+m],
+    ["map command creation/hash/successor", c+size(worker)+m],
+    ["command creation", c+size(worker)], ["hash logging", c+size(worker)], ["successor checks", c+size(worker)],
+  ];
+  let thread: Tool | undefined, rendered = "";
+  const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
+  store.currentChange = "change-20261004T000000Z-" + "c".repeat(32);
+  registerSlateTools({ registerTool(tool: Tool & { name: string }) { if (tool.name === "thread") thread = tool; } } as unknown as ExtensionAPI,
+    store, () => ({ async dispatch(opts: { task: string }) {
+      rendered = opts.task;
+      return { thread: { id: "t1", type: "implementer" }, episode: { id: "t1.e1", status: "ok", file: "/unused" }, episodeText: "done", warnings: [], usage: {} };
+    } }) as unknown as ThreadManager);
+  for (const source of [false, true]) for (const role of ["Implementer", "Fixer"]) {
+    store.sourceChange = source ? "change-20261004T000000Z-" + "d".repeat(32) : undefined;
+    const task = role === "Fixer" ? "Agentic-review fix" : "Make the fix";
+    await thread!.execute("id", { type: "implementer", task, trackNumber: 3, model: "sol-6.1", reason: "routine" }, undefined, undefined, {});
+    assertMapMethod(rendered);
+    assertReportMethod(rendered);
+    assert.doesNotMatch(rendered, /record-write-pending\.md|RECORD_WRITE_PENDING_DOC/);
+    const guidance = size(rendered.slice(task.length + 2).split(dirname(CHANGE_RECORDS_DOC) + sep).join(""));
+    const suffix = source ? " source" : "";
+    actual.push([role+" report"+suffix, guidance], [role+" report/map edit"+suffix, guidance+c+n+m],
+      [role+" report/map retry"+suffix, guidance+c+n+m], [role+" report/map creation"+suffix, guidance+c+size(worker)+m]);
+    for (const replacement of ["Hash logging and successor checks: implementer.", "Hash logging and successor checks: fixer."]) {
+      assert.throws(() => assertMapMethod(rendered.replace("Hash logging and successor checks: record-only.", replacement)));
+    }
+  }
+  const check = (entries: Array<[string, number]>) => {
+    assert.equal(new Set(entries.map(([id]) => id)).size, entries.length, "duplicate task identity");
+    assert.deepEqual(entries.map(([id]) => id).sort(), expected.map(([id]) => id).sort(), "task identity roster");
+    for (const [id, value] of entries) {
+      const [, before, measured, delta, limit] = expected.find(([key]) => key === id)!;
+      assert.equal(value, measured, id);
+      assert.equal(value-before, delta, id);
+      assert.ok(value <= limit, id);
+    }
+  };
+  check(actual);
+  assert.equal(actual.length, 31);
+  assert.throws(() => check(actual.slice(1)));
+  assert.throws(() => check([...actual, actual[0]!]));
+  assert.throws(() => check([["unexpected task", actual[0]![1]], ...actual.slice(1)]));
+  for (const [id, , , , limit] of expected) {
+    const ceiling = (value: number) => assert.ok(value <= limit, id);
+    ceiling(limit-1);
+    ceiling(limit);
+    assert.throws(() => ceiling(limit+1));
   }
 });
 
