@@ -284,8 +284,8 @@ function buildKickoff(cwd: string, trusted: boolean, brief: string, focus?: stri
 	if (!base) {
 		base = [
 			"Slate orchestrator handoff.",
-			"Orchestrator mode and all worker threads/episodes from the previous session are restored:",
-			"use `threads` to list them and `episode` to fetch details. Continue the work.",
+			"Orchestrator mode and all worker threads and episodes from the previous session are restored.",
+			"Continue the work.",
 		].join("\n");
 	}
 	const parts = [base];
