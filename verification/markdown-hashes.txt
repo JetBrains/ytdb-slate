@@ -1,6 +1,6 @@
 0541ed6f1bb0f4cc85f8e3677871885d649df78520dca9acab33cf86b715cdda  AGENTS.md
 
-61940421be01ad68afb621eb7d08627824a06a2f1c99b67aeeec144807d0362e  CHANGELOG.md
+8e3a3c4d8ff4f6383c2f405ce6b16e9b14ae866049175d456efa3fef0e420a13  CHANGELOG.md
 
 2a8eaddb9765889e2ffdfd2977f5e5c9f40e6a2db0e8d8e0e5a5f685cc0f3f5e  README-GUIDELINES.md
 
@@ -12,9 +12,9 @@ c3ec46232ae59a874141e6528bebf5a079f492e72048f86474166fde53d58d20  docs/blast-rad
 
 9a76907f1a1b81bc05b379a982a9e4b68e4f03006df2758b7640ff7f3edfe13c  docs/change-records.md
 
-7eaab31145071dc3bee194ab648a8be078f68ae82bb6c6fb345c2a9a65a2361c  docs/configuration.md
+704a9e41418442c9cb7b156f5a19595a93f934cb86a3382a47e72c422afb5fe4  docs/configuration.md
 
-b6075d47c2e93f6816bc6f44ada3fef10f7ece0966fca56637d11ce11d2d569d  docs/context-budget.md
+b83464831a453cb0c6c121ffa7b765fdb70c9ac5d0040d95ff4e2c35dab0cd6d  docs/context-budget.md
 
 a19eef7bf9a86c2cf57f5f510534791c02320b6ce2259eabc3a9e7099d8254c5  docs/delivery-packages.md
 

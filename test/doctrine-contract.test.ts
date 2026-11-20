@@ -358,12 +358,12 @@ test("effective command reads current preferences without policy or provider wor
   assert.match(notices[0]!, /Remembered compressor selection: none/);
 });
 
-test("project startup settings merge causally and select Fable 5.2 at high when unscoped", { timeout: 5000 }, async () => {
+test("project startup settings merge causally and select Astra 6.2 at high when unscoped", { timeout: 5000 }, async () => {
   const settingsPath = join(process.cwd(), ".pi", "settings.json");
   const projectSettings = JSON.parse(readFileSync(settingsPath, "utf8"));
   assert.deepEqual(projectSettings, {
-    defaultProvider: "anthropic",
-    defaultModel: "claude-fable-5-2",
+    defaultProvider: "openai",
+    defaultModel: "gpt-6.2-astra",
     defaultThinkingLevel: "high",
     packages: ["../../main", "npm:pi-smart-fetch@0.3.23", "npm:pi-web-search@1.7.0"],
   });
@@ -372,26 +372,26 @@ test("project startup settings merge causally and select Fable 5.2 at high when 
   writeFileSync(join(agentDir, "settings.json"), JSON.stringify({
     defaultProvider: "anthropic",
     defaultModel: "global-model",
-    defaultThinkingLevel: "high",
+    defaultThinkingLevel: "low",
     packages: ["global-package"],
   }));
   const packageRoot = join(process.cwd(), "node_modules", "@earendil-works", "pi-coding-agent", "dist", "core");
   const settingsModule = await import(join(packageRoot, "settings-manager.js"));
   const resolverModule = await import(join(packageRoot, "model-resolver.js"));
   const manager = settingsModule.SettingsManager.create(process.cwd(), agentDir, { projectTrusted: true });
-  assert.equal(manager.getDefaultProvider(), "anthropic");
-  assert.equal(manager.getDefaultModel(), "claude-fable-5-2");
+  assert.equal(manager.getDefaultProvider(), "openai");
+  assert.equal(manager.getDefaultModel(), "gpt-6.2-astra");
   assert.equal(manager.getDefaultThinkingLevel(), "high");
   assert.deepEqual(manager.getProjectSettings().packages, projectSettings.packages);
   const opus = { provider: "anthropic", id: "claude-opus-5-5" };
-  const fable = { provider: "anthropic", id: "claude-fable-5-2" };
+  const astra = { provider: "openai", id: "gpt-6.2-astra" };
   const other = { provider: "openai", id: "scoped" };
   const runtime = {
-    getModel: (provider: string, id: string) => provider === fable.provider && id === fable.id ? fable
+    getModel: (provider: string, id: string) => provider === astra.provider && id === astra.id ? astra
       : provider === opus.provider && id === opus.id ? opus
       : provider === other.provider && id === other.id ? other : undefined,
     hasConfiguredAuth: () => true,
-    getModels: () => [opus, fable, other],
+    getModels: () => [opus, astra, other],
     getAvailable: async () => [other],
   };
   const selected = await resolverModule.findInitialModel({
@@ -399,7 +399,7 @@ test("project startup settings merge causally and select Fable 5.2 at high when 
     defaultProvider: manager.getDefaultProvider(), defaultModelId: manager.getDefaultModel(),
     defaultThinkingLevel: manager.getDefaultThinkingLevel(), modelRuntime: runtime,
   });
-  assert.strictEqual(selected.model, fable);
+  assert.strictEqual(selected.model, astra);
   assert.equal(selected.thinkingLevel, "high");
   const scoped = await resolverModule.findInitialModel({
     scopedModels: [{ model: other, thinkingLevel: "low" }], isContinuing: false,
@@ -408,17 +408,36 @@ test("project startup settings merge causally and select Fable 5.2 at high when 
   });
   assert.strictEqual(scoped.model, other, "the scoped set must constrain startup selection");
   assert.equal(scoped.thinkingLevel, "low");
-  const restored = await resolverModule.restoreModelFromSession(other.provider, other.id, fable, false, runtime);
-  assert.strictEqual(restored.model, other, "a usable restored model must replace the startup default");
   const untrusted = settingsModule.SettingsManager.create(process.cwd(), agentDir, { projectTrusted: false });
   assert.equal(untrusted.getDefaultProvider(), "anthropic");
   assert.equal(untrusted.getDefaultModel(), "global-model");
+  assert.equal(untrusted.getDefaultThinkingLevel(), "low");
   assert.deepEqual(untrusted.getProjectSettings(), {});
 });
 
-for (const explicitModel of [false, true]) test(explicitModel
-  ? "real Pi startup gives an explicit command-line model precedence over a conflicting project default"
-  : "real Pi startup prefers Fable 5.2 anywhere in the scoped model set", { timeout: 15000 }, () => {
+for (const { name, args, expected, resume } of [
+  {
+    name: "prefers the eligible project default over the first scoped model",
+    args: ["--models", "anthropic/claude-opus-5-5,openai/gpt-6.2-astra"],
+    expected: { provider: "openai", id: "gpt-6.2-astra", thinkingLevel: "high" },
+  },
+  {
+    name: "selects the first scoped model when only a different provider offers the default ID in scope",
+    args: ["--models", "anthropic/claude-opus-5-5,anthropic/gpt-6.2-astra"],
+    expected: { provider: "anthropic", id: "claude-opus-5-5", thinkingLevel: "high" },
+  },
+  {
+    name: "honors the explicit provider, model and thinking level over the project defaults",
+    args: ["--provider", "anthropic", "--model", "explicit-startup-model", "--thinking", "low"],
+    expected: { provider: "anthropic", id: "explicit-startup-model", thinkingLevel: "low" },
+  },
+  {
+    name: "restores a usable saved model over the project default",
+    args: [],
+    resume: true,
+    expected: { provider: "anthropic", id: "claude-opus-5-5", thinkingLevel: "high" },
+  },
+]) test(`real Pi startup ${name}`, { timeout: 15000 }, () => {
   const trackedSettings = JSON.parse(readFileSync(join(process.cwd(), ".pi", "settings.json"), "utf8"));
   const trackedDefaults = {
     defaultProvider: trackedSettings.defaultProvider,
@@ -426,8 +445,8 @@ for (const explicitModel of [false, true]) test(explicitModel
     defaultThinkingLevel: trackedSettings.defaultThinkingLevel,
   };
   assert.deepEqual(trackedDefaults, {
-    defaultProvider: "anthropic",
-    defaultModel: "claude-fable-5-2",
+    defaultProvider: "openai",
+    defaultModel: "gpt-6.2-astra",
     defaultThinkingLevel: "high",
   });
   const cliScratch = mkdtempSync(join(tmpdir(), "slate-startup-cli-"));
@@ -441,40 +460,43 @@ for (const explicitModel of [false, true]) test(explicitModel
     mkdirSync(homeDir, { recursive: true });
     mkdirSync(tempDir, { recursive: true });
     writeFileSync(join(projectDir, ".pi", "settings.json"), JSON.stringify(trackedDefaults));
+    const model = (id: string) => ({
+      id,
+      name: id,
+      reasoning: true,
+      thinkingLevelMap: { off: null, low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" },
+      input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 1_000_000,
+      maxTokens: 4096,
+    });
     writeFileSync(join(agentDir, "models.json"), JSON.stringify({
       providers: {
         openai: {
           baseUrl: "http://127.0.0.1:9/v1",
           apiKey: "literal-offline-startup-key",
           api: "openai-completions",
-          models: [{
-            id: "explicit-startup-model",
-            name: "Explicit startup model",
-            reasoning: false,
-            input: ["text"],
-            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-            contextWindow: 128_000,
-            maxTokens: 4096,
-          }],
+          models: [model("gpt-6.2-astra"), model("explicit-startup-model")],
         },
         anthropic: {
           baseUrl: "http://127.0.0.1:9/v1",
           apiKey: "literal-offline-startup-key",
           api: "anthropic-messages",
-          models: ["claude-opus-5-5", "claude-fable-5-2"].map((id) => ({
-            id,
-            name: id,
-            reasoning: true,
-            thinkingLevelMap: { off: null, low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" },
-            input: ["text"],
-            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-            contextWindow: 1_000_000,
-            maxTokens: 4096,
-          })),
+          models: [model("claude-opus-5-5"), model("gpt-6.2-astra"), model("explicit-startup-model")],
         },
       },
     }));
     writeFileSync(join(agentDir, "auth.json"), "{}");
+
+    const sessionPath = join(cliScratch, "saved.jsonl");
+    if (resume) {
+      const timestamp = new Date().toISOString();
+      writeFileSync(sessionPath, [
+        { type: "session", version: 3, id: "startup-fixture", timestamp, cwd: projectDir },
+        { type: "model_change", id: "00000001", parentId: null, timestamp, provider: "anthropic", modelId: "claude-opus-5-5" },
+        { type: "message", id: "00000002", parentId: "00000001", timestamp, message: { role: "user", content: "Saved prompt.", timestamp: Date.parse(timestamp) } },
+      ].map((entry) => JSON.stringify(entry)).join("\n") + "\n");
+    }
 
     const cli = join(process.cwd(), "node_modules", "@earendil-works", "pi-coding-agent", "dist", "cli.js");
     const result = spawnSync(process.execPath, [
@@ -482,10 +504,8 @@ for (const explicitModel of [false, true]) test(explicitModel
       "--no-extensions",
       "--mode", "rpc",
       "-a",
-      "--no-session",
-      ...(explicitModel
-        ? ["--provider", "openai", "--model", "explicit-startup-model"]
-        : ["--models", "anthropic/claude-opus-5-5,anthropic/claude-fable-5-2"]),
+      ...(resume ? ["--session", sessionPath] : ["--no-session"]),
+      ...args,
     ], {
       cwd: projectDir,
       env: {
@@ -516,11 +536,9 @@ for (const explicitModel of [false, true]) test(explicitModel
       .find((entry) => entry.id === "state");
     assert.ok(response, `missing get_state response: ${result.stdout.slice(0, 4096)}`);
     assert.equal(response.success, true);
-    assert.equal(response.data?.model?.provider, explicitModel ? "openai" : "anthropic",
-      "an explicit command-line provider must outrank the conflicting project default");
-    assert.equal(response.data?.model?.id, explicitModel ? "explicit-startup-model" : "claude-fable-5-2",
-      "an explicit command-line model must outrank the conflicting project default");
-    if (!explicitModel) assert.equal(response.data?.thinkingLevel, "high");
+    assert.equal(response.data?.model?.provider, expected.provider, "startup model provider");
+    assert.equal(response.data?.model?.id, expected.id, "startup model ID");
+    assert.equal(response.data?.thinkingLevel, expected.thinkingLevel, "startup thinking level");
   } finally {
     rmSync(cliScratch, { recursive: true, force: true });
   }

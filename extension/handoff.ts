@@ -2,12 +2,13 @@
  * Auto-pause + handoff: context-budget discipline for the orchestrator.
  *
  * Monitoring: after every turn, when orchestrator mode is on and context
- * usage crosses the absolute token budget (contextBudget; built-in defaults
- * 256k tokens, 400k for anthropic/* models, clamped so the pause always
- * lands with brief-writing room below pi's own compaction point), the store
- * is paused — orchestrator worker dispatches remain available, while new user
- * prompts are refused by the input hook — and the orchestrator is steered to
- * prepare a handoff brief for the user. Threshold auto-compactions are intercepted the same way
+ * usage reaches the absolute token budget, Slate pauses the orchestrator.
+ * The built-in budget is 400,000 tokens for every model. The clamp subtracts
+ * the compaction reserve and a margin from the window. A large reserve can
+ * make the half-window floor put the pause threshold above Pi's compaction threshold.
+ * Orchestrator worker dispatches remain available, but the input hook
+ * refuses new user prompts. Slate asks the orchestrator to prepare a handoff
+ * brief for the user. Threshold auto-compactions are intercepted the same way
  * (session_before_compact → pause + cancel); once paused they pass through
  * as the escape valve. The DEPRECATED pauseThresholdPercent keeps its exact
  * legacy percent behavior (compaction untouched) when set WITHOUT
@@ -57,11 +58,7 @@ import {
 
 /** Legacy percent mode only (DEPRECATED pauseThresholdPercent without contextBudget). */
 const DEFAULT_PAUSE_THRESHOLD_PERCENT = 40;
-/** Budget-mode default for models without a configured or built-in override. */
-const DEFAULT_CONTEXT_BUDGET_TOKENS = 256_000;
-/** Built-in override: anthropic/* models get a larger default budget. */
-const ANTHROPIC_DEFAULT_BUDGET_TOKENS = 400_000;
-const ANTHROPIC_MODEL_RE = /^anthropic\/.*/;
+const DEFAULT_CONTEXT_BUDGET_TOKENS = 400_000;
 /**
  * Head-room subtracted (together with pi's compaction reserveTokens) from the
  * context window when clamping the budget: the pause must land with enough
@@ -210,8 +207,8 @@ function budgetModeActive(config: SlateConfig): boolean {
 }
 
 /**
- * Resolve the budget for one "provider/id" spec. Lattice: first matching
- * user override → user scalar → built-in anthropic rule → global default.
+ * Resolve the budget for one "provider/id" spec. Use the first matching
+ * override, then the configured token count, then the built-in default.
  * Runs against the LIVE model on EVERY check — failover, /model, and handoff
  * restore can all swap models mid-session, so the result is never cached.
  */
@@ -221,7 +218,6 @@ function resolveBudgetTokens(budget: ContextBudgetObject | undefined, modelSpec:
 		if (new RegExp(`^(?:${o.match})$`).test(modelSpec)) return o.tokens;
 	}
 	if (budget?.tokens !== undefined) return budget.tokens;
-	if (ANTHROPIC_MODEL_RE.test(modelSpec)) return ANTHROPIC_DEFAULT_BUDGET_TOKENS;
 	return DEFAULT_CONTEXT_BUDGET_TOKENS;
 }
 
