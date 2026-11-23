@@ -694,7 +694,13 @@ export function registerSlateHandoff(
 		}
 	});
 
-	const performHandoff = async (ctx: ExtensionCommandContext, focus?: string, summaryVisible?: boolean, purpose?: HandoffPurpose): Promise<boolean> => {
+	const performHandoff = async (
+		ctx: ExtensionCommandContext,
+		focus: string | undefined,
+		summaryVisible: boolean | undefined,
+		purpose: HandoffPurpose,
+		onTransfer: (fresh: ExtensionContext) => void,
+	): Promise<void> => {
 		const brief = lastAssistantText(ctx);
 		const parentSession = ctx.sessionManager.getSessionFile();
 		// ctx.model can be undefined (no-model session): capture neither field
@@ -729,6 +735,9 @@ export function registerSlateHandoff(
 					successor.appendCustomEntry("slate-handoff", entry as unknown as Record<string, unknown>);
 				},
 				withSession: async (fresh) => {
+					// Setup has succeeded. Finish the parent write before kickoff so
+					// pi --continue finds the successor after its first run.
+					onTransfer(fresh);
 					await deliverKickoff(fresh, (message, options) => fresh.sendMessage(message, options));
 				},
 			});
@@ -738,7 +747,6 @@ export function registerSlateHandoff(
 				store.save();
 				if (ctx.hasUI) ctx.ui.notify("slate: handoff cancelled — pause cleared.", "warning");
 			}
-			return !cancelled;
 		} catch (error) {
 			// Best-effort: if the replacement partially happened, the old pi/ctx
 			// are stale and these calls themselves throw.
@@ -770,10 +778,14 @@ export function registerSlateHandoff(
 			const selected = purpose ?? retained ?? "user-request";
 			pi.appendEntry("slate-handoff-purpose", { sessionId, purpose: selected });
 			await ctx.waitForIdle();
-			const transferred = await performHandoff(ctx, focus, summaryVisible, selected);
-			if (transferred && parentManager instanceof SessionManager) {
-				parentManager.appendCustomEntry("slate-handoff-purpose", { sessionId, purpose: selected, consumed: true });
-			}
+			await performHandoff(ctx, focus, summaryVisible, selected, (fresh) => {
+				if (!(parentManager instanceof SessionManager)) return;
+				try {
+					parentManager.appendCustomEntry("slate-handoff-purpose", { sessionId, purpose: selected, consumed: true });
+				} catch (error) {
+					reportFailure(fresh, `slate: could not record the handoff purpose as consumed: ${sanitizeForNotify(String(error))}`);
+				}
+			});
 		});
 	};
 

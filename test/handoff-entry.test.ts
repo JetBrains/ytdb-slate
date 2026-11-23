@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
 import { SessionManager, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerSlateHandoff, type HandoffPurpose } from "../extension/handoff.ts";
 import { SlateStore } from "../extension/state.ts";
@@ -40,9 +44,10 @@ function fixture(manager = SessionManager.inMemory("/tmp"), allowed = true, shar
   return { pi, store, hooks, ctx, handlers, manager, messages, warnings, runtime, routing, base };
 }
 
-async function transfer(parent: ReturnType<typeof fixture>, options: { allowed?: boolean; reject?: boolean; failSave?: boolean; shared?: boolean; configure?: (child: ReturnType<typeof fixture>) => void } = {}, purpose?: HandoffPurpose) {
-  const child = fixture(undefined, options.allowed ?? true, options.shared);
+async function transfer(parent: ReturnType<typeof fixture>, options: { allowed?: boolean; reject?: boolean; failSave?: boolean; shared?: boolean; configure?: (child: ReturnType<typeof fixture>) => void; successor?: SessionManager; run?: () => void | Promise<void> } = {}, purpose?: HandoffPurpose) {
+  const child = fixture(options.successor, options.allowed ?? true, options.shared);
   let turns = 0;
+  let sendFailure: { error: unknown } | undefined;
   parent.ctx.newSession = async (request: any) => {
     await request.setup(child.manager);
     options.configure?.(child);
@@ -59,20 +64,99 @@ async function transfer(parent: ReturnType<typeof fixture>, options: { allowed?:
       ...child.ctx,
       sendMessage: async (message: any, delivery: any) => {
         if (options.reject && message.customType === "slate-kickoff") throw new Error("fresh send refused");
-        child.pi.sendMessage(message);
-        if (delivery?.triggerTurn) {
-          assert.equal(child.store.paused, false);
-          assert.equal(child.ctx.model.id, "gpt-6-luna");
-          assert.equal(child.pi.getThinkingLevel(), "max");
-          turns++;
+        try {
+          child.pi.sendMessage(message);
+          if (delivery?.triggerTurn) {
+            assert.equal(child.store.paused, false);
+            assert.equal(child.ctx.model.id, "gpt-6-luna");
+            assert.equal(child.pi.getThinkingLevel(), "max");
+            if (options.run) await options.run();
+            turns++;
+          }
+        } catch (error) {
+          // Keep fixture errors visible when kickoff delivery reports the failure.
+          sendFailure = { error };
+          throw error;
         }
       },
     });
     return { cancelled: false };
   };
   await parent.hooks.startHandoff(parent.ctx, undefined, undefined, purpose);
+  if (sendFailure) throw sendFailure.error;
   return { child, turns };
 }
+
+const fileClockWaitMs = 10_000;
+test("the handoff successor is the newest session after kickoff", { timeout: 2 * fileClockWaitMs + 5_000 }, async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "slate-handoff-order-"));
+  t.after(() => rmSync(dir, { recursive: true }));
+  const parent = fixture(SessionManager.create("/tmp", dir));
+  const successor = SessionManager.create("/tmp", dir);
+  const parentFile = parent.manager.getSessionFile()!;
+  const successorFile = successor.getSessionFile()!;
+  parent.manager.appendMessage({ role: "user", content: "Parent request", timestamp: 1 });
+
+  // Use a file that pi skips to observe when the filesystem records a later write.
+  const probeFile = join(dir, "clock-probe");
+  const waitForLaterWrite = async (file: string) => {
+    const { mtimeMs } = statSync(file);
+    const deadline = performance.now() + fileClockWaitMs;
+    do {
+      writeFileSync(probeFile, "probe");
+      if (statSync(probeFile).mtimeMs > mtimeMs) return;
+      await delay(10);
+    } while (performance.now() < deadline);
+    assert.fail(`The file clock did not advance past ${file} within ${fileClockWaitMs} ms`);
+  };
+
+  let parentAtKickoff: Buffer | undefined;
+  const { child, turns } = await transfer(parent, { successor, run: async () => {
+    parentAtKickoff = readFileSync(parentFile);
+    await waitForLaterWrite(parentFile);
+    successor.appendMessage({
+      role: "assistant", content: [{ type: "text", text: "Kickoff reply" }], timestamp: 2,
+      model: "gpt-6-luna", provider: "openai", api: "openai-completions", stopReason: "stop",
+      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+    });
+    await waitForLaterWrite(successorFile);
+  } }, "track-boundary");
+
+  assert.equal(turns, 1, "the successor must complete exactly one kickoff run");
+  assert.doesNotMatch([...parent.warnings, ...child.warnings].join("\n"), /kickoff failed/i);
+  assert.ok(parentAtKickoff, "the successor must start a kickoff run");
+  assert.ok(parentAtKickoff.equals(readFileSync(parentFile)), "the parent file must not change after kickoff starts");
+  assert.ok(statSync(parentFile).mtimeMs < statSync(successorFile).mtimeMs,
+    "the parent file must be older than the successor file");
+  assert.equal(SessionManager.continueRecent("/tmp", dir).getSessionFile(), successorFile,
+    "pi --continue must select the successor session");
+  const marker = SessionManager.open(parentFile).getBranch().findLast(
+    (entry) => entry.type === "custom" && entry.customType === "slate-handoff-purpose",
+  );
+  assert.equal(marker?.type, "custom");
+  assert.equal(marker.customType, "slate-handoff-purpose");
+  assert.deepEqual(marker.data, { sessionId: parent.manager.getSessionId(), purpose: "track-boundary", consumed: true });
+});
+
+test("a failed purpose marker write reports the failure without interrupting kickoff", { timeout: 2000 }, async (t) => {
+  const parent = fixture();
+  parent.store.paused = true;
+  parent.store.pauseReason = "context-budget";
+  const append = parent.manager.appendCustomEntry.bind(parent.manager);
+  t.mock.method(parent.manager, "appendCustomEntry", (name: string, data: unknown) => {
+    if (name === "slate-handoff-purpose" && (data as { consumed?: boolean }).consumed) {
+      throw new Error("marker write refused");
+    }
+    return append(name, data);
+  });
+  const { child, turns } = await transfer(parent, {}, "track-boundary");
+  assert.equal(turns, 1);
+  assert.match(child.warnings.join("\n"), /could not record.*handoff purpose.*marker write refused/);
+  assert.doesNotMatch([...parent.warnings, ...child.warnings].join("\n"), /handoff failed|pause cleared/i);
+  assert.equal(parent.store.paused, true);
+  assert.equal(parent.store.pauseReason, "context-budget");
+});
 
 test("adoption gates the hidden kickoff and resume delivers it once across reload", { timeout: 2000 }, async () => {
   const { child, turns } = await transfer(fixture(), { allowed: false }, "track-boundary");
@@ -157,9 +241,17 @@ for (const [name, warning, configure] of adoptionFailures) test(`failed adoption
   });
 });
 
-for (const interrupted of ["cancel", "idle-failure", "transfer-failure"] as const) test(`${interrupted} and restart retain only the same boundary purpose for retry`, { timeout: 2000 }, async () => {
+for (const interrupted of ["cancel", "idle-failure", "transfer-failure", "setup-failure"] as const) test(`${interrupted} and restart retain only the same boundary purpose for retry`, { timeout: 2000 }, async () => {
   const parent = fixture();
-  parent.ctx.newSession = async () => { if (interrupted === "transfer-failure") throw new Error("transfer failed"); return { cancelled: true }; };
+  parent.ctx.newSession = async (request: any) => {
+    if (interrupted === "transfer-failure") throw new Error("transfer failed");
+    if (interrupted === "setup-failure") {
+      const manager = SessionManager.inMemory("/tmp");
+      manager.appendCustomEntry = () => { throw new Error("setup failed"); };
+      await request.setup(manager);
+    }
+    return { cancelled: true };
+  };
   parent.ctx.waitForIdle = async () => { if (interrupted === "idle-failure") throw new Error("idle failed"); };
   if (interrupted === "cancel") await parent.hooks.startHandoff(parent.ctx, undefined, undefined, "post-check");
   else await assert.rejects(parent.hooks.startHandoff(parent.ctx, undefined, undefined, "post-check"), /failed/);
