@@ -1,4 +1,4 @@
-059e6a98f8844ba88cf1ca508d4287916eeeaeab0ad7a88ccf321ebae217592c  AGENTS.md
+d9e973f111da6c86151091cb148ba0943d719b7d9b994094202d979100c2bf97  AGENTS.md
 
 8e3a3c4d8ff4f6383c2f405ce6b16e9b14ae866049175d456efa3fef0e420a13  CHANGELOG.md
 
@@ -12,7 +12,7 @@
 
 33eed092de61cd847813460d9d454ec84e6b507358168da61c939bf42b00ccc9  docs/change-records.md
 
-25804d8d48d9afdc6e1d9a94223d785fc529dcd002c6c01c1a6c2f35fd346b87  docs/configuration.md
+7382e6b5c4ceb6f4b221700d26a4f97adb9f39ceda6e713ea5ca0ae9d611e3fd  docs/configuration.md
 
 ede54793fe3c03b59539185a1b7a65425aef2135f09245ae1c17fcd5658d9563  docs/context-budget.md
 
@@ -90,4 +90,4 @@ ff583b7578b55fa21887fde2ca828eb55a6d9efa0851112d830802eae1cc86e4  research/opena
 
 266812b566da8edc5d90936b39bfc7d13e160cd42291aba56b6e00eac3cf5077  research/writing-threshold-provenance.md
 
-fb6ce483af7a7e7ae3354e1f8f36b7d0464569d33f88f5062c98c38b3cbe2fab  verification/README.md
+fcc05cb7609b43b2562858963aeb949307b70a68c69049e8dff90558f1d3cd9c  verification/README.md

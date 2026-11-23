@@ -23,6 +23,12 @@ $app = $null
 foreach ($item in $folder.Items()) {
     if ($item.Name -eq 'Windows PowerShell') { $app = $item; break }
 }
+if (-not $app) {
+    $systemPowerShellId = '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe'
+    foreach ($item in $folder.Items()) {
+        if ([string]$item.Path -eq $systemPowerShellId) { $app = $item; break }
+    }
+}
 if (-not $app -or [string]::IsNullOrWhiteSpace($app.Path)) { exit 1 }
 $appId = [string]$app.Path
 $null = [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime]

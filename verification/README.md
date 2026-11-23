@@ -36,6 +36,18 @@ The full suite runs on Linux under the stable `Node 22` and `Node 24` check name
 Each Linux job has a 20-minute limit on the version-specific `ubuntu-24.04` runner label.
 The Linux prerequisite install includes `dbus`, `libnotify-bin`,
 `python3-dbus-next`, `openssh-client`, `openssh-server` and `tmux`.
+The Release `checks` job uses `ubuntu-24.04` and installs the same packages.
+
+`test/notification-native-readback.test.ts` uses a private D-Bus session,
+the `notify-send` helper and a Python service from `python3-dbus-next`.
+It checks the exact notification fields, including literal backslashes.
+
+`test/notification-ssh-readback.test.ts` requires `sshd`, `ssh`, `ssh-keygen`,
+Python 3 and an unprivileged current user. It starts a key-only SSH server on
+IPv4 loopback with disposable keys. It captures client bytes through a test-owned
+pseudoterminal. It checks all three explicit protocols, GNU screen envelope bytes,
+sanitation, default generic text, bell delivery and headless silence. It proves
+byte transport, not terminal interpretation or visible presentation.
 
 `test/notification-tmux-readback.test.ts` asserts the tmux 3.4 version series in CI.
 It owns a private server socket, configuration, home directory and client
@@ -46,16 +58,19 @@ The cases cover the four G9 examples, both tie-breaks, fixed send order,
 unidentified clients, visible-window `on`, inactive-window `all`, inactive-window
 `on` silence, default bell delivery to both clients and real-binary query failure.
 Unit tests in `test/notification-tmux.test.ts` cover stalled queries, cancellation,
-nonblocking admission and process exit. Missing prerequisites fail on Linux when
-`CI` is true and produce a visible local skip otherwise. The integration check
-proves byte transport, not terminal interpretation or visible presentation.
+nonblocking admission and process exit. The integration check proves byte
+transport, not terminal interpretation or visible presentation.
+All three Linux read-back tests fail on a missing prerequisite when `CI` is
+`true`, `1`, `yes` or `on` after trimming whitespace and ignoring case. With any
+other value or an unset `CI`, a missing prerequisite causes a skip with a visible
+reason.
 
 The narrow `macOS notification push` and `Windows notification push` jobs use
 `macos-15` (arm64) and `windows-2025` (x64). These version-specific labels fix the
 operating-system line, not the image revision. Both jobs have a five-minute
 limit and pin Node 24.18.0. They inherit the read-only workflow permission,
 reuse the Linux action SHAs and install with `npm ci --ignore-scripts`.
-The workflow configures no required-check ruleset.
+Neither job starts a pi session. The workflow configures no required-check ruleset.
 
 The Windows job runs both files with ordinary `spec` output visible:
 
@@ -118,8 +133,8 @@ reached its position, not assertion quality. The reviewed command, roster and
 terminal marker placement remain trusted. Node can attribute helper-registered
 results to the helper file. The reporter therefore does not prove exact
 name-to-file ownership against coordinated swaps. It relies on the pinned Node
-structured-event schema and ordinary process isolation. Re-measure the guard
-before changing Node pins or execution flags.
+structured-event schema and ordinary process isolation. Re-measure the
+structured-event schema before changing Node pins or execution flags.
 Both jobs prove push transport and child termination. The macOS job also
 checks native notification retention in the operating system store.
 `test/notification-native-macos-readback.test.ts` uses the exported
@@ -163,13 +178,17 @@ application identity and repeatability on the selected image.
 `test/notification-native-windows-readback.test.ts` calls the exported
 `createNativeNotificationChannel` with `mode: "tui"`, `platform: "win32"` and
 default product environment handling, then prepares and delivers. It requires
-an absolute SystemRoot, its System32 Windows PowerShell executable and the
-exact-name Windows PowerShell Start entry. Missing prerequisites fail on
-Windows even outside CI. The case registers no test on other platforms.
+an absolute SystemRoot, its System32 Windows PowerShell executable and a
+matching registered Start entry. Missing prerequisites fail on Windows even
+outside CI. The case registers no test on other platforms.
 The product disables module autoload and creates `Shell.Application` through
-.NET. It enumerates the Apps folder that `Get-StartApps` uses. The first
-case-insensitive exact name match in folder order supplies the registered
-AppID from its Path. The fixed script uses no cmdlet, alias, import or pipeline.
+.NET. It enumerates the Apps folder that `Get-StartApps` uses. It selects the
+first case-insensitive exact-name `Windows PowerShell` match in folder order.
+If no entry has that name, the product compares each entry's Path with a fixed
+application identity. Windows registers that identity for the system Windows
+PowerShell executable. The product does not inspect shortcut targets. The
+selected entry's Path supplies its AppID.
+The fixed script uses no cmdlet, alias, import or pipeline.
 Notification text enters XML only through text nodes from the two environment
 fields. The five-key environment remains fixed. Windows uses a 10,000 ms
 native attempt limit. Linux and macOS use 5,000 ms.
@@ -181,10 +200,11 @@ Only the five product-permitted Windows environment keys reach that child.
 The reader disables module autoload. It imports Microsoft.PowerShell.Utility
 and StartLayout by absolute paths under SystemRoot. Utility supplies
 `ConvertTo-Json` and the commands used by `Get-StartApps`.
-The reader selects the first case-insensitive exact name match from
-`Get-StartApps`. This identity method is independent of the product's direct
-COM lookup. Each poll AppID must equal the baseline AppID, which success
-reports without a hard-coded identity. Process properties and UTC timestamps
+The reader searches the `Get-StartApps` results for the first case-insensitive
+exact-name `Windows PowerShell` match. If none exists, the reader compares each
+entry's AppID with the same fixed application identity. This lookup is independent
+of the product's direct COM lookup. Each poll AppID must equal the baseline AppID,
+which success reports as observed. Process properties and UTC timestamps
 come from .NET. ServiceController supplies service diagnostics only when its
 assembly is already loaded. Otherwise, diagnostics report it as unavailable.
 No reader command triggers module autoload.
@@ -256,7 +276,12 @@ child errors and any decoded candidate title and body. No diagnostic dumps
 full history. A bounded diagnostic child can recover metadata after a failed
 history child. Every poll reports its number, AppID, toast count and match
 result. Product delivery reports its duration even when later reads fail.
-Success prints the AppID, poll count and delivery duration.
+When neither lookup step selects an entry, the framed diagnostics list up to
+four Start entries whose name or AppID contains `powershell`, ignoring case.
+Each listed name and AppID is capped at 96 UTF-16 code units.
+The diagnostics report the selection step as `exact-name` or `identity` when a
+step selects an entry. Success prints the baseline selection step, AppID, poll
+count and delivery duration.
 The duration runs from the product deliver call to helper exit and reports
 the 10,000 ms Windows native attempt limit for comparison.
 Success and failure diagnostics report `nativeWindowsAttemptTimeoutMs=10000`
@@ -264,6 +289,8 @@ and `warm=true`. The test changes no services, registry, policies,
 notification settings or Focus Assist.
 
 The Windows job checks native toast retention in operating system history.
+Each native case asks the operating system notification service to retain one
+uniquely marked notification. Neither test deletes that notification.
 Store or history retention does not prove visible presentation. Neither job
 proves Windows terminal write ordering. The workflow configures no required-check
 ruleset. Hosted runs must establish toast acceptance and history access on the
