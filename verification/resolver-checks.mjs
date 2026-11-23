@@ -1466,14 +1466,14 @@ try {
 			dogfood: metrics(await doctrine(dogExtensions, () => dogRuntime, true, dogConfig)),
 		};
 		const exact = {
-			prompt: { portable: 3803, lines: 9, paths: 0 }, trusted: { portable: 8611, lines: 72, paths: 5 },
-			untrusted: { portable: 2711, lines: 33, paths: 4 }, draft: { portable: 8681, lines: 73, paths: 6 },
-			extensions: { portable: 9958, lines: 82, paths: 5 }, allTails: { portable: 10028, lines: 83, paths: 6 },
-			followUp: { portable: 10032, lines: 83, paths: 5 }, routing: { portable: 10011, lines: 83, paths: 5 },
-			draftFollowUp: { portable: 10102, lines: 84, paths: 6 }, draftRouting: { portable: 10077, lines: 84, paths: 6 },
-			followUpRouting: { portable: 10085, lines: 84, paths: 5 }, maximal: { portable: 10151, lines: 85, paths: 6 },
-			maximalOpen: { portable: 10349, lines: 86, paths: 6 }, maximalLinked: { portable: 10579, lines: 88, paths: 6 },
-			dogfood: { portable: 9276, lines: 84, paths: 6 },
+			prompt: { portable: 4528, lines: 9, paths: 0 }, trusted: { portable: 9336, lines: 72, paths: 5 },
+			untrusted: { portable: 2711, lines: 33, paths: 4 }, draft: { portable: 9406, lines: 73, paths: 6 },
+			extensions: { portable: 10683, lines: 82, paths: 5 }, allTails: { portable: 10753, lines: 83, paths: 6 },
+			followUp: { portable: 10757, lines: 83, paths: 5 }, routing: { portable: 10736, lines: 83, paths: 5 },
+			draftFollowUp: { portable: 10827, lines: 84, paths: 6 }, draftRouting: { portable: 10802, lines: 84, paths: 6 },
+			followUpRouting: { portable: 10810, lines: 84, paths: 5 }, maximal: { portable: 10876, lines: 85, paths: 6 },
+			maximalOpen: { portable: 11074, lines: 86, paths: 6 }, maximalLinked: { portable: 11304, lines: 88, paths: 6 },
+			dogfood: { portable: 10001, lines: 84, paths: 6 },
 		};
 		const doctrineBaselines = Object.values(rendered);
 		checkAll("doctrine-budget", "exact production renders match published portable baselines and every current baseline keeps five-percent reserve", [
@@ -1491,12 +1491,12 @@ try {
  budget.includes(`| ${labels[index]} | ${paths} | ${portable.toLocaleString("en-US")} | ${lines} |`));
  })(), "all fifteen baseline rows"],
 			["shipped policy section stays within its approved limit", (() => {
-				const within = (text) => text.length <= 3994 && text.split("\n").length <= 9;
-				const text = activeRuntime.promptText(), at = text + "x".repeat(3994 - text.length);
+				const within = (text) => text.length <= 4755 && text.split("\n").length <= 9;
+				const text = activeRuntime.promptText(), at = text + "x".repeat(4755 - text.length);
 				const fifth = logicalRuntime.createLogicalRuntime({ trusted: true, projectConfig: { router: { models: { include: [...logicalDefinitions.DEFAULT_LOGICAL_MODEL_NAMES, "gpt-6-astra"] } } } }).promptText();
-				return within(text) && Math.ceil(text.length * 1.05) === 3994 && fifth.split("\n").length === 10 && !within(fifth)
+				return within(text) && Math.ceil(text.length * 1.05) === 4755 && fifth.split("\n").length === 10 && !within(fifth)
 					&& ["docs/context-budget.md", "verification/README.md"].every((path) => readFileSync(join(REPO, path), "utf8").includes("A fifth default model needs a new user approval."))
-					&& at.length === 3994 && within(at) && !within(at + "x")
+					&& at.length === 4755 && within(at) && !within(at + "x")
 					&& (text + "\nextra row").split("\n").length === 10 && !within(text + "\nextra row");
 			})(), rendered.prompt],
 			["logical prompt keeps five-percent runtime reserve", Math.ceil(rendered.prompt.portable * 1.05) <= DOCTRINE_LIMITS.routingRuleChars, rendered.prompt],
@@ -1542,7 +1542,7 @@ try {
 			["whole-doctrine equality is accepted and first-over-limit is rejected", portable(wholeAt) === 26300 && portable(wholeAbove) === 26301 && portable(wholeAt) <= DOCTRINE_LIMITS.maximalChars && !(portable(wholeAbove) <= DOCTRINE_LIMITS.maximalChars), { at: portable(wholeAt), above: portable(wholeAbove), ceiling: DOCTRINE_LIMITS.maximalChars }],
 			["boundary compositions stay exact and below whole-doctrine cap", portable(featureOffDraft) === 26053 && portable(featureOffTight) === 26127 && portable(routingWithoutDrafts) === 26036 && portable(routingWithFollowUp) === 26110 && portable(routing) === 26102 && portable(deferred) === 26176 && [featureOffDraft, featureOffTight, routingWithoutDrafts, routingWithFollowUp, routing, deferred].every((text) => portable(text) <= DOCTRINE_LIMITS.maximalChars), { featureOffDraft: portable(featureOffDraft), featureOffTight: portable(featureOffTight), routingWithoutDrafts: portable(routingWithoutDrafts), routingWithFollowUp: portable(routingWithFollowUp), routing: portable(routing), deferred: portable(deferred) }],
 			["boundary composition line counts match the published tables", featureOffDraft.split("\n").length === 86 && featureOffTight.split("\n").length === 87 && routingWithoutDrafts.split("\n").length === 86 && routingWithFollowUp.split("\n").length === 87 && routing.split("\n").length === 87 && deferred.split("\n").length === 88, { featureOffDraft: featureOffDraft.split("\n").length, featureOffTight: featureOffTight.split("\n").length, routingWithoutDrafts: routingWithoutDrafts.split("\n").length, routingWithFollowUp: routingWithFollowUp.split("\n").length, routing: routing.split("\n").length, deferred: deferred.split("\n").length }],
-			["fresh valid-router over-cap control reaches whole-doctrine guard", portable(over) === 28253 && over.split("\n").length === 171 && portable(over) > DOCTRINE_LIMITS.maximalChars, portable(over)],
+			["fresh valid-router over-cap control reaches whole-doctrine guard", portable(over) === 28978 && over.split("\n").length === 171 && portable(over) > DOCTRINE_LIMITS.maximalChars, portable(over)],
 		]);
 	});
 
@@ -2033,9 +2033,9 @@ try {
 			const promptRows = [
 				"| logical model | capability rating | cost rating | guidelines | cautions |",
 				"| --- | ---: | ---: | --- | --- |",
-				"| luna-6 | 35 | 2 | auxiliary tasks only, such as file location, check-result collection, or routine text management such as modifying research logs / never primary research, implementation, design, or review / consumer-contract work only when auxiliary | May treat supplied repair context as permission to implement despite explicit task limits. Restrict write access for record-only work and verify the changed files. / Do not use Luna to handle complex texts. / May shorten long file paths in tool calls. Give the full path and require a read-back of the edited lines. / May undo its own checked writes before it ends. Check the final file state after every record task. / For an append, anchor one single-block edit on the exact current last line, then read back the tail. / May report state outside the task scope incorrectly. Verify such a claim before acting on it. |",
+				"| luna-6 | 35 | 2 | auxiliary tasks only, such as file location, check-result collection, or routine text management such as modifying research logs / never primary research, implementation, design, or review / consumer-contract work only when auxiliary | May treat supplied repair context as permission to implement despite explicit task limits. Restrict write access for record-only work and verify the changed files. / Do not use Luna to handle complex texts. / May shorten long file paths in tool calls. Give the full path and require a read-back of the edited lines. / May undo its own checked writes before it ends. Check the final file state after every record task. / For an append outside a research log or implementer report, anchor one single-block edit on the exact current last line, then read back the tail. / May report state outside the task scope incorrectly. Verify such a claim before acting on it. / May change apostrophe or backslash characters, or omit text, when it stages supplied text. Its own comparison with the staged file cannot detect this. Require a quoted heredoc or the file-writing tool, a stated line count and a read-back against the task text. / For an append with cat, name exactly one source file in the command. |",
 
-				"| sol-6.2 | 73 | 9 | default thread choice | When blocked, may substitute unapproved resources or perform destructive cleanup. Require permission before either action. Do not run a dependency install that the project rules forbid. Ask first. / Broad searches can return text from excluded private paths. State path limits in the task and use path-limited commands. / For cross-runtime process and networking fixes, verify exit, slot ownership and silent output on every supported runtime before closing the repair. / When shortening text to fit a size budget, may drop or weaken duties. Require a duty-by-duty comparison of the text before and after the cut. |",
+				"| sol-6.2 | 73 | 9 | default thread choice | When blocked, may substitute unapproved resources or perform destructive cleanup. Require permission before either action. Do not run a dependency install that the project rules forbid. Ask first. / Broad searches can return text from excluded private paths. State path limits in the task and use path-limited commands. / For cross-runtime process and networking fixes, verify exit, slot ownership and silent output on every supported runtime before closing the repair. / When shortening text to fit a size budget, may drop or weaken duties. Require a duty-by-duty comparison of the text before and after the cut. / As reviewer or fix gate, may judge runtime behavior from source reading alone. When a run is available, name it in the task and require a reproduced run for each blocker or major runtime claim. / For verify-then-edit work, may edit first or accept a related passing check as proof. Require the measured evidence for each claim before the edit. |",
 
 				"| astra-6.2 | 80 | 19 | Reviewer for each proved DESIGN-TRIGGERING focus area, in adversarial design review and in implementation area review. / Do not select Astra 6.2 as the default implementer. | none |",
 				"| fable-5-2 | 84 | 75 | Do not select Fable 5.2 for routine work. / If a lower-capability model repeatedly fails at implementation, first ask Fable 5.2 to investigate and provide detailed repair instructions. Let the implementer try those instructions. Use Fable 5.2 as the implementer only if that guided attempt also fails. Treat that use as an exception. Select another suitable model for later implementation work. Existing approval requirements and repair limits still apply. | none |",
