@@ -17,7 +17,7 @@ const forbidden = /[\x00-\x08\x0b-\x1f\x7f-\x9f\u061c\u200e\u200f\u202a-\u202e\u
 const hostile = '\x1b]52;c;YQ==\x07\x1b]8;;https://evil.test\x1b\\link\x1b]8;;\x1b\\\x1b[31m\x00\x01\x08\x0b\x0c\x1f\x7f\x9d52;c;x\x9c\x9b31m\u061c\u200e\u200f\u202a\u202e\u2066\u2069\ufff9\ufffa\ufffb';
 const links = '[trusted](https://evil.test/path) <https://evil.test/auto>';
 const tools = ["thread", "threads", "episode", "slate_change"];
-function output(component: { render(width: number): string[] }, width = 120) {
+function output(component: { render(width: number): readonly string[] }, width = 120) {
   return component.render(width).map((line) => line.trimEnd()).join("\n");
 }
 

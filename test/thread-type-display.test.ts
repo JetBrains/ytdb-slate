@@ -94,7 +94,7 @@ function caseRecords(): ThreadRecord[] {
   return cases.map((entry, index) => record({ id: `t${index + 1}`, name: entry.name, type: entry.type }));
 }
 
-function firstLine(component: { render(width: number): string[] }): string {
+function firstLine(component: { render(width: number): readonly string[] }): string {
   return component.render(200)[0]?.trimEnd() ?? "";
 }
 
