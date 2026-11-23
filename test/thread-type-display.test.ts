@@ -338,17 +338,18 @@ test("threads tool rows render every type and both fallback shapes", async () =>
   const threadsTool = registered.get("threads");
   assert.ok(threadsTool);
 
-  const result = await threadsTool.execute("call", {}, undefined, undefined, ctx) as {
+  const result = await threadsTool.execute("call", { detail: true }, undefined, undefined, ctx) as {
     content: Array<{ type: string; text: string }>;
   };
-  const lines = result.content[0]?.text.split("\n") ?? [];
+  const [summary, ...lines] = result.content[0]!.text.split("\n");
+  assert.equal(summary, "Threads: 5. Queued: 0. Running: 0. Successful: 0. Failed: 0. Cancelled: 5.");
   assert.equal(lines.length, cases.length);
-  for (const [index, entry] of cases.entries()) {
-    const thread = records[index];
+  for (const [index, entry] of cases.toReversed().entries()) {
+    const thread = records.at(-1 - index);
     assert.ok(thread);
     assert.equal(
       lines[index],
-      `${thread.id} "${entry.name}" [cancelled]${entry.marker} — episode: (none) — updated 1970-01-01T00:00:00.001Z`,
+      `${thread.id} "${entry.name}" [cancelled]${entry.marker || " type=general"} — episode: (none) — updated 1970-01-01T00:00:00.001Z`,
     );
   }
 });
@@ -361,7 +362,7 @@ test("threads listing exposes a sanitized request and model divergence", async (
     reason: "cost\ncheck", requestedModel: "p/requested", requestedEffort: "high",
     model: "p/actual", effort: "medium", createdAt: 1,
   });
-  const result = await registered.get("threads")!.execute("call", {}, undefined, undefined, ctx) as { content: Array<{ text: string }> };
+  const result = await registered.get("threads")!.execute("call", { detail: true }, undefined, undefined, ctx) as { content: Array<{ text: string }> };
   assert.match(result.content[0]?.text ?? "", /requested=p\/requested@high reason="costcheck" last=p\/actual@medium \(different from requested\)/);
   assert.equal((result.content[0]?.text ?? "").includes("\ncheck"), false);
 
@@ -370,7 +371,7 @@ test("threads listing exposes a sanitized request and model divergence", async (
     reason: "visible\u2028forged\u200b", requestedModel: "bad", requestedEffort: "high\u2028forged" as any,
     model: "p/actual", createdAt: 1,
   });
-  const hostile = await registered.get("threads")!.execute("call", {}, undefined, undefined, ctx) as { content: Array<{ text: string }> };
+  const hostile = await registered.get("threads")!.execute("call", { detail: true }, undefined, undefined, ctx) as { content: Array<{ text: string }> };
   assert.doesNotMatch(hostile.content[0]?.text ?? "", /requested=|@high|\nforged/);
   assert.match(hostile.content[0]?.text ?? "", /reason="visible forged"/);
 
@@ -378,7 +379,7 @@ test("threads listing exposes a sanitized request and model divergence", async (
     id: "t1.e1", threadId: "t1", task: "x", status: "ok", file: "/tmp/e",
     requestedModel: "p/same", model: "p/same", createdAt: 1,
   });
-  const same = await registered.get("threads")!.execute("call", {}, undefined, undefined, ctx) as { content: Array<{ text: string }> };
+  const same = await registered.get("threads")!.execute("call", { detail: true }, undefined, undefined, ctx) as { content: Array<{ text: string }> };
   assert.match(same.content[0]?.text ?? "", /requested=p\/same last=p\/same/);
   assert.doesNotMatch(same.content[0]?.text ?? "", /different from requested|reason=/);
 });
