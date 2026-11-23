@@ -60,6 +60,8 @@ function deepFreeze<T>(value: T): T {
 
 const SONNET_OPUS_CAUTION = "May exceed explicit scope or infer permission from earlier requests. Check changes against stated exclusions and approval requirements.";
 const SOL_CAUTION = "When blocked, may substitute unapproved resources or perform destructive cleanup. Require permission before either action. Do not run a dependency install that the project rules forbid. Ask first.";
+const SOL_REVIEW_CAUTION = "As reviewer or fix gate, may judge runtime behavior from source reading alone. When a run is available, name it in the task and require a reproduced run for each blocker or major runtime claim.";
+const SOL_VERIFY_CAUTION = "For verify-then-edit work, may edit first or accept a related passing check as proof. Require the measured evidence for each claim before the edit.";
 const LUNA_CAUTION = "May treat supplied repair context as permission to implement despite explicit task limits. Restrict write access for record-only work and verify the changed files.";
 const FLASH_CAUTION = "Do not use as a reviewer. It relies too much on passing tests and exact-size assertions. Verify source citations and distinguish proposed behavior from existing behavior.";
 
@@ -93,7 +95,7 @@ const SHIPPED_DEFINITIONS: LogicalModelDefinition[] = [
 		model: "luna-6", capabilityRating: 35, effort: "max", costRating: 2,
 		preferredProvider: "openai", providers: providers("openai", "gpt-6-luna"),
 		guidelines: ["auxiliary tasks only, such as file location, check-result collection, or routine text management such as modifying research logs", "never primary research, implementation, design, or review", "consumer-contract work only when auxiliary"],
-		cautions: [LUNA_CAUTION, "Do not use Luna to handle complex texts.", "May shorten long file paths in tool calls. Give the full path and require a read-back of the edited lines.", "May undo its own checked writes before it ends. Check the final file state after every record task.", "For an append, anchor one single-block edit on the exact current last line, then read back the tail.", "May report state outside the task scope incorrectly. Verify such a claim before acting on it."], source: source(),
+		cautions: [LUNA_CAUTION, "Do not use Luna to handle complex texts.", "May shorten long file paths in tool calls. Give the full path and require a read-back of the edited lines.", "May undo its own checked writes before it ends. Check the final file state after every record task.", "For an append outside a research log or implementer report, anchor one single-block edit on the exact current last line, then read back the tail.", "May report state outside the task scope incorrectly. Verify such a claim before acting on it.", "May change apostrophe or backslash characters, or omit text, when it stages supplied text. Its own comparison with the staged file cannot detect this. Require a quoted heredoc or the file-writing tool, a stated line count and a read-back against the task text.", "For an append with cat, name exactly one source file in the command."], source: source(),
 	},
 	{
 		model: "claude-sonnet-5.5", capabilityRating: 35, effort: "high", costRating: 25,
@@ -103,7 +105,7 @@ const SHIPPED_DEFINITIONS: LogicalModelDefinition[] = [
 	{
 		model: "sol-6.1", capabilityRating: 66, effort: "high", costRating: 9,
 		preferredProvider: "openai", providers: providers("openai", "gpt-6.1-sol"),
-		guidelines: ["default thread choice"], cautions: [SOL_CAUTION, "Broad searches can return text from excluded private paths. State path limits in the task and use path-limited commands.", "For cross-runtime process and networking fixes, verify exit, slot ownership and silent output on every supported runtime before closing the repair.", "When shortening text to fit a size budget, may drop or weaken duties. Require a duty-by-duty comparison of the text before and after the cut."], source: source(true),
+		guidelines: ["default thread choice"], cautions: [SOL_CAUTION, "Broad searches can return text from excluded private paths. State path limits in the task and use path-limited commands.", "For cross-runtime process and networking fixes, verify exit, slot ownership and silent output on every supported runtime before closing the repair.", "When shortening text to fit a size budget, may drop or weaken duties. Require a duty-by-duty comparison of the text before and after the cut.", SOL_REVIEW_CAUTION, SOL_VERIFY_CAUTION], source: source(true),
 	},
 	{
 		model: "gemini-3.8-flash", capabilityRating: 43, effort: "medium", costRating: 14,
@@ -130,7 +132,7 @@ const SHIPPED_DEFINITIONS: LogicalModelDefinition[] = [
 	{
 		model: "sol-6.2", capabilityRating: 73, effort: "high", costRating: 9,
 		preferredProvider: "openai", providers: providers("openai", "gpt-6.2-sol"),
-		guidelines: ["default thread choice"], cautions: [SOL_CAUTION, "Broad searches can return text from excluded private paths. State path limits in the task and use path-limited commands.", "For cross-runtime process and networking fixes, verify exit, slot ownership and silent output on every supported runtime before closing the repair.", "When shortening text to fit a size budget, may drop or weaken duties. Require a duty-by-duty comparison of the text before and after the cut."], source: { capabilityRating: { publisher: "Slate project", decided: "2026-11-18", basis: "Project judgment scaled from Sol 6.1 without a benchmark source" }, costRating: { publisher: "Slate project", decided: "2026-11-18", basis: "Project judgment copied from Sol 6.1 without a benchmark source" }, guidelines: fieldSource() },
+		guidelines: ["default thread choice"], cautions: [SOL_CAUTION, "Broad searches can return text from excluded private paths. State path limits in the task and use path-limited commands.", "For cross-runtime process and networking fixes, verify exit, slot ownership and silent output on every supported runtime before closing the repair.", "When shortening text to fit a size budget, may drop or weaken duties. Require a duty-by-duty comparison of the text before and after the cut.", SOL_REVIEW_CAUTION, SOL_VERIFY_CAUTION], source: { capabilityRating: { publisher: "Slate project", decided: "2026-11-18", basis: "Project judgment scaled from Sol 6.1 without a benchmark source" }, costRating: { publisher: "Slate project", decided: "2026-11-18", basis: "Project judgment copied from Sol 6.1 without a benchmark source" }, guidelines: fieldSource() },
 	},
 	{
 		model: "astra-6.2", capabilityRating: 80, effort: "high", costRating: 19,
