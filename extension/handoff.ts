@@ -586,7 +586,7 @@ export function registerSlateHandoff(
 				let adopted = false;
 				try {
 				// Keep the whole adoption block inside the compatibility restore guard.
-				// Pi 1.5.2 extension setters are session-only, so this is normally a
+				// Pi 1.6.0 extension setters are session-only, so this is normally a
 				// zero-write no-op. The guard covers hosts that persist switches,
 				// including a thinking-level-only write.
 				await withGlobalModelDefaultRestored(
@@ -595,7 +595,7 @@ export function registerSlateHandoff(
 					getConfig(),
 					{ provider, id },
 					async () => {
-						// True once a Pi setter has been called. Pi 1.5.2 does not persist
+						// True once a Pi setter has been called. Pi 1.6.0 does not persist
 						// this call. The compatibility guard also covers hosts where the call
 						// can write a default.
 						let calledSetter = false;

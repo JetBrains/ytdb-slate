@@ -895,7 +895,7 @@ if run_wanted L1 L2 L3 L4 L5 L6 L7 L8; then
 			case " $TOOLS " in *" $t "*) ;; *) MISSING="$MISSING $t" ;; esac
 		done
 		if [ -z "$MISSING" ]; then check L4 0 "the canary observed all three dispatch tools registered: thread, threads, episode"
-		else check L4 1 "dispatch tool(s) NOT registered:$MISSING — the canary observed [$TOOLS]. Nothing else detects this: pi exits 0 with an empty stderr and a working /slate command."; fi
+		else check L4 1 "dispatch tool(s) NOT registered:$MISSING — the canary observed [$TOOLS]. Nothing else detects this: pi exits 0, prints no diagnostic for the missing registration, and keeps a working /slate command."; fi
 	}
 
 	want L5 && {
