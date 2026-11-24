@@ -2,14 +2,14 @@
   "schema": 2,
   "version": "0.21.0",
   "identity": "3a4b3846f4ba3cd1324f72b023ee7d3dad5c1900baa6984d0f8a297ffcf09195",
-  "status": "prepared",
+  "status": "claimed",
   "upload": "none",
   "promotion": "none",
   "requestBaseSha": "a1088e4ea2c2ffb0d04338eae1578bdbe8df2714",
-  "releaseSha": null,
-  "releaseParent": null,
-  "pullRequest": null,
-  "claimExecution": null,
+  "releaseSha": "e1256ec4630357ea2566e871f524917da97bc7cd",
+  "releaseParent": "a1088e4ea2c2ffb0d04338eae1578bdbe8df2714",
+  "pullRequest": 626,
+  "claimExecution": "45372357694:1",
   "uploadExecution": null,
   "promoterExecution": null,
   "artifact": null,
@@ -20,5 +20,5 @@
   "tag": "v0.21.0",
   "internalTag": "slate-candidate",
   "createdAt": "2026-11-24T09:51:16.699Z",
-  "updatedAt": "2026-11-24T09:51:16.699Z"
+  "updatedAt": "2026-11-24T10:11:38.904Z"
 }
