@@ -2,6 +2,12 @@
 
 Approved update notes for Slate releases appear here.
 
+## [0.21.0]
+
+The `threads` tool now lists the worker threads of the current session by default. The new `parentSession` parameter lists the threads of the newest earlier session. After a Slate handoff, `pi --continue` now opens the new session instead of the earlier session. Use pi 1.6.0 or later.
+
+https://github.com/JetBrains/ytdb-slate/releases/tag/v0.21.0
+
 ## [0.20.0]
 
 Slate now uses a default `contextBudget` of 400,000 tokens for every provider. Sessions with a provider other than Anthropic can run longer before a handoff to a new session. The `threads` tool now returns short pages and uses less context. Native notifications on Windows now find Windows PowerShell under a different Start menu name. Use pi 1.6.0 or later.
