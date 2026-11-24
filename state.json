@@ -2,7 +2,7 @@
   "schema": 2,
   "version": "0.21.0",
   "identity": "3a4b3846f4ba3cd1324f72b023ee7d3dad5c1900baa6984d0f8a297ffcf09195",
-  "status": "promoted",
+  "status": "complete",
   "upload": "verified",
   "promotion": "verified",
   "requestBaseSha": "a1088e4ea2c2ffb0d04338eae1578bdbe8df2714",
@@ -54,5 +54,5 @@
   "tag": "v0.21.0",
   "internalTag": "slate-candidate",
   "createdAt": "2026-11-24T09:51:16.699Z",
-  "updatedAt": "2026-11-24T11:48:12.375Z"
+  "updatedAt": "2026-11-24T11:48:27.345Z"
 }
