@@ -30,8 +30,10 @@
  * the orchestrator's base model, unlike a failover fallback.
  */
 
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { randomUUID } from "node:crypto";
+import { closeSync, existsSync, fstatSync, openSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import {
 	CONFIG_DIR_NAME,
 	getAgentDir,
@@ -292,6 +294,44 @@ function buildKickoff(cwd: string, trusted: boolean, brief: string, focus?: stri
 	if (brief) parts.push("", "## Handoff brief from the previous orchestrator", "", brief);
 	if (focus) parts.push("", `Immediate focus: ${focus}`);
 	return parts.join("\n");
+}
+
+const SESSION_CLOCK_LIMIT_MS = 3_000;
+const SESSION_CLOCK_POLL_MS = 10;
+
+async function waitForSessionClock(ctx: ExtensionContext, parentFile: string | undefined): Promise<void> {
+	if (!parentFile) return;
+	try {
+		const parent = statSync(parentFile, { throwIfNoEntry: false });
+		if (!parent) return;
+
+		// Pi sorts sessions by modification time. A tie can select the parent.
+		// Measure a write in the session directory before the successor writes.
+		const probe = join(dirname(parentFile), `.slate-handoff-clock-${randomUUID()}.tmp`);
+		const fd = openSync(probe, "wx", 0o600);
+		try {
+			const deadline = performance.now() + SESSION_CLOCK_LIMIT_MS;
+			while (performance.now() < deadline) {
+				writeFileSync(fd, ".");
+				if (fstatSync(fd).mtimeMs > parent.mtimeMs) return;
+				await delay(SESSION_CLOCK_POLL_MS);
+			}
+		} finally {
+			try {
+				closeSync(fd);
+			} catch (error) {
+				reportFailure(ctx, `slate: could not close the handoff clock probe: ${sanitizeForNotify(String(error))}`);
+			}
+			try {
+				unlinkSync(probe);
+			} catch (error) {
+				reportFailure(ctx, `slate: could not delete the handoff clock probe: ${sanitizeForNotify(String(error))}`);
+			}
+		}
+		reportFailure(ctx, `slate: the handoff session file clock did not advance within the ${SESSION_CLOCK_LIMIT_MS / 1_000}-second polling limit.`);
+	} catch (error) {
+		reportFailure(ctx, `slate: could not check the handoff session file clock: ${sanitizeForNotify(String(error))}`);
+	}
 }
 
 type KickoffSender = (message: { customType: string; content: string; display: boolean; details?: { sessionId: string } }, options?: { triggerTurn?: boolean }) => void | Promise<void>;
@@ -735,9 +775,9 @@ export function registerSlateHandoff(
 					successor.appendCustomEntry("slate-handoff", entry as unknown as Record<string, unknown>);
 				},
 				withSession: async (fresh) => {
-					// Setup has succeeded. Finish the parent write before kickoff so
-					// pi --continue finds the successor after its first run.
+					// Finish the parent write after setup and before kickoff.
 					onTransfer(fresh);
+					await waitForSessionClock(fresh, parentSession);
 					await deliverKickoff(fresh, (message, options) => fresh.sendMessage(message, options));
 				},
 			});

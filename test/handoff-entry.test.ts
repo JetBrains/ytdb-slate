@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import fs, { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { test } from "node:test";
+import { basename, dirname, join } from "node:path";
+import { test, type TestContext } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { SessionManager, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerSlateHandoff, type HandoffPurpose } from "../extension/handoff.ts";
@@ -87,6 +88,15 @@ async function transfer(parent: ReturnType<typeof fixture>, options: { allowed?:
   return { child, turns };
 }
 
+function appendKickoffReply(successor: SessionManager) {
+  successor.appendMessage({
+    role: "assistant", content: [{ type: "text", text: "Kickoff reply" }], timestamp: 2,
+    model: "gpt-6-luna", provider: "openai", api: "openai-completions", stopReason: "stop",
+    usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+  });
+}
+
 const fileClockWaitMs = 10_000;
 test("the handoff successor is the newest session after kickoff", { timeout: 2 * fileClockWaitMs + 5_000 }, async (t) => {
   const dir = mkdtempSync(join(tmpdir(), "slate-handoff-order-"));
@@ -114,12 +124,7 @@ test("the handoff successor is the newest session after kickoff", { timeout: 2 *
   const { child, turns } = await transfer(parent, { successor, run: async () => {
     parentAtKickoff = readFileSync(parentFile);
     await waitForLaterWrite(parentFile);
-    successor.appendMessage({
-      role: "assistant", content: [{ type: "text", text: "Kickoff reply" }], timestamp: 2,
-      model: "gpt-6-luna", provider: "openai", api: "openai-completions", stopReason: "stop",
-      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
-    });
+    appendKickoffReply(successor);
     await waitForLaterWrite(successorFile);
   } }, "track-boundary");
 
@@ -138,6 +143,150 @@ test("the handoff successor is the newest session after kickoff", { timeout: 2 *
   assert.equal(marker.customType, "slate-handoff-purpose");
   assert.deepEqual(marker.data, { sessionId: parent.manager.getSessionId(), purpose: "track-boundary", consumed: true });
 });
+
+function diskHandoff(t: TestContext, persist = true) {
+  const dir = mkdtempSync(join(tmpdir(), "slate-handoff-clock-"));
+  t.after(() => rmSync(dir, { recursive: true }));
+  const parent = fixture(SessionManager.create("/tmp", dir));
+  if (persist) parent.manager.appendMessage({ role: "user", content: "Parent request", timestamp: 1 });
+  return { dir, parent, parentFile: parent.manager.getSessionFile()! };
+}
+
+function mockProbe(t: TestContext, dir: string | undefined, options: {
+  write?: (fd: number) => void;
+  close?: () => void;
+  remove?: () => void;
+} = {}) {
+  const { openSync, writeFileSync, closeSync, unlinkSync } = fs;
+  let fd: number | undefined;
+  let probe: string | undefined;
+  t.mock.method(fs, "openSync", (...args: Parameters<typeof openSync>) => {
+    const [path, flags] = args;
+    const result = openSync(...args);
+    if (typeof path === "string" && flags === "wx" && (dir ? dirname(path) === dir : path.endsWith(".tmp"))) {
+      fd = result;
+      probe = path;
+    }
+    return result;
+  });
+  t.mock.method(fs, "writeFileSync", (...args: Parameters<typeof writeFileSync>) => {
+    writeFileSync(...args);
+    if (typeof args[0] === "number" && args[0] === fd) options.write?.(args[0]);
+  });
+  t.mock.method(fs, "closeSync", (closing: number) => {
+    closeSync(closing);
+    if (closing === fd) {
+      fd = undefined;
+      options.close?.();
+    }
+  });
+  t.mock.method(fs, "unlinkSync", (path: fs.PathLike) => {
+    if (path === probe) options.remove?.();
+    unlinkSync(path);
+  });
+  syncBuiltinESMExports();
+  t.after(() => {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  });
+  return { path: () => probe };
+}
+
+const guardTestTimeoutMs = 8_000;
+
+test("the session clock guard separates an immediate kickoff write from the parent write", { timeout: guardTestTimeoutMs }, async (t) => {
+  const { dir, parent, parentFile } = diskHandoff(t);
+  const successor = SessionManager.create("/tmp", dir);
+  const successorFile = successor.getSessionFile()!;
+  const parentTick = 1_800_000_000;
+  let tick = parentTick;
+  let polls = 0;
+  // The first probe shares the parent time. The clock advances only when the event loop runs.
+  mockProbe(t, dir, { write(fd) {
+    fs.futimesSync(fd, tick, tick);
+    if (++polls === 1) setImmediate(() => { tick = parentTick + 2; });
+  } });
+  const append = parent.manager.appendCustomEntry.bind(parent.manager);
+  t.mock.method(parent.manager, "appendCustomEntry", (name: string, data: unknown) => {
+    const entry = append(name, data);
+    fs.utimesSync(parentFile, parentTick, parentTick);
+    return entry;
+  });
+
+  let parentAtKickoff: Buffer | undefined;
+  const { child, turns } = await transfer(parent, { successor, run: () => {
+    parentAtKickoff = readFileSync(parentFile);
+    appendKickoffReply(successor);
+    fs.utimesSync(successorFile, tick, tick);
+  } }, "track-boundary");
+
+  assert.equal(turns, 1);
+  assert.doesNotMatch(child.warnings.join("\n"), /kickoff failed|handoff.*clock/i);
+  assert.ok(parentAtKickoff?.equals(readFileSync(parentFile)), "the parent file must not change after kickoff starts");
+  assert.ok(statSync(parentFile).mtimeMs < statSync(successorFile).mtimeMs,
+    "the clock guard must make the immediate successor write strictly newer");
+  assert.equal(SessionManager.continueRecent("/tmp", dir).getSessionFile(), successorFile);
+  assert.deepEqual(readdirSync(dir).sort(), [basename(parentFile), basename(successorFile)].sort(),
+    "only the session files may remain after a successful handoff");
+});
+
+test("session clock polling expiry reports the limit and does not stop kickoff", { timeout: guardTestTimeoutMs }, async (t) => {
+  const { dir, parent, parentFile } = diskHandoff(t);
+  parent.store.paused = true;
+  parent.store.pauseReason = "context-budget";
+  mockProbe(t, dir, { write(fd) { fs.futimesSync(fd, 1, 1); } });
+  const { child, turns } = await transfer(parent, {}, "context-budget");
+  assert.equal(turns, 1, "clock polling expiry must not skip kickoff");
+  assert.match(child.warnings.join("\n"), /clock did not advance within the 3-second polling limit/);
+  assert.doesNotMatch([...parent.warnings, ...child.warnings].join("\n"), /handoff failed|pause cleared/i);
+  assert.equal(parent.store.paused, true);
+  assert.equal(parent.store.pauseReason, "context-budget");
+  assert.equal(child.store.paused, false);
+  assert.deepEqual(readdirSync(dir), [basename(parentFile)], "clock polling expiry must remove the probe");
+});
+
+test("the guard still runs after a failed marker write and cleans up a failed probe write", { timeout: guardTestTimeoutMs }, async (t) => {
+  const { dir, parent, parentFile } = diskHandoff(t);
+  const append = parent.manager.appendCustomEntry.bind(parent.manager);
+  t.mock.method(parent.manager, "appendCustomEntry", (name: string, data: unknown) => {
+    if (name === "slate-handoff-purpose" && (data as { consumed?: boolean }).consumed) {
+      throw new Error("marker write refused");
+    }
+    return append(name, data);
+  });
+  mockProbe(t, dir, { write() { throw new Error("probe write refused"); } });
+  const { child, turns } = await transfer(parent);
+  assert.equal(turns, 1);
+  assert.match(child.warnings.join("\n"), /handoff purpose as consumed.*marker write refused\n.*session file clock.*probe write refused/);
+  assert.doesNotMatch([...parent.warnings, ...child.warnings].join("\n"), /handoff failed|pause cleared/i);
+  assert.deepEqual(readdirSync(dir), [basename(parentFile)]);
+});
+
+test("probe cleanup reports close and delete errors without stopping kickoff", { timeout: guardTestTimeoutMs }, async (t) => {
+  const { dir, parent } = diskHandoff(t);
+  mockProbe(t, dir, {
+    write(fd) { fs.futimesSync(fd, 1_900_000_000, 1_900_000_000); },
+    close() { throw new Error("probe close refused"); },
+    remove() { throw new Error("probe delete refused"); },
+  });
+  const { child, turns } = await transfer(parent);
+  assert.equal(turns, 1);
+  assert.match(child.warnings.join("\n"), /could not close.*probe close refused\n.*could not delete.*probe delete refused/);
+  assert.doesNotMatch([...parent.warnings, ...child.warnings].join("\n"), /handoff failed|pause cleared/i);
+});
+
+for (const session of ["in-memory", "not yet persisted"] as const) {
+  test(`the session clock guard skips a ${session} parent`, { timeout: 2_000 }, async (t) => {
+    const disk = session === "not yet persisted" ? diskHandoff(t, false) : undefined;
+    const parent = disk?.parent ?? fixture();
+    const probe = mockProbe(t, disk?.dir);
+    const { child, turns } = await transfer(parent);
+    assert.equal(turns, 1);
+    assert.equal(probe.path(), undefined, "a parent with no file needs no probe or polling wait");
+    assert.doesNotMatch(child.warnings.join("\n"), /handoff.*clock/i);
+    if (disk) assert.deepEqual(readdirSync(disk.dir), []);
+  });
+}
 
 test("a failed purpose marker write reports the failure without interrupting kickoff", { timeout: 2000 }, async (t) => {
   const parent = fixture();
