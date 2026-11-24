@@ -13,6 +13,7 @@ import type { ThreadManager } from "../extension/threads.ts";
 function record(overrides: Partial<ThreadRecord>): ThreadRecord {
   return {
     id: "t1",
+    sessionId: "thread-display",
     name: "worker",
     type: "general",
     status: "cancelled",
@@ -81,7 +82,7 @@ function toolsFixture(threads: ThreadRecord[]) {
   return { registered, store };
 }
 
-const ctx = { hasUI: false } as ExtensionContext;
+const ctx = { hasUI: false, sessionManager: { getSessionId: () => "thread-display" } } as ExtensionContext;
 const cases: Array<{ name: string; type: ThreadRecord["type"]; marker: string }> = [
   { name: "researcher", type: "researcher", marker: " type=researcher" },
   { name: "reviewer", type: "reviewer", marker: " type=reviewer" },
@@ -341,8 +342,9 @@ test("threads tool rows render every type and both fallback shapes", async () =>
   const result = await threadsTool.execute("call", { detail: true }, undefined, undefined, ctx) as {
     content: Array<{ type: string; text: string }>;
   };
-  const [summary, ...lines] = result.content[0]!.text.split("\n");
-  assert.equal(summary, "Threads: 5. Queued: 0. Running: 0. Successful: 0. Failed: 0. Cancelled: 5.");
+  const [summary, mode, ...lines] = result.content[0]!.text.split("\n");
+  assert.equal(summary, "Threads: 5. Queued: 0. Running: 0. Successful: 0. Failed: 0. Cancelled: 5. Current session: 5.");
+  assert.equal(mode, "Listing: current session, 5 threads.");
   assert.equal(lines.length, cases.length);
   for (const [index, entry] of cases.toReversed().entries()) {
     const thread = records.at(-1 - index);

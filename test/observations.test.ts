@@ -510,7 +510,7 @@ async function dispatchOnce(opts: {
   // Built with defineProperty rather than a spread: spreading an object with a
   // throwing getter would fire it here, in the harness, instead of inside the
   // dispatch step under test.
-  const ctxFields: Record<string, unknown> = { cwd: opts.root, modelRegistry: { find: (provider: string, id: string) => provider === "test" && id === "worker" ? { provider, id } : undefined, hasConfiguredAuth: () => true } };
+  const ctxFields: Record<string, unknown> = { sessionManager: { getSessionId: () => "observations" }, cwd: opts.root, modelRegistry: { find: (provider: string, id: string) => provider === "test" && id === "worker" ? { provider, id } : undefined, hasConfiguredAuth: () => true } };
   opts.defineCtx?.(ctxFields);
   const ctx = ctxFields as unknown as ExtensionContext;
   // Use the public dispatch boundary. The harness overrides only the existing

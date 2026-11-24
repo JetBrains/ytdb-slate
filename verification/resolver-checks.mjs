@@ -6786,7 +6786,7 @@ The accounting covers:`),
 		await section("state-thread-record", async () => {
 			const sane = (raw) => { const repairs = []; return { out: state.sanitizeThreadRecord(raw, repairs), repairs }; };
 			const complete = {
-				id: "t2", name: "impl", status: "successful", type: "reviewer", model: "p/pin",
+				id: "t2", sessionId: "source", name: "impl", status: "successful", type: "reviewer", model: "p/pin",
 				tools: ["read"],
 				episodeId: "t2.e1", outcomeReason: "done", createdAt: 111, updatedAt: 222,
 			};
@@ -6797,7 +6797,7 @@ The accounting covers:`),
 			const cancelled = sane({ id: "t1", name: "x", status: "cancelled", type: "general", outcomeReason: "before start", createdAt: 1, updatedAt: 1 });
 			const unfinished = ["queued", "running"].map((status) => sane({ id: "t3", name: "x", status, type: "general", createdAt: 1, updatedAt: 1 }));
 			const hostile = sane({
-				id: "t4", name: "bad fields", status: "failed", type: "general",
+				id: "t4", name: "bad fields", status: "failed", type: "general", sessionId: 7,
 				model: 7, baseModel: {}, baseEffort: false, tools: "read",
 				episodeId: 8, outcomeReason: [], createdAt: "1", updatedAt: null,
 			});
@@ -6809,7 +6809,7 @@ The accounting covers:`),
 				["wrong-typed and wrong-valued episode ids both keep the failed record", wrongEpisodeIds.every((entry) => entry.out?.status === "failed" && entry.out?.episodeId === undefined && entry.repairs.some((note) => /ignoring episodeId/.test(note))), wrongEpisodeIds],
 				["cancelled may carry a reason without an episode", cancelled.out?.outcomeReason === "before start" && cancelled.out?.episodeId === undefined, cancelled],
 				["unfinished records normalize to failed with a reason", unfinished.every((entry) => entry.out?.status === "failed" && /session ended/.test(entry.out?.outcomeReason ?? "") && entry.repairs.some((note) => /normalized unfinished/.test(note))), unfinished],
-				["every malformed optional field is refused by name", ["model", "tools", "episodeId", "outcomeReason", "createdAt", "updatedAt"].every((field) => hostile.repairs.some((note) => note.includes(`ignoring ${field}`))) && hostile.out?.status === "failed", hostile],
+				["every malformed optional field is refused by name", ["sessionId", "model", "tools", "episodeId", "outcomeReason", "createdAt", "updatedAt"].every((field) => hostile.repairs.some((note) => note.includes(`ignoring ${field}`))) && hostile.out?.status === "failed", hostile],
 				["the adoption roster matches the output", adoptedKeys.every((key) => Object.hasOwn(complete, key)), adoptedKeys],
 			]);
 		});

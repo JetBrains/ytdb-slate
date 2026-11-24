@@ -130,6 +130,7 @@ function context(root: string, registry: ModelRegistry, selected?: Model<Api>, t
 	mkdirSync(join(root, "project"), { recursive: true });
 	return {
 		cwd: join(root, "project"),
+		sessionManager: { getSessionId: () => "worker-providers" },
 		hasUI: false,
 		isProjectTrusted: () => trusted,
 		modelRegistry: registry,

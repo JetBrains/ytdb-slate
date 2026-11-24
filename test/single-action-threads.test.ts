@@ -9,7 +9,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
 import * as episodeModule from "../extension/episodes.ts";
 import test from "node:test";
-import type { ExtensionAPI, ExtensionContext, ExtensionToolContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, ExtensionToolContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { NO_SESSION_BASELINE, createLogicalRuntime } from "../extension/logical-model-runtime.ts";
 import { registerSlateTools } from "../extension/tools.ts";
 import { renderCompactResult } from "../extension/render.ts";
@@ -50,6 +50,7 @@ function recoveryContext(root: string, state: { registry: boolean; auth: boolean
     ["backup/worker-2", workerModel("backup", "worker-2")],
   ]);
   return {
+    sessionManager: { getSessionId: () => "single-action" },
     cwd: root, hasUI: false,
     modelRegistry: {
       find(provider: string, id: string) { return state.registry ? models.get(`${provider}/${id}`) : undefined; },
@@ -166,7 +167,7 @@ test("display progress retains failures outside the evidence tail", { timeout: 5
     };
     let last: import("../extension/threads.ts").DispatchProgress | undefined;
     let callbackFailed = false;
-    const result = await manager.dispatch({ ...TEST_ROUTE, type: "general", task: "display progress" }, { cwd: root } as ExtensionContext, undefined, (progress) => {
+    const result = await manager.dispatch({ ...TEST_ROUTE, type: "general", task: "display progress" }, { sessionManager: { getSessionId: () => "single-action" }, cwd: root } as ExtensionContext, undefined, (progress) => {
       last = { ...progress };
       if (!callbackFailed) { callbackFailed = true; throw new Error("callback test failure"); }
     });
@@ -237,7 +238,7 @@ test("action folders join shutdown and completion across terminal outcomes", { t
     try {
       if (mode === "cancel") controller.abort();
       let settled = false;
-      const action = manager.dispatch({ ...TEST_ROUTE, type: mode === "ok" ? "reviewer" : THREAD_TYPES[opens + ["ok", "failed", "throw", "tool-error", "nonempty"].indexOf(mode)] ?? "general", task: "lifetime" }, { cwd: root, hasUI: false } as ExtensionContext, controller.signal)
+      const action = manager.dispatch({ ...TEST_ROUTE, type: mode === "ok" ? "reviewer" : THREAD_TYPES[opens + ["ok", "failed", "throw", "tool-error", "nonempty"].indexOf(mode)] ?? "general", task: "lifetime" }, { sessionManager: { getSessionId: () => "single-action" }, cwd: root, hasUI: false } as ExtensionContext, controller.signal)
         .then((result) => { settled = true; return result; }, (error: Error) => { settled = true; return error; });
       if (mode !== "cancel") {
         await entered.promise;
@@ -249,7 +250,7 @@ test("action folders join shutdown and completion across terminal outcomes", { t
       }
       if (mode === "completion") {
         await removal.promise;
-        const queued = manager.dispatch({ ...TEST_ROUTE, type: "general", task: "queued" }, { cwd: root } as ExtensionContext, undefined).catch((error: Error) => error);
+        const queued = manager.dispatch({ ...TEST_ROUTE, type: "general", task: "queued" }, { sessionManager: { getSessionId: () => "single-action" }, cwd: root } as ExtensionContext, undefined).catch((error: Error) => error);
         while (store.actionTemporaryOwners.size < 2) await new Promise<void>((resolve) => setImmediate(resolve));
         let disposed = false;
         const teardown = manager.disposeAll().then(() => { disposed = true; });
@@ -334,7 +335,7 @@ test("captured guidance is shared while hidden action messages stay private in b
           args.observeSession(session);
           bindFakeWorkerRequest(session, args.requestContract); internal.live.set(args.thread.id, session); return { session };
         };
-        const result = await manager.dispatch({ ...TEST_ROUTE, type, task: "task", contextEpisodeIds: context }, { cwd: root, hasUI: false } as ExtensionContext, undefined);
+        const result = await manager.dispatch({ ...TEST_ROUTE, type, task: "task", contextEpisodeIds: context }, { sessionManager: { getSessionId: () => "single-action" }, cwd: root, hasUI: false } as ExtensionContext, undefined);
         assert.equal(result.episode.status, "ok"); assert.equal(result.episode.task, "task"); assert.doesNotMatch(readFileSync(result.episode.file, "utf8"), /Action temporary folder:|\/tmp\/action\./);
         assert.equal(store.actionTemporaryOwners.size, 0);
       }
@@ -412,7 +413,7 @@ test("production dispatch excludes hidden action messages at the compressor boun
         internal.live.set(args.thread.id, session);
         return { session };
       };
-      const result = await manager.dispatch({ ...TEST_ROUTE, type: "general", task: "compress action", contextEpisodeIds }, { cwd: root, hasUI: false } as ExtensionContext, undefined);
+      const result = await manager.dispatch({ ...TEST_ROUTE, type: "general", task: "compress action", contextEpisodeIds }, { sessionManager: { getSessionId: () => "single-action" }, cwd: root, hasUI: false } as ExtensionContext, undefined);
       assert.ok(calls.length > 0, JSON.stringify(result));
       const captured = calls.at(-1)!;
       assert.equal(captured.task, "compress action");
@@ -433,7 +434,7 @@ test("thread-save failure retains and names its folder before enrollment", { tim
     store.currentChange = createChangeFolder();
     mkdirSync(join(root, "slate-changes", store.currentChange), { recursive: true });
     const manager = new ThreadManager(store, {}, undefined, fixtureRuntime());
-    await assert.rejects(manager.dispatch({ ...TEST_ROUTE, type: "general", task: "save" }, { cwd: root } as ExtensionContext, undefined), (error: Error) => {
+    await assert.rejects(manager.dispatch({ ...TEST_ROUTE, type: "general", task: "save" }, { sessionManager: { getSessionId: () => "single-action" }, cwd: root } as ExtensionContext, undefined), (error: Error) => {
       const path = join(root, "slate-changes", store.currentChange!, "tmp", readdirSync(join(root, "slate-changes", store.currentChange!, "tmp"))[0]!);
       assert.ok(error.message.includes(path)); assert.match(error.message, /thread save failed/); return true;
     });
@@ -445,7 +446,7 @@ test("every accepted action creates a distinct single-action thread", async () =
   const root = mkdtempSync(join(tmpdir(), "slate-single-action-"));
   try {
     const { manager, store } = managerHarness(root);
-    const ctx = { cwd: root, modelRegistry: { find: (provider: string, id: string) => provider === "test" && id === "worker" ? { provider, id } : undefined, hasConfiguredAuth: () => true, getAvailable: async () => [] } } as unknown as ExtensionContext;
+    const ctx = { sessionManager: { getSessionId: () => "single-action" }, cwd: root, modelRegistry: { find: (provider: string, id: string) => provider === "test" && id === "worker" ? { provider, id } : undefined, hasConfiguredAuth: () => true, getAvailable: async () => [] } } as unknown as ExtensionContext;
     const first = await manager.dispatch({ ...TEST_ROUTE, name: "first", type: "general", task: "one" }, ctx, undefined);
     const second = await manager.dispatch({ ...TEST_ROUTE, name: "second", type: "reviewer", task: "two" }, ctx, undefined);
     assert.equal(first.thread.id, "t1");
@@ -468,7 +469,7 @@ test("an action cancelled before its worker call leaves no record", async () => 
     const controller = new AbortController();
     controller.abort();
     await assert.rejects(
-      manager.dispatch({ ...TEST_ROUTE, type: "general", task: "cancel me" }, { cwd: root, modelRegistry: { find: (provider: string, id: string) => provider === "test" && id === "worker" ? { provider, id } : undefined, hasConfiguredAuth: () => true, getAvailable: async () => [] } } as unknown as ExtensionContext, controller.signal),
+      manager.dispatch({ ...TEST_ROUTE, type: "general", task: "cancel me" }, { sessionManager: { getSessionId: () => "single-action" }, cwd: root, modelRegistry: { find: (provider: string, id: string) => provider === "test" && id === "worker" ? { provider, id } : undefined, hasConfiguredAuth: () => true, getAvailable: async () => [] } } as unknown as ExtensionContext, controller.signal),
       /cancelled before the action started/,
     );
     assert.equal(store.threads.size, 0);
@@ -489,7 +490,7 @@ test("episode references are bounded, deduplicated, ordered, and loaded before c
       writeFileSync(file, text);
       store.episodes.set(id, { id, threadId: id.split(".")[0]!, task: text, status: "ok", file, createdAt: 1 });
     }
-    const ctx = { cwd: root, modelRegistry: { find: (provider: string, id: string) => provider === "test" && id === "worker" ? { provider, id } : undefined, hasConfiguredAuth: () => true, getAvailable: async () => [] } } as unknown as ExtensionContext;
+    const ctx = { sessionManager: { getSessionId: () => "single-action" }, cwd: root, modelRegistry: { find: (provider: string, id: string) => provider === "test" && id === "worker" ? { provider, id } : undefined, hasConfiguredAuth: () => true, getAvailable: async () => [] } } as unknown as ExtensionContext;
     await manager.dispatch({ ...TEST_ROUTE, type: "researcher", task: "follow up", contextEpisodeIds: ["t9.e1", "t8.e1", "t9.e1"] }, ctx, undefined);
     assert.ok(prompts[0]!.indexOf("SECOND") < prompts[0]!.indexOf("FIRST"));
     assert.equal(prompts[0]!.match(/SECOND/g)?.length, 1);
@@ -560,7 +561,7 @@ test("a paused orchestrator dispatch runs a worker and returns its episode", asy
   const root = mkdtempSync(join(tmpdir(), "slate-paused-dispatch-"));
   try {
     const { manager, store, prompts } = managerHarness(root);
-    const ctx = { cwd: root, modelRegistry: { find: (provider: string, id: string) => provider === "test" && id === "worker" ? { provider, id } : undefined, hasConfiguredAuth: () => true, getAvailable: async () => [] } } as unknown as ExtensionContext;
+    const ctx = { sessionManager: { getSessionId: () => "single-action" }, cwd: root, modelRegistry: { find: (provider: string, id: string) => provider === "test" && id === "worker" ? { provider, id } : undefined, hasConfiguredAuth: () => true, getAvailable: async () => [] } } as unknown as ExtensionContext;
     store.orchestratorMode = true;
     store.paused = true;
 
@@ -608,7 +609,7 @@ test("explicit dispatch fields reject before thread allocation", async () => {
   const root = mkdtempSync(join(tmpdir(), "slate-required-route-"));
   try {
     const { manager, store } = managerHarness(root);
-    const ctx = { cwd: root, modelRegistry: { find: () => ({ provider: "test", id: "worker" }), hasConfiguredAuth: () => true } } as unknown as ExtensionContext;
+    const ctx = { sessionManager: { getSessionId: () => "single-action" }, cwd: root, modelRegistry: { find: () => ({ provider: "test", id: "worker" }), hasConfiguredAuth: () => true } } as unknown as ExtensionContext;
     for (const opts of [
       { task: "x", type: "general", reason: "why" },
       { task: "x", type: "general", model: 7, reason: "why" },
@@ -720,6 +721,7 @@ test("logical worker recovery retains tool results and records logical and physi
       maxTokens: 100, thinkingLevelMap: { max: "max" },
     });
     const ctx = {
+      sessionManager: { getSessionId: () => "single-action" },
       cwd: root, hasUI: false,
       modelRegistry: {
         find(provider: string, id: string) { return provider === "test" && id === "worker" || provider === "backup" && id === "worker-2" ? model(provider, id) : undefined; },
@@ -823,7 +825,7 @@ test("manager teardown enrolls a semaphore-queued dispatch and waits for its ter
         warnings: [],
       };
     };
-    const ctx = { cwd: root, hasUI: false, modelRegistry: {
+    const ctx = { sessionManager: { getSessionId: () => "single-action" }, cwd: root, hasUI: false, modelRegistry: {
       find(provider: string, id: string) { return provider === "test" && id === "worker" ? { provider, id } : undefined; },
       async getApiKeyAndHeaders() { return { ok: true, apiKey: "test" }; }, hasConfiguredAuth() { return true; }, async getAvailable() { return []; },
     } } as unknown as ExtensionContext;
@@ -1223,7 +1225,7 @@ test("cancellation after a completed tool result retains durable bytes and every
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 10_000, maxTokens: 100, thinkingLevelMap: levels,
     });
     const worker = sdkModel("test", "worker", { max: "max" });
-    const ctx = { cwd: root, hasUI: false, modelRegistry: {
+    const ctx = { sessionManager: { getSessionId: () => "single-action" }, cwd: root, hasUI: false, modelRegistry: {
       find(provider: string, id: string) { return provider === "test" && id === "worker" ? worker : undefined; },
       async getApiKeyAndHeaders() { return { ok: true, apiKey: "test" }; }, async getAvailable() { return [worker]; }, hasConfiguredAuth() { return true; },
     } } as unknown as ExtensionContext;
@@ -1255,6 +1257,57 @@ test("cancellation after a completed tool result retains durable bytes and every
     );
     const fetched = await episodeTool.execute("call", { id: result.episode.id }, undefined, undefined, ctx);
     assert.equal(fetched.content[0]?.text, result.episodeText);
+
+    async function list(threadStore: SlateStore, callCtx: ExtensionContext, args = {}) {
+      let threadsTool: ToolDefinition | undefined;
+      registerSlateTools(
+        { registerTool(tool: ToolDefinition) { if (tool.name === "threads") threadsTool = tool; } } as ExtensionAPI,
+        threadStore,
+        () => manager,
+      );
+      assert.ok(threadsTool);
+      const listed = await threadsTool.execute("call", args, undefined, undefined, callCtx as ExtensionToolContext);
+      assert.deepEqual(listed.details, { count: 1, failedCount: 1 });
+      const block = listed.content[0];
+      assert.equal(block?.type, "text");
+      return block.text.split("\n");
+    }
+    const [summary, currentMode, ...currentRows] = await list(store, ctx);
+    assert.match(summary!, /Current session: 1\.$/);
+    assert.equal(currentMode, "Listing: current session, 1 thread.");
+    assert.equal(currentRows.length, 1);
+    assert.match(currentRows[0]!, /^t1 /);
+
+    function restoreSession(sessionId: string, snapshot: ReturnType<SlateStore["snapshot"]>) {
+      const entries = [{ type: "custom", customType: "slate-state", data: snapshot }];
+      const abandoned = { ...snapshot, threads: [{ ...snapshot.threads[0]!, id: "t99", sessionId: "abandoned", episodeId: undefined }] };
+      const sessionCtx = {
+        ...ctx,
+        sessionManager: {
+          getSessionId: () => sessionId,
+          getBranch: () => entries,
+          getEntries: () => [...entries, { ...entries[0], data: abandoned }],
+        },
+      } as unknown as ExtensionContext;
+      const sessionStore = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
+      sessionStore.restore(sessionCtx);
+      return { sessionStore, sessionCtx };
+    }
+
+    const saved = snapshots.at(-1) as ReturnType<SlateStore["snapshot"]>;
+    const reloaded = restoreSession(ctx.sessionManager.getSessionId(), saved);
+    assert.deepEqual(await list(reloaded.sessionStore, reloaded.sessionCtx), [summary, currentMode, ...currentRows]);
+    const middle = restoreSession("empty-middle", saved);
+    assert.deepEqual((await list(middle.sessionStore, middle.sessionCtx)).slice(1), ["Listing: current session, 0 threads."]);
+    const successor = restoreSession("successor", middle.sessionStore.snapshot());
+    const [successorSummary, successorMode, ...successorRows] = await list(successor.sessionStore, successor.sessionCtx);
+    assert.match(successorSummary!, /Current session: 0\.$/);
+    assert.equal(successorMode, "Listing: current session, 0 threads.");
+    assert.deepEqual(successorRows, []);
+    assert.deepEqual(
+      await list(successor.sessionStore, successor.sessionCtx, { parentSession: true }),
+      [successorSummary, "Listing: parent session, 1 thread.", ...currentRows],
+    );
 
     const later = new ThreadManager(restored, {}, undefined, runtime);
     let laterPrompt = "";
@@ -1302,7 +1355,7 @@ test("cancellation after finalized assistant text then an empty abort retains a 
     const internals = manager as unknown as { live: Map<string, typeof session>; openWorkerFor(args: { thread: ThreadRecord }): Promise<{ session: typeof session; baseline: typeof NO_SESSION_BASELINE }> };
     internals.openWorkerFor = async (args: any) => { bindFakeWorkerRequest(session, args.requestContract); internals.live.set(args.thread.id, session); return { session, baseline: NO_SESSION_BASELINE }; };
     const worker = workerModel("test", "worker");
-    const ctx = { cwd: root, hasUI: false, modelRegistry: {
+    const ctx = { sessionManager: { getSessionId: () => "single-action" }, cwd: root, hasUI: false, modelRegistry: {
       find(provider: string, id: string) { return provider === "test" && id === "worker" ? worker : undefined; },
       async getApiKeyAndHeaders() { return { ok: true, apiKey: "test" }; }, async getAvailable() { return [worker]; }, hasConfiguredAuth() { return true; },
     } } as unknown as ExtensionContext;
@@ -1420,6 +1473,7 @@ async function dispatchWithUnpairedToolResult(
     return await manager.dispatch(
       { ...TEST_ROUTE, type: "general", task: "complete despite the missing reminder" },
       {
+        sessionManager: { getSessionId: () => "single-action" },
         cwd: root,
         hasUI: false,
         modelRegistry: {
@@ -1522,7 +1576,7 @@ test("history compaction without a result does not suppress a reminder-loss warn
 
 test("the current thread record sanitizer covers every terminal shape", () => {
   const valid = {
-    id: "t1", name: "done", status: "successful", type: "reviewer", model: "p/pin",
+    id: "t1", sessionId: "single-action", name: "done", status: "successful", type: "reviewer", model: "p/pin",
     baseModel: "p/base", baseEffort: "medium", tools: ["read"],
     episodeId: "t1.e1", outcomeReason: "done", createdAt: 1, updatedAt: 2,
   };
@@ -1552,9 +1606,31 @@ test("the current thread record sanitizer covers every terminal shape", () => {
   const legacy = sanitizeThreadRecord({ ...valid, cacheKeyShard: 1 }, legacyRepairs);
   assert.deepEqual(legacy, retained, "obsolete route and shard metadata must be dropped without losing the thread");
   assert.deepEqual(legacyRepairs, []);
+  for (const sessionId of [7, ""]) {
+    const repairs: string[] = [];
+    assert.equal(sanitizeThreadRecord({ ...valid, sessionId }, repairs)?.sessionId, undefined);
+    assert.deepEqual(repairs, [`thread t1: ignoring sessionId (${typeof sessionId})`]);
+  }
   const defaults = sanitizeThreadRecord({ id: "t2", name: "failed", status: "failed", type: "general" }, []);
   assert.equal(typeof defaults?.createdAt, "number");
   assert.equal(typeof defaults?.updatedAt, "number");
+});
+
+test("dispatch refuses a missing or invalid session ID before it saves or claims a thread", { timeout: 2000 }, async () => {
+  const store = new SlateStore({ appendEntry() { assert.fail("dispatch saved state"); } } as unknown as ExtensionAPI);
+  const manager = new ThreadManager(store, {}, undefined, fixtureRuntime());
+  for (const sessionManager of [
+    undefined, {}, { getSessionId: () => "" }, { getSessionId: () => 7 },
+    { getSessionId: () => { throw new Error("session ID unavailable"); } },
+  ]) {
+    const ctx = { cwd: process.cwd(), sessionManager } as unknown as ExtensionContext;
+    await assert.rejects(
+      manager.dispatch({ ...TEST_ROUTE, task: "must not start", type: "general" }, ctx, undefined),
+      { message: "Cannot create a thread without a nonempty session ID." },
+    );
+    assert.equal(store.threads.size, 0);
+    assert.equal(store.snapshot().threadSeq, 0);
+  }
 });
 
 test("a save failure before worker startup rolls back the new thread", async () => {
@@ -1567,7 +1643,7 @@ test("a save failure before worker startup rolls back the new thread", async () 
   } as unknown as ExtensionAPI);
   const manager = new ThreadManager(store, {}, undefined, fixtureRuntime());
   await assert.rejects(
-    manager.dispatch({ ...TEST_ROUTE, task: "must not start", type: "general" }, { modelRegistry: { find: (provider: string, id: string) => provider === "test" && id === "worker" ? { provider, id } : undefined, hasConfiguredAuth: () => true, getAvailable: async () => [] } } as unknown as ExtensionContext, undefined),
+    manager.dispatch({ ...TEST_ROUTE, task: "must not start", type: "general" }, { sessionManager: { getSessionId: () => "single-action" }, modelRegistry: { find: (provider: string, id: string) => provider === "test" && id === "worker" ? { provider, id } : undefined, hasConfiguredAuth: () => true, getAvailable: async () => [] } } as unknown as ExtensionContext, undefined),
     /Nothing ran and no episode was recorded/,
   );
   assert.equal(store.threads.size, 0);
@@ -1670,6 +1746,7 @@ test("a synchronous startup preparation failure releases the opening and its exa
       requestContracts: Map<string, WorkerRequestContract>;
     };
     const ctx = {
+      sessionManager: { getSessionId: () => "single-action" },
       cwd: root,
       hasUI: false,
       modelRegistry: {
@@ -1748,6 +1825,7 @@ test("a refused request from worker startup ends the action before any ordinary 
       return { session };
     };
     const ctx = {
+      sessionManager: { getSessionId: () => "single-action" },
       cwd: root,
       hasUI: false,
       modelRegistry: {
@@ -1823,6 +1901,7 @@ test("a refused automatic compaction fails the action, keeps completed work, and
       return { session };
     };
     const ctx = {
+      sessionManager: { getSessionId: () => "single-action" },
       cwd: root,
       hasUI: false,
       modelRegistry: {
@@ -1992,6 +2071,7 @@ test("a refused later startup request keeps the completed startup work and the a
       return { session };
     };
     const ctx = {
+      sessionManager: { getSessionId: () => "single-action" },
       cwd: root,
       hasUI: false,
       modelRegistry: {
@@ -2073,6 +2153,7 @@ test("a rejected worker opening keeps the accepted pair, both diagnostics, and t
       throw new Error("independent startup handler failed");
     };
     const ctx = {
+      sessionManager: { getSessionId: () => "single-action" },
       cwd: root,
       hasUI: false,
       modelRegistry: {

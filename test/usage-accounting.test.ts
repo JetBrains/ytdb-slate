@@ -139,6 +139,7 @@ function context(cwd: string, models: FakeModel[] = [], headers?: Record<string,
   const routedWorker = model("test", "worker");
   const bySpec = new Map([routedWorker, ...models].map((entry) => [`${entry.provider}/${entry.id}`, entry]));
   return {
+    sessionManager: { getSessionId: () => "usage-accounting" },
     cwd,
     model: undefined,
     hasUI: false,

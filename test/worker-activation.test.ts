@@ -96,7 +96,7 @@ async function fixture(run: (ctx: ExtensionContext, path: string, declarations: 
         stream.push({ type: 'done', reason: message.stopReason as 'stop' | 'toolUse', message }); stream.end(); return stream;
       },
     });
-    const ctx = { cwd: root, hasUI: false, isProjectTrusted: () => true,
+    const ctx = { sessionManager: { getSessionId: () => "worker-activation" }, cwd: root, hasUI: false, isProjectTrusted: () => true,
       modelRegistry: new ModelRegistry(host), model: host.getModel('activation', 'worker') } as unknown as ExtensionContext;
     await run(ctx, path, declarations);
   } finally {
