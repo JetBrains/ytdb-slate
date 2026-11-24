@@ -29,7 +29,7 @@ function fixture(failover?: (id: string) => string | undefined, cwd = "") {
   } as unknown as ThreadManager;
   registerSlateTools(pi, store, () => manager);
 
-  const ctx = { cwd } as ExtensionToolContext;
+  const ctx = { cwd, sessionManager: { getSessionId: () => "current" } } as ExtensionToolContext;
   const threadExecutions: unknown[] = [];
   const tools: AgentTool[] = [...registered.values()].map((definition) => ({
     ...definition,
@@ -46,25 +46,24 @@ function fixture(failover?: (id: string) => string | undefined, cwd = "") {
     assert.equal(result.content.length, 1);
     const block = result.content[0]!;
     assert.equal(block.type, "text");
-    if (name === "threads") assert.ok(Buffer.byteLength(block.text, "utf8") <= 4096);
     return { isError, text: block.text, details: result.details };
   };
   const fetch = (id: string) => invoke("episode", { id });
-  const page = async (args: { before?: string; detail?: boolean } = {}) => {
+  const page = async (args: { before?: string; detail?: boolean; parentSession?: boolean } = {}) => {
     const { isError, text, details } = await invoke("threads", args);
     assert.equal(isError, false, text);
-    const [summary, ...lines] = text.split("\n");
+    const [summary, mode, ...lines] = text.split("\n");
     const continuation = /^Remaining threads: (\d+)\. Next call: threads\((.+)\)$/.exec(lines.at(-1) ?? "");
     if (continuation) lines.pop();
     const remaining = continuation ? Number(continuation[1]) : 0;
     const next: typeof args | undefined = continuation ? JSON.parse(continuation[2]!) : undefined;
-    return { summary, lines, remaining, next, details, text };
+    return { summary, mode, lines, remaining, next, details, text };
   };
 
   function add(ordinal: number | string, overrides: Partial<ThreadRecord> = {}) {
     const id = `t${ordinal}`;
     const record: ThreadRecord = {
-      id, name: "survey", status: "successful", type: "researcher",
+      id, sessionId: "current", name: "survey", status: "successful", type: "researcher",
       episodeId: `${id}.e1`, createdAt: 1, updatedAt: 1, ...overrides,
     };
     store.threads.set(id, record);
@@ -89,7 +88,8 @@ test("lookup pages use exclusive decimal boundaries, even when a cursor row is a
   add("9007199254740992");
 
   const top = await page();
-  assert.equal(top.summary, "Threads: 6. Queued: 1. Running: 1. Successful: 2. Failed: 1. Cancelled: 1.");
+  assert.equal(top.summary, "Threads: 6. Queued: 1. Running: 1. Successful: 2. Failed: 1. Cancelled: 1. Current session: 6.");
+  assert.equal(top.mode, "Listing: current session, 6 threads.");
   assert.deepEqual(top.lines.map((line) => line.split(" ")[0]), [
     "t9007199254740992", "t9007199254740991", "t12", "t10", "t9", "t1",
   ]);
@@ -99,6 +99,7 @@ test("lookup pages use exclusive decimal boundaries, even when a cursor row is a
   const highCursor = await page({ before: "t9007199254740992" });
   assert.equal(highCursor.lines[0], 't9007199254740991 "survey" [successful] type=researcher — episode: t9007199254740991.e1');
   assert.equal(highCursor.lines.length, 5);
+  assert.equal(highCursor.mode, "Listing: all sessions, threads older than t9007199254740992.");
   store.threads.delete("t9007199254740992");
   assert.deepEqual((await page({ before: "t9007199254740992" })).lines, highCursor.lines);
 
@@ -106,14 +107,14 @@ test("lookup pages use exclusive decimal boundaries, even when a cursor row is a
   assert.deepEqual(older.lines, top.lines.slice(3));
   assert.deepEqual(older.details, { count: 5, failedCount: 1 });
   const end = await page({ before: "t1" });
-  assert.equal(end.text, "Threads: 5. Queued: 1. Running: 1. Successful: 1. Failed: 1. Cancelled: 1.\nNo older threads.");
+  assert.equal(end.text, "Threads: 5. Queued: 1. Running: 1. Successful: 1. Failed: 1. Cancelled: 1. Current session: 5.\nListing: all sessions, threads older than t1, 0 threads.\nNo older threads.");
   assert.deepEqual(end.details, older.details);
   assert.equal(end.next, undefined);
 });
 
 test("invalid thread cursors produce a fixed error before argument conversion and at execution", { timeout: 5000 }, async () => {
   const { invoke, executeThreads } = fixture();
-  const message = 'Invalid before value. Use a thread ID such as "t9". Omit before to start with the newest thread.';
+  const message = 'Invalid before value. Use a thread ID such as "t9". Omit both before and parentSession to list the current session.';
   for (const before of ["", "t0", "t01", "t-1", "t1\n", "t1.2", "t9007199254740993", "x".repeat(50_000), 9, null]) {
     const result = await invoke("threads", { before });
     assert.equal(result.isError, true);
@@ -122,7 +123,7 @@ test("invalid thread cursors produce a fixed error before argument conversion an
   }
 });
 
-test("Pi returns bounded threads results for malformed arguments and large extra properties", { timeout: 5000 }, async () => {
+test("Pi returns fixed errors for malformed threads arguments and ignores large extra properties", { timeout: 5000 }, async () => {
   const { invoke, page, add } = fixture();
   const large = "界".repeat(6000);
   for (const args of [large, [large], 1, false, null, undefined]) {
@@ -130,10 +131,12 @@ test("Pi returns bounded threads results for malformed arguments and large extra
     assert.equal(result.isError, true);
     assert.equal(result.text, "Invalid threads arguments. Use an object such as {}.");
   }
-  for (const detail of [large, { payload: large }, [], null, 1, undefined]) {
-    const result = await invoke("threads", { detail });
-    assert.equal(result.isError, true);
-    assert.equal(result.text, "Invalid detail value. Use true or false.");
+  for (const key of ["detail", "parentSession"]) {
+    for (const value of [large, { payload: large }, [], null, 1, undefined]) {
+      const result = await invoke("threads", { [key]: value });
+      assert.equal(result.isError, true);
+      assert.equal(result.text, `Invalid ${key} value. Use true or false.`);
+    }
   }
   add(1);
   const result = await invoke("threads", { extra: large, detail: true });
@@ -142,7 +145,7 @@ test("Pi returns bounded threads results for malformed arguments and large extra
 });
 
 test("Pi rejects accessors and faulty argument inspection before threads execute", { timeout: 5000 }, async () => {
-  const { invoke, threadExecutions } = fixture();
+  const { invoke, executeThreads, threadExecutions } = fixture();
   const large = "界".repeat(6000);
   const invalid = "Invalid threads arguments. Use an object such as {}.";
   const error = new Error(large);
@@ -150,19 +153,22 @@ test("Pi rejects accessors and faulty argument inspection before threads execute
   const changing = { get detail() { return ++getterReads === 1 ? false : large; } };
   const throwing = { get detail(): boolean { getterReads++; throw error; } };
   const beforeAccessor = { get before() { getterReads++; return "t1"; } };
+  const parentAccessor = { get parentSession() { getterReads++; return true; } };
   const throwingProxy = new Proxy({}, { getOwnPropertyDescriptor() { throw error; } });
   const revoked = Proxy.revocable({}, {});
   revoked.revoke();
-  for (const args of [changing, throwing, beforeAccessor, throwingProxy, revoked.proxy]) {
+  for (const args of [changing, throwing, beforeAccessor, parentAccessor, throwingProxy, revoked.proxy]) {
     const result = await invoke("threads", args);
     assert.equal(result.isError, true);
     assert.equal(result.text, invalid);
+    await assert.rejects(executeThreads(args), { message: invalid });
   }
   assert.equal(getterReads, 0);
 
   for (const [key, message] of [
-    ["before", 'Invalid before value. Use a thread ID such as "t9". Omit before to start with the newest thread.'],
+    ["before", 'Invalid before value. Use a thread ID such as "t9". Omit both before and parentSession to list the current session.'],
     ["detail", "Invalid detail value. Use true or false."],
+    ["parentSession", "Invalid parentSession value. Use true or false."],
   ] as const) {
     let inspections = 0;
     const proxy = new Proxy({}, {
@@ -187,7 +193,7 @@ test("Pi executes threads with only checked data properties", { timeout: 5000 },
   const large = "界".repeat(6000);
   add(1);
   add(2);
-  const checked = { before: "t2", detail: false };
+  const checked = { before: "t2", detail: false, parentSession: false };
   const expected = await invoke("threads", checked);
   assert.equal(expected.isError, false);
   assert.match(expected.text, /\nt1 "survey"/);
@@ -203,7 +209,7 @@ test("Pi executes threads with only checked data properties", { timeout: 5000 },
     },
   });
   assert.deepEqual(await invoke("threads", proxy), expected);
-  assert.deepEqual(inspected, ["before", "detail"]);
+  assert.deepEqual(inspected, ["before", "detail", "parentSession"]);
   const omitted = await invoke("threads", {});
   assert.equal(omitted.isError, false);
   assert.match(omitted.text, /\nt2 "survey"/);
@@ -236,20 +242,17 @@ for (const detail of [undefined, true] as const) {
     }
 
     const seen: number[] = [];
-    let args = detail ? { detail } : {};
+    let args: { before: string; detail?: boolean } = detail ? { before: "t251", detail } : { before: "t251" };
     for (let index = 0; index < 250; index++) {
       const readsBefore = liveReads();
       const current = await page(args);
       const added = index === 0 ? 0 : 1;
-      assert.equal(current.summary, `Threads: ${250 + added}. Queued: 50. Running: ${50 + added}. Successful: 50. Failed: 50. Cancelled: 50.`);
+      assert.equal(current.summary, `Threads: ${250 + added}. Queued: 50. Running: ${50 + added}. Successful: 50. Failed: 50. Cancelled: 50. Current session: ${250 + added}.`);
       assert.deepEqual(current.details, { count: 250 + added, failedCount: 50 });
-      assert.ok(current.lines.length >= 1 && current.lines.length <= 8);
+      assert.equal(current.lines.length, Math.min(20, 250 - seen.length));
       assert.doesNotMatch(current.text, /[\p{Cs}\u0000\u2028\u2029\u202e�]/u);
-      assert.ok(liveReads() - readsBefore <= 8);
-      if (index === 0) {
-        if (detail) assert.ok(current.lines.length < 8, "the byte budget must stop the detail page");
-        else assert.equal(current.lines.length, 8);
-      }
+      assert.equal(liveReads() - readsBefore, detail ? current.lines.length : 0);
+      assert.ok(Buffer.byteLength(current.text, "utf8") > 4096 || index > 0);
 
       for (const line of current.lines) {
         const row = /^(t(\d+)) (".*?") \[(\w+)\] type=researcher .*?episode: (t\d+\.e1)(?: — updated (.+))?$/.exec(line);
@@ -291,18 +294,77 @@ for (const detail of [undefined, true] as const) {
 
 test("a page preserves a false detail flag and caps mostly invisible labels", { timeout: 5000 }, async () => {
   const { add, page } = fixture();
-  for (let index = 1; index <= 9; index++) add(index);
-  add(9, { name: "\u0000".repeat(5000) + "tail" });
-  add(8, { name: "x\ud800y" });
-  const first = await page({ detail: false });
-  assert.equal(first.lines[0], 't9 "…" [successful] type=researcher — episode: t9.e1');
-  assert.equal(first.lines[1], 't8 "x�y" [successful] type=researcher — episode: t8.e1');
-  assert.equal(first.lines.length, 8);
+  for (let index = 1; index <= 21; index++) add(index);
+  add(21, { name: "\u0000".repeat(5000) + "tail" });
+  add(20, { name: "x\ud800y" });
+  const first = await page({ before: "t22", detail: false });
+  assert.equal(first.lines[0], 't21 "…" [successful] type=researcher — episode: t21.e1');
+  assert.equal(first.lines[1], 't20 "x�y" [successful] type=researcher — episode: t20.e1');
+  assert.equal(first.lines.length, 20);
   assert.equal(first.remaining, 1);
   assert.deepEqual(first.next, { before: "t2", detail: false });
   assert.deepEqual((await page(first.next)).lines, [
     't1 "survey" [successful] type=researcher — episode: t1.e1',
   ]);
+});
+
+test("thread mode arguments refuse a conflict before conversion and during execution", { timeout: 5000 }, async () => {
+  const { invoke, executeThreads, threadExecutions } = fixture();
+  const conflict = "Use either before or parentSession: true, not both.";
+  for (const [args, message] of [
+    [{ before: "t1", parentSession: true }, conflict],
+    [{ before: "t0", parentSession: true }, conflict],
+    [{ before: undefined, parentSession: true }, conflict],
+    [{ before: "t0", parentSession: "true" }, "Invalid parentSession value. Use true or false."],
+  ] as const) {
+    const result = await invoke("threads", args);
+    assert.equal(result.isError, true);
+    assert.equal(result.text, message);
+    await assert.rejects(executeThreads(args), { message });
+  }
+  assert.deepEqual(threadExecutions, []);
+});
+
+test("the parent list uses the newest other session and has no tagged row limit", { timeout: 5000 }, async () => {
+  const { add, page } = fixture();
+  add(1);
+  const noParent = await page({ parentSession: true });
+  assert.equal(noParent.mode, "Listing: parent session, 0 threads.");
+  assert.deepEqual(noParent.lines, []);
+  add(2, { sessionId: "earlier", status: "failed" });
+  add(3, { sessionId: undefined });
+  for (let i = 4; i <= 25; i++) add(i, { sessionId: "parent" });
+  add(26);
+
+  const current = await page({ parentSession: false });
+  assert.equal(current.mode, "Listing: current session, 2 threads.");
+  assert.deepEqual(current.lines.map((line) => line.split(" ")[0]), ["t26", "t1"]);
+  const parent = await page({ parentSession: true });
+  assert.equal(parent.mode, "Listing: parent session, 22 threads.");
+  assert.deepEqual(parent.lines.map((line) => line.split(" ")[0]), Array.from({ length: 22 }, (_, i) => `t${25 - i}`));
+  assert.deepEqual(parent.details, { count: 26, failedCount: 1 });
+  assert.equal(parent.next, undefined);
+});
+
+test("a legacy parent continuation includes older tagged and legacy records", { timeout: 5000 }, async () => {
+  const { add, page } = fixture();
+  for (let i = 1; i <= 22; i++) add(i, { sessionId: i === 2 ? "earlier" : undefined });
+  const current = await page();
+  assert.equal(current.mode, "Listing: current session, 0 threads.");
+  assert.deepEqual(current.lines, []);
+  const parent = await page({ parentSession: true, detail: true });
+  assert.equal(parent.mode, "Listing: parent session, 20 threads.");
+  assert.deepEqual(parent.lines.map((line) => line.split(" ")[0]), Array.from({ length: 20 }, (_, i) => `t${22 - i}`));
+  assert.equal(parent.remaining, 2);
+  assert.deepEqual(parent.next, { before: "t3", detail: true });
+  const next = await page(parent.next);
+  assert.equal(next.mode, "Listing: all sessions, threads older than t3.");
+  assert.deepEqual(next.lines.map((line) => line.split(" ")[0]), ["t2", "t1"]);
+  assert.equal(next.next, undefined);
+
+  // A legacy group of exactly 20 does not emit a next call, even with older tagged records.
+  add(1, { sessionId: "earlier" });
+  assert.equal((await page({ parentSession: true })).next, undefined);
 });
 
 function project(t: TestContext) {
@@ -339,10 +401,10 @@ function restoredFixture(t: TestContext, failover?: (id: string) => string | und
   return { ...lookup, cwd, record, restore };
 }
 
-test("a restored detail page fits a candidate row alone but not with its continuation", { timeout: 5000 }, async (t) => {
+test("a restored current-session detail list has no row or byte limit", { timeout: 5000 }, async (t) => {
   const { record, restore, page } = restoredFixture(t, () => "p/" + "j".repeat(300));
   const newest = Number.MAX_SAFE_INTEGER;
-  for (let rank = 0; rank < 7; rank++) {
+  for (let rank = 0; rank < 23; rank++) {
     record(newest - rank, "n".repeat(300), {
       logicalModel: "l".repeat(300), requestedModel: "p/" + "r".repeat(300), requestedEffort: "high",
       reason: "r".repeat(89), model: "p/" + "m".repeat(300), effort: "e".repeat(300), effortUnmeasured: true,
@@ -352,28 +414,22 @@ test("a restored detail page fits a candidate row alone but not with its continu
 
   const first = await page({ detail: true });
   const rowId = (line: string) => line.split(" ")[0];
-  assert.deepEqual(first.lines.map(rowId), [0, 1, 2].map((rank) => `t${newest - rank}`));
+  assert.deepEqual(first.lines.map(rowId), Array.from({ length: 23 }, (_, rank) => `t${newest - rank}`));
   assert.match(first.lines[0]!, / logical=l+… requested=/u);
-  assert.equal(first.remaining, 4);
-  assert.deepEqual(first.next, { before: `t${newest - 2}`, detail: true });
-  assert.equal(Buffer.byteLength(first.text, "utf8"), 3149);
-  const next = await page(first.next);
-  const candidateId = `t${newest - 3}`;
-  assert.equal(rowId(next.lines[0]!), candidateId);
-  const candidatePage = [first.summary, ...first.lines, next.lines[0]!].join("\n");
-  const candidateFooter = `\nRemaining threads: 3. Next call: threads({"before":"${candidateId}","detail":true})`;
-  assert.equal(Buffer.byteLength(candidatePage, "utf8"), 4058);
-  assert.equal(Buffer.byteLength(candidatePage + candidateFooter, "utf8"), 4145);
+  assert.equal(first.mode, "Listing: current session, 23 threads.");
+  assert.equal(first.remaining, 0);
+  assert.equal(first.next, undefined);
+  assert.ok(Buffer.byteLength(first.text, "utf8") > 4096);
 });
 
-test("detail keeps full one-line dispatch reasons and fits a worst-case row with a continuation", { timeout: 5000 }, async (t) => {
+test("detail keeps full one-line dispatch reasons on both sides of a continuation", { timeout: 5000 }, async (t) => {
   const quotedLabel = 'p/ ' + '"\\'.repeat(200);
   const { record, restore, page } = restoredFixture(t, () => quotedLabel);
   const reasonA = "界".repeat(100) + ' reason "A"\\ end';
   const reasonB = "界".repeat(100) + ' reason "B"\\ end';
   const worstReason = "界".repeat(200);
-  for (let ordinal = 1; ordinal <= 9; ordinal++) {
-    const reason = ordinal === 8 ? reasonA : ordinal === 7 ? reasonB : worstReason;
+  for (let ordinal = 1; ordinal <= 22; ordinal++) {
+    const reason = ordinal === 8 ? reasonA : ordinal === 2 ? reasonB : worstReason;
     record(ordinal, '"\\'.repeat(200), {
       reason, logicalModel: "l".repeat(200), requestedModel: "p/" + "r".repeat(200), requestedEffort: "high",
       model: quotedLabel, effort: quotedLabel, effortUnmeasured: true,
@@ -381,10 +437,10 @@ test("detail keeps full one-line dispatch reasons and fits a worst-case row with
   }
   restore();
 
-  const first = await page({ detail: true });
-  assert.match(first.summary!, /^Threads: 9\./);
+  const first = await page({ before: "t23", detail: true });
+  assert.match(first.summary!, /^Threads: 22\./);
   assert.ok(first.next);
-  assert.match(first.lines[0]!, /^t9 /);
+  assert.match(first.lines[0]!, /^t22 /);
   assert.match(first.lines[0]!, /…" \[successful\]/u);
   assert.match(first.lines[0]!, /logical=l+… requested=p\/r+…@high/u);
   assert.ok(first.lines[0]!.includes(`reason=${JSON.stringify(worstReason)} last=`));
@@ -402,9 +458,9 @@ test("detail keeps full one-line dispatch reasons and fits a worst-case row with
     if (!current.next) break;
     current = await page(current.next);
   }
-  assert.equal(reasons.size, 9);
+  assert.equal(reasons.size, 22);
   assert.equal(reasons.get("t8"), reasonA);
-  assert.equal(reasons.get("t7"), reasonB);
+  assert.equal(reasons.get("t2"), reasonB);
 });
 
 test("detail separates whitespace-bearing routing labels from each thread's live failover", { timeout: 5000 }, async (t) => {

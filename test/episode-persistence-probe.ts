@@ -104,6 +104,7 @@ const model = {
 };
 const progress: DispatchProgress[] = [];
 const ctx = {
+  sessionManager: { getSessionId: () => "episode-persistence-probe" },
   cwd: root,
   hasUI: false,
   modelRegistry: {

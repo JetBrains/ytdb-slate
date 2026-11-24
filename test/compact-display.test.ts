@@ -426,7 +426,9 @@ test("episode retrieval and thread-list evidence remain byte-identical after ren
     for (const expanded of [false, true]) output(renderCompactResult("episode", result, { expanded }, theme));
     assert.deepEqual(result.content, [{ type: "text", text }]);
     assert.equal(readFileSync(file, "utf8"), text);
-    const list = await registered.get("threads")!.execute("id", {}, undefined, undefined, {} as ExtensionToolContext);
+    const list = await registered.get("threads")!.execute("id", {}, undefined, undefined, {
+      sessionManager: { getSessionId: () => "compact-display" },
+    } as ExtensionToolContext);
     assert.deepEqual(list.content, [{ type: "text", text: "No threads yet. Use the thread tool to create one." }]);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

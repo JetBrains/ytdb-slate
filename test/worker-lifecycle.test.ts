@@ -20,6 +20,7 @@ import { NotificationDispatcher } from "../extension/notification-dispatcher.ts"
 
 function context(cwd: string): ExtensionContext {
   return {
+    sessionManager: { getSessionId: () => "worker-lifecycle" },
     cwd,
     hasUI: false,
     isProjectTrusted: () => true,

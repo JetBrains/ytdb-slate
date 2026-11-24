@@ -374,13 +374,22 @@ export class ThreadManager {
 		if (this.store.currentChange !== capturedChange || this.store.changeOwnerSessionId !== capturedOwner) {
 			throw new Error("The current change or its session owner changed during action validation. No action was admitted.");
 		}
+		let sessionId: string | undefined;
+		try {
+			sessionId = ctx.sessionManager?.getSessionId?.();
+		} catch (cause) {
+			throw new Error("Cannot create a thread without a nonempty session ID.", { cause });
+		}
+		if (typeof sessionId !== "string" || sessionId.length === 0) {
+			throw new Error("Cannot create a thread without a nonempty session ID.");
+		}
 		const temporary = capturedChange === undefined ? undefined : allocateActionTemporary(ctx.cwd, capturedChange);
 		if (temporary) this.store.actionTemporaryOwners.add(temporary);
 		let thread: ThreadRecord;
 		let actionMessage: ReturnType<typeof actionTemporaryMessage> | undefined;
 		try {
 			if (temporary) actionMessage = actionTemporaryMessage(`slate-changes/${capturedChange}/tmp/${basename(temporary.path)}`);
-			thread = this.createThread(accepted);
+			thread = this.createThread(accepted, sessionId);
 		} catch (error) {
 			if (temporary) {
 				const message = retainedActionTemporary(temporary.path, error);
@@ -392,7 +401,7 @@ export class ThreadManager {
 		return await this.runDispatch(thread, accepted, prompt, ctx, signal, onProgress, admission, initialRoute, reviewGuidance, temporary, folderGuidance, actionMessage);
 	}
 
-	private createThread(opts: DispatchOptions): ThreadRecord {
+	private createThread(opts: DispatchOptions, sessionId: string): ThreadRecord {
 		const id = this.store.claimNextThreadId();
 		const type = parseThreadType(opts.type, true)!
 		const configuredTools = opts.tools ?? this.config.workerTools;
@@ -400,6 +409,7 @@ export class ThreadManager {
 		const now = Date.now();
 		const record: ThreadRecord = {
 			id,
+			sessionId,
 			name: opts.name?.trim() || id,
 			status: "queued",
 			type,
