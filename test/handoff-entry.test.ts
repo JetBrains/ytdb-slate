@@ -97,6 +97,37 @@ function appendKickoffReply(successor: SessionManager) {
   });
 }
 
+function watchParentAfterConsumption(
+  t: TestContext, parent: SessionManager, file: string, setFixtureTime?: () => void,
+) {
+  const append = parent.appendCustomEntry.bind(parent);
+  let snapshot: { bytes: Buffer; mtimeMs: number } | { error: unknown } | undefined;
+  t.mock.method(parent, "appendCustomEntry", (name: string, data: unknown) => {
+    const entry = append(name, data);
+    if (snapshot === undefined && name === "slate-handoff-purpose" &&
+        (data as { consumed?: boolean } | undefined)?.consumed === true) {
+      try {
+        // Capture once after the real append and any fixture time change.
+        setFixtureTime?.();
+        snapshot = { bytes: readFileSync(file), mtimeMs: statSync(file).mtimeMs };
+      } catch (error) {
+        snapshot = { error };
+        throw error;
+      }
+    }
+    return entry;
+  });
+
+  return (checkpoint: string) => {
+    assert.ok(snapshot, `the consumed marker must be written before ${checkpoint}`);
+    if ("error" in snapshot) throw snapshot.error;
+    assert.ok(snapshot.bytes.equals(readFileSync(file)),
+      `the parent file bytes must not change between the consumed marker and ${checkpoint}`);
+    assert.equal(statSync(file).mtimeMs, snapshot.mtimeMs,
+      `the parent file modification time must not change between the consumed marker and ${checkpoint}`);
+  };
+}
+
 const fileClockWaitMs = 10_000;
 test("the handoff successor is the newest session after kickoff", { timeout: 2 * fileClockWaitMs + 5_000 }, async (t) => {
   const dir = mkdtempSync(join(tmpdir(), "slate-handoff-order-"));
@@ -120,8 +151,10 @@ test("the handoff successor is the newest session after kickoff", { timeout: 2 *
     assert.fail(`The file clock did not advance past ${file} within ${fileClockWaitMs} ms`);
   };
 
+  const assertParentUnchanged = watchParentAfterConsumption(t, parent.manager, parentFile);
   let parentAtKickoff: Buffer | undefined;
   const { child, turns } = await transfer(parent, { successor, run: async () => {
+    assertParentUnchanged("kickoff");
     parentAtKickoff = readFileSync(parentFile);
     await waitForLaterWrite(parentFile);
     appendKickoffReply(successor);
@@ -132,6 +165,7 @@ test("the handoff successor is the newest session after kickoff", { timeout: 2 *
   assert.doesNotMatch([...parent.warnings, ...child.warnings].join("\n"), /kickoff failed/i);
   assert.ok(parentAtKickoff, "the successor must start a kickoff run");
   assert.ok(parentAtKickoff.equals(readFileSync(parentFile)), "the parent file must not change after kickoff starts");
+  assertParentUnchanged("handoff completion");
   assert.ok(statSync(parentFile).mtimeMs < statSync(successorFile).mtimeMs,
     "the parent file must be older than the successor file");
   assert.equal(SessionManager.continueRecent("/tmp", dir).getSessionFile(), successorFile,
@@ -206,15 +240,13 @@ test("the session clock guard separates an immediate kickoff write from the pare
     fs.futimesSync(fd, tick, tick);
     if (++polls === 1) setImmediate(() => { tick = parentTick + 2; });
   } });
-  const append = parent.manager.appendCustomEntry.bind(parent.manager);
-  t.mock.method(parent.manager, "appendCustomEntry", (name: string, data: unknown) => {
-    const entry = append(name, data);
+  const assertParentUnchanged = watchParentAfterConsumption(t, parent.manager, parentFile, () => {
     fs.utimesSync(parentFile, parentTick, parentTick);
-    return entry;
   });
 
   let parentAtKickoff: Buffer | undefined;
   const { child, turns } = await transfer(parent, { successor, run: () => {
+    assertParentUnchanged("kickoff");
     parentAtKickoff = readFileSync(parentFile);
     appendKickoffReply(successor);
     fs.utimesSync(successorFile, tick, tick);
@@ -223,6 +255,7 @@ test("the session clock guard separates an immediate kickoff write from the pare
   assert.equal(turns, 1);
   assert.doesNotMatch(child.warnings.join("\n"), /kickoff failed|handoff.*clock/i);
   assert.ok(parentAtKickoff?.equals(readFileSync(parentFile)), "the parent file must not change after kickoff starts");
+  assertParentUnchanged("handoff completion");
   assert.ok(statSync(parentFile).mtimeMs < statSync(successorFile).mtimeMs,
     "the clock guard must make the immediate successor write strictly newer");
   assert.equal(SessionManager.continueRecent("/tmp", dir).getSessionFile(), successorFile);
