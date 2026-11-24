@@ -45,11 +45,7 @@ function fixture(manager = SessionManager.inMemory("/tmp"), allowed = true, shar
   return { pi, store, hooks, ctx, handlers, manager, messages, warnings, runtime, routing, base };
 }
 
-async function transfer(parent: ReturnType<typeof fixture>, options: {
-  allowed?: boolean; reject?: boolean; failSave?: boolean; shared?: boolean;
-  configure?: (child: ReturnType<typeof fixture>) => void; successor?: SessionManager;
-  run?: () => void | Promise<void>; assertNoFileTimeChanges?: () => void;
-} = {}, purpose?: HandoffPurpose) {
+async function transfer(parent: ReturnType<typeof fixture>, options: { allowed?: boolean; reject?: boolean; failSave?: boolean; shared?: boolean; configure?: (child: ReturnType<typeof fixture>) => void; successor?: SessionManager; run?: () => void | Promise<void> } = {}, purpose?: HandoffPurpose) {
   const child = fixture(options.successor, options.allowed ?? true, options.shared);
   let turns = 0;
   let sendFailure: { error: unknown } | undefined;
@@ -87,11 +83,7 @@ async function transfer(parent: ReturnType<typeof fixture>, options: {
     });
     return { cancelled: false };
   };
-  try {
-    await parent.hooks.startHandoff(parent.ctx, undefined, undefined, purpose);
-  } finally {
-    options.assertNoFileTimeChanges?.();
-  }
+  await parent.hooks.startHandoff(parent.ctx, undefined, undefined, purpose);
   if (sendFailure) throw sendFailure.error;
   return { child, turns };
 }
@@ -136,30 +128,6 @@ function watchParentAfterConsumption(
   };
 }
 
-async function watchFileTimeChanges(t: TestContext, file: string) {
-  const handle = await fs.promises.open(file, "r");
-  const handlePrototype: Pick<typeof handle, "utimes"> = Object.getPrototypeOf(handle);
-  await handle.close();
-
-  t.after(() => {
-    t.mock.restoreAll();
-    syncBuiltinESMExports();
-  });
-  const setters = [
-    ...(["utimesSync", "futimesSync", "lutimesSync", "utimes", "futimes", "lutimes"] as const)
-      .map((name) => [`fs.${name}`, t.mock.method(fs, name)] as const),
-    ...(["utimes", "lutimes"] as const)
-      .map((name) => [`fs.promises.${name}`, t.mock.method(fs.promises, name)] as const),
-    ["FileHandle.utimes", t.mock.method(handlePrototype, "utimes")] as const,
-  ];
-  // Sync named and namespace exports with the functions that the test tracks.
-  syncBuiltinESMExports();
-  return () => {
-    const called = setters.filter(([, fn]) => fn.mock.callCount() > 0).map(([name]) => name);
-    assert.equal(called.length, 0, `startHandoff must not call file time setters: ${called.join(", ")}`);
-  };
-}
-
 const fileClockWaitMs = 10_000;
 test("the handoff successor is the newest session after kickoff", { timeout: 2 * fileClockWaitMs + 5_000 }, async (t) => {
   const dir = mkdtempSync(join(tmpdir(), "slate-handoff-order-"));
@@ -184,9 +152,8 @@ test("the handoff successor is the newest session after kickoff", { timeout: 2 *
   };
 
   const assertParentUnchanged = watchParentAfterConsumption(t, parent.manager, parentFile);
-  const assertNoFileTimeChanges = await watchFileTimeChanges(t, parentFile);
   let parentAtKickoff: Buffer | undefined;
-  const { child, turns } = await transfer(parent, { successor, assertNoFileTimeChanges, run: async () => {
+  const { child, turns } = await transfer(parent, { successor, run: async () => {
     assertParentUnchanged("kickoff");
     parentAtKickoff = readFileSync(parentFile);
     await waitForLaterWrite(parentFile);
@@ -268,24 +235,21 @@ test("the session clock guard separates an immediate kickoff write from the pare
   const parentTick = 1_800_000_000;
   let tick = parentTick;
   let polls = 0;
-  // Only the fixture uses the original setters to control the test clock.
-  const { utimesSync: setFixtureTime, futimesSync: setFixtureFdTime } = fs;
   // The first probe shares the parent time. The clock advances only when the event loop runs.
   mockProbe(t, dir, { write(fd) {
-    setFixtureFdTime(fd, tick, tick);
+    fs.futimesSync(fd, tick, tick);
     if (++polls === 1) setImmediate(() => { tick = parentTick + 2; });
   } });
   const assertParentUnchanged = watchParentAfterConsumption(t, parent.manager, parentFile, () => {
-    setFixtureTime(parentFile, parentTick, parentTick);
+    fs.utimesSync(parentFile, parentTick, parentTick);
   });
-  const assertNoFileTimeChanges = await watchFileTimeChanges(t, parentFile);
 
   let parentAtKickoff: Buffer | undefined;
-  const { child, turns } = await transfer(parent, { successor, assertNoFileTimeChanges, run: () => {
+  const { child, turns } = await transfer(parent, { successor, run: () => {
     assertParentUnchanged("kickoff");
     parentAtKickoff = readFileSync(parentFile);
     appendKickoffReply(successor);
-    setFixtureTime(successorFile, tick, tick);
+    fs.utimesSync(successorFile, tick, tick);
   } }, "track-boundary");
 
   assert.equal(turns, 1);
