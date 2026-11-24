@@ -30,8 +30,10 @@
  * the orchestrator's base model, unlike a failover fallback.
  */
 
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { randomUUID } from "node:crypto";
+import { closeSync, existsSync, fstatSync, openSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import {
 	CONFIG_DIR_NAME,
 	getAgentDir,
@@ -292,6 +294,44 @@ function buildKickoff(cwd: string, trusted: boolean, brief: string, focus?: stri
 	if (brief) parts.push("", "## Handoff brief from the previous orchestrator", "", brief);
 	if (focus) parts.push("", `Immediate focus: ${focus}`);
 	return parts.join("\n");
+}
+
+const SESSION_CLOCK_LIMIT_MS = 3_000;
+const SESSION_CLOCK_POLL_MS = 10;
+
+async function waitForSessionClock(ctx: ExtensionContext, parentFile: string | undefined): Promise<void> {
+	if (!parentFile) return;
+	try {
+		const parent = statSync(parentFile, { throwIfNoEntry: false });
+		if (!parent) return;
+
+		// Pi sorts sessions by modification time. A tie can select the parent.
+		// Measure a write in the session directory before the successor writes.
+		const probe = join(dirname(parentFile), `.slate-handoff-clock-${randomUUID()}.tmp`);
+		const fd = openSync(probe, "wx", 0o600);
+		try {
+			const deadline = performance.now() + SESSION_CLOCK_LIMIT_MS;
+			while (performance.now() < deadline) {
+				writeFileSync(fd, ".");
+				if (fstatSync(fd).mtimeMs > parent.mtimeMs) return;
+				await delay(SESSION_CLOCK_POLL_MS);
+			}
+		} finally {
+			try {
+				closeSync(fd);
+			} catch (error) {
+				reportFailure(ctx, `slate: could not close the handoff clock probe: ${sanitizeForNotify(String(error))}`);
+			}
+			try {
+				unlinkSync(probe);
+			} catch (error) {
+				reportFailure(ctx, `slate: could not delete the handoff clock probe: ${sanitizeForNotify(String(error))}`);
+			}
+		}
+		reportFailure(ctx, `slate: the handoff session file clock did not advance within the ${SESSION_CLOCK_LIMIT_MS / 1_000}-second polling limit.`);
+	} catch (error) {
+		reportFailure(ctx, `slate: could not check the handoff session file clock: ${sanitizeForNotify(String(error))}`);
+	}
 }
 
 type KickoffSender = (message: { customType: string; content: string; display: boolean; details?: { sessionId: string } }, options?: { triggerTurn?: boolean }) => void | Promise<void>;
@@ -694,7 +734,13 @@ export function registerSlateHandoff(
 		}
 	});
 
-	const performHandoff = async (ctx: ExtensionCommandContext, focus?: string, summaryVisible?: boolean, purpose?: HandoffPurpose): Promise<boolean> => {
+	const performHandoff = async (
+		ctx: ExtensionCommandContext,
+		focus: string | undefined,
+		summaryVisible: boolean | undefined,
+		purpose: HandoffPurpose,
+		onTransfer: (fresh: ExtensionContext) => void,
+	): Promise<void> => {
 		const brief = lastAssistantText(ctx);
 		const parentSession = ctx.sessionManager.getSessionFile();
 		// ctx.model can be undefined (no-model session): capture neither field
@@ -729,6 +775,9 @@ export function registerSlateHandoff(
 					successor.appendCustomEntry("slate-handoff", entry as unknown as Record<string, unknown>);
 				},
 				withSession: async (fresh) => {
+					// Finish the parent write after setup and before kickoff.
+					onTransfer(fresh);
+					await waitForSessionClock(fresh, parentSession);
 					await deliverKickoff(fresh, (message, options) => fresh.sendMessage(message, options));
 				},
 			});
@@ -738,7 +787,6 @@ export function registerSlateHandoff(
 				store.save();
 				if (ctx.hasUI) ctx.ui.notify("slate: handoff cancelled — pause cleared.", "warning");
 			}
-			return !cancelled;
 		} catch (error) {
 			// Best-effort: if the replacement partially happened, the old pi/ctx
 			// are stale and these calls themselves throw.
@@ -770,10 +818,14 @@ export function registerSlateHandoff(
 			const selected = purpose ?? retained ?? "user-request";
 			pi.appendEntry("slate-handoff-purpose", { sessionId, purpose: selected });
 			await ctx.waitForIdle();
-			const transferred = await performHandoff(ctx, focus, summaryVisible, selected);
-			if (transferred && parentManager instanceof SessionManager) {
-				parentManager.appendCustomEntry("slate-handoff-purpose", { sessionId, purpose: selected, consumed: true });
-			}
+			await performHandoff(ctx, focus, summaryVisible, selected, (fresh) => {
+				if (!(parentManager instanceof SessionManager)) return;
+				try {
+					parentManager.appendCustomEntry("slate-handoff-purpose", { sessionId, purpose: selected, consumed: true });
+				} catch (error) {
+					reportFailure(fresh, `slate: could not record the handoff purpose as consumed: ${sanitizeForNotify(String(error))}`);
+				}
+			});
 		});
 	};
 
