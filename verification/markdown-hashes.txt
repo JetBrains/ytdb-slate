@@ -4,7 +4,7 @@
 
 2a8eaddb9765889e2ffdfd2977f5e5c9f40e6a2db0e8d8e0e5a5f685cc0f3f5e  README-GUIDELINES.md
 
-026c8dd6aba733392457fafa584dd7b4d917d93ac462a42804309b13303cecfa  README.md
+4aae4aa3fcf8c761fb14e87fb67d5a6f8c9992b996565b83dead35d1816b4edb  README.md
 
 997674ef7441686720a0bb6d4b8071442c28c1404ee3c2337f86664bb1869a03  RELEASING.md
 
@@ -12,7 +12,7 @@
 
 33eed092de61cd847813460d9d454ec84e6b507358168da61c939bf42b00ccc9  docs/change-records.md
 
-7382e6b5c4ceb6f4b221700d26a4f97adb9f39ceda6e713ea5ca0ae9d611e3fd  docs/configuration.md
+0689cee055d1458a1572c4a9e0dde5a64f4216047d28d37dfb8c42328e82a55e  docs/configuration.md
 
 8ab62392ab8e3c526b0cb89c1bcb77601dd17cf41afd20a69dd759b5d395f149  docs/context-budget.md
 
