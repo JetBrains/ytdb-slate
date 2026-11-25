@@ -67,13 +67,36 @@ try {
     Write-Stage 'services'
     Import-Module ($env:SystemRoot + '\System32\WindowsPowerShell\v1.0\Modules\StartLayout\StartLayout.psd1')
     Write-Stage 'startlayout'
+    $entries = @(Get-StartApps)
     $app = $null
-    foreach ($entry in (Get-StartApps -Name 'Windows PowerShell')) {
-        if ($entry.Name -eq 'Windows PowerShell') { $app = $entry; break }
+    $selection = $null
+    foreach ($entry in $entries) {
+        if ($entry.Name -eq 'Windows PowerShell') { $app = $entry; $selection = 'exact-name'; break }
+    }
+    if (-not $app) {
+        foreach ($entry in $entries) {
+            if ($entry.AppID -eq '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe') {
+                $app = $entry; $selection = 'identity'; break
+            }
+        }
     }
     Write-Stage 'startapps'
     $diagnostics.startApp = if ($app) { @{ name = $app.Name; appId = $app.AppID } } else { $null }
-    if (-not $app -or [string]::IsNullOrWhiteSpace($app.AppID)) { throw 'Windows PowerShell Start entry has no AppID' }
+    $diagnostics.startAppSelection = $selection
+    if (-not $app) {
+        $relatedCount = 0
+        $diagnostics.relatedStartApps = @(foreach ($entry in $entries) {
+            $name = [string]$entry.Name
+            $id = [string]$entry.AppID
+            if ($name -like '*powershell*' -or $id -like '*powershell*') {
+                @{ name = $name.Substring(0, [Math]::Min(96, $name.Length)); appId = $id.Substring(0, [Math]::Min(96, $id.Length)) }
+                $relatedCount++
+                if ($relatedCount -ge 4) { break }
+            }
+        })
+        throw 'No Start entry matches Windows PowerShell by name or AppID'
+    }
+    if ([string]::IsNullOrWhiteSpace($app.AppID)) { throw 'Windows PowerShell Start entry has no AppID' }
     $result.appId = [string]$app.AppID
     $null = [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime]
     Write-Stage 'winrt'
@@ -97,7 +120,7 @@ const historyScript = diagnosticSource + String.raw`
     $result.ok = $true
 ` + framingSource;
 const diagnosticScript = diagnosticSource + "\n    $result.ok = $true\n" + framingSource;
-type History = { appId: string; toasts: { texts: string[] }[] };
+type History = { appId: string; toasts: { texts: string[] }[]; diagnostics: { startAppSelection: "exact-name" | "identity" } };
 
 // Other platforms register no native case. The required roster selects win32 only.
 if (process.platform === "win32") requiredCase(caseName, { timeout: caseLimitMs }, async (t, complete) => {
@@ -141,6 +164,8 @@ if (process.platform === "win32") requiredCase(caseName, { timeout: caseLimitMs 
 			assert.equal(timing.malformed, undefined, `invalid stage stderr: ${timing.malformed}`);
 			assert.equal(timing.stages.length, expectedStages.length, "successful reads require every stage line");
 			assert.ok(typeof payload.appId === "string" && payload.appId.trim().length > 0, "history read requires a Start-menu AppID");
+			const selection = payload.diagnostics?.startAppSelection;
+			assert.ok(selection === "exact-name" || selection === "identity", "history read requires a Start entry selection step");
 			assert.ok(Array.isArray(payload.toasts), "history read requires a toast array");
 			for (const toast of payload.toasts) assert.ok(toast && Array.isArray(toast.texts) &&
 				toast.texts.every((text: unknown) => typeof text === "string"), "each history toast requires string text nodes");
@@ -202,7 +227,7 @@ if (process.platform === "win32") requiredCase(caseName, { timeout: caseLimitMs 
 			if (!found) await delay(Math.min(500, Math.max(0, deadline - performance.now())));
 		}
 		assert.ok(found, `no toast retained the exact title and body within ${pollLimitMs} ms`);
-		t.diagnostic(`Windows native history read-back: AppID=${JSON.stringify(baseline.appId)} polls=${polls} productDeliveryMs=${deliveryMs.toFixed(1)} nativeWindowsAttemptTimeoutMs=${NATIVE_WINDOWS_ATTEMPT_TIMEOUT_MS} warm=true`);
+		t.diagnostic(`Windows native history read-back: AppID=${JSON.stringify(baseline.appId)} selection=${baseline.diagnostics.startAppSelection} polls=${polls} productDeliveryMs=${deliveryMs.toFixed(1)} nativeWindowsAttemptTimeoutMs=${NATIVE_WINDOWS_ATTEMPT_TIMEOUT_MS} warm=true`);
 		complete();
 	} catch (error) {
 		// One bounded diagnostic child can recover metadata after a failed or timed-out history read.

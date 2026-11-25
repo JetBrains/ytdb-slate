@@ -381,9 +381,13 @@ A native failure does not stop other channels.
 | --- | --- | --- |
 | Linux | `notify-send` from an absolute search-path directory outside the project and `node_modules`. A desktop display and a user notification service must be available in pi's environment. | 5,000 milliseconds |
 | macOS | `/usr/bin/osascript` uses the user's notification service. Check the notification permission for the sender on your machine. | 5,000 milliseconds |
-| Windows | Windows PowerShell 5.1 at the system path. Slate uses the first case-insensitive exact-name Windows PowerShell entry in the Start applications folder for its registered application identity. | 10,000 milliseconds |
+| Windows | Windows PowerShell 5.1 at the system path. Slate needs a registered entry in the Start applications folder. | 10,000 milliseconds |
 
-Windows uses the system's Start entry, not a universal application identifier.
+Slate selects the first entry named `Windows PowerShell`, ignoring case.
+If no entry has that name, Slate compares each entry's registered application identity with one fixed value.
+That value is the identity Windows registers for the system Windows PowerShell executable.
+Slate selects the first match.
+Slate does not inspect shortcut targets.
 The Start applications folder is the application list that `Get-StartApps` enumerates.
 The production helper reads that folder directly and disables PowerShell module auto-loading.
 

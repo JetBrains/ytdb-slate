@@ -135,13 +135,13 @@ test("logical doctrine production renders match published portable measurements"
     { path: "/fixture/b", source: "y".repeat(128), isDirectory: true, tools: [{ name: "c".repeat(64), description: "f".repeat(140) }, { name: "d".repeat(64), description: "g".repeat(140) }] },
   ], paths: [], toolNames: [] };
   const metric = (text: string) => ({ portable: text.split(docsDirectory).join("").length, lines: text.split("\n").length, paths: text.split(docsDirectory).length - 1 });
-  assert.deepEqual(metric(runtime.promptText()!), { portable: 3803, lines: 9, paths: 0 });
-  assert.deepEqual(metric(await renderDoctrine(runtime)), { portable: 8611, lines: 72, paths: 5 });
+  assert.deepEqual(metric(runtime.promptText()!), { portable: 4528, lines: 9, paths: 0 });
+  assert.deepEqual(metric(await renderDoctrine(runtime)), { portable: 9336, lines: 72, paths: 5 });
   assert.deepEqual(metric(await renderDoctrine(runtime, {}, false)), { portable: 2711, lines: 33, paths: 4 });
-  assert.deepEqual(metric(await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped)), { portable: 10151, lines: 85, paths: 6 });
+  assert.deepEqual(metric(await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped)), { portable: 10876, lines: 85, paths: 6 });
   const change = { current: `change-20260101T000000Z-${"a".repeat(32)}`, source: `change-20260101T000001Z-${"b".repeat(32)}`, legacy: true };
   const linked = await renderDoctrine(runtime, { workflow: { draftPRs: true, followUpIssues: true, routingRecommendations: true } }, true, false, undefined, capped, change);
-  assert.deepEqual(metric(linked), { portable: 10579, lines: 88, paths: 6 });
+  assert.deepEqual(metric(linked), { portable: 11304, lines: 88, paths: 6 });
   assert.ok(metric(linked).portable * 1.05 < 26300);
   assert.match(linked, /Follow each log's first entry to read the full source chain and accounting/);
   assert.match(linked, /Read-only legacy root log: research-log.md/);
@@ -358,19 +358,19 @@ test("effective command reads current preferences without policy or provider wor
   assert.match(notices[0]!, /Remembered compressor selection: none/);
 });
 
-test("project startup settings merge causally and select Astra 6.2 at high when unscoped", { timeout: 5000 }, async () => {
+test("project startup settings merge causally and select claude-fable-5-2 at high when unscoped", { timeout: 5000 }, async () => {
   const settingsPath = join(process.cwd(), ".pi", "settings.json");
   const projectSettings = JSON.parse(readFileSync(settingsPath, "utf8"));
   assert.deepEqual(projectSettings, {
-    defaultProvider: "openai",
-    defaultModel: "gpt-6.2-astra",
+    defaultProvider: "anthropic",
+    defaultModel: "claude-fable-5-2",
     defaultThinkingLevel: "high",
     packages: ["../../main", "npm:pi-smart-fetch@0.3.23", "npm:pi-web-search@1.7.0"],
   });
   const agentDir = join(scratch, "startup-agent");
   mkdirSync(agentDir, { recursive: true });
   writeFileSync(join(agentDir, "settings.json"), JSON.stringify({
-    defaultProvider: "anthropic",
+    defaultProvider: "openai",
     defaultModel: "global-model",
     defaultThinkingLevel: "low",
     packages: ["global-package"],
@@ -379,27 +379,27 @@ test("project startup settings merge causally and select Astra 6.2 at high when 
   const settingsModule = await import(join(packageRoot, "settings-manager.js"));
   const resolverModule = await import(join(packageRoot, "model-resolver.js"));
   const manager = settingsModule.SettingsManager.create(process.cwd(), agentDir, { projectTrusted: true });
-  assert.equal(manager.getDefaultProvider(), "openai");
-  assert.equal(manager.getDefaultModel(), "gpt-6.2-astra");
+  assert.equal(manager.getDefaultProvider(), "anthropic");
+  assert.equal(manager.getDefaultModel(), "claude-fable-5-2");
   assert.equal(manager.getDefaultThinkingLevel(), "high");
   assert.deepEqual(manager.getProjectSettings().packages, projectSettings.packages);
-  const opus = { provider: "anthropic", id: "claude-opus-5-5" };
   const astra = { provider: "openai", id: "gpt-6.2-astra" };
+  const fable = { provider: "anthropic", id: "claude-fable-5-2" };
   const other = { provider: "openai", id: "scoped" };
   const runtime = {
-    getModel: (provider: string, id: string) => provider === astra.provider && id === astra.id ? astra
-      : provider === opus.provider && id === opus.id ? opus
+    getModel: (provider: string, id: string) => provider === fable.provider && id === fable.id ? fable
+      : provider === astra.provider && id === astra.id ? astra
       : provider === other.provider && id === other.id ? other : undefined,
     hasConfiguredAuth: () => true,
-    getModels: () => [opus, astra, other],
-    getAvailable: async () => [other],
+    getModels: () => [astra, fable, other],
+    getAvailableSnapshot: () => [other],
   };
   const selected = await resolverModule.findInitialModel({
     scopedModels: [], isContinuing: false,
     defaultProvider: manager.getDefaultProvider(), defaultModelId: manager.getDefaultModel(),
     defaultThinkingLevel: manager.getDefaultThinkingLevel(), modelRuntime: runtime,
   });
-  assert.strictEqual(selected.model, astra);
+  assert.strictEqual(selected.model, fable);
   assert.equal(selected.thinkingLevel, "high");
   const scoped = await resolverModule.findInitialModel({
     scopedModels: [{ model: other, thinkingLevel: "low" }], isContinuing: false,
@@ -409,7 +409,7 @@ test("project startup settings merge causally and select Astra 6.2 at high when 
   assert.strictEqual(scoped.model, other, "the scoped set must constrain startup selection");
   assert.equal(scoped.thinkingLevel, "low");
   const untrusted = settingsModule.SettingsManager.create(process.cwd(), agentDir, { projectTrusted: false });
-  assert.equal(untrusted.getDefaultProvider(), "anthropic");
+  assert.equal(untrusted.getDefaultProvider(), "openai");
   assert.equal(untrusted.getDefaultModel(), "global-model");
   assert.equal(untrusted.getDefaultThinkingLevel(), "low");
   assert.deepEqual(untrusted.getProjectSettings(), {});
@@ -417,25 +417,30 @@ test("project startup settings merge causally and select Astra 6.2 at high when 
 
 for (const { name, args, expected, resume } of [
   {
+    name: "uses the project default in a fresh unscoped session",
+    args: [],
+    expected: { provider: "anthropic", id: "claude-fable-5-2", thinkingLevel: "high" },
+  },
+  {
     name: "prefers the eligible project default over the first scoped model",
-    args: ["--models", "anthropic/claude-opus-5-5,openai/gpt-6.2-astra"],
-    expected: { provider: "openai", id: "gpt-6.2-astra", thinkingLevel: "high" },
+    args: ["--models", "openai/gpt-6.2-astra,anthropic/claude-fable-5-2"],
+    expected: { provider: "anthropic", id: "claude-fable-5-2", thinkingLevel: "high" },
   },
   {
     name: "selects the first scoped model when only a different provider offers the default ID in scope",
-    args: ["--models", "anthropic/claude-opus-5-5,anthropic/gpt-6.2-astra"],
-    expected: { provider: "anthropic", id: "claude-opus-5-5", thinkingLevel: "high" },
+    args: ["--models", "openai/gpt-6.2-astra,openai/claude-fable-5-2"],
+    expected: { provider: "openai", id: "gpt-6.2-astra", thinkingLevel: "high" },
   },
   {
     name: "honors the explicit provider, model and thinking level over the project defaults",
-    args: ["--provider", "anthropic", "--model", "explicit-startup-model", "--thinking", "low"],
-    expected: { provider: "anthropic", id: "explicit-startup-model", thinkingLevel: "low" },
+    args: ["--provider", "openai", "--model", "explicit-startup-model", "--thinking", "low"],
+    expected: { provider: "openai", id: "explicit-startup-model", thinkingLevel: "low" },
   },
   {
     name: "restores a usable saved model over the project default",
     args: [],
     resume: true,
-    expected: { provider: "anthropic", id: "claude-opus-5-5", thinkingLevel: "high" },
+    expected: { provider: "openai", id: "gpt-6.2-astra", thinkingLevel: "high" },
   },
 ]) test(`real Pi startup ${name}`, { timeout: 15000 }, () => {
   const trackedSettings = JSON.parse(readFileSync(join(process.cwd(), ".pi", "settings.json"), "utf8"));
@@ -445,8 +450,8 @@ for (const { name, args, expected, resume } of [
     defaultThinkingLevel: trackedSettings.defaultThinkingLevel,
   };
   assert.deepEqual(trackedDefaults, {
-    defaultProvider: "openai",
-    defaultModel: "gpt-6.2-astra",
+    defaultProvider: "anthropic",
+    defaultModel: "claude-fable-5-2",
     defaultThinkingLevel: "high",
   });
   const cliScratch = mkdtempSync(join(tmpdir(), "slate-startup-cli-"));
@@ -476,13 +481,13 @@ for (const { name, args, expected, resume } of [
           baseUrl: "http://127.0.0.1:9/v1",
           apiKey: "literal-offline-startup-key",
           api: "openai-completions",
-          models: [model("gpt-6.2-astra"), model("explicit-startup-model")],
+          models: [model("gpt-6.2-astra"), model("claude-fable-5-2"), model("explicit-startup-model")],
         },
         anthropic: {
           baseUrl: "http://127.0.0.1:9/v1",
           apiKey: "literal-offline-startup-key",
           api: "anthropic-messages",
-          models: [model("claude-opus-5-5"), model("gpt-6.2-astra"), model("explicit-startup-model")],
+          models: [model("claude-fable-5-2"), model("explicit-startup-model")],
         },
       },
     }));
@@ -493,7 +498,7 @@ for (const { name, args, expected, resume } of [
       const timestamp = new Date().toISOString();
       writeFileSync(sessionPath, [
         { type: "session", version: 3, id: "startup-fixture", timestamp, cwd: projectDir },
-        { type: "model_change", id: "00000001", parentId: null, timestamp, provider: "anthropic", modelId: "claude-opus-5-5" },
+        { type: "model_change", id: "00000001", parentId: null, timestamp, provider: "openai", modelId: "gpt-6.2-astra" },
         { type: "message", id: "00000002", parentId: "00000001", timestamp, message: { role: "user", content: "Saved prompt.", timestamp: Date.parse(timestamp) } },
       ].map((entry) => JSON.stringify(entry)).join("\n") + "\n");
     }

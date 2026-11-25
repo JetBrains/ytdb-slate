@@ -641,6 +641,7 @@ export default function (pi: ExtensionAPI) {
 		const modelRuntime = await ModelRuntime.create({ authPath: join(agent, "auth.json"), modelsPath: join(agent, "models.json") });
 		modelRuntime.registerNativeProvider(matrixProvider(state, "matrix-primary", "primary"));
 		const ctx = {
+			sessionManager: { getSessionId: () => "recovery-ownership-host" },
 			cwd: project,
 			hasUI: false,
 			isProjectTrusted: () => true,
@@ -985,6 +986,7 @@ export default function (pi: ExtensionAPI) {
 		modelRuntime.registerNativeProvider(matrixProvider(state, "matrix-other", "other"));
 		const modelRegistry = new ModelRegistry(modelRuntime);
 		const ctx = {
+			sessionManager: { getSessionId: () => "recovery-ownership-host" },
 			cwd: project,
 			hasUI: false,
 			isProjectTrusted: () => true,

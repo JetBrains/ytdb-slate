@@ -89,7 +89,7 @@ function fixture(config: Record<string, unknown>, usage?: { percent: number; tok
 }
 
 test("the pinned SDK resolves the agent directory at call time, so the fixture isolation holds", async () => {
-  // slate calls getAgentDir() inside reserveTokens, and pinned pi 1.5.2
+  // slate calls getAgentDir() inside reserveTokens, and pinned pi 1.6.0
   // reads process.env[PI_CODING_AGENT_DIR] inside that function. The value is
   // therefore never captured at import time, and the override above cannot
   // depend on when this module was loaded.
@@ -246,7 +246,7 @@ test("handoff adoption keeps completed state while busy and unpauses only after 
     writeFileSync(stateFile, "completed worker result");
     const snapshot = {
       format: SLATE_STATE_FORMAT,
-      threads: [{ id: "t1", name: "done", status: "successful", type: "general", episodeId: "t1.e1", createdAt: 1, updatedAt: 1 }],
+      threads: [{ id: "t1", sessionId: "source", name: "done", status: "successful", type: "general", episodeId: "t1.e1", createdAt: 1, updatedAt: 1 }],
       episodes: [{ id: "t1.e1", threadId: "t1", task: "done", status: "ok", file: stateFile, createdAt: 1 }],
       orchestratorMode: true, paused: true, workerCostUsd: 0, carriedCostUsd: 0,
     };
@@ -275,6 +275,7 @@ test("handoff adoption keeps completed state while busy and unpauses only after 
       } as unknown as ExtensionContext;
       await handlers.get("session_start")!({}, ctx);
       assert.equal(store.episodes.get("t1.e1")?.file, stateFile, "completed worker result survives adoption");
+      assert.equal(store.threads.get("t1")?.sessionId, "source");
       assert.equal(store.writingReminder.forceNext, true);
       assert.equal(modelSwitches, 0, "the equality guard does not perform a redundant model switch");
       if (busy) {
@@ -647,6 +648,11 @@ test("Pi fork and clone copy the entry but assign different session IDs", async 
   mkdirSync(sessions, { recursive: true });
   const source = SessionManager.create(projectDir, sessions);
   const originalId = source.getSessionId();
+  source.appendCustomEntry("slate-state", {
+    format: SLATE_STATE_FORMAT,
+    threads: [{ id: "t1", sessionId: originalId, name: "done", status: "failed", type: "general", createdAt: 1, updatedAt: 1 }],
+    episodes: [], orchestratorMode: true, paused: true, workerCostUsd: 0, carriedCostUsd: 0,
+  });
   const handoffId = source.appendCustomEntry("slate-handoff", { sessionId: originalId, snapshot: {
     format: SLATE_STATE_FORMAT, threads: [], episodes: [], orchestratorMode: true,
     paused: true, workerCostUsd: 17, carriedCostUsd: 0,
@@ -673,6 +679,8 @@ test("Pi fork and clone copy the entry but assign different session IDs", async 
     await handlers.get("session_start")({}, ctx);
     assert.equal(store.orchestratorMode, false);
     assert.equal(store.workerCostUsd, 0, "a copied entry must not adopt its original owner's cost");
+    store.restore(ctx);
+    assert.equal(store.threads.get("t1")?.sessionId, originalId);
   }
 });
 

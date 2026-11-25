@@ -1,6 +1,6 @@
 {
   "name": "ytdb-slate",
-  "version": "0.19.0",
+  "version": "0.21.0",
   "description": "Design-first feature development for the pi coding agent. Slate researches, designs, implements and reviews each change. You judge the design and keep control of the code without reading every line.",
   "license": "Apache-2.0",
   "repository": {
@@ -37,9 +37,9 @@
     "typebox": "*"
   },
   "devDependencies": {
-    "@earendil-works/pi-ai": "1.5.2",
-    "@earendil-works/pi-coding-agent": "1.5.2",
-    "@earendil-works/pi-tui": "1.5.2",
+    "@earendil-works/pi-ai": "1.6.0",
+    "@earendil-works/pi-coding-agent": "1.6.0",
+    "@earendil-works/pi-tui": "1.6.0",
     "@types/node": "24.13.3",
     "typebox": "1.3.27",
     "typescript": "5.9.3"

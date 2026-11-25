@@ -164,7 +164,7 @@ test("public dispatch delivers selected guidance to the worker loader and leaves
     { model: "fixture", capabilityRating: 50, effort: "off", costRating: 50, preferredProvider: "test", providers: { test: "worker" }, guidelines: [], cautions: [] },
   ] } } } });
   const admittedRuntime = Object.freeze({ ...runtime, validateRoute: async () => ({ ok: true } as const) });
-  const ctx = { cwd: root, model: undefined, isProjectTrusted: () => true, modelRegistry: {
+  const ctx = { sessionManager: { getSessionId: () => "reviewer-charter" }, cwd: root, model: undefined, isProjectTrusted: () => true, modelRegistry: {
     find: (provider: string, id: string) => provider === "test" && id === "worker" ? { provider, id } : undefined,
     getRegisteredProviderIds: () => [], getRegisteredNativeProvider: () => undefined, getRegisteredProviderConfig: () => undefined,
   } } as unknown as ExtensionContext;

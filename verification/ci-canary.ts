@@ -13,11 +13,12 @@
  * are and why they resolve nowhere else, see AGENTS.md § Overview). Every
  * assertion lives in the driver script, which reads this line.
  *
- * Pi 1.5.2 exposes no remote procedure call (RPC) command or command-line
+ * Pi 1.6.0 exposes no remote procedure call (RPC) command or command-line
  * interface (CLI) flag that enumerates registered tools.
  * get_commands lists commands only. Removing a dispatch-tool registration
- * leaves exit 0, empty stderr and a working /slate command. This hook observes
- * the registry inside the extension process and gives the driver tool names.
+ * leaves exit 0, no pi diagnostic for the missing registration and a working
+ * /slate command. This hook observes the registry inside the extension process
+ * and gives the driver tool names.
  *
  * NOT part of the shipped package: package.json's `files` whitelist excludes
  * verification/, and nothing in extension/ imports this.

@@ -89,7 +89,7 @@ function registeredThreadTool(status: "ok" | "failed" = "ok"): { tool: Registere
   return { tool: registered as RegisteredThreadTool, calls };
 }
 
-const ctx = { modelRegistry: { find: (provider: string, id: string) => provider === "test" && id === "worker" ? { provider, id } : undefined, hasConfiguredAuth: () => true, getAvailable: async () => [] } } as unknown as ExtensionContext;
+const ctx = { sessionManager: { getSessionId: () => "thread-type" }, modelRegistry: { find: (provider: string, id: string) => provider === "test" && id === "worker" ? { provider, id } : undefined, hasConfiguredAuth: () => true, getAvailable: async () => [] } } as unknown as ExtensionContext;
 
 test("thread tool enforces the creation type and publishes the closed vocabulary", async () => {
   const { tool, calls } = registeredThreadTool();
@@ -179,7 +179,7 @@ test("public dispatch creates and persists every thread type", async () => {
   for (const type of THREAD_TYPES) {
     const result = await manager.dispatch(
       { ...TEST_ROUTE, name: `fresh-${type}`, task: "x", type },
-      { modelRegistry: { find: (provider: string, id: string) => provider === "test" && id === "worker" ? { provider, id } : undefined, hasConfiguredAuth: () => true, getAvailable: async () => [] } } as unknown as ExtensionContext,
+      { sessionManager: { getSessionId: () => "thread-type" }, modelRegistry: { find: (provider: string, id: string) => provider === "test" && id === "worker" ? { provider, id } : undefined, hasConfiguredAuth: () => true, getAvailable: async () => [] } } as unknown as ExtensionContext,
       undefined,
     ) as unknown as ThreadRecord;
     assert.equal(result.name, `fresh-${type}`);

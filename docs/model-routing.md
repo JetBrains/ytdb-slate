@@ -100,8 +100,10 @@ Luna uses these cautions in order:
 2. `Do not use Luna to handle complex texts.`
 3. `May shorten long file paths in tool calls. Give the full path and require a read-back of the edited lines.`
 4. `May undo its own checked writes before it ends. Check the final file state after every record task.`
-5. `For an append, anchor one single-block edit on the exact current last line, then read back the tail.`
+5. `For an append outside a research log or implementer report, anchor one single-block edit on the exact current last line, then read back the tail.`
 6. `May report state outside the task scope incorrectly. Verify such a claim before acting on it.`
+7. `May change apostrophe or backslash characters, or omit text, when it stages supplied text. Its own comparison with the staged file cannot detect this. Require a quoted heredoc or the file-writing tool, a stated line count and a read-back against the task text.`
+8. `For an append with cat, name exactly one source file in the command.`
 
 Sol uses these cautions in order:
 
@@ -109,6 +111,8 @@ Sol uses these cautions in order:
 2. `Broad searches can return text from excluded private paths. State path limits in the task and use path-limited commands.`
 3. `For cross-runtime process and networking fixes, verify exit, slot ownership and silent output on every supported runtime before closing the repair.`
 4. `When shortening text to fit a size budget, may drop or weaken duties. Require a duty-by-duty comparison of the text before and after the cut.`
+5. `As reviewer or fix gate, may judge runtime behavior from source reading alone. When a run is available, name it in the task and require a reproduced run for each blocker or major runtime claim.`
+6. `For verify-then-edit work, may edit first or accept a related passing check as proof. Require the measured evidence for each claim before the edit.`
 
 Flash uses this caution: `Do not use as a reviewer. It relies too much on passing tests and exact-size assertions. Verify source citations and distinguish proposed behavior from existing behavior.`
 
@@ -388,7 +392,7 @@ for an unknown or ambiguous route. Main recovery stays available during handoff
 pause. An unresolved stop keeps worker dispatch paused while brief writing waits
 for the user choice.
 
-Pi 1.5.2 model and effort switches are session-only unless the caller explicitly
+Pi 1.6.0 model and effort switches are session-only unless the caller explicitly
 requests persistence. Slate retains shared saved-default ownership and its
 compatibility restoration guard. The guard covers explicit persistence and
 hosts that persist switches. A restoration failure is visible and can leave the

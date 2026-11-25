@@ -17,7 +17,7 @@ const forbidden = /[\x00-\x08\x0b-\x1f\x7f-\x9f\u061c\u200e\u200f\u202a-\u202e\u
 const hostile = '\x1b]52;c;YQ==\x07\x1b]8;;https://evil.test\x1b\\link\x1b]8;;\x1b\\\x1b[31m\x00\x01\x08\x0b\x0c\x1f\x7f\x9d52;c;x\x9c\x9b31m\u061c\u200e\u200f\u202a\u202e\u2066\u2069\ufff9\ufffa\ufffb';
 const links = '[trusted](https://evil.test/path) <https://evil.test/auto>';
 const tools = ["thread", "threads", "episode", "slate_change"];
-function output(component: { render(width: number): string[] }, width = 120) {
+function output(component: { render(width: number): readonly string[] }, width = 120) {
   return component.render(width).map((line) => line.trimEnd()).join("\n");
 }
 
@@ -426,7 +426,9 @@ test("episode retrieval and thread-list evidence remain byte-identical after ren
     for (const expanded of [false, true]) output(renderCompactResult("episode", result, { expanded }, theme));
     assert.deepEqual(result.content, [{ type: "text", text }]);
     assert.equal(readFileSync(file, "utf8"), text);
-    const list = await registered.get("threads")!.execute("id", {}, undefined, undefined, {} as ExtensionToolContext);
+    const list = await registered.get("threads")!.execute("id", {}, undefined, undefined, {
+      sessionManager: { getSessionId: () => "compact-display" },
+    } as ExtensionToolContext);
     assert.deepEqual(list.content, [{ type: "text", text: "No threads yet. Use the thread tool to create one." }]);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

@@ -106,6 +106,7 @@ test("session scope gives distinct workers one shared key and throttle", { timeo
     requestThrottle: throttle,
   });
   const ctx = {
+    sessionManager: { getSessionId: () => "session-lifetime" },
     cwd, model: undefined, hasUI: false, isProjectTrusted: () => true,
     modelRegistry: {
       find(provider: string, id: string) { return provider === "test" && id === "worker" ? { api: "openai-responses", provider, id, reasoning: true, thinkingLevelMap: { max: "max" } } : undefined; },
@@ -149,6 +150,7 @@ test("the cache key and request pacing are two independent switches", { timeout:
   };
   const openaiModel = { api: "openai-responses", provider: "test", id: "worker" };
   const ctx = {
+    sessionManager: { getSessionId: () => "session-lifetime" },
     cwd, model: undefined, hasUI: false, isProjectTrusted: () => true,
     modelRegistry: {
       find(provider: string, id: string) { return provider === "test" && id === "worker" ? { ...openaiModel, reasoning: true, thinkingLevelMap: { max: "max" } } : undefined; },
@@ -244,6 +246,7 @@ test("each completed action opens and disposes a distinct real worker session", 
   });
   const manager = new ThreadManager(store, { cacheKeyEnabled: false }, undefined, runtime, { enabled: true, maxRetries: 0, baseDelayMs: 0 });
   const ctx = {
+    sessionManager: { getSessionId: () => "session-lifetime" },
     cwd,
     model: undefined,
     hasUI: false,

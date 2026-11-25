@@ -1,10 +1,10 @@
-059e6a98f8844ba88cf1ca508d4287916eeeaeab0ad7a88ccf321ebae217592c  AGENTS.md
+1060e6d504a3f89b9a1ba4e23d76fbff4329e1ff4fac986de192259a0444ca40  AGENTS.md
 
-8e3a3c4d8ff4f6383c2f405ce6b16e9b14ae866049175d456efa3fef0e420a13  CHANGELOG.md
+4d0a44cd1cbd7b2c72675c43b628e45ff2dcca5a8a8737ed57a177684b41498e  CHANGELOG.md
 
 2a8eaddb9765889e2ffdfd2977f5e5c9f40e6a2db0e8d8e0e5a5f685cc0f3f5e  README-GUIDELINES.md
 
-673621099b07c69c08dc180066ae2a86e4bb8fa8cd66ffe1e767633bd7216576  README.md
+026c8dd6aba733392457fafa584dd7b4d917d93ac462a42804309b13303cecfa  README.md
 
 997674ef7441686720a0bb6d4b8071442c28c1404ee3c2337f86664bb1869a03  RELEASING.md
 
@@ -12,15 +12,15 @@
 
 33eed092de61cd847813460d9d454ec84e6b507358168da61c939bf42b00ccc9  docs/change-records.md
 
-25804d8d48d9afdc6e1d9a94223d785fc529dcd002c6c01c1a6c2f35fd346b87  docs/configuration.md
+7382e6b5c4ceb6f4b221700d26a4f97adb9f39ceda6e713ea5ca0ae9d611e3fd  docs/configuration.md
 
-ede54793fe3c03b59539185a1b7a65425aef2135f09245ae1c17fcd5658d9563  docs/context-budget.md
+8ab62392ab8e3c526b0cb89c1bcb77601dd17cf41afd20a69dd759b5d395f149  docs/context-budget.md
 
 0fa1dc5b979304aae079c6bdfaa8b772be9e6401ac82bd1958ca77255e390a96  docs/delivery-packages.md
 
 69e5205073cf9a835a8e02d8a22c0cac1650439d824c8af9cfd2756aeb664c01  docs/design-principles.md
 
-e9f029606075b0262e3b175af4d4f89e9a51f09a6f89a83e001b67a775b25b96  docs/model-routing.md
+606654ed9ff6178e0e853d7ce5378bc79dbc6056fc5561e1e7022873cfbca396  docs/model-routing.md
 
 0fae4450d2f24b44919521a210a39a694be0873a29ae1fb0dd124398d9859f15  docs/pr-publishing.md
 
@@ -58,7 +58,7 @@ a527dcd58276be7808e0a284add5f1dc08036ee9a522db85a4d5aeab3dd7b2f2  docs/review-pe
 
 6d747d45d7b680b7d7c91ff6158cd8d312c520ab2ae19ded16f4e2d6c77aa675  docs/roadmap.md
 
-2177d217abc852c2c8b71231b503c524c035db2bc9e1bc3ca8776d7380d76b4c  docs/safety-and-trust.md
+9f2cfabf9a0d1e3366c10834b71cbbd94ca742a1a5e82fa68037f5cf9686411c  docs/safety-and-trust.md
 
 577d412d8a7e9b994948dc07e45df9ac4caa909ea352fc6851ac305432abe0f5  docs/track-workflow.md
 
@@ -90,4 +90,4 @@ ff583b7578b55fa21887fde2ca828eb55a6d9efa0851112d830802eae1cc86e4  research/opena
 
 266812b566da8edc5d90936b39bfc7d13e160cd42291aba56b6e00eac3cf5077  research/writing-threshold-provenance.md
 
-fb6ce483af7a7e7ae3354e1f8f36b7d0464569d33f88f5062c98c38b3cbe2fab  verification/README.md
+6d18a3e7f4c810f86158d8b27de255652dc841cc4a46e333f8acc37449df941e  verification/README.md

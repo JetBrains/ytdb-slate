@@ -70,7 +70,7 @@ async function worker(
       },
     });
     const reports: string[] = [];
-    const ctx = { cwd: root, hasUI: false, isProjectTrusted: () => true,
+    const ctx = { sessionManager: { getSessionId: () => "worker-codemode" }, cwd: root, hasUI: false, isProjectTrusted: () => true,
       modelRegistry: new ModelRegistry(host), model: host.getModel("codemode-offline", "worker") } as unknown as ExtensionContext;
     if (checkpointOnly) {
       const settingsManager = SettingsManager.inMemory();

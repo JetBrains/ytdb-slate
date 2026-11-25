@@ -153,7 +153,7 @@ function context(cwd: string, warnings: string[]): ExtensionContext {
       hasConfiguredAuth() { return true; }, async getAvailable() { return []; },
       getRegisteredProviderIds() { return []; }, getRegisteredNativeProvider() { return undefined; }, getRegisteredProviderConfig() { return undefined; },
     },
-    sessionManager: { getBranch: () => [], getEntries: () => [] },
+    sessionManager: { getSessionId: () => cwd, getBranch: () => [], getEntries: () => [] },
     ui: { notify: (message: string) => warnings.push(message), setWidget: () => {}, setStatus: () => {} },
   } as unknown as ExtensionContext;
 }

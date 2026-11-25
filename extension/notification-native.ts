@@ -17,8 +17,8 @@ export interface NativeNotificationOptions {
 	readonly platform?: NodeJS.Platform;
 	readonly environment?: Environment;
 }
-// Start-menu discovery supplies a registered application identity, not an invented sender name.
-// The folder is the one Get-StartApps enumerates. The first exact match in folder order wins.
+// Search the Start applications folder for the first exact Windows PowerShell name match.
+// If the name is absent, match the registered system Windows PowerShell identity.
 // Text enters XML only through text nodes. The interpreter receives fixed source only.
 const windowsScript = `
 $ErrorActionPreference = 'Stop'
@@ -28,6 +28,12 @@ $folder = $shell.NameSpace('shell:::{4234d49b-0245-4df3-b780-3893943456e1}')
 $app = $null
 foreach ($item in $folder.Items()) {
     if ($item.Name -eq 'Windows PowerShell') { $app = $item; break }
+}
+if (-not $app) {
+    $systemPowerShellId = '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe'
+    foreach ($item in $folder.Items()) {
+        if ([string]$item.Path -eq $systemPowerShellId) { $app = $item; break }
+    }
 }
 if (-not $app -or [string]::IsNullOrWhiteSpace($app.Path)) { exit 1 }
 $appId = [string]$app.Path
