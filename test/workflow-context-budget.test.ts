@@ -162,10 +162,11 @@ function table(rows: string[], costs: string[]): string {
     "this cost separately. It depends on the installation path.", "",
     "The user approved the limits for the other 35 rows on 2026-10-16.",
     "Each of those byte limits is ceil(baseline bytes * 1.05).",
-    "The user approved the two limits for Research, publishing off, ordinary plan",
-    "on 2026-11-12. These limits are 76,835 and 145,471 bytes.",
-    "They equal the limits approved on 2026-10-16 plus 979 bytes of approved",
-    "shipped model policy growth. They carry no five percent reserve.",
+    "The approved limits for Research with publishing off and an ordinary plan",
+    "are 77,245 required bytes and 145,881 conditional-maximum bytes.",
+    "The approval date is 2026-11-25. Each limit uses its 2026-11-12 approved value",
+    "plus 410 bytes of approved shipped model policy growth.",
+    "Neither limit includes a five percent reserve.",
     "A higher limit requires a new user approval.",
     "Tests enforce total <= stored literal limit.",
     "The token limit is ceil(byte limit / 4). Reserve is checked at approval,",
@@ -297,11 +298,11 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
 });
 
 test("approved research limits reject further growth", () => {
-  assert.deepEqual(limits["1 off ordinary"], [76835, 145471]);
-  assert.doesNotThrow(() => checkLimit(76835, 76835, "required boundary"));
-  assert.doesNotThrow(() => checkLimit(145471, 145471, "maximum boundary"));
-  assert.throws(() => checkLimit(76836, 76835, "required overflow"), /excess 1/);
-  assert.throws(() => checkLimit(145472, 145471, "maximum overflow"), /excess 1/);
+  assert.deepEqual(limits["1 off ordinary"], [77245, 145881]);
+  assert.doesNotThrow(() => checkLimit(77245, 77245, "required boundary"));
+  assert.doesNotThrow(() => checkLimit(145881, 145881, "maximum boundary"));
+  assert.throws(() => checkLimit(77246, 77245, "required overflow"), /excess 1/);
+  assert.throws(() => checkLimit(145882, 145881, "maximum overflow"), /excess 1/);
 });
 
 test("both original-base Git helpers isolate German parent settings", { timeout: 10000 }, () => {
