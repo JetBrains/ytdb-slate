@@ -6,7 +6,7 @@ two callers, `extension/failover.ts` (orchestrator failover) and
 half of the same hazard: the guarantee in `extension/worker.ts` that a
 **worker-side per-dispatch** model/effort switch never reaches the user's global
 defaults at all. Same failure class (a slate-initiated switch leaving the user's
-pi configuration changed), different mechanism. Pi 1.5.2 makes ordinary
+pi configuration changed), different mechanism. Pi 1.6.0 makes ordinary
 extension setters session-scoped, so the production switch sites write zero
 global-settings bytes. The probe also drives the real `AgentSession` setters
 with `persist:true`. That explicit fixture keeps the compatibility restore under
@@ -36,6 +36,18 @@ The full suite runs on Linux under the stable `Node 22` and `Node 24` check name
 Each Linux job has a 20-minute limit on the version-specific `ubuntu-24.04` runner label.
 The Linux prerequisite install includes `dbus`, `libnotify-bin`,
 `python3-dbus-next`, `openssh-client`, `openssh-server` and `tmux`.
+The Release `checks` job uses `ubuntu-24.04` and installs the same packages.
+
+`test/notification-native-readback.test.ts` uses a private D-Bus session,
+the `notify-send` helper and a Python service from `python3-dbus-next`.
+It checks the exact notification fields, including literal backslashes.
+
+`test/notification-ssh-readback.test.ts` requires `sshd`, `ssh`, `ssh-keygen`,
+Python 3 and an unprivileged current user. It starts a key-only SSH server on
+IPv4 loopback with disposable keys. It captures client bytes through a test-owned
+pseudoterminal. It checks all three explicit protocols, GNU screen envelope bytes,
+sanitation, default generic text, bell delivery and headless silence. It proves
+byte transport, not terminal interpretation or visible presentation.
 
 `test/notification-tmux-readback.test.ts` asserts the tmux 3.4 version series in CI.
 It owns a private server socket, configuration, home directory and client
@@ -46,16 +58,19 @@ The cases cover the four G9 examples, both tie-breaks, fixed send order,
 unidentified clients, visible-window `on`, inactive-window `all`, inactive-window
 `on` silence, default bell delivery to both clients and real-binary query failure.
 Unit tests in `test/notification-tmux.test.ts` cover stalled queries, cancellation,
-nonblocking admission and process exit. Missing prerequisites fail on Linux when
-`CI` is true and produce a visible local skip otherwise. The integration check
-proves byte transport, not terminal interpretation or visible presentation.
+nonblocking admission and process exit. The integration check proves byte
+transport, not terminal interpretation or visible presentation.
+All three Linux read-back tests fail on a missing prerequisite when `CI` is
+`true`, `1`, `yes` or `on` after trimming whitespace and ignoring case. With any
+other value or an unset `CI`, a missing prerequisite causes a skip with a visible
+reason.
 
 The narrow `macOS notification push` and `Windows notification push` jobs use
 `macos-15` (arm64) and `windows-2025` (x64). These version-specific labels fix the
 operating-system line, not the image revision. Both jobs have a five-minute
 limit and pin Node 24.18.0. They inherit the read-only workflow permission,
 reuse the Linux action SHAs and install with `npm ci --ignore-scripts`.
-The workflow configures no required-check ruleset.
+Neither job starts a pi session. The workflow configures no required-check ruleset.
 
 The Windows job runs three files in order with ordinary `spec` output visible:
 
@@ -120,8 +135,8 @@ reached its position, not assertion quality. The reviewed command, roster and
 terminal marker placement remain trusted. Node can attribute helper-registered
 results to the helper file. The reporter therefore does not prove exact
 name-to-file ownership against coordinated swaps. It relies on the pinned Node
-structured-event schema and ordinary process isolation. Re-measure the guard
-before changing Node pins or execution flags.
+structured-event schema and ordinary process isolation. Re-measure the
+structured-event schema before changing Node pins or execution flags.
 Both jobs prove push transport and child termination. The macOS job also
 checks native notification retention in the operating system store.
 `test/notification-native-macos-readback.test.ts` uses the exported
@@ -165,13 +180,17 @@ application identity and repeatability on the selected image.
 `test/notification-native-windows-readback.test.ts` calls the exported
 `createNativeNotificationChannel` with `mode: "tui"`, `platform: "win32"` and
 default product environment handling, then prepares and delivers. It requires
-an absolute SystemRoot, its System32 Windows PowerShell executable and the
-exact-name Windows PowerShell Start entry. Missing prerequisites fail on
-Windows even outside CI. The case registers no test on other platforms.
+an absolute SystemRoot, its System32 Windows PowerShell executable and a
+matching registered Start entry. Missing prerequisites fail on Windows even
+outside CI. The case registers no test on other platforms.
 The product disables module autoload and creates `Shell.Application` through
-.NET. It enumerates the Apps folder that `Get-StartApps` uses. The first
-case-insensitive exact name match in folder order supplies the registered
-AppID from its Path. The fixed script uses no cmdlet, alias, import or pipeline.
+.NET. It enumerates the Apps folder that `Get-StartApps` uses. It selects the
+first case-insensitive exact-name `Windows PowerShell` match in folder order.
+If no entry has that name, the product compares each entry's Path with a fixed
+application identity. Windows registers that identity for the system Windows
+PowerShell executable. The product does not inspect shortcut targets. The
+selected entry's Path supplies its AppID.
+The fixed script uses no cmdlet, alias, import or pipeline.
 Notification text enters XML only through text nodes from the two environment
 fields. The five-key environment remains fixed. Windows uses a 10,000 ms
 native attempt limit. Linux and macOS use 5,000 ms.
@@ -183,10 +202,11 @@ Only the five product-permitted Windows environment keys reach that child.
 The reader disables module autoload. It imports Microsoft.PowerShell.Utility
 and StartLayout by absolute paths under SystemRoot. Utility supplies
 `ConvertTo-Json` and the commands used by `Get-StartApps`.
-The reader selects the first case-insensitive exact name match from
-`Get-StartApps`. This identity method is independent of the product's direct
-COM lookup. Each poll AppID must equal the baseline AppID, which success
-reports without a hard-coded identity. Process properties and UTC timestamps
+The reader searches the `Get-StartApps` results for the first case-insensitive
+exact-name `Windows PowerShell` match. If none exists, the reader compares each
+entry's AppID with the same fixed application identity. This lookup is independent
+of the product's direct COM lookup. Each poll AppID must equal the baseline AppID,
+which success reports as observed. Process properties and UTC timestamps
 come from .NET. ServiceController supplies service diagnostics only when its
 assembly is already loaded. Otherwise, diagnostics report it as unavailable.
 No reader command triggers module autoload.
@@ -258,7 +278,12 @@ child errors and any decoded candidate title and body. No diagnostic dumps
 full history. A bounded diagnostic child can recover metadata after a failed
 history child. Every poll reports its number, AppID, toast count and match
 result. Product delivery reports its duration even when later reads fail.
-Success prints the AppID, poll count and delivery duration.
+When neither lookup step selects an entry, the framed diagnostics list up to
+four Start entries whose name or AppID contains `powershell`, ignoring case.
+Each listed name and AppID is capped at 96 UTF-16 code units.
+The diagnostics report the selection step as `exact-name` or `identity` when a
+step selects an entry. Success prints the baseline selection step, AppID, poll
+count and delivery duration.
 The duration runs from the product deliver call to helper exit and reports
 the 10,000 ms Windows native attempt limit for comparison.
 Success and failure diagnostics report `nativeWindowsAttemptTimeoutMs=10000`
@@ -266,6 +291,8 @@ and `warm=true`. The test changes no services, registry, policies,
 notification settings or Focus Assist.
 
 The Windows job checks native toast retention in operating system history.
+Each native case asks the operating system notification service to retain one
+uniquely marked notification. Neither test deletes that notification.
 Store or history retention does not prove visible presentation. Neither job
 proves Windows terminal write ordering. The workflow configures no required-check
 ruleset. Hosted runs must establish toast acceptance and history access on the
@@ -454,7 +481,7 @@ Four drive modes, chosen per rung:
    performs the per-dispatch model **and** effort switch exactly as
    `threads.ts`'s `applyRoute` does (`session.setModel` then
    `session.setThinkingLevel`). Used only by `WK1`, in two phases across two pi
-   processes. In pi 1.5.2, `createAgentSession` creates its default runtime
+   processes. In pi 1.6.0, `createAgentSession` creates its default runtime
    without enabling network catalog refresh. The harness sets `PI_OFFLINE=1`
    as an additional safeguard against model-network access.
 
@@ -983,28 +1010,28 @@ exact current production renders are:
 
 | fixture | paths | portable characters | lines |
 | --- | ---: | ---: | ---: |
-| shipped logical section | 0 | 3803 | 9 |
-| trusted shipped-default doctrine | 5 | 8604 | 72 |
+| shipped logical section | 0 | 4528 | 9 |
+| trusted shipped-default doctrine | 5 | 9329 | 72 |
 | untrusted doctrine | 4 | 2711 | 33 |
-| draft pull requests, shipped policy | 6 | 8674 | 73 |
-| capped workers, shipped policy | 5 | 9951 | 82 |
-| draft plus capped workers | 6 | 10021 | 83 |
-| deferred issues plus capped workers | 5 | 10025 | 83 |
-| routing recommendations plus capped workers | 5 | 10004 | 83 |
-| draft plus deferred issues and capped workers | 6 | 10095 | 84 |
-| draft plus routing recommendations and capped workers | 6 | 10070 | 84 |
-| deferred issues plus routing recommendations and capped workers | 5 | 10078 | 84 |
-| canonical maximal baseline with all workflow options | 6 | 10144 | 85 |
-| maximal baseline with an open change | 6 | 10342 | 86 |
-| maximal baseline with source and legacy root log | 6 | 10572 | 88 |
-| dogfood config and extension roster | 6 | 9269 | 84 |
+| draft pull requests, shipped policy | 6 | 9399 | 73 |
+| capped workers, shipped policy | 5 | 10676 | 82 |
+| draft plus capped workers | 6 | 10746 | 83 |
+| deferred issues plus capped workers | 5 | 10750 | 83 |
+| routing recommendations plus capped workers | 5 | 10729 | 83 |
+| draft plus deferred issues and capped workers | 6 | 10820 | 84 |
+| draft plus routing recommendations and capped workers | 6 | 10795 | 84 |
+| deferred issues plus routing recommendations and capped workers | 5 | 10803 | 84 |
+| canonical maximal baseline with all workflow options | 6 | 10869 | 85 |
+| maximal baseline with an open change | 6 | 11067 | 86 |
+| maximal baseline with source and legacy root log | 6 | 11297 | 88 |
+| dogfood config and extension roster | 6 | 9994 | 84 |
 | 19,400-character policy plus draft, source and legacy log | 6 | 26046 | 86 |
 | same policy plus draft and deferred issues, source and legacy log | 6 | 26120 | 87 |
 | same policy plus routing recommendations, source and legacy log | 5 | 26029 | 86 |
 | same policy plus deferred issues and routing recommendations, source and legacy log | 5 | 26103 | 87 |
 | same policy plus draft and routing recommendations, source and legacy log | 6 | 26095 | 87 |
 | same boundary composition plus deferred issues | 6 | 26169 | 88 |
-| valid shipped policy plus 88 capped tools, source and legacy log | 6 | 28246 | 171 |
+| valid shipped policy plus 88 capped tools, source and legacy log | 6 | 28971 | 171 |
 
 Complete worker writing guidance measures 1161 UTF-8 bytes, including the design-scope exception.
 The permitted non-review preamble measures 2479 bytes.
@@ -1016,10 +1043,10 @@ characters. Each tool name has 64 characters. Each description has 140
 characters. The dogfood fixture reads `.pi/slate.json` and represents its two
 configured extension units.
 
-The canonical 10,144-character baseline uses all four default logical models,
+The canonical 10,869-character baseline uses all four default logical models,
 all three workflow options, and the capped worker roster. With an open change,
-a direct source folder, and a legacy root log, it measures 10,572 characters.
-Its required five-percent value is 11,101. The 26,300 whole-doctrine ceiling
+a direct source folder, and a legacy root log, it measures 11,297 characters.
+Its required five-percent value is 11,862. The 26,300 whole-doctrine ceiling
 keeps that reserve. The exact fixtures cover all eight workflow-option
 combinations.
 
@@ -1040,7 +1067,7 @@ not reserve-bearing canonical baselines.
 
 The over-cap counterfactual keeps the shipped logical policy valid and adds 88
 supported capped worker tools. With an open change, source, and legacy log, its
-28,246 portable characters exceed the ceiling by 1,946 characters.
+28,971 portable characters exceed the ceiling by 2,671 characters.
 This transformed fixture replaces the retired six-copy physical model-row shape.
 It does not assume an old per-row or per-tool increment. Removing the whole-
 doctrine comparison makes the counterfactual pass and therefore breaks the
@@ -1055,8 +1082,8 @@ Check the phase-row table with `test/workflow-context-budget.test.ts`.
 The logical limits remain 19,400 characters and 105 lines. The all-tail limit
 remains 24,600 characters. The whole-doctrine ceiling is 26,300 characters.
 
-The shipped model policy section has a separate limit of 3,994 portable
-characters and 9 lines. The character limit is the measured 3,803 characters
+The shipped model policy section has a separate limit of 4,755 portable
+characters and 9 lines. The character limit is the measured 4,528 characters
 plus five percent reserve, rounded up. The line limit has no reserve.
 A fifth default model needs a new user approval. A higher limit requires a new user
 approval.
@@ -1079,11 +1106,12 @@ coverage, literal-limit enforcement, mutation controls, and publication equality
 literal limits approved by the user on 2026-10-16. The two nested research
 conditional limits were approved on 2026-10-25.
 Classification and recovery funding sets seven ordinary maximum limits independently.
-Research maxima are 151,209 bytes with publishing off and 162,721 with publishing on.
-Publishing-off ordinary maxima are 187,246 bytes in phases 2–4 and 239,275 in phases 5–6.
+Research maxima are 151,934 bytes with publishing off and 163,446 with publishing on.
+Publishing-off ordinary maxima are 187,971 bytes in phases 2–4 and 240,000 in phases 5–6.
+Publishing-off ordinary required limits are 79,389 bytes in phase 1, 115,341 in phases 2–4 and 139,693 in phases 5–6.
 All other stored phase limits stay fixed.
-Research measures 78,078 required and 151,165 maximum bytes.
-The separate research reservation is 78,275 required and 151,209 maximum bytes.
+Research measures 78,803 required and 151,890 maximum bytes.
+The separate research reservation is 79,000 required and 151,934 maximum bytes.
 Independent classification-start literals bound every phase and session coordinate by 566 required and 3,061 maximum added bytes.
 The placement and preservation controls retain their source-stage proofs and session-specific extras.
 Earlier savings cannot fund these increases.
@@ -1412,9 +1440,10 @@ answer after the follow-up.
 | Tools with full writing guidance | 1,493 | 1,563 | 1,589 | 1,679 |
 | Tools with short writing guidance | 875 | 930 | 956 | 1,046 |
 
-All sizes are UTF-8 bytes on Pi 1.5.2. The normal runs measure full and
-tools-only provider objects with timestamps and the saved lines with line
-feeds. The real worker role tests also measure the short form at both points.
+Use Pi 1.6.0 to reproduce these UTF-8 byte counts.
+The normal runs measure full and tools-only provider objects with timestamps
+and the saved lines with line feeds. The real worker role tests also measure
+the short form at both points.
 The context-budget test uses Pi's conversion and a fixed record fixture for
 all three rows. The standalone full
 and short writing forms use 1,180 and 562 bytes including the header. The
@@ -1684,7 +1713,7 @@ signal (`AGENTS.md` § How extension-load failures surface). pi drops an entry i
 in `session_start` appears as an `extension_error` event on stdout only. A tool
 registration that disappears produces **no diagnostic at all**.
 
-The last failure mode needs a positive control, because pinned Pi 1.5.2 offers
+The last failure mode needs a positive control, because pinned Pi 1.6.0 offers
 no rpc command and no CLI flag that lists the registered tools.
 `verification/ci-canary.ts`
 loads beside the checkout, and it prints one
@@ -1743,8 +1772,8 @@ The harness prints a header with the run context, one line for each check, any
 The timing figures above remain historical measurements from 2026-09-04.
 
 ```
-repo  = /home/you/src/main-as-source (02b6bf8)
-pi    = /home/you/src/main-as-source/node_modules/.bin/pi (1.5.2, pinned 1.5.2)
+repo  = /home/you/src/main-as-source (1a2b3c4)
+pi    = /home/you/src/main-as-source/node_modules/.bin/pi (1.6.0, pinned 1.6.0)
 lab   = /tmp/slate-loadcheck.example
 
 CHECK L4                               PASS — the canary observed all three dispatch tools registered: thread, threads, episode
@@ -1921,7 +1950,7 @@ processes: 1 version-pin probe plus 2 rpc sessions.
 
 | id | what it proves |
 | --- | --- |
-| `L1` | pi **exited 0** and loaded the checkout (rpc, offline, empty agent dir, no `models.json` and no `auth.json`, environment scrubbed by name pattern). The verdict names the pattern scrub, and it claims no more than that. The run does **not** deliver an environment with no credentials of any kind: the scrub is a variable-name pattern list, and a credential under an unmatched name reaches the child, as the measured `AWS_ACCESS_KEY_ID` case above shows. What holds is that the run has nothing to spend a credential on. This check is a real signal on pinned Pi 1.5.2, where the covered load failures exit 1 |
+| `L1` | pi **exited 0** and loaded the checkout (rpc, offline, empty agent dir, no `models.json` and no `auth.json`, environment scrubbed by name pattern). The verdict names the pattern scrub, and it claims no more than that. The run does **not** deliver an environment with no credentials of any kind: the scrub is a variable-name pattern list, and a credential under an unmatched name reaches the child, as the measured `AWS_ACCESS_KEY_ID` case above shows. What holds is that the run has nothing to spend a credential on. This check is a real signal on pinned Pi 1.6.0, where the covered load failures exit 1 |
 | `L2` | stderr holds **neither** `Failed to load extension` **nor** `Extension error (`. The check reads both markers, because the first is the channel for a reported load failure and the second is the channel for a hook, which the first misses. Its own verdict line names the two markers and reproduces neither, so a grep of a CI log for either literal finds no line from a run that passed |
 | `L3` | **stdout** holds no `extension_error` event, which is the only signal from a hook that throws in rpc mode |
 | `L4` | the canary saw all three dispatch tools: `thread`, `threads` and `episode`. Nothing else detects their removal |

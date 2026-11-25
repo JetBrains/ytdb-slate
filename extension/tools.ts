@@ -3,10 +3,9 @@
  */
 
 import { readFileSync } from "node:fs";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import { Type, type Static } from "typebox";
 import { renderCompactCall, renderCompactResult, renderThreadCall, renderThreadResult, type DisplayDetails } from "./render.ts";
-import { sanitizeForNotify } from "./notify.ts";
 import {
 	displayThreadType,
 	isModelSpec,
@@ -15,12 +14,12 @@ import {
 	resolveEpisodeFile,
 	renderThreadId,
 	sanitizeDispatchReason,
-	threadTypeMarker,
 	THREAD_TYPE_GLOSSES,
 	THREAD_TYPES,
 	type EpisodeRecord,
 	type EpisodeUsage,
 	type SlateStore,
+	type ThreadRecord,
 } from "./state.ts";
 import { MAX_CONTEXT_EPISODES, type DispatchProgress, type ThreadManager } from "./threads.ts";
 import { JUDGEMENT_THREAD_TYPES } from "./worker.ts";
@@ -59,6 +58,154 @@ function dispatchCostLine(episode: EpisodeRecord): string {
 	const effort = episode.effort ? `@${episode.effort}` : "@unknown effort";
 	const warm = episode.cacheRead !== undefined && episode.cacheRead > 0 ? " | warm" : "";
 	return `Cost: ${partialCost ? "≥" : ""}$${reportedCost.toFixed(4)}${costScope} | tokens: ${quantities.join(", ")} | ended ${model} ${effort}${warm}`;
+}
+
+const THREAD_PAGE_ROWS = 20;
+const MAX_THREAD_CURSOR = "t9007199254740992";
+
+function compareThreadIds(a: string, b: string): number {
+	// Canonical decimal IDs sort by digit count and then by digit value.
+	return a.length - b.length || (a < b ? -1 : a > b ? 1 : 0);
+}
+
+function validateThreadCursor(value: unknown): asserts value is string {
+	if (typeof value !== "string" || value.length > MAX_THREAD_CURSOR.length
+		|| !/^t[1-9][0-9]*$/u.test(value) || compareThreadIds(value, MAX_THREAD_CURSOR) > 0) {
+		throw new Error('Invalid before value. Use a thread ID such as "t9". Omit both before and parentSession to list the current session.');
+	}
+}
+
+function inspectThreadArguments(args: unknown) {
+	try {
+		if (typeof args === "object" && args !== null && !Array.isArray(args)) {
+			const before = Object.getOwnPropertyDescriptor(args, "before");
+			const detail = Object.getOwnPropertyDescriptor(args, "detail");
+			const parentSession = Object.getOwnPropertyDescriptor(args, "parentSession");
+			if ([before, detail, parentSession].every((entry) => !entry || Object.hasOwn(entry, "value"))) {
+				return { before, detail, parentSession };
+			}
+		}
+	} catch {
+		// Proxy inspection can throw. Do not return the proxy's error text.
+	}
+	throw new Error("Invalid threads arguments. Use an object such as {}.");
+}
+
+function threadLabel(value: string, limit: number, quoted = false): string {
+	let text = "";
+	let bytes = 0;
+	let scanned = 0;
+	for (const point of value) {
+		// Bound the work even when the label contains only characters we omit.
+		if (++scanned > limit * 4) return text + "…";
+		if (/[\p{Cc}\p{Bidi_Control}]/u.test(point)) continue;
+		const char = point.replace(/[\p{Zl}\p{Zp}]/u, " ").replace(/\p{Cs}/u, "�");
+		const escaped = quoted && (char === '"' || char === "\\") ? "\\" + char : char;
+		bytes += Buffer.byteLength(escaped, "utf8");
+		if (bytes > limit - 3) return text + "…";
+		text += escaped;
+	}
+	return text;
+}
+
+const ROUTING_LABEL_ESCAPE = /[\s\p{White_Space}\p{Cc}\p{Bidi_Control}\p{Cs}"\\]/u;
+
+function routingLabel(value: string, limit: number): string {
+	if (!ROUTING_LABEL_ESCAPE.test(value)) return threadLabel(value, limit);
+
+	let text = "";
+	let bytes = 0;
+	for (const point of value) {
+		const encoded = JSON.stringify(point).slice(1, -1);
+		const escaped = encoded === point && point !== " " && ROUTING_LABEL_ESCAPE.test(point)
+			? "\\u" + point.charCodeAt(0).toString(16).padStart(4, "0")
+			: encoded;
+		bytes += Buffer.byteLength(escaped, "utf8");
+		if (bytes > limit - 3) return `"${text}…"`;
+		text += escaped;
+	}
+	return `"${text}"`;
+}
+
+function threadPageRow(thread: ThreadRecord, store: SlateStore, getManager: () => ThreadManager, detail: boolean): string {
+	const row = `${thread.id} "${threadLabel(thread.name, 200, true)}" [${thread.status}] type=${displayThreadType(thread.type)}`;
+	const episode = ` — episode: ${thread.episodeId ?? "(none)"}`;
+	if (!detail) return row + episode;
+
+	const last = thread.episodeId === undefined ? undefined : store.episodes.get(thread.episodeId);
+	const marks: string[] = [];
+	if (last?.logicalModel) marks.push(`logical=${routingLabel(last.logicalModel, 80)}`);
+	const requestedModel = isModelSpec(last?.requestedModel) ? last.requestedModel : undefined;
+	if (requestedModel) {
+		const effort = isThinkingLevel(last?.requestedEffort) ? `@${last.requestedEffort}` : "";
+		marks.push(`requested=${routingLabel(requestedModel, 120)}${effort}`);
+	}
+	const reason = sanitizeDispatchReason(last?.reason);
+	if (reason) marks.push(`reason=${JSON.stringify(reason)}`);
+	if (last?.model) {
+		const effort = last.effort ? `@${routingLabel(last.effort, 48)}` : "";
+		const unmeasured = last.effortUnmeasured ? "(unmeasured)" : "";
+		const differs = requestedModel !== undefined && requestedModel !== last.model ? " (different from requested)" : "";
+		marks.push(`last=${routingLabel(last.model, 120)}${effort}${unmeasured}${differs}`);
+	}
+	const live = getManager().liveFailoverModel(thread.id);
+	if (live) marks.push(`live=${routingLabel(live, 120)} (failover)`);
+	const date = new Date(thread.updatedAt);
+	const updated = Number.isNaN(date.getTime()) ? "unavailable" : date.toISOString();
+	const models = marks.length > 0 ? ` ${marks.join(" ")}` : "";
+	return `${row}${models}${episode} — updated ${updated}`;
+}
+
+function validateThreadMode(hasBefore: boolean, parentSession: boolean | undefined): void {
+	if (hasBefore && parentSession === true) {
+		throw new Error("Use either before or parentSession: true, not both.");
+	}
+}
+
+function listThreads(
+	store: SlateStore,
+	getManager: () => ThreadManager,
+	ctx: ExtensionToolContext,
+	{ before, detail, parentSession }: { before?: string; detail?: boolean; parentSession?: boolean },
+) {
+	const count = store.threads.size;
+	if (count === 0) {
+		return { text: "No threads yet. Use the thread tool to create one.", details: { count, failedCount: 0 } };
+	}
+	const sessionId = ctx.sessionManager.getSessionId();
+	const totals = { queued: 0, running: 0, successful: 0, failed: 0, cancelled: 0 };
+	const all = [...store.threads.values()].sort((a, b) => compareThreadIds(b.id, a.id));
+	const current = all.filter((thread) => thread.sessionId === sessionId);
+	for (const thread of all) totals[thread.status]++;
+
+	let rows = current;
+	let mode = "current session";
+	let limit = rows.length;
+	if (before !== undefined) {
+		rows = all.filter((thread) => compareThreadIds(thread.id, before) < 0);
+		limit = THREAD_PAGE_ROWS;
+	} else if (parentSession === true) {
+		const parent = all.find((thread) => thread.sessionId !== sessionId);
+		rows = parent ? all.filter((thread) => thread.sessionId === parent.sessionId) : [];
+		mode = "parent session";
+		limit = parent?.sessionId === undefined ? THREAD_PAGE_ROWS : rows.length;
+	}
+
+	const summary = `Threads: ${count}. Queued: ${totals.queued}. Running: ${totals.running}. Successful: ${totals.successful}. Failed: ${totals.failed}. Cancelled: ${totals.cancelled}. Current session: ${current.length}.`;
+	const page = rows.slice(0, limit);
+	const listing = before === undefined
+		? `${mode}, ${page.length} ${page.length === 1 ? "thread" : "threads"}`
+		: `all sessions, threads older than ${before}${page.length === 0 ? ", 0 threads" : ""}`;
+	const lines = [summary, `Listing: ${listing}.`];
+	for (const thread of page) lines.push(threadPageRow(thread, store, getManager, detail === true));
+	if (before !== undefined && page.length === 0) lines.push("No older threads.");
+	if (page.length < rows.length) {
+		const last = page.at(-1)!;
+		const remaining = all.length - all.indexOf(last) - 1;
+		const nextArgs = JSON.stringify({ before: last.id, detail });
+		lines.push(`Remaining threads: ${remaining}. Next call: threads(${nextArgs})`);
+	}
+	return { text: lines.join("\n"), details: { count, failedCount: totals.failed } };
 }
 
 export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManager: () => ThreadManager): void {
@@ -249,59 +396,60 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 		},
 	});
 
+	const threadsParameters = Type.Object({
+		before: Type.Optional(Type.String({ description: "List up to 20 threads from all sessions that are older than this thread ID." })),
+		parentSession: Type.Optional(Type.Union([Type.Literal(true), Type.Literal(false)], {
+			description: "List threads from the newest earlier session with threads. Do not combine true with before.",
+		})),
+		detail: Type.Optional(Type.Union([Type.Literal(true), Type.Literal(false)], {
+			description: "Show model choices, effort, the reason for the choice, and update times.",
+		})),
+	});
+	const prepareThreadsArguments = (args: unknown): Static<typeof threadsParameters> => {
+		const { before, detail, parentSession } = inspectThreadArguments(args);
+		const prepared: Static<typeof threadsParameters> = {};
+		if (parentSession) {
+			const value: unknown = parentSession.value;
+			if (typeof value !== "boolean") {
+				throw new Error("Invalid parentSession value. Use true or false.");
+			}
+			prepared.parentSession = value;
+		}
+		validateThreadMode(before !== undefined, prepared.parentSession);
+		if (before) {
+			const value: unknown = before.value;
+			validateThreadCursor(value);
+			prepared.before = value;
+		}
+		if (detail) {
+			const value: unknown = detail.value;
+			if (typeof value !== "boolean") {
+				throw new Error("Invalid detail value. Use true or false.");
+			}
+			prepared.detail = value;
+		}
+		return prepared;
+	};
 	pi.registerTool({
 		name: "threads",
 		label: "Threads",
 		renderCall: (args, theme, context) => renderCompactCall("threads", args, theme, context),
 		renderResult: (result, options, theme, context) => renderCompactResult("threads", result, options, theme, context),
 		description:
-			"List worker threads, their status, episodes, activity, and models. " +
-			"type=<type> marks a non-general thread. " +
-			"logical=<name> and reason= show the action selection. " +
-			"requested=<physical-model>@<effort> and last=<physical-model>@<effort> preserve execution facts.",
+			"List worker threads and their episode IDs, newest thread first. " +
+			"By default, list the current session. " +
+			"Set parentSession to true to list the newest earlier session with threads. Slate skips sessions without threads. " +
+			"Slate groups threads without a saved session ID together and lists up to 20 when that group is the parent. " +
+			"Set before to a thread ID to list up to 20 older threads from all sessions. " +
+			"Use only one of before or parentSession: true. Follow the next call to list older threads. " +
+			"Lists and totals use only the thread records available in this session. The totals include the current session count. " +
+			"Set detail to true to see model choices, effort, the reason for the choice, and update times.",
 		promptSnippet: "List worker threads and their episodes",
-		parameters: Type.Object({}),
-		async execute() {
-			const threads = [...store.threads.values()];
-			if (threads.length === 0) {
-				return { content: [{ type: "text", text: "No threads yet. Use the thread tool to create one." }], details: { count: 0 } };
-			}
-			const lines = threads.map((t) => {
-				const episode = t.episodeId ?? "(none)";
-				const typeMarker = threadTypeMarker(displayThreadType(t.type));
-				const marks: string[] = [];
-				// The action's model may differ from the base after an explicit route or failover.
-				const lastEpisode = t.episodeId === undefined ? undefined : store.episodes.get(t.episodeId);
-				const logicalModel = typeof lastEpisode?.logicalModel === "string" ? lastEpisode.logicalModel : undefined;
-				if (logicalModel) marks.push(`logical=${sanitizeForNotify(logicalModel, 80)}`);
-				const requestedModel = isModelSpec(lastEpisode?.requestedModel) ? lastEpisode.requestedModel : undefined;
-				const requestedEffort = isThinkingLevel(lastEpisode?.requestedEffort) ? lastEpisode.requestedEffort : undefined;
-				if (requestedModel) {
-					marks.push(`requested=${sanitizeForNotify(requestedModel, 80)}${requestedEffort ? `@${requestedEffort}` : ""}`);
-				}
-				const requestReason = sanitizeDispatchReason(lastEpisode?.reason);
-				if (requestReason) marks.push(`reason=${JSON.stringify(requestReason)}`);
-				if (lastEpisode?.model) {
-					const differs = requestedModel !== undefined && requestedModel !== lastEpisode.model ? " (different from requested)" : "";
-					marks.push(
-						`last=${sanitizeForNotify(lastEpisode.model, 80)}${lastEpisode.effort ? `@${lastEpisode.effort}` : ""}${
-							lastEpisode.effortUnmeasured ? "(unmeasured)" : ""
-						}${differs}`,
-					);
-				}
-				// AF12: after a model failover the LIVE cached session runs a different model
-				// than the thread's base. The marker disappears when the session is disposed, or
-				// when a dispatch's own ROUTING moves that session — an explicit `model`, or the
-				// thread's base with the router on — since the marker describes the model the
-				// session is ACTUALLY on (CQ20, the same correction CQ14 made in threads.ts; the
-				// one switch that never clears it is the revert, which stands down while the
-				// marker is held). Failover is never persisted to the thread record.
-				const live = getManager().liveFailoverModel(t.id);
-				if (live) marks.push(`live=${live} (failover)`);
-				const models = marks.length > 0 ? ` ${marks.join(" ")}` : "";
-				return `${renderThreadId(t.id)} "${t.name}" [${t.status}]${typeMarker}${models} — episode: ${episode} — updated ${new Date(t.updatedAt).toISOString()}`;
-			});
-			return { content: [{ type: "text", text: lines.join("\n") }], details: { count: threads.length, failedCount: threads.filter((thread) => thread.status === "failed").length } };
+		parameters: threadsParameters,
+		prepareArguments: prepareThreadsArguments,
+		async execute(_toolCallId, args, _signal, _onUpdate, ctx) {
+			const { text, details } = listThreads(store, getManager, ctx, prepareThreadsArguments(args));
+			return { content: [{ type: "text", text }], details };
 		},
 	});
 
@@ -318,8 +466,7 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			const episode = store.episodes.get(params.id);
 			if (!episode) {
-				const known = [...store.episodes.keys()].join(", ") || "none";
-				throw new Error(`Unknown episode "${params.id}". Known episodes: ${known}`);
+				throw new Error("Unknown episode. Use threads to find episode IDs.");
 			}
 			const file = resolveEpisodeFile(ctx.cwd, episode.file);
 			if (file === undefined) throw new Error(`Episode "${params.id}" is no longer a safe readable slate episode file.`);

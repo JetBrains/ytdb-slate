@@ -114,6 +114,7 @@ export function threadTypeMarker(type: ThreadType): string {
 
 export interface ThreadRecord {
 	id: string; // "t1", "t2", ...
+	sessionId?: string;
 	name: string;
 	status: "queued" | "running" | "successful" | "failed" | "cancelled";
 	/** Immutable thread type. */
@@ -499,6 +500,7 @@ export const ADOPTED_SNAPSHOT_FIELDS = {
 
 export const ADOPTED_THREAD_FIELDS = {
 	id: true,
+	sessionId: true,
 	name: true,
 	status: true,
 	type: true,
@@ -548,7 +550,7 @@ export const ADOPTED_EPISODE_FIELDS = {
  * So the checklist is also enforced against what the sanitizer actually BUILT: a field
  * the snapshot carries, that adoption claims to know, that the built record lacks, and
  * that was not deliberately refused (those are already reported by name) is a slate bug,
- * and it says so. Cheap — one pass over ten keys per record — and it fires on the first
+ * and it says so. It checks the known fields once per record and fires on the first
  * restore after the omission rather than whenever the missing data is next needed.
  *
  * Exported for the same reason as the checklists: a checker can drive it with a record
@@ -626,6 +628,7 @@ export function sanitizeThreadRecord(raw: unknown, repairs: string[]): ThreadRec
 	const now = Date.now();
 	const built: ThreadRecord = {
 		id,
+		sessionId: keep("sessionId", t.sessionId, str(t.sessionId) || undefined),
 		name,
 		status: adoptedStatus,
 		type,

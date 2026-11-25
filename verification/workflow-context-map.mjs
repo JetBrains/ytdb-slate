@@ -1,6 +1,7 @@
 // Reviewed source-read assignments. Initial limits were approved on 2026-10-16.
 // Seven ordinary maxima use the row's start plus its approved recovery share.
-// All required limits and other maximum limits retain their approved literals.
+// The publishing-off ordinary required limits through phase 6 use their approved raises.
+// Other limits retain their approved literals.
 // The initial five-percent reserve rule does not apply to this approved raise.
 export const phases = ["Research", "Risk assessment", "Design validation", "Focus reconfirmation", "Adversarial design review", "Final design approval", "Track loop", "Final acceptance", "Delivery"];
 export const lifecycle = ["research.", "assess and record all eleven risk lines.", "design and validate for a multi-track change, a proved DESIGN-TRIGGERING area, or a per-track estimate above 100 counted lines.", "when a design exists, reconfirm the focus list against the validated design.", "when a design exists, run one adversarial design review for each proved DESIGN-TRIGGERING area that has not reviewed the applicable design.", "when a design exists, obtain final design approval.", "run the track loop.", "obtain blocking final acceptance.", "deliver."];
@@ -86,27 +87,27 @@ export const conditionalSets = [
   ["Record exception", ["RECORD_WRITE_RECOVERY_DOC"]],
 ];
 export const limits = {
-  "1 off ordinary": [78664, 151209],
+  "1 off ordinary": [79389, 151934],
   "1 off nested": [129352, 227750],
-  "1 on ordinary": [92915, 162721],
+  "1 on ordinary": [92915, 163446],
   "1 on nested": [146196, 244594],
-  "2 off ordinary": [114616, 187246],
+  "2 off ordinary": [115341, 187971],
   "2 off nested": [167897, 236534],
   "2 on ordinary": [131460, 200097],
   "2 on nested": [184741, 253378],
-  "3 off ordinary": [114616, 187246],
+  "3 off ordinary": [115341, 187971],
   "3 off nested": [167897, 236534],
   "3 on ordinary": [131460, 200097],
   "3 on nested": [184741, 253378],
-  "4 off ordinary": [114616, 187246],
+  "4 off ordinary": [115341, 187971],
   "4 off nested": [167897, 236534],
   "4 on ordinary": [131460, 200097],
   "4 on nested": [184741, 253378],
-  "5 off ordinary": [138968, 239275],
+  "5 off ordinary": [139693, 240000],
   "5 off nested": [192249, 290059],
   "5 on ordinary": [155812, 253621],
   "5 on nested": [209093, 306903],
-  "6 off ordinary": [138968, 239275],
+  "6 off ordinary": [139693, 240000],
   "6 off nested": [192249, 290059],
   "6 on ordinary": [155812, 253621],
   "6 on nested": [209093, 306903],

@@ -22,6 +22,7 @@ import { createHash } from "node:crypto";
 
 function context(cwd: string): ExtensionContext {
   return {
+    sessionManager: { getSessionId: () => "worker-lifecycle" },
     cwd,
     hasUI: false,
     isProjectTrusted: () => true,

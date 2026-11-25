@@ -12,7 +12,7 @@ import { formBlocks, implementationInputProblems, sameBlocks, wholeImplementatio
 
 const runtime = createLogicalRuntime({ trusted: true, projectConfig: { router: { models: { include: [], add: [{ model: "fixture", capabilityRating: 50, effort: "off", costRating: 50, preferredProvider: "test", providers: { test: "worker" }, guidelines: [], cautions: [] }] } } } });
 const admittedRuntime = Object.freeze({ ...runtime, validateRoute: async () => ({ ok: true } as const) });
-const ctx = { cwd: process.cwd(), modelRegistry: { find: () => ({ provider: "test", id: "worker" }), hasConfiguredAuth: () => true, getAvailable: async () => [] } } as unknown as ExtensionContext;
+const ctx = { sessionManager: { getSessionId: () => "review-perspectives" }, cwd: process.cwd(), modelRegistry: { find: () => ({ provider: "test", id: "worker" }), hasConfiguredAuth: () => true, getAvailable: async () => [] } } as unknown as ExtensionContext;
 const base = { task: "review this approved range", type: "reviewer", model: "fixture", reason: "review" } as const;
 function harness(read?: (file: string) => string) {
   const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);

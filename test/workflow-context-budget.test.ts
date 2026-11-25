@@ -21,148 +21,148 @@ import { phases, lifecycle, scenarios, reads, referenceOnly, dependencies, condi
 // Literal child-start totals do not borrow the earlier placement saving.
 const preservationStart: Record<string, number[]> = {
  "1 off ordinary": [
-  77710,
-  148149
+  78435,
+  148874
  ],
  "1 off nested": [
-  92950,
-  163389
+  93675,
+  164114
  ],
  "1 on ordinary": [
-  89222,
-  159661
+  89947,
+  160386
  ],
  "1 on nested": [
-  104462,
-  174901
+  105187,
+  175626
  ],
  "2 off ordinary": [
-  113747,
-  184186
+  114472,
+  184911
  ],
  "2 off nested": [
-  128987,
-  199426
+  129712,
+  200151
  ],
  "2 on ordinary": [
-  125259,
-  195698
+  125984,
+  196423
  ],
  "2 on nested": [
-  140499,
-  210938
+  141224,
+  211663
  ],
  "3 off ordinary": [
-  113747,
-  184186
+  114472,
+  184911
  ],
  "3 off nested": [
-  128987,
-  199426
+  129712,
+  200151
  ],
  "3 on ordinary": [
-  125259,
-  195698
+  125984,
+  196423
  ],
  "3 on nested": [
-  140499,
-  210938
+  141224,
+  211663
  ],
  "4 off ordinary": [
-  113747,
-  184186
+  114472,
+  184911
  ],
  "4 off nested": [
-  128987,
-  199426
+  129712,
+  200151
  ],
  "4 on ordinary": [
-  125259,
-  195698
+  125984,
+  196423
  ],
  "4 on nested": [
-  140499,
-  210938
+  141224,
+  211663
  ],
  "5 off ordinary": [
-  137900,
-  236215
+  138625,
+  236940
  ],
  "5 off nested": [
-  153140,
-  251455
+  153865,
+  252180
  ],
  "5 on ordinary": [
-  149412,
-  247727
+  150137,
+  248452
  ],
  "5 on nested": [
-  164652,
-  262967
+  165377,
+  263692
  ],
  "6 off ordinary": [
-  137900,
-  236215
+  138625,
+  236940
  ],
  "6 off nested": [
-  153140,
-  251455
+  153865,
+  252180
  ],
  "6 on ordinary": [
-  149412,
-  247727
+  150137,
+  248452
  ],
  "6 on nested": [
-  164652,
-  262967
+  165377,
+  263692
  ],
  "7 off ordinary": [
-  161012,
-  263919
+  161737,
+  264644
  ],
  "7 off nested": [
-  176252,
-  263919
+  176977,
+  264644
  ],
  "7 on ordinary": [
-  172524,
-  275431
+  173249,
+  276156
  ],
  "7 on nested": [
-  187764,
-  275431
+  188489,
+  276156
  ],
  "8 off ordinary": [
-  161012,
-  263919
+  161737,
+  264644
  ],
  "8 off nested": [
-  176252,
-  263919
+  176977,
+  264644
  ],
  "8 on ordinary": [
-  172524,
-  275431
+  173249,
+  276156
  ],
  "8 on nested": [
-  187764,
-  275431
+  188489,
+  276156
  ],
  "9 off ordinary": [
-  161012,
-  263919
+  161737,
+  264644
  ],
  "9 off nested": [
-  176252,
-  263919
+  176977,
+  264644
  ],
  "9 on ordinary": [
-  172524,
-  275431
+  173249,
+  276156
  ],
  "9 on nested": [
-  187764,
-  275431
+  188489,
+  276156
  ]
 };
 test("preservation share controls every phase and session coordinate", async () => {
@@ -273,42 +273,42 @@ function membership(ids: Record<string, string>): void {
 }
 // Exact accumulated totals also anchor session-entry and continuation measurements.
 const acceptedStartTotals: Record<string, [number, number]> = {
-  "1 off ordinary": [76511, 145475],
-  "1 off nested": [91745, 160709],
-  "1 on ordinary": [88023, 156987],
-  "1 on nested": [103257, 172221],
-  "2 off ordinary": [112548, 181512],
-  "2 off nested": [127782, 196746],
-  "2 on ordinary": [124060, 193024],
-  "2 on nested": [139294, 208258],
-  "3 off ordinary": [112548, 181512],
-  "3 off nested": [127782, 196746],
-  "3 on ordinary": [124060, 193024],
-  "3 on nested": [139294, 208258],
-  "4 off ordinary": [112548, 181512],
-  "4 off nested": [127782, 196746],
-  "4 on ordinary": [124060, 193024],
-  "4 on nested": [139294, 208258],
-  "5 off ordinary": [136701, 233541],
-  "5 off nested": [151935, 248775],
-  "5 on ordinary": [148213, 245053],
-  "5 on nested": [163447, 260287],
-  "6 off ordinary": [136701, 233541],
-  "6 off nested": [151935, 248775],
-  "6 on ordinary": [148213, 245053],
-  "6 on nested": [163447, 260287],
-  "7 off ordinary": [159813, 261239],
-  "7 off nested": [175047, 261239],
-  "7 on ordinary": [171325, 272751],
-  "7 on nested": [186559, 272751],
-  "8 off ordinary": [159813, 261239],
-  "8 off nested": [175047, 261239],
-  "8 on ordinary": [171325, 272751],
-  "8 on nested": [186559, 272751],
-  "9 off ordinary": [159813, 261239],
-  "9 off nested": [175047, 261239],
-  "9 on ordinary": [171325, 272751],
-  "9 on nested": [186559, 272751],
+  "1 off ordinary": [77236, 146200],
+  "1 off nested": [92470, 161434],
+  "1 on ordinary": [88748, 157712],
+  "1 on nested": [103982, 172946],
+  "2 off ordinary": [113273, 182237],
+  "2 off nested": [128507, 197471],
+  "2 on ordinary": [124785, 193749],
+  "2 on nested": [140019, 208983],
+  "3 off ordinary": [113273, 182237],
+  "3 off nested": [128507, 197471],
+  "3 on ordinary": [124785, 193749],
+  "3 on nested": [140019, 208983],
+  "4 off ordinary": [113273, 182237],
+  "4 off nested": [128507, 197471],
+  "4 on ordinary": [124785, 193749],
+  "4 on nested": [140019, 208983],
+  "5 off ordinary": [137426, 234266],
+  "5 off nested": [152660, 249500],
+  "5 on ordinary": [148938, 245778],
+  "5 on nested": [164172, 261012],
+  "6 off ordinary": [137426, 234266],
+  "6 off nested": [152660, 249500],
+  "6 on ordinary": [148938, 245778],
+  "6 on nested": [164172, 261012],
+  "7 off ordinary": [160538, 261964],
+  "7 off nested": [175772, 261964],
+  "7 on ordinary": [172050, 273476],
+  "7 on nested": [187284, 273476],
+  "8 off ordinary": [160538, 261964],
+  "8 off nested": [175772, 261964],
+  "8 on ordinary": [172050, 273476],
+  "8 on nested": [187284, 273476],
+  "9 off ordinary": [160538, 261964],
+  "9 off nested": [175772, 261964],
+  "9 on ordinary": [172050, 273476],
+  "9 on nested": [187284, 273476],
 };
 // Approved limit literals, independent of the current data map.
 const acceptedStartLimits: Record<string, [number, number]> = {
@@ -358,24 +358,24 @@ const placementTotals = Object.fromEntries(Object.entries(acceptedStartTotals)
 
 // Independent classification starts exclude savings from earlier stages.
 const classificationStart: Record<string, [number, number]> = {
-  "1 off ordinary": [77709, 148148], "1 off nested": [92949, 163388],
-  "1 on ordinary": [89221, 159660], "1 on nested": [104461, 174900],
-  "2 off ordinary": [113746, 184185], "2 off nested": [128986, 199425],
-  "2 on ordinary": [125258, 195697], "2 on nested": [140498, 210937],
-  "3 off ordinary": [113746, 184185], "3 off nested": [128986, 199425],
-  "3 on ordinary": [125258, 195697], "3 on nested": [140498, 210937],
-  "4 off ordinary": [113746, 184185], "4 off nested": [128986, 199425],
-  "4 on ordinary": [125258, 195697], "4 on nested": [140498, 210937],
-  "5 off ordinary": [137899, 236214], "5 off nested": [153139, 251454],
-  "5 on ordinary": [149411, 247726], "5 on nested": [164651, 262966],
-  "6 off ordinary": [137899, 236214], "6 off nested": [153139, 251454],
-  "6 on ordinary": [149411, 247726], "6 on nested": [164651, 262966],
-  "7 off ordinary": [161011, 263918], "7 off nested": [176251, 263918],
-  "7 on ordinary": [172523, 275430], "7 on nested": [187763, 275430],
-  "8 off ordinary": [161011, 263918], "8 off nested": [176251, 263918],
-  "8 on ordinary": [172523, 275430], "8 on nested": [187763, 275430],
-  "9 off ordinary": [161011, 263918], "9 off nested": [176251, 263918],
-  "9 on ordinary": [172523, 275430], "9 on nested": [187763, 275430],
+  "1 off ordinary": [78434, 148873], "1 off nested": [93674, 164113],
+  "1 on ordinary": [89946, 160385], "1 on nested": [105186, 175625],
+  "2 off ordinary": [114471, 184910], "2 off nested": [129711, 200150],
+  "2 on ordinary": [125983, 196422], "2 on nested": [141223, 211662],
+  "3 off ordinary": [114471, 184910], "3 off nested": [129711, 200150],
+  "3 on ordinary": [125983, 196422], "3 on nested": [141223, 211662],
+  "4 off ordinary": [114471, 184910], "4 off nested": [129711, 200150],
+  "4 on ordinary": [125983, 196422], "4 on nested": [141223, 211662],
+  "5 off ordinary": [138624, 236939], "5 off nested": [153864, 252179],
+  "5 on ordinary": [150136, 248451], "5 on nested": [165376, 263691],
+  "6 off ordinary": [138624, 236939], "6 off nested": [153864, 252179],
+  "6 on ordinary": [150136, 248451], "6 on nested": [165376, 263691],
+  "7 off ordinary": [161736, 264643], "7 off nested": [176976, 264643],
+  "7 on ordinary": [173248, 276155], "7 on nested": [188488, 276155],
+  "8 off ordinary": [161736, 264643], "8 off nested": [176976, 264643],
+  "8 on ordinary": [173248, 276155], "8 on nested": [188488, 276155],
+  "9 off ordinary": [161736, 264643], "9 off nested": [176976, 264643],
+  "9 on ordinary": [173248, 276155], "9 on nested": [188488, 276155],
 };
 // Compare the four-model doctrine with the doctrine in the fixed classification inputs.
 const workflowDoctrineDelta = -772;
@@ -443,17 +443,18 @@ test("placement keeps exception membership, phase shares and literal worker ceil
 });
 
 const checkChildCeiling = (required: number, maximum: number) => {
-  checkLimit(required, 78275, "child required reservation");
-  checkLimit(maximum, 151209, "child maximum reservation");
+  checkLimit(required, 79000, "child required reservation");
+  checkLimit(maximum, 151934, "child maximum reservation");
 };
 function exactLimits(key: string, pair: number[]): void {
   const maximums: Record<string, number> = {
-    "1 off ordinary": 151209, "1 on ordinary": 162721,
-    "2 off ordinary": 187246, "3 off ordinary": 187246, "4 off ordinary": 187246,
-    "5 off ordinary": 239275, "6 off ordinary": 239275,
+    "1 off ordinary": 151934, "1 on ordinary": 163446,
+    "2 off ordinary": 187971, "3 off ordinary": 187971, "4 off ordinary": 187971,
+    "5 off ordinary": 240000, "6 off ordinary": 240000,
   };
   assert.deepEqual(pair, acceptedStartLimits[key]!.map((n, side) => side === 1 ? maximums[key] ?? n
-    : n + (key === "1 off ordinary" ? deliveredGrowth : 0)), `exact approved raise ${key}`);
+    : n + (key === "1 off ordinary" ? deliveredGrowth : 0)
+      + (/^[1-6] off ordinary$/.test(key) ? 725 : 0)), `exact approved raise ${key}`);
 }
 function checkLimit(value: number, limit: number, label: string): void {
   assert.ok(Number.isInteger(limit) && value <= limit, `${label}: total ${value}, limit ${limit}, excess ${value - limit}`);
@@ -561,10 +562,13 @@ function table(rows: string[], costs: string[], entries: string[]): string {
     "They are 227,750 bytes / 56,938 estimated tokens with publishing off and",
     "244,594 bytes / 61,149 estimated tokens with publishing on.",
     "The fixed historical safe-write raise G is 2,593 bytes.",
-    "Only exceeded stored limits become the row's start total plus its approved share. All other limits stay fixed.",
+    "The router caution text in the startup doctrine adds 725 bytes to each row start.",
+    "A stored limit is 725 bytes higher if the measured total with the cautions exceeds the limit without them.",
+    "Each reservation equals its row start plus its approved share.",
+    "All other limits stay fixed.",
     "The classification and recovery allowance applies independently to each required and maximum row.",
-    "Research candidate ceilings are 78,275 required and 151,209 maximum bytes.",
-    "Actual research totals are 78,078 required and 151,165 maximum bytes.",
+    "Research candidate ceilings are 79,000 required and 151,934 maximum bytes.",
+    "Actual research totals are 78,803 required and 151,890 maximum bytes.",
     "Each phase and session row permits at most 566 required and 3,061 maximum bytes above the classification and recovery start. No sibling saving transfers.",
     "The protected pool owns 211 bytes (187 + 5 + 17 + 2). This ownership adds no measured headroom. Unused share moves only by recorded user decision.",
     "",
@@ -687,7 +691,7 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
     sources[documentName(exported[id]!)] = union(entries.flatMap((r) => sections(source(id), r[4]))).map(([a, b]) => source(id).slice(a, b)).join("");
   }
   const doctrines = await Promise.all([render(false), render(true)]);
-  assert.deepEqual(doctrines.map((text) => bytes(text.split(directory).join(""))), [8802, 8872]);
+  assert.deepEqual(doctrines.map((text) => bytes(text.split(directory).join(""))), [9527, 9597]);
   doctrines.forEach((text, i) => { sources[`doctrine-${i}`] = text; });
   sources["maps.md"] = source("MAPS_DOC").split("\n").find((line) => line.includes("for shared forms."))!;
   sources["context-budget.md"] = source("CONTEXT_BUDGET_DOC").split("\n").filter((line) =>
@@ -701,9 +705,9 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
     }
   }
   const fundedMaximums: Record<string, number> = {
-    "1 off ordinary": 151209, "1 on ordinary": 162721,
-    "2 off ordinary": 187246, "3 off ordinary": 187246,
-    "4 off ordinary": 187246, "5 off ordinary": 239275, "6 off ordinary": 239275,
+    "1 off ordinary": 151934, "1 on ordinary": 163446,
+    "2 off ordinary": 187971, "3 off ordinary": 187971,
+    "4 off ordinary": 187971, "5 off ordinary": 240000, "6 off ordinary": 240000,
   };
   for (const [key, approved] of Object.entries(fundedMaximums)) {
     assert.equal(limits[key][1], approved, key);
@@ -711,8 +715,8 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
     checkLimit(approved, limits[key][1], key);
     assert.throws(() => checkLimit(approved + 1, limits[key][1], key));
   }
-  assert.deepEqual(limits["1 off ordinary"], [78664, 151209]);
-  assert.deepEqual([78664 - 77709, 151209 - 148148], [955, 3061]);
+  assert.deepEqual(limits["1 off ordinary"], [79389, 151934]);
+  assert.deepEqual([79389 - 78434, 151934 - 148873], [955, 3061]);
   for (const delta of [-1, 1]) for (const side of [0, 1]) {
     const pair = [...limits["1 off ordinary"]];
     pair[side] += delta;
@@ -767,27 +771,27 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
     checkLimit(maximum, pair[1], `design-track maximum ${scenario}`);
     return `| ${publishing} | ${required} | ${tokens(required)} | ${maximum} | ${tokens(maximum)} | ${pair[1]} | ${tokens(pair[1])} |`;
   });
-  assert.deepEqual(measured[0], { key: "1 off ordinary", requiredBytes: 78078, maximumBytes: 151165, proposed: [81982, 158724] });
+  assert.deepEqual(measured[0], { key: "1 off ordinary", requiredBytes: 78803, maximumBytes: 151890, proposed: [82744, 159485] });
   checkChildCeiling(measured[0].requiredBytes, measured[0].maximumBytes);
   checkLimit(bytes(source("REVIEW_RULES_DOC")), 24203, "review rules child ceiling");
   assert.throws(() => checkLimit(24204, 24203, "review rules child ceiling"), /excess 1/);
-  checkChildCeiling(78274, 151208);
-  checkChildCeiling(78275, 151209);
-  assert.ok(source("CONTEXT_BUDGET_DOC").includes("ceilings are 78,275 required and 151,209 maximum bytes."));
+  checkChildCeiling(78999, 151933);
+  checkChildCeiling(79000, 151934);
+  assert.ok(source("CONTEXT_BUDGET_DOC").includes("ceilings are 79,000 required and 151,934 maximum bytes."));
   assert.ok(source("CONTEXT_BUDGET_DOC").includes("G is 2,593 bytes."));
   const budget = source("CONTEXT_BUDGET_DOC");
   const ownership = "The protected pool owns 211 bytes (187 + 5 + 17 + 2). This ownership adds no measured headroom.";
   assert.equal(budget.split(ownership).length - 1, 2);
   assert.match(budget, /reserved for later workflow documentation\.\nThe protected pool owns/);
   assert.doesNotMatch(budget, /retains 187 bytes|allocates 15 of 202 bytes/);
-  assert.throws(() => checkChildCeiling(78276, 144496), /child required reservation/);
-  assert.throws(() => checkChildCeiling(75532, 151210), /child maximum reservation/);
+  assert.throws(() => checkChildCeiling(79001, 144496), /child required reservation/);
+  assert.throws(() => checkChildCeiling(75532, 151935), /child maximum reservation/);
   checkLimit(75856, limits["1 off ordinary"][0], "wider required control");
   checkLimit(144492, limits["1 off ordinary"][1], "wider maximum control");
-  assert.throws(() => checkChildCeiling(78276, 151209), /child required reservation/);
-  assert.throws(() => checkChildCeiling(78275, 151210), /child maximum reservation/);
+  assert.throws(() => checkChildCeiling(79001, 151934), /child required reservation/);
+  assert.throws(() => checkChildCeiling(79000, 151935), /child maximum reservation/);
   const publication = table(rows, costs, entries);
-  assert.equal(bytes(publication), 12273, "measured publication bytes");
+  assert.equal(bytes(publication), 12443, "measured publication bytes");
   if (process.env.SLATE_PHASE_INSPECT === "1") console.log(JSON.stringify({ measured, references: scan(sources), publication, excluded, costs }));
   assert.equal(Object.keys(limits).length, 36);
   assert.equal(rows.length, 36);
@@ -1109,11 +1113,11 @@ test("session entry sets, continuation, and transfer controls", { timeout: 10000
 });
 
 test("approved research limits reject further growth", () => {
-  assert.deepEqual(limits["1 off ordinary"], [78664, 151209]);
-  assert.doesNotThrow(() => checkLimit(78664, 78664, "required boundary"));
-  assert.doesNotThrow(() => checkLimit(151209, 151209, "maximum boundary"));
-  assert.throws(() => checkLimit(78665, 78664, "required overflow"), /excess 1/);
-  assert.throws(() => checkLimit(151210, 151209, "maximum overflow"), /excess 1/);
+  assert.deepEqual(limits["1 off ordinary"], [79389, 151934]);
+  assert.doesNotThrow(() => checkLimit(79389, 79389, "required boundary"));
+  assert.doesNotThrow(() => checkLimit(151934, 151934, "maximum boundary"));
+  assert.throws(() => checkLimit(79390, 79389, "required overflow"), /excess 1/);
+  assert.throws(() => checkLimit(151935, 151934, "maximum overflow"), /excess 1/);
 });
 
 test("both original-base Git helpers isolate German parent settings", { timeout: 10000 }, () => {

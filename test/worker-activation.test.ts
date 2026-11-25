@@ -96,7 +96,7 @@ async function fixture(run: (ctx: ExtensionContext, path: string, declarations: 
         stream.push({ type: 'done', reason: message.stopReason as 'stop' | 'toolUse', message }); stream.end(); return stream;
       },
     });
-    const ctx = { cwd: root, hasUI: false, isProjectTrusted: () => true,
+    const ctx = { sessionManager: { getSessionId: () => "worker-activation" }, cwd: root, hasUI: false, isProjectTrusted: () => true,
       modelRegistry: new ModelRegistry(host), model: host.getModel('activation', 'worker') } as unknown as ExtensionContext;
     await run(ctx, path, declarations);
   } finally {
@@ -360,7 +360,7 @@ if (mode) {
         const updated = new Promise<void>(resolve => { update = resolve; });
         let finished = false, nested = 0;
         session.subscribe(event => {
-          // pi 1.5.2 dist/extensions/codemode/execute.js:445-485 publishes
+          // pi 1.6.0 dist/extensions/codemode/execute.js:445-485 publishes
           // the first update before synchronous waiter registration. Resolve
           // only here, then await before settlement. Never abort in the handler.
           if (event.type === 'tool_execution_update' && event.toolCallId === 'activation-call') update();

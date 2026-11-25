@@ -188,7 +188,7 @@ test("public dispatch enforces maxConcurrent across different threads", { timeou
       return { session, baseline: {} };
     };
 
-    const ctx = { cwd: root, modelRegistry: {
+    const ctx = { sessionManager: { getSessionId: () => "thread-manager" }, cwd: root, modelRegistry: {
       find: (provider: string, id: string) => provider === "test" && id === "worker" ? { provider, id, reasoning: true, thinkingLevelMap: { max: "max" } } : undefined,
       getApiKeyAndHeaders: async () => ({ ok: true, apiKey: "test-only" }),
     } } as unknown as ExtensionContext;
