@@ -40,7 +40,7 @@ Each subtree root receives its own high-level design and independent risk assess
 A multi-track change requires a high-level design.
 An estimate above 100 counted lines and a proved DESIGN-TRIGGERING area remain
 separate design triggers.
-Design-track designs have no size cap.
+Design tracks govern direct children only.
 Each design track completes the gates of a nested multi-track change.
 Each code track keeps its independent gates.
 Use [track-workflow.md](track-workflow.md) § Confirmation gate for user-decision reuse.

@@ -1,15 +1,12 @@
 # Slate review rules
 
-These rules govern machine review of worker-produced changes. Review threads
-are created dynamically. The orchestrator composes them from the track's proved focus areas and the implementer's approximate track size.
+These rules govern machine review of worker changes. The orchestrator creates review threads as needed from proved focus areas and the implementer's approximate track size.
 
-Every review uses a fresh thread with type `reviewer` or `adversarial`. A
-reviewer does not edit reviewed artifacts. The common review policy permits
-only the reviewer's own writing-checker diff. Independent reviewers run in parallel.
+Use a fresh `reviewer` or `adversarial` thread per review. Never edit reviewed artifacts. The common review policy permits only the reviewer's writing-checker diff. Run independent reviewers in parallel.
 
 ### Reviewer input contract
 
-No reviewer may receive or directly read status files, leftover record temporary files, any research log, their references or extracts, implementer reports, private orchestrator triage, or implementer reasoning. This covers early, ordinary and design-track logs. Do not seek these sources through repository tools. Private triage means orchestrator deliberation and implementation rationale. Implementer reasoning means an implementer's private reasoning.
+Reviewers never receive, read or seek status files, leftover record temporary files, research logs (early, ordinary or design-track), their references or extracts, implementer reports, task notes or extracts, separate note references, private triage or implementer reasoning. Note paths in authorized whole designs or maps are metadata. Never follow them. Private triage means orchestrator deliberation and rationale for implementation. Implementer reasoning is an implementer's private reasoning.
 
 These restrictions govern every review role below. Ordinary repository and library evidence needed for the assignment remains available beyond changed files.
 
@@ -27,7 +24,7 @@ Only stuck-fix consultation may receive implementer episodes under § Stuck-fix 
 
 The supplied action temporary folder permits only the reviewer's own writing-checker diff and adds no reviewer input. A reviewer never lists tmp/ or reads another action's folder.
 
-A design adversary judges the whole approved high-level design, not each track separately, against slate's simplest-solution requirement: the fewest changes that preserve every approved goal, product and implementation quality, and required gate. This duty adds no artifact, phase or gate.
+A design adversary tests the whole approved high-level design, not each track separately, for the simplest solution: the fewest changes that keep all approved goals, product and implementation quality, and required gates. This duty adds no artifact, phase or gate. Judge parent component contracts and boundaries, not every descendant's mechanism.
 
 Every reviewer uses the [common review policy](review-common-policy.md) for writing checks, evidence, severity, identifiers, and output format. Resolve its writing-checker path from the installed package as `../extension/writing-check.mjs`. Resolve its writing-guidance path as `writing-guidance.md` beside the policy. Manual reviews use this input contract, the common policy and applicable charter. Name [maps.md](maps.md) in authorized map-checking tasks without reading it.
 

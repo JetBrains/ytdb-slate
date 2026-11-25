@@ -253,6 +253,7 @@ const WRITING_REQUIREMENT_LINES = [
 	"",
 	"Design requirements:",
 	...DESIGN_REQUIREMENTS.map((requirement) => `- ${requirement.text}`),
+	"- Give diagrams, tables and prose equal value. Choose the clearest set.",
 	"",
 	WRITING_SCOPE_EXCLUSION,
 ];
@@ -265,7 +266,7 @@ function renderFindingsSection(summary: WritingFindingSummary | undefined): stri
 		...(summary.failQuotation ? [`- Fail (${summary.failCount}): ${summary.failQuotation}`] : []),
 		...(summary.styleQuotation ? [`- Style (${summary.styleCount}): ${summary.styleQuotation}`] : []),
 		"A finding is a signal, not a verdict.",
-		"Split a long sentence, keep the logical connection explicit, name each subject, and avoid disconnected fragments.",
+		"Split long sentences. Link ideas explicitly. Name each subject. Avoid disconnected fragments.",
 		"",
 	];
 }

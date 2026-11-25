@@ -37,24 +37,35 @@ fixes whenever the user requests them. It verifies their range when one exists
 and marks the boundary. The implementer produces the low-level design and
 implements it as one integrated action.
 
-Every high-level design states the intention, goals, non-goals, approach, key
-decisions, rejected alternatives, risks, scope boundary, and open questions.
-Design authors include helpful component or data-flow diagrams.
-The orchestrator uses tables, neutral pseudocode or small diagrams where helpful in designs, plans, packages and decision questions.
-Design and orchestrator-presentation diagrams have topic titles and state arrow meaning.
-The orchestrator names the maps.md path beside this document in every map-writing or map-composing worker task.
-It does not read the reference. The design stays high
-level. It names no file path, method signature, or line number.
+Give design authors the summary, action type, decision inputs and task read limits.
+Name [design-format.md](design-format.md) for design writing, [maps.md](maps.md)
+for map writing or composition. Never read either, even on worker failure.
 
-A high-level design states what must be true and why. A low-level design states
-how the code achieves it. Apply the abstraction test: would this statement stay
-true if the implementer chose a different reasonable implementation? A
-statement that stays true is high-level. A statement that stops being true is
-low-level. A size limit the result must respect, a behaviour a user can
-observe, and a compatibility requirement for an exported format pass the test.
-A line number, a function name, an exact string literal, a rename, and an
-arithmetic result computed inside one check fail it. Low-level material is not
-discarded. It belongs in the implementer report.
+Use the abstraction test in design assessment and triage. High-level statements
+say what must hold and why under any reasonable implementation. Low-level
+statements say how the chosen implementation works. Keep low-level material
+in the implementer report. Designs name no paths, method signatures or lines.
+
+A model is a concept, abstraction, representation or rule set that describes the system. Reuse models first. Use one model per concept. Each model fits all its uses. List special cases. If two models coexist for one concept, state their boundary, how to translate and when the older one ends. Explain why the shared model cannot serve a use before adding a specialized model.
+
+In presentations, plans, packages and decision questions, give text, tables,
+diagrams and neutral pseudocode equal value. Choose the clearest set.
+Pseudocode describes a procedure without executable syntax. Explain diagrams and
+pseudocode in text. Title diagrams and explain arrows. Use top-level Mermaid for
+components, data flow, sequences, states, pipelines and argument structure.
+Allow only flowchart (prefer TD), sequenceDiagram, stateDiagram-v2, classDiagram
+and erDiagram. Use under 40 nodes and labels under 28 characters. No classDef,
+style or linkStyle.
+
+Report every omitted map question and inadequate code-track detail.
+Treat omitted baseline questions as unanswered. Narrow or split scope to resolve them where possible.
+Record a reason if you reject the design author's conversion proposal. Judge if insufficient detail warrants a split.
+Never split for implementation-map length.
+Keep gates. Guide design-track authors on goal and component detail as needed.
+
+Authors supply task notes before implementation. Designs and maps link to them.
+Implementers copy them into the report on entry. Follow the review contract.
+Never follow note paths in review.
 
 When an approved high-level design exists, present it before the track and
 after it. Omit the before phase only when approval state covers the track design.
@@ -146,7 +157,7 @@ A required high-level design alone does not create a design track.
 Expand a design track when work reaches it.
 Each subtree root receives its own high-level design and independent risk assessment.
 A subtree contains a node and its descendant tracks.
-Design-track designs have no size cap.
+Design tracks govern direct children only. Each child governs its own work.
 Each design track completes the gates of a nested multi-track change.
 Each code track keeps its independent gates.
 Reuse applicable evidence only under § Confirmation gate's user-decision reuse rule.

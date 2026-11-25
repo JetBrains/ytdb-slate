@@ -749,6 +749,8 @@ test("writing doctrine is active for trusted projects regardless of ignored writ
     "design doctrine must match the reminder roster word for word",
   );
   assert.ok(normalized.includes(`Rules, limits, and checker: ${WRITING_GUIDANCE_DOC}.`));
+  assert.doesNotMatch(normalized, /Give diagrams, tables and prose equal value/);
+  assert.doesNotMatch(normalized, /design-format\.md/);
   assert.doesNotMatch(normalized, /\b\d+\s+words\b/i);
   assert.doesNotMatch(normalized, /\bSENT\d+\b/);
 });
@@ -765,6 +767,10 @@ test("writing guide rosters match the frozen production rosters", () => {
     assert.ok(lines.every((line) => /^- .+$/.test(line)), "invalid roster line; update docs/writing-guidance.md in the same commit");
     return lines.map((line) => line.slice(2));
   };
+  const cue = "The form cue gives diagrams, tables and prose equal value and asks for the clearest set.";
+  const scope = "This exact scope guard follows:";
+  assert.equal(guide.split(cue).length, 2);
+  assert.ok(guide.includes(cue + "\n" + scope));
   assert.ok(Object.isFrozen(WRITING_REQUIREMENTS) && Object.isFrozen(DESIGN_REQUIREMENTS));
   assert.deepEqual(
     bullets("The doctrine includes these ten requirements in this order:", "The doctrine also renders"),
@@ -772,7 +778,7 @@ test("writing guide rosters match the frozen production rosters", () => {
     "writing roster changed; update docs/writing-guidance.md in the same commit",
   );
   assert.deepEqual(
-    bullets("seven-line design requirement block:", "The reminder then includes this exact scope guard:"),
+    bullets("The seven design requirements are:", cue),
     DESIGN_REQUIREMENTS.map((entry) => entry.text),
     "design roster changed; update docs/writing-guidance.md in the same commit",
   );
@@ -1134,9 +1140,9 @@ const policies: Record<string, Record<string, string>> = {
     reliance: "Before relying on a baseline fact, check current source when that source changed after the map commit.",
     facts: "Check every map fact against source evidence.",
     further: "Read further only for open or reopened questions.",
-    access: "Map access follows the Reviewer input contract in [review-rules.md](review-rules.md).",
-    length: "Use a soft guideline of about 1,500 words for every map.",
-    nodes: "Keep each Mermaid diagram under 40 nodes.",
+    access: "Follow the input contract in [review-rules.md](review-rules.md).",
+    length: "Aim for about 1,500 words. Count prose and tables, not diagrams.",
+    nodes: "Use under 40 nodes and labels under 28 characters.",
   },
   "change-records": {
     categories: "A **change record** is a log, status, report, design, map or plan.",

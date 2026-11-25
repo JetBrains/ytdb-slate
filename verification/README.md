@@ -1082,6 +1082,7 @@ Classification and recovery funding sets seven ordinary maximum limits independe
 Research maxima are 151,209 bytes with publishing off and 162,721 with publishing on.
 Publishing-off ordinary maxima are 187,246 bytes in phases 2–4 and 239,275 in phases 5–6.
 All other stored phase limits stay fixed.
+Research measures 78,078 required and 151,165 maximum bytes.
 The separate research reservation is 78,275 required and 151,209 maximum bytes.
 Independent classification-start literals bound every phase and session coordinate by 566 required and 3,061 maximum added bytes.
 The placement and preservation controls retain their source-stage proofs and session-specific extras.
@@ -1089,9 +1090,65 @@ Earlier savings cannot fund these increases.
 Worker ceilings are 12,088 bytes for common rules, 5,200 for narrow reads and 14,500 for the full reference.
 Common plus narrow is limited to 17,287 bytes, or 21,053 with maps.
 Common plus full is limited to 26,587 bytes, or 30,353 with maps.
-Tests measure all 36 phase rows, 402 session coordinates and 31 worker task kinds through production rendering and read selection.
+The map reference measures 3,726 bytes. The design reference measures 3,369 bytes against its 3,369-byte limit per full author read.
+The tightest stored margin is 17 bytes. The tightest historical share margin is 13 bytes.
+Tests measure all 36 phase rows, 82 session-entry pairs, 402 session continuation pairs and 31 worker task kinds through production rendering and read selection.
 Each literal limit has independent equality and one-byte-overflow controls.
 The user must approve higher limits.
+
+The assigned-forms checks use the marked Markdown lexer to identify twelve
+sections with sentence duties. The checks inspect every heading token, including
+nested tokens, in the design, map, workflow, recursive workflow, review rules,
+and implementation input documents. They also inspect the assembled reviewer
+prompt. Each owner must occur exactly once at its level.
+
+A plain heading is a top-level Markdown heading on a single line. It starts at
+column one with one to six hash signs and one space. Its title uses only ASCII
+letters, digits, commas, hyphens, and single spaces between parts of the title.
+It has no trailing space or closing hash signs. The checks report
+`plain-heading` for any heading token outside this form, even for an unrelated
+title outside the checked sections. A future heading outside this form fails
+until the rule is extended.
+
+The checks compare ordered blocks against independent expectations. They check the
+context blocks and duties in each owned section. They also compare the entire
+design reference, map reference and implementation-review input. The implementation
+check isolates the input as delivered by the production loader. It checks owner
+uniqueness across the assembled prompt as well.
+
+The workflow model rule must follow the abstraction test. Both copies must match
+the complete independent rule and each other. Plain soft wraps pass in prose,
+including prose in list items. List markers, ordered numbers, item boundaries,
+nesting and hard breaks remain significant. A wrap that changes a heading
+into another block is not a prose wrap. Duty paragraphs retain their source
+text apart from soft wraps. Other block types cannot stand in for duty paragraphs.
+
+The sentence sweep checks the expected duty names internally and reports totals
+per document. On failure it reports the source sentence and the mutant. It checks
+word and sentence deletion, conjunctions and qualifiers. Separate probes cover
+owner identity, complete model comparison, whole-input additions and allowed
+formatting. Structural probes supply the line or blank line
+that their Markdown block needs. The strict run audits 246 negative identities
+in assigned-forms. It runs the negative roster and the sentence sweep once
+on the committed layout. It checks 12 positive probes. Eight more controls must
+apply the intended whitespace edits to exactly the expected documents. Each
+control must pass the assigned-form predicate with no diagnostics. One input
+joins `Reviewers` to the previous sentence and starts the next line with
+`never`. Six inputs break after the first word of a target sentence. If the
+sentence starts its paragraph, one leading space shifts it without joining
+separate blocks. One input rewraps prose in three documents.
+The mutation matcher accepts whitespace changes and requires exactly one
+match. A separate control requires two matches to throw.
+
+"The rule checks do not detect added or contradictory text outside the checked sections."
+
+"Every heading in a checked document must be a plain heading. Owner uniqueness compares the text and level of plain headings. The rule checks do not detect other constructs that look like a heading."
+
+"The negative tests of the rule checks are built for the committed line layout of the checked documents. A rewrap of a checked document can require an update of these tests. The rule check itself accepts plain rewraps."
+
+Text outside this semantic check remains subject to document digests, other
+applicable controls and human review.
+The main workflow owns the shared design model rule. Revise both copies together. Retire the duplicate only after approval and measured proof that both readers can reach one shared copy.
 
 The map also names bounded session-entry cases. Research and optional handoffs
 use their current phase. Code-track boundaries use phase 7, including the second

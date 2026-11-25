@@ -22,6 +22,7 @@ export const WRITING_CHECKER = join(EXTENSION_DIR, "writing-check.mjs");
 export const WRITING_CHECKER_URL = pathToFileURL(WRITING_CHECKER).href;
 export const TRACK_WORKFLOW_DOC = join(DOCS_DIR, "track-workflow.md");
 export const MAPS_DOC = join(DOCS_DIR, "maps.md");
+export const DESIGN_FORMAT_DOC = join(DOCS_DIR, "design-format.md");
 export const CHANGE_RECORDS_DOC = join(DOCS_DIR, "change-records.md");
 export const RECURSIVE_WORKFLOW_DOC = join(DOCS_DIR, "recursive-workflow.md");
 export const PR_PUBLISHING_DOC = join(DOCS_DIR, "pr-publishing.md");

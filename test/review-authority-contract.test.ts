@@ -36,12 +36,12 @@ test("both approval owners require the user before repair at every severity", ()
 
 test("access delegation and checker readers agree with role-limited map inputs", () => {
   const readerRules = [
-    "Authorized checkers also read this reference.",
+    "Read this reference only when assigned to write or compose a map or to check authorized map content.",
     "Design adversaries check baseline facts after independent review.",
-    "Reviewer I checks supplied implementation-map facts after independent range review.",
-    "Agentic fix gates check only fixer-selected statements and their related questions.",
-    "Other implementation specialists and user-review fix-range gates receive no implementation-map input.",
-    "Stuck-fix consultations gain no separate map input.",
+    "Reviewer I checks supplied implementation facts after independent range review.",
+    "Agentic fix gates check only fixer-selected statements and related questions.",
+    "Specialists and user-review fix-range gates get no implementation map.",
+    "Stuck-fix consultations get no separate map input.",
     "Questions are map content, not implementer reasoning.",
     "Partial recipients receive only questions tied to supplied statements.",
     "A separate question list grants no wider access.",
@@ -59,6 +59,11 @@ test("access delegation and checker readers agree with role-limited map inputs",
   const accepts = (m: string, r: string) => readerRules.every((rule) => once(m, rule)) && inputRules.every((rule) => once(r, rule));
   assert.ok(accepts(maps, reviews));
   for (const rule of readerRules) assert.equal(accepts(maps.replace(rule, ""), reviews), false);
+  for (const part of ["only when assigned to ", " or to check authorized map content"]) {
+    const weakened = maps.replace(readerRules[0]!, readerRules[0]!.replace(part, ""));
+    assert.notEqual(weakened, maps);
+    assert.equal(accepts(weakened, reviews), false, part);
+  }
   for (const rule of inputRules) assert.equal(accepts(maps, reviews.replace(rule, "")), false);
   for (const source of [workflow, records]) {
     assert.match(source, /Reviewer access.*\[review-rules.md\]\(review-rules.md\) § Reviewer input contract/);

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -719,6 +719,8 @@ test("resolver exclusions are explicit and preserve the complete default roster"
       assert.doesNotMatch(rejected.output, /^CHECK /m);
     }
     cpSync(join(repo, "verification"), join(root, "verification"), { recursive: true });
+    mkdirSync(join(root, "node_modules"));
+    symlinkSync(join(repo, "node_modules", "marked"), join(root, "node_modules", "marked"), "junction");
     const driver = join(root, "verification/resolver-checks.mjs");
     const source = readFileSync(driver, "utf8");
     // Each focused predicate must detect its own violations. Complete document

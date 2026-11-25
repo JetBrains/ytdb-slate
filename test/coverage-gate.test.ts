@@ -790,6 +790,7 @@ test("run-tests isolates Jiti coverage from a cache warmed by an earlier process
 
   const packageLinks = [
     ["node_modules/typescript", "node_modules/typescript"],
+    ["node_modules/marked", "node_modules/marked"],
     ["node_modules/typebox", "node_modules/typebox"],
     ["node_modules/@earendil-works/pi-ai", "node_modules/@earendil-works/pi-ai"],
     ["node_modules/@earendil-works/pi-tui", "node_modules/@earendil-works/pi-tui"],

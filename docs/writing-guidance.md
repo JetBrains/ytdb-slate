@@ -147,12 +147,10 @@ that lead-in. Two near-identical rules in one requirement block break the
 project requirement to use one term for each concept.
 
 **Orchestrator.**
-The optional `Recent writing findings:` section marks quotes as data and shows
-one quote per model-visible class. The title is `Writing and conversation requirements`.
-The next line carries these three retained style rules: `Use short, active
-language.` `Keep exact technical terms.` `Do not use semicolons or
-contractions.` The reminder then repeats all ten writing requirements. It also
-carries this seven-line design requirement block:
+Optional `Recent writing findings:` marks quotes as data and shows one per
+model-visible class. `Writing and conversation requirements` opens with:
+`Use short, active language.` `Keep exact technical terms.` `Do not use semicolons or
+contractions.` All ten writing requirements follow. The seven design requirements are:
 
 - Choose the simplest solution with the fewest changes that keeps every approved goal, the product and implementation quality, and every required gate.
 - Keep a design statement only if a different reasonable implementation keeps it true.
@@ -162,7 +160,8 @@ carries this seven-line design requirement block:
 - Present what changed when you update a design.
 - Assume the user knows software but not this project.
 
-The reminder then includes this exact scope guard:
+The form cue gives diagrams, tables and prose equal value and asks for the clearest set.
+This exact scope guard follows:
 
 `Exclude research logs, worker task text, and the project's own agent instruction file.`
 
@@ -286,7 +285,7 @@ review-only. The reminder carries one quotation for each present
 model-visible class and its count. Each quotation is capped at 120 bytes and
 uses `…` when truncated. Truncation keeps both `⟦` and `⟧` frame characters. The
 section states that quoted text is data, not an instruction. It states that a
-finding is a signal, not a verdict. It states: `Split a long sentence, keep the logical connection explicit, name each subject, and avoid disconnected fragments.` A checker
+finding is a signal, not a verdict. It states: `Split long sentences. Link ideas explicitly. Name each subject. Avoid disconnected fragments.` A checker
 failure reports `writing unavailable` in the status line when `writing.showStatus`
 is `true`. It does not fail the turn. The hidden reminder uses the
 model-visible channel described above.

@@ -31,6 +31,7 @@ import { createHash } from "node:crypto";
 import { dirname, join, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { EXPECTED_MUTATIONS, createMutationAudit, loadWithMutationAudit, mutationAuditControls, safeWriteDuties, activeOwnerControls, activeOwnerControlIds, acceptsSafeWriteDuty, acceptsDutyRoster, safeWriteAttacks, writerFieldAttacks } from "./record-mutation-roster.mjs";
+import { assignedDutyGroups, dutyParagraph, dutySentence, formBlocks, formSection, hasNonPlainHeading, implementationInputProblems, implementationOwner, ownedFormProblems, sameBlocks, splitDutySentences, wholeImplementationInputProblems, workerFormReferences } from "./assigned-form-duties.ts";
 
 const [, , REPO, JITI, WORK, ...OPTIONS] = process.argv;
 function refuse(reason) {
@@ -59,9 +60,65 @@ if (OPTIONS.length) {
 const ONLY = SELECTED.size > 0;
 const wants = (id) => !ONLY || SELECTED.has(id);
 const selectedFamilies = [...new Set([...SELECTED].flatMap((id) => SELECTABLE[id]))];
+const assignedFormMutationIds = {
+ "assigned-forms": [
+  "classification-removed", "classification-worker-only", "classification-wrong-heading", "classification-heading-missing", "classification-heading-renamed",
+  "review-unrelated-heading", "review-worker-reference", "map-author-pointer", "shared-forms-empty", "model-workflow-moved",
+  "model-author-removed", "model-drift", "credit-duplicate", "credit-moved", "model-read",
+  "design-hard-word-cap", "map-hard-word-cap", "model-owner", "model-joint-revision", "model-retirement-approval",
+  "model-retirement-proven-access", "form-cue", "cue-before-guard", "summary-input", "triage-route",
+  "recursive-gates", "level-pointer", "levels", "evidence", "review-route",
+  "map-scope-only", "pseudocode-definition", "workflow-narrow-first", "common-separate-notes", "common-metadata",
+  "common-metadata-no-follow", "parent-review-boundary", "implementation-no-notes", "implementation-denies-read", "implementation-metadata",
+  "implementation-metadata-no-follow", "author-fewest", "author-approved-goals", "author-product-and-implementation-quality", "author-required-gates",
+  "author-off-goal-disclosure", "author-no-goal-edit", "author-regressions", "author-show-changes", "author-reader",
+  "author-narrow-first", "author-conversion-proposal", "child-mechanism-ownership", "child-split-ownership", "author-review-pointer",
+  "shared-test", "high-level", "low-level", "report-route", "exclude-detail",
+  "omissions", "baseline-omissions", "conversion-reason", "split-detail", "no-length-split",
+  "preserve-gates", "parent-detail", "notes-handoff", "notes-copy", "no-follow",
+  "author-only", "map-only", "author-no-orchestrator", "design-opening", "no-opening-cap",
+  "form-fields", "alternatives", "design-terms-history", "baseline-authority", "author-abstraction",
+  "behavior", "limits", "compatibility", "author-detail", "design-equal-forms",
+  "design-helpful-diagram", "design-diagram-explain", "design-diagram-placement", "design-diagram-types", "design-diagram-size",
+  "design-diagram-style", "design-size", "design-detail-bound", "design-omissions", "direct-children",
+  "component-fields", "interaction-text", "interaction-diagram", "one-table", "identifier",
+  "title", "scope", "activation", "differences", "prerequisites",
+  "funding", "mechanisms", "private-notes", "notes-metadata", "author-note-copy",
+  "author-no-follow", "map-size", "map-detail-limit", "map-omissions", "map-notes",
+  "map-reader-order", "map-connected-text", "map-equal-forms", "map-pseudocode", "map-arrows",
+  "map-diagram-placement", "map-diagram-types", "map-diagram-purposes", "map-diagram-size", "map-diagram-style",
+  "map-pointer", "model-both-definition", "model-both-reuse", "model-both-one-model", "model-both-fitness",
+  "model-both-special-cases", "model-both-coexistence", "model-both-translation", "model-both-retirement", "model-both-specialized-model",
+  "conditional-approval", "permissive-goal-edit", "delivered-research-permission", "implementation-task-logs",
+  "G2a", "G2b", "G2c", "RG3", "extra", "ATX0", "ATX1",
+  "ATX3", "nested", "setext1", "setext2", "moveNamed", "moveUnnamed", "reorder",
+  "fenceBack", "fenceTilde", "comment", "bullet", "ordered", "quote", "hardbreak",
+  "outside", "mixed", "indentedCode", "dupOwner", "silentDef", "extraParagraph", "fakeFencedHeadingOutside",
+  "fakeCommentHeadingOutside", "deliveredQuote", "deliveredMove", "orderedException", "duplicateSentence", "hiddenAfterEnd", "lateChild",
+  "plainAppend", "permissiveConditional", "creditDrop", "insertBetweenGroups", "hardCapOtherMapSection",
+  "RG4Decimal", "RG4Strong", "RG4Review", "RG4Escape", "RG4ZeroWidth", "RG4Space", "RG4Closed", "RG5Preface", "RG5Tail",
+  "ownerSetext", "ownerIndent", "ownerClosed", "nonPlainOutsideWorkflow", "ampOutsideWorkflow", "lessOutsideWorkflow",
+  "workflow-RG8Code", "workflow-RG8CodeNoSemicolon", "workflow-RG8Hidden", "workflow-RG8Style", "workflow-RG8Break",
+  "workflow-RG9Decimal", "workflow-RG9Hex", "workflow-RG9WordBreak", "workflow-RG9HiddenWord", "workflow-RG9Directional",
+  "workflow-plainDuplicate", "workflow-quoteDuplicate", "workflow-listDuplicate",
+  "reviews-RG8Code", "reviews-RG8CodeNoSemicolon", "reviews-RG8Hidden", "reviews-RG8Style", "reviews-RG8Break",
+  "reviews-RG9Decimal", "reviews-RG9Hex", "reviews-RG9WordBreak", "reviews-RG9HiddenWord", "reviews-RG9Directional",
+  "reviews-plainDuplicate", "reviews-quoteDuplicate", "reviews-listDuplicate",
+  "design-RG8Code", "design-RG8CodeNoSemicolon", "design-RG8Hidden", "design-RG8Style", "design-RG8Break",
+  "design-RG9Decimal", "design-RG9Hex", "design-RG9WordBreak", "design-RG9HiddenWord", "design-RG9Directional",
+  "design-plainDuplicate", "design-quoteDuplicate", "design-listDuplicate",
+  "implementation-RG8Code", "implementation-RG8CodeNoSemicolon", "implementation-RG8Hidden", "implementation-RG8Style", "implementation-RG8Break",
+  "implementation-RG9Decimal", "implementation-RG9Hex", "implementation-RG9WordBreak", "implementation-RG9HiddenWord", "implementation-RG9Directional",
+  "implementation-plainDuplicate", "implementation-quoteDuplicate", "implementation-listDuplicate",
+ ],
+ "task-note-review": [
+  "notes-direct-read", "notes-reference", "notes-extract", "notes-follow-link", "notes-implementation-exception",
+  "notes-screened-episode", "notes-stuck-fix-separate"
+ ],
+};
 const mutationAudit = createMutationAudit(ONLY
 	? Object.fromEntries(selectedFamilies.map((family) => [family, EXPECTED_MUTATIONS[family]]))
-	: EXPECTED_MUTATIONS);
+	: { ...EXPECTED_MUTATIONS, ...assignedFormMutationIds });
 
 // One value feeds each doctrine-budget assertion and each maintained published
 // statement. The independent JSON pin below protects the approved ceilings from
@@ -909,6 +966,7 @@ try {
 		const currentState = "Describe only the current state in the README, docs, code comments and the project's own agent instruction file, not removed features or past behavior, but allow change records such as pull request descriptions, commit bodies, release notes and issues to describe removals and past behavior.";
 		const exactWorker = [`${writingTitle}:`, styleLines.join(" "), ...writingLines.map(line => `- ${line}`), "", exactScope, designInLog, currentState].join("\n");
 		const exactReviewer = `Use short, active sentences. Write sentences a non-native reader understands on one reading. Do not use semicolons or contractions. Apply these rules to your prose. ${exactScope} ${currentState}`;
+		const formCue = "- Give diagrams, tables and prose equal value. Choose the clearest set.";
 		const exactReminder = [
 			`${writingTitle}:`,
 			styleLines.join(" "),
@@ -916,6 +974,7 @@ try {
 			"",
 			"Design requirements:",
 			...designLines.map((line) => `- ${line}`),
+			formCue,
 			"",
 			exactScope,
 		].join("\n");
@@ -925,8 +984,8 @@ try {
 			const scopeAt = lines.indexOf(exactScope);
 			const style = lines[1];
 			const writing = lines.slice(2, designAt - 1);
-			const design = lines.slice(designAt + 1, scopeAt - 1);
-			const shape = lines[0] === `${writingTitle}:` && style === styleLines.join(" ") && designAt > 2 && scopeAt === lines.length - 1 && lines[designAt - 1] === "" && lines[scopeAt - 1] === "" && [...writing, ...design].every((line) => /^- .+$/.test(line));
+			const design = lines.slice(designAt + 1, scopeAt - 2);
+			const shape = lines[0] === `${writingTitle}:` && style === styleLines.join(" ") && designAt > 2 && scopeAt === lines.length - 1 && lines[designAt - 1] === "" && lines[scopeAt - 1] === "" && lines[scopeAt - 2] === formCue && [...writing, ...design].every((line) => /^- .+$/.test(line));
 			return { shape, style, writing: writing.map((line) => line.slice(2)), design: design.map((line) => line.slice(2)) };
 		};
 		checkAll("writing-reminder-render", "doctrine renders every writing requirement, while parsed reminder blocks exactly match both ordered rosters and the shared exclusion guard", [
@@ -973,12 +1032,11 @@ try {
 		check("writing-reminder-gates", ignoredKeysAbsent && reminder.writingReminderGateOpen(open, false) && !reminder.writingReminderGateOpen(open, true) && branches.every(([, gate]) => !reminder.writingReminderGateOpen(gate, false)), "orchestrator mode, trust, pause, and sent-this-round close independently; ignored writing keys and a UI gate are absent", { branches, open });
 
 		const reminderContent = reminder.renderWritingReminderMessage();
-		const multibyteSource = `⟦${"界".repeat(100)}⟧`;
-		const helperExcerpt = checker.excerpt(multibyteSource, 0, multibyteSource.length);
-		const worstSummary = writing.summarizeWritingFindings([
-			...Array.from({ length: checker.MAX_FINDINGS - 1 }, () => ({ id: "SEMICOLON", class: "fail", excerpt: helperExcerpt })),
-			{ id: "PARA6", class: "house-style", excerpt: helperExcerpt },
-		]);
+		const suffix = ";".repeat(8) + " Hi.".repeat(7);
+		const prose = [`${"文".repeat(27)}a; ${"文".repeat(28)}${suffix}`, ...Array(99).fill(`Begin${suffix}`)].join("\n\n");
+		const counters = writing.createWritingCounters();
+		const measured = writing.measureWritingTurn({ role: "assistant", content: [{ type: "text", text: prose }] }, checker, counters);
+		const worstSummary = counters.latest ?? {};
 		const worstReminderContent = reminder.renderWritingReminderMessage(worstSummary);
 		const claimBase = { ...closedAdvance, forceNext: true };
 		const claimed = reminder.claimWritingReminder(claimBase, { send: true }, reminderContent);
@@ -1008,7 +1066,7 @@ try {
 			`- Fail (${worstSummary.failCount}): ${worstSummary.failQuotation}`,
 			`- Style (${worstSummary.styleCount}): ${worstSummary.styleQuotation}`,
 			"A finding is a signal, not a verdict.",
-			"Split a long sentence, keep the logical connection explicit, name each subject, and avoid disconnected fragments.", "",
+			"Split long sentences. Link ideas explicitly. Name each subject. Avoid disconnected fragments.", "",
 		].join("\n");
 		checkAll("writing-reminder-full-render", "the full hidden message has a closed findings grammar followed by the complete requirement block", [
 			["plain message has one header followed by the requirement block", reminderContent.startsWith("[slate] Reminder:\n\n") && reminderContent.slice("[slate] Reminder:\n\n".length) === exactReminder, reminderContent],
@@ -1020,11 +1078,13 @@ try {
 		const quotationLines = worstReminderContent.split("\n").filter((line) => /^- (?:Fail|Style) \(/.test(line));
 		const quotationBytes = [worstSummary.failQuotation, worstSummary.styleQuotation].map((quote) => Buffer.byteLength(quote ?? "", "utf8"));
 		const absolutePathShape = /(?:[\\/]{2}[^\s\\/]+[\\/][^\s\\/]+|\/[^\s/]+\/[^\s/]+|[A-Za-z]:[\\/][^\s\\/]+(?:[\\/][^\s\\/]+)*)/;
+		const cappedFindings = checker.checkText("Word; ".repeat(1201)).findings.length;
 		checkAll("writing-reminder-size", "the multibyte two-class render stays inside the measured bound with reserve and keeps its structural labels", [
-			["canonical content byte counts remain exact", [reminderContent, worstReminderContent, reminder.WORKER_WRITING_GUIDANCE, reminder.REVIEWER_WRITING_GUIDANCE].map(text => Buffer.byteLength(text)).join(",") === "1357,1845,1161,543", "clean, findings, full, short"],
-			["both helper-derived quotations reach the 120-byte cap", helperExcerpt.startsWith("⟦") && quotationBytes.length === 2 && quotationBytes.every((bytes) => bytes === 120), { helperExcerpt, quotationBytes }],
+			["checker keeps the actual reminder finding cap at 1000", checker.MAX_FINDINGS === 1000 && cappedFindings === 1000, { exported: checker.MAX_FINDINGS, observed: cappedFindings }],
+			["canonical content byte counts remain exact", [reminderContent, worstReminderContent, reminder.WORKER_WRITING_GUIDANCE, reminder.REVIEWER_WRITING_GUIDANCE].map(text => Buffer.byteLength(text)).join(",") === "1429,1899,1161,543", "clean, findings, full, short"],
+			["reachable turn yields both capped quotations", measured === "measured" && Buffer.byteLength(prose) === 4461 && quotationBytes.every((bytes) => bytes === 120), { measured, quotationBytes }],
 			["the 2000-byte bound keeps five percent reserve", worstReminderBytes <= 2000 && hasReminderReserve(worstReminderBytes, 2000), { bytes: worstReminderBytes, bound: 2000, reserveRequired: Math.ceil(worstReminderBytes * 1.05), reserve: 2000 - worstReminderBytes }],
-			["two quotation lines render with cap-derived counts, balanced frames, and visible truncation markers", quotationLines.length === 2 && new RegExp(`^- Fail \\(${checker.MAX_FINDINGS - 1}\\): ⟦.*…⟧$`).test(quotationLines[0]) && /^- Style \(1\): ⟦.*…⟧$/.test(quotationLines[1]), quotationLines],
+			["two quotation lines render with reachable counts and balanced frames", quotationLines.length === 2 && /^- Fail \(801\): ⟦.*…⟧$/.test(quotationLines[0]) && /^- Style \(100\): ⟦.*…⟧$/.test(quotationLines[1]), quotationLines],
 			["no absolute path makes size install-dependent", !absolutePathShape.test(worstReminderContent), absolutePathShape.exec(worstReminderContent)],
 			["header, section labels, and exclusion each render once", occurrences(worstReminderContent, "[slate] Reminder:") === 1 && occurrences(worstReminderContent, "Recent writing findings:") === 1 && occurrences(worstReminderContent, `${writingTitle}:`) === 1 && occurrences(worstReminderContent, "Design requirements:") === 1 && occurrences(worstReminderContent, exactScope) === 1, worstReminderContent],
 		]);
@@ -2246,6 +2306,26 @@ try {
 			const principles = readFileSync(join(REPO, "docs", "design-principles.md"), "utf8");
 			const projectReadme = readFileSync(join(REPO, "README.md"), "utf8");
 			const workflowDocs = [workflow, reviews, blast, userNotes, deliveryPackages, publishing].join("\n");
+			const designReviewPolicyBegin = "<!-- design-review-policy:begin -->";
+			const designReviewPolicyEnd = "<!-- design-review-policy:end -->";
+			const designReviewPolicyFixture = `The user validates the design and judges whether it is the simplest solution.
+The orchestrator then reconfirms every focus line against that design. Each
+proved DESIGN-TRIGGERING area receives one fresh adversarial design reviewer.
+The orchestrator selects required reviews and reuses applicable unchanged design reviews
+without asking approval of the review count.
+A fresh adversary tests the design and cited evidence. Every review with no
+findings, including an adversarial design review, ends with the exact standalone
+line \`No findings.\`
+
+The orchestrator triages each finding by strengthening a rationale, reversing
+a decision, recording an accepted risk, or routing low-level material to the
+implementer report. Hold a routed finding in the research log until its
+owning track starts. The implementer then copies it into that track's report.
+The finding stays in that track's implementer report. Each design reversal
+permits one additional independent adversarial design-review round. This
+permission changes neither ordinary fix-round nor consultation caps. The user
+gives final design approval after adversarial review and triage. When no
+adversarial review is required, validation and final approval form one gate.`;
 			const block = (source, name) => {
 				const begin = `<!-- ${name}:begin -->`;
 				const end = `<!-- ${name}:end -->`;
@@ -2829,8 +2909,6 @@ Repair bypasses no halt, user note, check, gate or acceptance.`);
 			const benignPhaseHandoff = benignPhaseHandoffSources.map(resolvePhaseHandoff);
 			const wrongState = focusGates.replace("Only a proved area", "A NAMED area");
 			const skippedApproval = focusGates.replace("Only a proved area adds a focus-dependent gate or area reviewer.", "A SKIPPED area adds an area reviewer.");
-			const designReviewPolicyBegin = "<!-- design-review-policy:begin -->";
-			const designReviewPolicyEnd = "<!-- design-review-policy:end -->";
 			const resolveDesignReviewPolicy = (source) => {
 				const resolution = block(source, "design-review-policy");
 				return {
@@ -2839,24 +2917,7 @@ Repair bypasses no halt, user note, check, gate or acceptance.`);
 					text: resolution.count === 1 && resolution.endCount === 1 ? normalizeText(resolution.text) : "",
 				};
 			};
-			const expectedDesignReviewPolicy = normalizeText(`The user validates the design and judges whether it is the simplest solution.
-The orchestrator then reconfirms every focus line against that design. Each
-proved DESIGN-TRIGGERING area receives one fresh adversarial design reviewer.
-The orchestrator selects required reviews and reuses applicable unchanged design reviews
-without asking approval of the review count.
-A fresh adversary tests the design and cited evidence. Every review with no
-findings, including an adversarial design review, ends with the exact standalone
-line \`No findings.\`
-
-The orchestrator triages each finding by strengthening a rationale, reversing
-a decision, recording an accepted risk, or routing low-level material to the
-implementer report. Hold a routed finding in the research log until its
-owning track starts. The implementer then copies it into that track's report.
-The finding stays in that track's implementer report. Each design reversal
-permits one additional independent adversarial design-review round. This
-permission changes neither ordinary fix-round nor consultation caps. The user
-gives final design approval after adversarial review and triage. When no
-adversarial review is required, validation and final approval form one gate.`);
+			const expectedDesignReviewPolicy = normalizeText(designReviewPolicyFixture);
 			const designReviewPolicy = resolveDesignReviewPolicy(workflow);
 			const designReviewMutations = [
 				workflow.replace("Each design reversal\npermits one additional independent adversarial design-review round.", "A design may receive only one additional independent adversarial design-review round in total."),
@@ -3277,7 +3338,7 @@ Late areas add only specialists if Reviewer I ran.`),
 					id: "lifecycle-planning", source: workflow,
 					extract: markedUnit("recursive-planning-policy"),
 					boundary: "<!-- recursive-planning-policy:end -->",
-					expected: normalizeText(`A design track plans and completes a nested change. A multi-track change requires a high-level design. An estimate above 100 counted lines and a proved DESIGN-TRIGGERING area remain separate design triggers. A required high-level design alone does not create a design track. Expand a design track when work reaches it. Each subtree root receives its own high-level design and independent risk assessment. A subtree contains a node and its descendant tracks. Design-track designs have no size cap. Each design track completes the gates of a nested multi-track change. Each code track keeps its independent gates. Reuse applicable evidence only under § Confirmation gate's user-decision reuse rule. An ordinary split creates at most five direct child tracks. An ordinary plan that needs more than five direct children must add a design track. Load [recursive-workflow.md](recursive-workflow.md) for that design track. An implementer-requested split may add siblings beyond five to the same level. The exception does not automatically create another level. Obtain each new track's required approvals before implementation. The exception changes neither review requirements nor repair budgets. Track numbers remain stable and are never reused. Every change reads [change-records.md](change-records.md) § Identifiers, code ranges, and design markers and § Manual records and safe writes. Load [recursive-workflow.md](recursive-workflow.md) when the current or proposed plan contains a design track or review-fix child track. A review-fix child track repairs outstanding work under a user-approved split. Check the loading condition during planning and again during resume reconciliation. Load the document before proposing a review-fix split. Read the applicable sections before relying on their rules. A lazy plan needs no total descendant count to apply the condition. A small tree with a design track still loads the whole document. A change with neither triggering track type reads only the named common sections. For nested work, use [recursive-workflow.md](recursive-workflow.md) § Dependency order and pauses. The approved plan supplies specific evidence for proportional process. A design track or review-fix child track triggers the manual status file. Entering a design track triggers its research log and nested gates. An ordinary code track or a high-level design alone triggers neither extra record. Standalone designs and maps use the artifact exceptions in [design-principles.md](design-principles.md) P11. Questions follow unresolved decisions rather than record or track counts. [recursive-workflow.md](recursive-workflow.md) owns the nested planning relations.`),
+					expected: normalizeText(`A design track plans and completes a nested change. A multi-track change requires a high-level design. An estimate above 100 counted lines and a proved DESIGN-TRIGGERING area remain separate design triggers. A required high-level design alone does not create a design track. Expand a design track when work reaches it. Each subtree root receives its own high-level design and independent risk assessment. A subtree contains a node and its descendant tracks. Design tracks govern direct children only. Each child governs its own work. Each design track completes the gates of a nested multi-track change. Each code track keeps its independent gates. Reuse applicable evidence only under § Confirmation gate's user-decision reuse rule. An ordinary split creates at most five direct child tracks. An ordinary plan that needs more than five direct children must add a design track. Load [recursive-workflow.md](recursive-workflow.md) for that design track. An implementer-requested split may add siblings beyond five to the same level. The exception does not automatically create another level. Obtain each new track's required approvals before implementation. The exception changes neither review requirements nor repair budgets. Track numbers remain stable and are never reused. Every change reads [change-records.md](change-records.md) § Identifiers, code ranges, and design markers and § Manual records and safe writes. Load [recursive-workflow.md](recursive-workflow.md) when the current or proposed plan contains a design track or review-fix child track. A review-fix child track repairs outstanding work under a user-approved split. Check the loading condition during planning and again during resume reconciliation. Load the document before proposing a review-fix split. Read the applicable sections before relying on their rules. A lazy plan needs no total descendant count to apply the condition. A small tree with a design track still loads the whole document. A change with neither triggering track type reads only the named common sections. For nested work, use [recursive-workflow.md](recursive-workflow.md) § Dependency order and pauses. The approved plan supplies specific evidence for proportional process. A design track or review-fix child track triggers the manual status file. Entering a design track triggers its research log and nested gates. An ordinary code track or a high-level design alone triggers neither extra record. Standalone designs and maps use the artifact exceptions in [design-principles.md](design-principles.md) P11. Questions follow unresolved decisions rather than record or track counts. [recursive-workflow.md](recursive-workflow.md) owns the nested planning relations.`),
 				},
 				{
 					id: "nested-design", source: recursive,
@@ -3288,7 +3349,7 @@ Each subtree root receives its own high-level design and independent risk assess
 A multi-track change requires a high-level design.
 An estimate above 100 counted lines and a proved DESIGN-TRIGGERING area remain
 separate design triggers.
-Design-track designs have no size cap.
+Design tracks govern direct children only.
 Each design track completes the gates of a nested multi-track change.
 Each code track keeps its independent gates.
 Use [track-workflow.md](track-workflow.md) § Confirmation gate for user-decision reuse.`),
@@ -3322,7 +3383,7 @@ Use [track-workflow.md](track-workflow.md) § Confirmation gate for user-decisio
 				[1, "independent risk", "independent risk assessment", "inherited risk approval"],
 				[1, "multi-track design", "requires a high-level design", "needs no high-level design"],
 				[1, "size trigger", "above 100 counted lines", "above 400 counted lines"],
-				[1, "uncapped design", "have no size cap", "have a 400-line cap"],
+				[1, "direct-child authority", "govern direct children only", "govern all descendants"],
 				[1, "nested gates", "completes the gates", "skips the gates"],
 				[1, "code gates", "keeps its independent gates", "uses only parent gates"],
 				[2, "merge unit", "The change is the merge unit.", "Each child is the merge unit."],
@@ -3364,7 +3425,7 @@ Use [track-workflow.md](track-workflow.md) § Confirmation gate for user-decisio
 				"Each subtree root receives its own high-level design and independent risk assessment.",
 				"A multi-track change requires a high-level design.",
 				"An estimate above 100 counted lines and a proved DESIGN-TRIGGERING area remain separate design triggers.",
-				"Design-track designs have no size cap.",
+				"Design tracks govern direct children only.",
 				"Each design track completes the gates of a nested multi-track change.",
 				"Each code track keeps its independent gates.",
 			];
@@ -3414,7 +3475,7 @@ Each subtree root receives its own high-level design and independent risk assess
 A multi-track change requires a high-level design.
 An estimate above 100 counted lines and a proved DESIGN-TRIGGERING area remain
 separate design triggers.
-Design-track designs have no size cap.
+Design tracks govern direct children only.
 Each design track completes the gates of a nested multi-track change.
 Each code track keeps its independent gates.
 Use [track-workflow.md](track-workflow.md) § Confirmation gate for user-decision reuse.
@@ -3630,7 +3691,7 @@ Use [change-records.md](change-records.md) § Design authority and privacy.`) },
 				["each comparison rejects its changed input and disabling it accepts that violation", pointerComparisonControls.every(({ changed, rejected, disabledAccepts }) => changed && rejected && disabledAccepts), pointerComparisonControls],
 				["outside-region edits preserve the pointer expectations", acceptsNestedPointers(`${recursive}\n## Outside pointer control\nUnrelated text.\n`), "outside control"],
 			]);
-			const completeNestedDigest = "c61c06c2dd17236f91fdeb06d943224e37b7cf105ae893dd60f9ca534f4b37c8";
+			const completeNestedDigest = "0fd4d0b0f79b7fda32e7b7fc6bcdfb4f57ffe19d6d160dd5cc4b2f2c59c0dc40";
 			const acceptsCompleteNested = (source) => createHash("sha256").update(source).digest("hex") === completeNestedDigest;
 			const completeNestedAttacks = [
 				["weaker-record-rule", `${recursive}\n## Additional record guidance\nWorkers may replace earlier log entries.\n`],
@@ -5079,7 +5140,7 @@ const peerPinAttacks = levelPolicyUnits.map((unit) => {
  return { id: `${unit.id}/exception`, changed: source !== unit.source, rejected: !acceptsLevelUnit(unit, source) };
 });
 const EXPECTED_PUBLISHING_SHA256 = "06e760a0fb2a806574450c72c4cc45a3e9b563f7c0c61296d1d6cafa35fcd436";
-const EXPECTED_TRACK_WORKFLOW_SHA256 = "c68c26cc60f319d503c5a3afaacf5e78bb049b1b974217a205b0f98580353e53";
+const EXPECTED_TRACK_WORKFLOW_SHA256 = "927a38f9f467be86568c87918b22939b8d4396b25807de9784d3dea7662c1709";
 const peerDocuments = [
 { id: "pr-publishing", source: publishing, expected: EXPECTED_PUBLISHING_SHA256 },
 { id: "track-workflow", source: workflow, expected: EXPECTED_TRACK_WORKFLOW_SHA256 },
@@ -5862,12 +5923,12 @@ verbatim retention of every tool result.`);
 			].join("\n");
 			const contextBudget = readFileSync(join(REPO, "docs", "context-budget.md"), "utf8");
 			const expectedInjected = [
-				["Reviewer I", 9258, 9135], ["Concurrency reviewer", 7920, 7797],
-				["Data loss and recovery reviewer", 8115, 7992], ["Security reviewer", 8062, 7939],
-				["Performance reviewer", 8117, 7994], ["Test-quality and structure reviewer", 9371, 9248],
-				["Prose reviewer", 8329, 8206], ["Licensing reviewer", 8060, 7937],
-				["Non-local logic defect reviewer", 9057, 8934], ["Consumer contract break reviewer", 9341, 9218],
-				["Governing-rule defect reviewer", 9450, 9327], ["Unreported failure reviewer", 8982, 8859],
+				["Reviewer I", 9260, 9137], ["Concurrency reviewer", 7922, 7799],
+				["Data loss and recovery reviewer", 8117, 7994], ["Security reviewer", 8064, 7941],
+				["Performance reviewer", 8119, 7996], ["Test-quality and structure reviewer", 9373, 9250],
+				["Prose reviewer", 8331, 8208], ["Licensing reviewer", 8062, 7939],
+				["Non-local logic defect reviewer", 9059, 8936], ["Consumer contract break reviewer", 9343, 9220],
+				["Governing-rule defect reviewer", 9452, 9329], ["Unreported failure reviewer", 8984, 8861],
 			];
 			const docsPrefix = paths.REVIEW_RULES_DOC.slice(0, -"review-rules.md".length);
 			const extensionPrefix = paths.WRITING_CHECKER.slice(0, -"writing-check.mjs".length);
@@ -5885,7 +5946,7 @@ verbatim retention of every tool result.`);
 				["policy growth stays within 100 bytes and review rules within the approved 24,403-byte cap", Buffer.byteLength(readFileSync(paths.REVIEW_COMMON_POLICY_DOC, "utf8")) - 2841 === 89 && reviewRulesFit(reviews), { policy: Buffer.byteLength(readFileSync(paths.REVIEW_COMMON_POLICY_DOC, "utf8")) - 2841, reviewRules: Buffer.byteLength(reviews) }],
 				["approved cap and child ceiling pass equality and fail the first extra UTF-8 byte", [[24403, reviewRulesFit], [24203, childReviewRulesFit]].every(([cap, fits]) => fits("x".repeat(cap)) && !fits("x".repeat(cap + 1))) && childReviewRulesFit(reviews), Buffer.byteLength(reviews)],
 				["all approved perspective content matches independent snapshots", Object.entries(approvedContentDigests).every(([id, expected]) => hash(roleFiles[id] ?? "") === expected), Object.fromEntries(Object.entries(roleFiles).map(([id, content]) => [id, hash(content)]))],
-				["common and implementation text keep independent approved snapshots", hash(readFileSync(paths.REVIEW_COMMON_POLICY_DOC, "utf8")) === "bbf3bd833faabba61dad28de933320d88c8cb77ab34c450e361ce77139311227" && hash(readFileSync(paths.REVIEW_IMPLEMENTATION_INPUT_DOC, "utf8")) === "161f85c1cb46702939299a23f5496ef319ffe2053388f552bf8423a5192f3969", "two shared source files"],
+				["common and implementation text keep independent approved snapshots", hash(readFileSync(paths.REVIEW_COMMON_POLICY_DOC, "utf8")) === "bbf3bd833faabba61dad28de933320d88c8cb77ab34c450e361ce77139311227" && hash(readFileSync(paths.REVIEW_IMPLEMENTATION_INPUT_DOC, "utf8")) === "03cfcbc6326c9c98d783316069dc7880b18e42513d1906d04d4d3ae7b69ab177", "two shared source files"],
 			]);
 
 			// Complete owned policy units use independent expectations. Exact equality is
@@ -5930,17 +5991,37 @@ Keep reviewer input restrictions.`),
 						const rawText = source.slice(body, boundary).trim();
 						return { count: 1, text: normalizeText(rawText), rawText };
 					},
-					expected: normalizeText(`No reviewer may receive or directly read status files, leftover record temporary files, any research log, their references or extracts, implementer reports, private orchestrator triage, or implementer reasoning. This covers early, ordinary and design-track logs. Do not seek these sources through repository tools. Private triage means orchestrator deliberation and implementation rationale. Implementer reasoning means an implementer's private reasoning. These restrictions govern every review role below. Ordinary repository and library evidence needed for the assignment remains available beyond changed files. Applicable designs are whole standalone design files. Every reviewer receives them under its stage contract. Recorded changes with log-held approved designs keep their current reviewer inputs until user-authorized migration. Supply neither a log-held design nor its extract. An orchestrator-written statement of an approved decision is approved context, not a log extract. Outside design-stage review, designs provide context, not correctness proof or a duty to repeat whole-design review. A design adversary receives the whole validated candidate, applicable designs, approved context, track intention, risk record, area proofs, tracked source evidence, charter and output contract. Only this role receives risk records and area proofs separately. It reviews independently before checking baseline facts. Implementation reviewers receive applicable approved designs, approved range, intention, charter, output contract and ordinary evidence. Only Reviewer I receives an implementation map. Neither Reviewer I nor specialists receive risk records, area proofs or implementer episodes. Both fix gates receive applicable approved designs, compact finding index, fix diff, approved scope context and needed ordinary evidence. The index contains only finding identifiers, evidence, validated severity and required disposition, without private triage or implementer reasoning. Neither gate receives implementer episodes or direct private sources. The fixer names the map statements its fix relies on. The orchestrator passes them unread to the agentic fix gate. A user-review fix-range gate receives no map statements. Without map authorization, do not read or seek an implementation map, including its question list. A map's question list is map content, not implementer reasoning. Questions follow authorized map inputs. Partial recipients receive only questions tied to supplied statements. No separate list expands access. Only stuck-fix consultation may receive implementer episodes under § Stuck-fix consultation. Whole episodes permit no separate private input or direct private read. The supplied action temporary folder permits only the reviewer's own writing-checker diff and adds no reviewer input. A reviewer never lists tmp/ or reads another action's folder. A design adversary judges the whole approved high-level design, not each track separately, against slate's simplest-solution requirement: the fewest changes that preserve every approved goal, product and implementation quality, and required gate. This duty adds no artifact, phase or gate. Every reviewer uses the [common review policy](review-common-policy.md) for writing checks, evidence, severity, identifiers, and output format. Resolve its writing-checker path from the installed package as \`../extension/writing-check.mjs\`. Resolve its writing-guidance path as \`writing-guidance.md\` beside the policy. Manual reviews use this input contract, the common policy and applicable charter. Name [maps.md](maps.md) in authorized map-checking tasks without reading it.`),
+					fixture: `${dutyParagraph("review-private")}
+
+These restrictions govern every review role below. Ordinary repository and library evidence needed for the assignment remains available beyond changed files.
+
+Applicable designs are whole standalone design files. Every reviewer receives them under its stage contract. Recorded changes with log-held approved designs keep their current reviewer inputs until user-authorized migration. Supply neither a log-held design nor its extract. An orchestrator-written statement of an approved decision is approved context, not a log extract. Outside design-stage review, designs provide context, not correctness proof or a duty to repeat whole-design review.
+
+${dutyParagraph("review-adversary-input")}
+
+Implementation reviewers receive applicable approved designs, approved range, intention, charter, output contract and ordinary evidence. Only Reviewer I receives an implementation map. Neither Reviewer I nor specialists receive risk records, area proofs or implementer episodes.
+
+Both fix gates receive applicable approved designs, compact finding index, fix diff, approved scope context and needed ordinary evidence. The index contains only finding identifiers, evidence, validated severity and required disposition, without private triage or implementer reasoning. Neither gate receives implementer episodes or direct private sources. The fixer names the map statements its fix relies on. The orchestrator passes them unread to the agentic fix gate. A user-review fix-range gate receives no map statements.
+
+${dutyParagraph("review-map")}
+
+${dutyParagraph("review-episode-exception")}
+
+The supplied action temporary folder permits only the reviewer's own writing-checker diff and adds no reviewer input. A reviewer never lists tmp/ or reads another action's folder.
+
+${dutyParagraph("review-parent")}
+
+Every reviewer uses the [common review policy](review-common-policy.md) for writing checks, evidence, severity, identifiers, and output format. Resolve its writing-checker path from the installed package as \`../extension/writing-check.mjs\`. Resolve its writing-guidance path as \`writing-guidance.md\` beside the policy. Manual reviews use this input contract, the common policy and applicable charter. Name [maps.md](maps.md) in authorized map-checking tasks without reading it.`,
 				},
 				{
 					id: "stuck-fix-policy",
 					source: reviews,
 					extract: regionUnit(/^## Stuck-fix consultation\n\n([\s\S]*?)(?=^## Termination and deferred-work routing)/gm),
-					expected: normalizeText(`One merged stuck-fix mechanism replaces separate escape routes. It may run when a round lands no fix, one finding returns STILL OPEN twice, the implementer cannot locate the cause, or fixes keep regressing.
+					fixture: `One merged stuck-fix mechanism replaces separate escape routes. It may run when a round lands no fix, one finding returns STILL OPEN twice, the implementer cannot locate the cause, or fixes keep regressing.
 
-Dispatch one fresh \`adversarial\` consultation. Its job is diagnosis, not a gate verdict. Supply applicable approved designs under § Reviewer input contract. Pass only the smallest set of whole implementer episodes needed for evidence. Name each episode and reason. Only an implementer episode is eligible. A design-review, implementation-review, fix-gate, or other reviewer episode is not eligible.
+${dutyParagraph("review-episode-selection")}
 
-Pass every selected episode whole and intact. Embedded material remains present regardless of its type, source, or amount. It can include a risk record, area proof, research-log text, private triage, or implementer reasoning. Do not screen content for eligibility. Do not filter, drop, rewrite, or sanitize a needed episode because of embedded content. This is the sole reviewer episode exception and the user accepts its indirect exposure risk. The exception does not permit a direct read or separate delivery of a log, log reference, log extract, risk record, area proof, implementer report, private triage, or implementer reasoning.
+${dutyParagraph("review-episode-integrity")}
 
 The consultation returns either a concrete failed assumption and repair route, or \`design-flawed\` with evidence. It closes nothing and lowers no severity. A fresh gate must verify any resulting fix at major severity or above. Every fix round that lands any fix still receives a regression pass. The orchestrator may dispute a \`design-flawed\` result only through the mandatory user escalation. The accepted whole-episode exposure is not fixed, prevented, or detected by this rule.
 
@@ -5948,9 +6029,9 @@ The ordinary budget permits one consultation.
 Count that budget separately for each review-fix child.
 A second consultation for the same track or child requires an explicit user grant.
 Further consultation requires another grant.
-Record each grant in the override log.`),
+Record each grant in the override log.`,
 				},
-			];
+			].map((unit) => unit.fixture === undefined ? unit : { ...unit, expected: normalizeText(unit.fixture) });
 			const resolveDispatchUnits = (workflowSource = workflow, reviewSource = reviews) => dispatchPolicyUnits.map((unit) => {
 				const source = unit.source === workflow ? workflowSource : reviewSource;
 				return { id: unit.id, expected: unit.expected, ...unit.extract(source) };
@@ -5960,7 +6041,7 @@ Record each grant in the override log.`),
 			const reviewerInput = dispatchPolicyUnits.find(({ id }) => id === "reviewer-input-contract");
 			const amendment = "The supplied action temporary folder permits only the reviewer's own writing-checker diff and adds no reviewer input. A reviewer never lists tmp/ or reads another action's folder.";
 			const originalParagraphDigests = [
-    "6a5242d6c9a4b3e5c4f25e982bb5ca2f34ef902b592866897b83b8f3bfdf15fc",
+    "bb0a962879cbb970684ae81a5b3a48df76a0c0b16edd40d42f0d3cc4c2c1461f",
     "cc07b77fae62cc67e2395a29361f5299a44e827db1de9919160da202d743799c",
     "217150669c1324369d6cfb2e9793a65dd5dbadfceed64d9decae2a1350108c5b",
     "23cfe8d8109a3659535cdf7afcce2cdad1601fc4ba93a59aafd915ef38993796",
@@ -5968,12 +6049,12 @@ Record each grant in the override log.`),
     "1e9ae92984ec25a75ad4337a69b40591149304794309dfb5b547af21dbeabc58",
     "92a11ed42896fcc16ef7ddd3a002c973ee4b3f3cf69b5ff171aab2ed1568de96",
     "ae8e0598923ac355b57e64cd726e102aa4fb3ffd9a9bf6b7bbc4a3f256d55c84",
-    "c54a43083302a16acc72d7ce490b3d04340bfffa23c17fc1d8e9db84823b078c",
+    "91b653fb2aadb541a0cc573003447a16cde8dba7df4d8793d05b416cdb068319",
     "aa7fa62764b20da108233c6df3f2b273b517bda1dec609ddca01e1f3ee8e57e8"
 ];
 			const reviewerRawHash = (text) => createHash("sha256").update(text).digest("hex");
 			const inputParagraphs = (source) => reviewerInput.extract(source).rawText.trim().split(/\n\n/).filter((paragraph) => paragraph !== amendment);
-			const writeScope = "reviewer does not edit reviewed artifacts. The common review policy permits\nonly the reviewer's own writing-checker diff.";
+			const writeScope = "Never edit reviewed artifacts. The common review policy permits only the reviewer's writing-checker diff.";
 			const acceptsReviewerInputs = (source) => {
 				const unit = reviewerInput.extract(source), paragraphs = inputParagraphs(source);
 				return unit.count === 1 && unit.text === reviewerInput.expected && paragraphs.length === 10
@@ -6046,7 +6127,7 @@ Record each grant in the override log.`),
 				["current-inputs-removed", workflow.replace("Name any current approved design (standalone or log-held), task, acceptance condition, findings with compact fix evidence, affected files, decisions and open questions.", "The block states the current task."), reviews],
 				["repeated-map-fact-check", workflow.replace("Implementers map final source per [maps.md](maps.md).", "Verify every map fact before dispatch. For map reading depth, use"), reviews],
 				["repeated-map-stopping-rule", workflow.replace("Implementers map final source per [maps.md](maps.md).", "Read every map until all questions are answered. For map reading depth, use"), reviews],
-				["private-source-weakened", workflow, reviews.replace("any research log", "only the current research log")],
+				["private-source-weakened", workflow, reviews.replace("research logs (early, ordinary or design-track)", "only the current research log")],
 				["implementation-role-reversed", workflow, reviews.replace("Neither Reviewer I nor specialists receive risk records, area proofs or implementer episodes.", "They may receive the research log, risk record, area proof, implementer episode, implementer report, private triage, and implementer reasoning.")],
 				["additive-direct-read", workflow, reviews.replace("A design adversary receives", "Reviewer I may directly read the research log and implementer reasoning.\n\nA design adversary receives")],
 				["fix-gate-episode", workflow, reviews.replace("Neither gate receives implementer episodes", "Both gates may receive implementer episodes")],
@@ -6127,18 +6208,733 @@ omitted and why.`);
 				...mapOutside.flatMap((_, index) => [rule, rule.replace(" ", "\n")].map((repeat) =>
 					!acceptsMapOwnership(mapReference, mapOutside.map((text, i) => i === index ? text + "\n" + repeat : text)))),
 			]);
-			const mapNoRead = "It does not read the reference.";
-			const acceptsMapPointer = (text) => text.includes("The orchestrator names the maps.md path beside this document in every map-writing or map-composing worker task.") && text.split(mapNoRead).length === 2;
-			const mapPresentationRules = [
-				"Design authors include helpful component or data-flow diagrams.",
-				"The orchestrator uses tables, neutral pseudocode or small diagrams where helpful in designs, plans, packages and decision questions.",
-				"Design and orchestrator-presentation diagrams have topic titles and state arrow meaning.",
-			];
+			const mapNoRead = "Never read either, even on worker failure.";
+			const acceptsMapPointer = (text) => normalizeText(text).includes("Name [design-format.md](design-format.md) for design writing, [maps.md](maps.md) for map writing or composition.") && text.split(mapNoRead).length === 2;
+			const mapPresentationRules = [[0, 2], [3, 5], [5, 9]].map(([start, end]) =>
+				assignedDutyGroups["workflow-form"].slice(start, end).map(([, sentence]) => sentence).join(" "));
 			const acceptsMapPresentation = (text) => mapPresentationRules.every((rule) => normalizeText(text).includes(rule));
 			const mapPresentationRemovals = mapPresentationRules.map((rule) => {
 				const changed = workflow.replace(privacyPattern(rule), "");
 				return changed !== workflow && !acceptsMapPresentation(changed);
 			});
+			const designReference = readFileSync(paths.DESIGN_FORMAT_DOC, "utf8");
+			const formDocs = { workflow, recursive, reviews, design: designReference, map: mapReference,
+				implementation: readFileSync(paths.REVIEW_IMPLEMENTATION_INPUT_DOC, "utf8"),
+				maintenance: readFileSync(join(REPO, "verification", "README.md"), "utf8"),
+				writing: readFileSync(paths.WRITING_GUIDANCE_DOC, "utf8"),
+			};
+			const formOwners = [
+				["maintenance", "## Workflow-phase context maintenance", [
+					["model-owner", "The main workflow owns the shared design model rule."],
+					["model-joint-revision", "Revise both copies together."],
+					["model-retirement-approval", "Retire the duplicate only after approval"],
+					["model-retirement-proven-access", "and measured proof that both readers can reach one shared copy."],
+				]],
+				["writing", "## Writing requirements and reminders", [
+					["form-cue", "The form cue gives diagrams, tables and prose equal value and asks for the clearest set."],
+					["cue-before-guard", "asks for the clearest set. This exact scope guard follows:"],
+				]],
+				["workflow", "## Lifecycle and phases", [
+					["summary-input", "Give design authors the summary, action type, decision inputs and task read limits."],
+				]],
+				["workflow", "## Lifecycle and phases", [
+					["triage-route", "The orchestrator triages each finding by strengthening a rationale, reversing a decision, recording an accepted risk, or routing low-level material to the implementer report."],
+				]],
+				["recursive", "## Nested designs and gates", [
+					["recursive-gates", "§ Lifecycle and phases for design gates,"],
+				]],
+				["reviews", "## Findings and output", [
+					["level-pointer", "The design-stage reviewer assigns that value using [track-workflow.md](track-workflow.md) § Lifecycle and phases."],
+					["levels", "A design-stage finding also records `level` as `design` or `implementation`."],
+					["evidence", "A code citation may supply evidence for a design-stage finding. The citation is never the finding itself."],
+					["review-route", "A design-stage reviewer whose finding fails the abstraction test records its level as `implementation` and routes it to the implementer report instead of the design discussion."],
+				]],
+				["map", "## Detail by track", [
+					["map-scope-only", "Put only the source commit in the scope paragraph."],
+				]],
+			];
+			// The named controls also remove individual clauses of compound duties.
+			const namedSentenceRemovals = [
+				["workflow", "pseudocode-definition", dutySentence("pseudocode-definition")],
+				["workflow", "workflow-narrow-first", dutySentence("workflow-narrow-first")],
+				["reviews", "common-separate-notes", "task notes or extracts, separate note references"],
+				["reviews", "common-metadata", dutySentence("common-metadata")],
+				["reviews", "common-metadata-no-follow", dutySentence("common-metadata-no-follow")],
+				["reviews", "parent-review-boundary", dutySentence("parent-review-boundary")],
+				["implementation", "implementation-no-notes", "task notes or extracts, separate note references"],
+				["implementation", "implementation-denies-read", "Never receive, read or seek risk records, area proofs, implementer episodes or reports,"],
+				["implementation", "implementation-metadata", dutySentence("implementation-metadata")],
+				["implementation", "implementation-metadata-no-follow", dutySentence("implementation-metadata-no-follow")],
+				["design", "author-fewest", "Choose the fewest changes"],
+				["design", "author-approved-goals", "keep all approved goals,"],
+				["design", "author-product-and-implementation-quality", "product and implementation quality,"],
+				["design", "author-required-gates", "and required gates."],
+				["design", "author-off-goal-disclosure", dutySentence("author-off-goal-disclosure")],
+				["design", "author-no-goal-edit", dutySentence("author-no-goal-edit")],
+				["design", "author-regressions", dutySentence("author-regressions")],
+				["design", "author-show-changes", dutySentence("author-show-changes")],
+				["design", "author-reader", dutySentence("author-reader")],
+				["design", "author-narrow-first", dutySentence("author-narrow-first")],
+				["design", "author-conversion-proposal", dutySentence("author-conversion-proposal")],
+				["design", "child-mechanism-ownership", "Each child owns its mechanisms"],
+				["design", "child-split-ownership", "and internal splits."],
+				["design", "author-review-pointer", dutySentence("author-review-pointer")],
+				["workflow", "shared-test", dutySentence("shared-test")],
+				["workflow", "high-level", dutySentence("high-level")],
+				["workflow", "low-level", dutySentence("low-level")],
+				["workflow", "report-route", dutySentence("report-route")],
+				["workflow", "exclude-detail", dutySentence("exclude-detail")],
+				["workflow", "omissions", dutySentence("omissions")],
+				["workflow", "baseline-omissions", dutySentence("baseline-omissions")],
+				["workflow", "conversion-reason", dutySentence("conversion-reason")],
+				["workflow", "split-detail", dutySentence("split-detail")],
+				["workflow", "no-length-split", dutySentence("no-length-split")],
+				["workflow", "preserve-gates", dutySentence("preserve-gates")],
+				["workflow", "parent-detail", dutySentence("parent-detail")],
+				["workflow", "notes-handoff", dutySentence("notes-handoff")],
+				["workflow", "notes-copy", dutySentence("notes-copy")],
+				["workflow", "no-follow", dutySentence("no-follow")],
+				["design", "author-only", dutySentence("author-only")],
+				["design", "map-only", dutySentence("map-only")],
+				["design", "author-no-orchestrator", dutySentence("author-no-orchestrator")],
+				["design", "design-opening", dutySentence("design-opening")],
+				["design", "no-opening-cap", dutySentence("no-opening-cap")],
+				["design", "form-fields", dutySentence("form-fields")],
+				["design", "alternatives", dutySentence("alternatives")],
+				["design", "design-terms-history", dutySentence("design-terms-history")],
+				["design", "baseline-authority", dutySentence("baseline-authority")],
+				["design", "author-abstraction", dutySentence("author-abstraction")],
+				["design", "behavior", "Keep observable behavior,"],
+				["design", "limits", "binding limits,"],
+				["design", "compatibility", "compatibility and all decision-relevant guarantees and constraints."],
+				["design", "author-detail", dutySentence("author-detail")],
+				["design", "design-equal-forms", dutySentence("design-equal-forms")],
+				["design", "design-helpful-diagram", dutySentence("design-helpful-diagram")],
+				["design", "design-diagram-explain", dutySentence("design-diagram-explain")],
+				["design", "design-diagram-placement", dutySentence("design-diagram-placement")],
+				["design", "design-diagram-types", dutySentence("design-diagram-types")],
+				["design", "design-diagram-size", dutySentence("design-diagram-size")],
+				["design", "design-diagram-style", dutySentence("design-diagram-style")],
+				["design", "design-size", dutySentence("design-size")],
+				["design", "design-detail-bound", dutySentence("design-detail-bound")],
+				["design", "design-omissions", dutySentence("design-omissions")],
+				["design", "direct-children", dutySentence("direct-children")],
+				["design", "component-fields", dutySentence("component-fields")],
+				["design", "interaction-text", "interaction in text"],
+				["design", "interaction-diagram", "text and a diagram."],
+				["design", "one-table", "Give one table"],
+				["design", "identifier", "child identifier"],
+				["design", "title", ", title,"],
+				["design", "scope", ", scope boundary,"],
+				["design", "activation", "what it activates,"],
+				["design", "differences", "differences open at its marker,"],
+				["design", "prerequisites", "logical prerequisites"],
+				["design", "funding", "and funding share."],
+				["design", "mechanisms", dutySentence("mechanisms")],
+				["design", "private-notes", dutySentence("private-notes")],
+				["design", "notes-metadata", dutySentence("notes-metadata")],
+				["design", "author-note-copy", dutySentence("author-note-copy")],
+				["design", "author-no-follow", dutySentence("author-no-follow")],
+				["map", "map-size", dutySentence("map-size")],
+				["map", "map-detail-limit", dutySentence("map-detail-limit")],
+				["map", "map-omissions", dutySentence("map-omissions")],
+				["map", "map-notes", dutySentence("map-notes")],
+				["map", "map-reader-order", dutySentence("map-reader-order")],
+				["map", "map-connected-text", dutySentence("map-connected-text")],
+				["map", "map-equal-forms", dutySentence("map-equal-forms")],
+				["map", "map-pseudocode", dutySentence("map-pseudocode")],
+				["map", "map-arrows", dutySentence("map-arrows")],
+				["map", "map-diagram-placement", "Use top-level Mermaid blocks:"],
+				["map", "map-diagram-types", "flowchart (prefer TD), sequenceDiagram, stateDiagram-v2, classDiagram or erDiagram."],
+				["map", "map-diagram-purposes", dutySentence("map-diagram-purposes")],
+				["map", "map-diagram-size", dutySentence("map-diagram-size")],
+				["map", "map-diagram-style", dutySentence("map-diagram-style")],
+				["map", "map-pointer", dutySentence("map-pointer")],
+			];
+			const sentenceOwners = [
+				["design", "## Readers", "design-readers"],
+				["design", "## Purpose and form", "design-purpose"],
+				["design", "## Design reminder", "design-reminder"],
+				["design", "## Coherent design models", "shared-model", "design-credit"],
+				["design", "## Detail and handoff", "design-handoff"],
+				["workflow", "## Lifecycle and phases", "workflow-abstraction", "shared-model", "workflow-form", "workflow-omissions", "workflow-notes"],
+				["reviews", "### Reviewer input contract", "review-private", "review-adversary-input", "review-map", "review-episode-exception", "review-parent"],
+				["reviews", "## Stuck-fix consultation", "review-episode-selection", "review-episode-integrity"],
+				["implementation", implementationOwner, "implementation-private"],
+				["map", "## Worker readers and access", "map-readers"],
+				["map", "## Length and form", "map-form"],
+				["map", "## Private questions", "map-questions"],
+			];
+			const lifeHeading = "## Lifecycle and phases";
+			const modelHeading = "## Coherent design models";
+			// Keep the mixed context explicit. Share the duty and review policy fixtures.
+			const lifecycleFixture = `${lifeHeading}
+
+The mandatory phases run in this order:
+
+1. research.
+2. assess and record all eleven risk lines.
+3. design and validate for a multi-track change, a proved DESIGN-TRIGGERING area, or a per-track estimate above 100 counted lines.
+4. when a design exists, reconfirm the focus list against the validated design.
+5. when a design exists, run one adversarial design review for each proved
+   DESIGN-TRIGGERING area that has not reviewed the applicable design.
+6. when a design exists, obtain final design approval.
+7. run the track loop.
+8. obtain blocking final acceptance.
+9. deliver.
+
+The track loop presents the approved high-level design when required, plans and judges the track's independent risk record, implements, validates, compares the committed difference with the proved areas, reviews, and fixes. It then presents any changed high-level design when required and delivers the track package. It applies and commits required user-review fixes whenever the user requests them. It verifies their range when one exists and marks the boundary. The implementer produces the low-level design and implements it as one integrated action.
+
+Give design authors the summary, action type, decision inputs and task read limits. Name [design-format.md](design-format.md) for design writing, [maps.md](maps.md) for map writing or composition. Never read either, even on worker failure.
+
+${dutyParagraph("workflow-abstraction")}
+
+${dutyParagraph("shared-model")}
+
+${dutyParagraph("workflow-form")}
+
+${dutyParagraph("workflow-omissions")}
+
+${dutyParagraph("workflow-notes")}
+
+When an approved high-level design exists, present it before the track and after it. Omit the before phase only when approval state covers the track design. Approval state is the last approved version plus recorded changes that need no approval. Presentation alone grants no approval. Omit the after phase when implementation did not change the design. This omission skips only the design-difference presentation. It does not skip the track review. By default, a high-level design update presents what changed. It omits unchanged text that the reader does not need in order to act. The self-contained message test below governs every update. Restate the minimum context the reader needs to act. When no approved high-level design exists, neither presentation applies. A material deviation instead follows [blast-radius.md](blast-radius.md) § Halt and focus re-derivation.
+
+${designReviewPolicyBegin}
+${designReviewPolicyFixture}
+${designReviewPolicyEnd}
+
+Publishing depends on \`workflow.draftPRs\` in \`slate.json\`. When enabled, use [pr-publishing.md](pr-publishing.md) § One draft pull request. Its § Creation sets the draft timing. When publishing is disabled, create no pull request. The retained research log is the durable workflow record.`;
+			const sectionFixtures = {
+				workflow: lifecycleFixture,
+				reviews: `### Reviewer input contract\n\n${reviewerInput.fixture}\n\n## Stuck-fix consultation\n\n${dispatchPolicyUnits.find(({ id }) => id === "stuck-fix-policy").fixture}`,
+				...workerFormReferences,
+			};
+			const formCredit = dutySentence("model-credit");
+			const hasOnce = (source, rule) => source.split(rule).length === 2;
+			const softFormOwners = [
+				["design", "## Detail and handoff", dutySentence("design-size"), "2,500"],
+				["map", "## Length and form", dutySentence("map-size"), "1,500"],
+			];
+			const hardWordCap = /\b(?:never|do not|must not) exceed [\d,]+ words\b/i;
+			const selectedPerspectives = reviewPerspectives.REVIEW_PERSPECTIVES.map(({ name }) => name);
+			const fixedInputFiles = new Map();
+			const deliverInput = (source) => reviewPerspectives.loadImplementationReviewGuidance(selectedPerspectives, (path) => {
+				if (path === paths.REVIEW_IMPLEMENTATION_INPUT_DOC) return source;
+				if (!fixedInputFiles.has(path)) fixedInputFiles.set(path, readFileSync(path, "utf8"));
+				return fixedInputFiles.get(path);
+			});
+			const marker = "assigned-forms implementation input boundary";
+			const [beforeInput, afterInput, extraFrame] = deliverInput(marker).split(marker);
+			if (extraFrame !== undefined || beforeInput === undefined || afterInput === undefined)
+				throw new Error("Implementation-review input must be delivered exactly once");
+			const deliveredProblems = (source) => {
+				if (!source.trim()) return [`${implementationOwner}: delivery`];
+				const delivered = deliverInput(source);
+				if (!delivered.startsWith(beforeInput) || !delivered.endsWith(afterInput) ||
+					delivered.length <= beforeInput.length + afterInput.length)
+					return [`${implementationOwner}: delivery`];
+				return [...new Set([
+					...implementationInputProblems(delivered),
+					...wholeImplementationInputProblems(delivered.slice(beforeInput.length, delivered.length - afterInput.length)),
+				])];
+			};
+			const sectionText = (source, heading) => formSection(source, heading)?.map(({ text }) => text).join(" ") ?? "";
+			const ownedSentenceProblems = (file, heading, groups, source) => file === "implementation"
+				? deliveredProblems(source)
+				: ownedFormProblems(source, heading, formSection(sectionFixtures[file], heading), groups);
+			const expectedModel = formBlocks(dutyParagraph("shared-model"));
+			const modelProblems = (docs) => {
+				const [workflowModel, designModel] = [["workflow", lifeHeading, 5], ["design", modelHeading, 0]]
+					.map(([file, owner, start]) => {
+						// The section checks pin all prefix and suffix blocks. Compare the
+						// full span between them, including any extra model paragraphs.
+						const suffix = formSection(sectionFixtures[file], owner).length - start - 1;
+						const actual = formSection(docs[file], owner);
+						return actual?.slice(start, actual.length - suffix) ?? null;
+					});
+				return [
+					...(!sameBlocks(workflowModel, expectedModel) ? ["workflow-model-rule"] : []),
+					...(!sameBlocks(designModel, expectedModel) ? ["design-model-rule"] : []),
+					...(!sameBlocks(workflowModel, designModel) ? ["model-copy-mismatch"] : []),
+				];
+			};
+			const plainHeadingFiles = ["design", "map", "workflow", "reviews", "recursive", "implementation"];
+			const assignedFormProblems = (docs) => [
+				...plainHeadingFiles.filter((file) => hasNonPlainHeading(docs[file])).map((file) => `${file}: plain-heading`),
+				...sentenceOwners.flatMap(([file, heading, ...groups]) => ownedSentenceProblems(file, heading, groups, docs[file])),
+				...Object.entries(workerFormReferences).flatMap(([file, expected]) =>
+					sameBlocks(formBlocks(docs[file]), formBlocks(expected)) ? [] : [`${file}-whole-reference`]),
+				...formOwners.flatMap(([file, heading, rules]) => {
+					const scoped = plainHeadingFiles.includes(file);
+					const section = scoped ? formSection(docs[file], heading) : null;
+					const text = scoped ? section?.map(({ text }) => text).join(" ") ?? "" : headingUnit(heading)(docs[file]).text;
+					return [
+						...(scoped && !section && !hasNonPlainHeading(docs[file]) ? [`${heading}: owner`] : []),
+						...rules.filter(([, rule]) => !text.includes(rule)).map(([id]) => id),
+					];
+				}),
+				...softFormOwners.filter(([file, heading]) => hardWordCap.test(sectionText(docs[file], heading)))
+					.map(([file]) => `${file}-hard-word-cap`),
+				...modelProblems(docs),
+			];
+			const acceptsAssignedForms = (docs, problems = assignedFormProblems(docs)) => problems.length === 0
+				&& hasOnce(sectionText(docs.design, modelHeading), formCredit)
+				&& hasOnce(normalizeText(Object.values(docs).join("\n")), formCredit)
+				&& acceptsMapPresentation(sectionText(docs.workflow, lifeHeading))
+				&& acceptsMapPointer(sectionText(docs.workflow, lifeHeading))
+				&& !normalizeText(docs.workflow).includes("Read [design-format.md](design-format.md)");
+			const mutationSpan = (source, target, label) => {
+				const pattern = target.trim().split(/\s+/).map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("(?:[ \\t]*\\r?\\n[ \\t]*|[ \\t]+)");
+				const matches = [...source.matchAll(new RegExp(pattern, "g"))];
+				if (matches.length !== 1) throw new Error(`Expected one mutation target in ${label}, found ${matches.length}: ${target}`);
+				return matches[0];
+			};
+			const replaceSpan = (source, match, replacement) =>
+				source.slice(0, match.index) + replacement + source.slice(match.index + match[0].length);
+			// Keep wrap controls effective when their input already uses the requested wrap.
+			const distinctWrap = (raw, wrapped) => raw === wrapped ? wrapped.replace("\n", "\n ") : wrapped;
+			const headingOwners = [
+				["workflow", lifeHeading],
+				["reviews", "### Reviewer input contract"],
+				["design", "## Detail and handoff"],
+				["implementation", implementationOwner],
+			];
+			const headingAttacks = (title) => {
+				const prefix = title.slice(0, -1);
+				const letter = title.charCodeAt(title.length - 1);
+				const lastWord = title.lastIndexOf(" ") + 1;
+				return [
+					["RG8Code", prefix + "<code>&#" + letter + ";</code>", true],
+					["RG8CodeNoSemicolon", prefix + "<code>&#" + letter + "</code>", true],
+					["RG8Hidden", title + "<span hidden>x</span>", true],
+					["RG8Style", title + "<style>unused{}</style>", true],
+					["RG8Break", title.replace(" ", "<br>"), true],
+					["RG9Decimal", prefix + "&#" + String(letter).padStart(8, "0") + ";", false],
+					["RG9Hex", prefix + "&#x" + letter.toString(16).padStart(7, "0") + ";", false],
+					["RG9WordBreak", title.slice(0, 2) + "<br>" + title.slice(2), false],
+					["RG9HiddenWord", title.slice(0, lastWord) + "<span hidden>" + title.slice(lastWord) + "</span>", false],
+					["RG9Directional", title.slice(0, lastWord) + "\u202e" + title.slice(lastWord) + "\u202c", false],
+				];
+			};
+			const generateFormCases = () => {
+				const edit = (file, from, to, source = formDocs[file], before = 0, after = 0) => {
+					const match = mutationSpan(source, from, file);
+					const replacement = typeof to === "function" ? to(match[0]) : to.replaceAll("$&", () => match[0]);
+					let left = source.slice(0, match.index);
+					let right = source.slice(match.index + match[0].length);
+					// Drop the inline separator so it cannot become a hard break.
+					if (before) left = left.replace(/[ \t]+$/, "") + "\n".repeat(before);
+					if (after) right = "\n".repeat(after) + right.replace(/^[ \t]+/, "");
+					const changed = left + replacement + right;
+					if (changed === source) throw new Error(`Unchanged mutation target in ${file}: ${from}`);
+					return changed;
+				};
+				const classification = dutyParagraph("workflow-abstraction");
+				const withoutClassification = edit("workflow", classification, "");
+				const pointer = "[track-workflow.md](track-workflow.md) § Lifecycle and phases.";
+				const model = dutyParagraph("shared-model");
+				const modelClauseRemovals = new Map([
+					["model-both-coexistence", "If two models coexist for one concept, state their boundary"],
+					["model-both-translation", "how to translate"],
+					["model-both-retirement", "when the older one ends."],
+				]);
+				const formVariants = [
+					["classification-removed", { workflow: withoutClassification }],
+					["classification-worker-only", { workflow: withoutClassification, design: formDocs.design + "\n\n" + classification }],
+					["classification-wrong-heading", { workflow: withoutClassification + "\n\n## Other instructions\n\n" + classification }],
+					["classification-heading-missing", { workflow: edit("workflow", lifeHeading, "") }],
+					["classification-heading-renamed", { workflow: edit("workflow", lifeHeading, "## Lifecycle") }],
+					["review-unrelated-heading", { reviews: edit("reviews", pointer, "[track-workflow.md](track-workflow.md) § Confirmation gate.") }],
+					["review-worker-reference", { reviews: edit("reviews", pointer, "[design-format.md](design-format.md) § Design reminder.") }],
+					["map-author-pointer", { map: edit("map", "track-workflow.md#lifecycle-and-phases", "design-format.md#design-reminder") }],
+					["shared-forms-empty", { workflow: mapPresentationRules.reduce((source, rule) => edit("workflow", rule, "", source), formDocs.workflow) }],
+					["model-workflow-moved", { workflow: edit("workflow", model, "") + "\n\n## Other instructions\n\n" + model }],
+					["model-author-removed", { design: edit("design", model, "") }],
+					["model-drift", { design: edit("design", "Reuse models first.", "Reuse models first. Check each model.") }],
+					["credit-duplicate", { design: formDocs.design + "\n" + formCredit }],
+					["credit-moved", { design: edit("design", formCredit, ""), workflow: formDocs.workflow + "\n" + formCredit }],
+					["model-read", { workflow: edit("workflow", "Never read either", "Read [design-format.md](design-format.md) before assessing a design. Never read either") }],
+					...softFormOwners.map(([file, , guidance, words]) => [`${file}-hard-word-cap`, {
+						[file]: edit(file, guidance, `$& Never exceed ${words} words.`),
+					}, `${file}-hard-word-cap`]),
+					...formOwners.flatMap(([file, , rules]) => rules.map(([id, rule]) => [id, { [file]: edit(file, rule, "") }, id])),
+					...namedSentenceRemovals.map(([file, id, rule]) => [id, { [file]: edit(file, rule, "") }, id]),
+					...assignedDutyGroups["shared-model"].flatMap(([names, sentence]) => names.split(" ").map((id) => {
+						const target = modelClauseRemovals.get(id) ?? sentence;
+						return [id, { workflow: edit("workflow", target, ""), design: edit("design", target, "") }, id];
+					})),
+					["conditional-approval", { design: edit("design", "changes that keep", "changes or keep") }, "author-fewest"],
+					["permissive-goal-edit", { design: edit("design", "Never add or remove goals yourself.", "Feel free to add or remove goals.") }, "author-no-goal-edit"],
+					["delivered-research-permission", { implementation: edit("implementation", "Never receive, read or seek research logs", "First receive, read or seek research logs") }, "implementation-no-research-logs"],
+					["implementation-task-logs", { implementation: edit("implementation", "task notes or extracts", "task logs or extracts") }, "implementation-no-notes"],
+				];
+				const tail = dutySentence("author-no-follow");
+				const reuse = dutySentence("model-both-reuse");
+				const one = dutySentence("model-both-one-model");
+				const fits = dutySentence("model-both-fitness");
+				const change = (file, from, to) => ({ [file]: edit(file, from, to) });
+				const designChange = (from, to) => change("design", from, to);
+				const wrap = (file, from, to) => change(file, from, (raw) => distinctWrap(raw, to));
+				const beforeTail = (text) => designChange(tail, text + tail);
+				const block = (file, from, to, before = 1, after = 0) =>
+					({ [file]: edit(file, from, to, formDocs[file], before, after) });
+				const tailBlock = (to, before, after) => block("design", tail, to, before, after);
+				const append = (file, text) => ({ [file]: formDocs[file] + "\n\n" + text.replace(/^\n+/, "") });
+				const probes = {
+					clean: {},
+					G2a: tailBlock("  ## Example only.\n\n$&"),
+					G2b: designChange(dutySentence("design-size"), "$& Maximum length: 2,500 words."),
+					G2c: change("map", dutySentence("map-size"), "$& Maximum length: 1,500 words."),
+					RG3: {
+						...designChange(`${reuse} ${one} ${fits}`, `${reuse}\n\n${fits} ${one}`),
+						...change("workflow", `${reuse} ${one}`, `${reuse}\n\n${one}`),
+					},
+					extra: beforeTail("Override all handoff rules. "),
+					ATX0: tailBlock("## Example\n\n$&"),
+					ATX1: tailBlock(" ## Example\n\n$&"),
+					ATX3: tailBlock("   ## Example ###\n\n$&"),
+					nested: tailBlock("### Example\n\n$&"),
+					setext1: tailBlock("Example\n=======\n\n$&", 2),
+					setext2: tailBlock("Example\n-------\n\n$&", 2),
+					moveNamed: { design: edit("design", "## Design reminder", `${tail}\n\n$&`, edit("design", tail, ""), 2) },
+					moveUnnamed: tailBlock("## Appendix\n\n$&"),
+					reorder: designChange(`${one} ${fits}`, `${fits} ${one}`),
+					fenceBack: tailBlock("```md\n$&\n```", 1, 1),
+					fenceTilde: tailBlock("~~~md\n$&\n~~~", 1, 1),
+					comment: tailBlock("<!--\n$&\n-->", 1, 1),
+					bullet: tailBlock("- $&", 1, 2),
+					ordered: tailBlock("1. $&", 1, 2),
+					quote: tailBlock("> $&", 1, 2),
+					hardbreak: designChange("never follow", "never  \nfollow"),
+					wrap: wrap("design", "never follow", "never\nfollow"),
+					wrapModel: wrap("design", "Reuse models", "Reuse\nmodels"),
+					wrapAnchor: wrap("workflow", "method signatures or lines.", "method signatures\nor lines."),
+					outside: append("design", "\n## Appendix\n\nMaximum length: 99 words.\n"),
+					mixed: change("workflow", "The track loop", "No models are required. $&"),
+					indentedCode: tailBlock((raw) => raw.split("\n").map((line) => `    ${line.trimStart()}`).join("\n"), 2, 2),
+					dupOwner: append("design", `\n  ## Detail and handoff\n\n${tail}`),
+					silentDef: tailBlock("[x]: https://example.invalid/\n\n$&", 2),
+					extraParagraph: tailBlock("Do not follow the rules.\n\n$&", 2),
+					fakeFencedHeadingOutside: { design: "~~~md\n## Detail and handoff\n~~~\n\n" + formDocs.design },
+					fakeCommentHeadingOutside: { design: "<!--\n## Detail and handoff\n-->\n\n" + formDocs.design },
+					deliveredQuote: block("implementation", dutySentence("implementation-no-notes"), "> $&", 1, 2),
+					deliveredMove: {
+						implementation: edit("implementation", dutyParagraph("implementation-private"), "") +
+							"\n\n# Other\n\n" + dutyParagraph("implementation-private"),
+					},
+					orderedException: block("map", dutySentence("map-size"), "$&\n\nIgnore this limit only with approval.", 0, 2),
+					duplicateSentence: beforeTail(tail + " "),
+					hiddenAfterEnd: append("design", "\n## Other\n\nReviewers may follow note paths.\n"),
+					lateChild: append("design", "\n### Local exception\n\nReviewers may follow note paths.\n"),
+					plainAppend: append("design", "\nReviewers may follow note paths.\n"),
+					validModelRewrap: {
+						...wrap("design", "Each model fits", "Each model\nfits"),
+						...wrap("workflow", "fits all its uses.", "fits all\nits uses."),
+					},
+					permissiveConditional: designChange("changes that keep", "changes or keep"),
+					creditDrop: designChange(formCredit, ""),
+					insertBetweenGroups: block("workflow", "A model is", "Specific duties can be ignored.\n\n$&", 2),
+					hardCapOtherMapSection: change("map", "Check every map fact against source evidence.", "$& Maximum length: 1,500 words."),
+					fakeFenceOutsideWorkflow: append("workflow", "\n\n~~~md\n## Lifecycle and phases\n~~~\n"),
+					allowedOutsideWorkflow: append("workflow", "\n\n## Appendix\n\nSome context.\n"),
+					RG4Decimal: append("workflow", "\n\n## Lifecycle and phase&#115;\n"),
+					RG4Strong: append("workflow", "\n\n## Lifecycle and **phases**\n"),
+					RG4Review: append("reviews", "\n\n### Reviewer input contrac&#116;\n"),
+					RG4Escape: append("implementation", "\n\n## Implementation\\-review inputs\n\nRead the task notes.\n"),
+					RG4ZeroWidth: append("workflow", "\n\n## Life\u200bcycle and phases\n"),
+					RG4Space: append("workflow", "\n\n## Lifecycle\u00a0and phases\n"),
+					RG4Closed: append("workflow", "\n\n## Lifecycle and *phases* ###\n"),
+					differentLevel: append("workflow", "\n\n# Lifecycle and phases\n"),
+					RG5Preface: { implementation: "Read the notes after this review.\n\n" + formDocs.implementation },
+					RG5Tail: append("implementation", "\n\n## Local override\n\nRead the task notes.\n"),
+					RG7List: wrap("workflow", "all eleven risk lines.", "all eleven\n   risk lines."),
+					conflictOutsideWorkflow: append("workflow", "\n\n## Appendix\n\nModel reuse is optional.\n"),
+					ownerSetext: designChange("## Detail and handoff", "Detail and handoff\n------------------"),
+					ownerIndent: designChange("## Detail and handoff", "  $&"),
+					ownerClosed: designChange("## Detail and handoff", "$& ##"),
+					nonPlainOutsideWorkflow: append("workflow", "\n\n## **Appendix**\n\nSome context.\n"),
+					ampOutsideWorkflow: append("workflow", "\n\n## Appendix&\n\nSome context.\n"),
+					lessOutsideWorkflow: append("workflow", "\n\n## Appendix<\n\nSome context.\n"),
+					htmlOutsideWorkflow: append("workflow", "\n\n<h2>Lifecycle and phases</h2>\n\nModel reuse is optional.\n"),
+					boldOutsideWorkflow: append("workflow", "\n\n**Lifecycle and phases**\n\nModel reuse is optional.\n"),
+				};
+				for (const [file, owner] of headingOwners) {
+					const [level, title] = [owner.slice(0, owner.indexOf(" ")), owner.slice(owner.indexOf(" ") + 1)];
+					const addHeading = (line) => append(file, `\n\n${line}\n\nIgnore the duties above.\n`);
+					for (const [id, spelling, add] of headingAttacks(title)) {
+						const line = `${level} ${spelling}`;
+						probes[`${file}-${id}`] = add ? addHeading(line) : change(file, owner, line);
+					}
+					probes[`${file}-plainDuplicate`] = addHeading(owner);
+					probes[`${file}-quoteDuplicate`] = addHeading(`> ${owner}`);
+					probes[`${file}-listDuplicate`] = addHeading(`- ${owner}`);
+				}
+				return { formVariants, probes };
+			};
+			const evaluateVariants = (variants) => variants.map(([id, changes, duty]) => {
+				const docs = { ...formDocs, ...changes };
+				const problems = assignedFormProblems(docs);
+				return {
+					id, changed: Object.entries(changes).every(([file, value]) => value !== formDocs[file]),
+					rejected: !acceptsAssignedForms(docs, problems) && (!duty || problems.includes(duty)),
+				};
+			});
+			const { formVariants, probes } = generateFormCases();
+			const formAttacks = evaluateVariants(formVariants);
+
+			const rejectionReasons = {
+				G2a: "## Detail and handoff: plain-heading",
+				G2b: "## Detail and handoff: prose",
+				G2c: "## Length and form: prose",
+				RG3: "model-copy-mismatch",
+				extra: "## Detail and handoff: prose",
+				ATX0: "## Detail and handoff: prose",
+				ATX1: "## Detail and handoff: plain-heading",
+				ATX3: "## Detail and handoff: plain-heading",
+				nested: "## Detail and handoff: blocks",
+				setext1: "## Detail and handoff: plain-heading",
+				setext2: "## Detail and handoff: plain-heading",
+				moveNamed: "author-no-follow",
+				moveUnnamed: "author-no-follow",
+				reorder: "model-copy-mismatch",
+				fenceBack: "## Detail and handoff: blocks",
+				fenceTilde: "## Detail and handoff: blocks",
+				comment: "## Detail and handoff: blocks",
+				bullet: "## Detail and handoff: blocks",
+				ordered: "## Detail and handoff: blocks",
+				quote: "## Detail and handoff: blocks",
+				hardbreak: "## Detail and handoff: blocks",
+				outside: "design-whole-reference",
+				mixed: "## Lifecycle and phases: prose",
+				indentedCode: "## Detail and handoff: blocks",
+				dupOwner: "## Detail and handoff: plain-heading",
+				silentDef: "## Detail and handoff: lexer",
+				extraParagraph: "## Detail and handoff: blocks",
+				fakeFencedHeadingOutside: "design-whole-reference",
+				fakeCommentHeadingOutside: "design-whole-reference",
+				deliveredQuote: "## Implementation-review inputs: blocks",
+				deliveredMove: "implementation-no-notes",
+				orderedException: "## Length and form: blocks",
+				duplicateSentence: "## Detail and handoff: prose",
+				hiddenAfterEnd: "design-whole-reference",
+				lateChild: "## Detail and handoff: blocks",
+				plainAppend: "## Detail and handoff: blocks",
+				permissiveConditional: "author-fewest",
+				creditDrop: "model-credit",
+				insertBetweenGroups: "## Lifecycle and phases: blocks",
+				hardCapOtherMapSection: "map-whole-reference",
+				RG4Decimal: "## Lifecycle and phases: plain-heading",
+				RG4Strong: "## Lifecycle and phases: plain-heading",
+				RG4Review: "### Reviewer input contract: plain-heading",
+				RG4Escape: "## Implementation-review inputs: plain-heading",
+				RG4ZeroWidth: "## Lifecycle and phases: plain-heading",
+				RG4Space: "## Lifecycle and phases: plain-heading",
+				RG4Closed: "## Lifecycle and phases: plain-heading",
+				RG5Preface: "implementation-whole-input",
+				RG5Tail: "implementation-whole-input",
+				ownerSetext: "## Detail and handoff: plain-heading",
+				ownerIndent: "## Detail and handoff: plain-heading",
+				ownerClosed: "## Detail and handoff: plain-heading",
+				nonPlainOutsideWorkflow: "workflow: plain-heading",
+				ampOutsideWorkflow: "workflow: plain-heading",
+				lessOutsideWorkflow: "workflow: plain-heading",
+			};
+			for (const [file, owner] of headingOwners) {
+				for (const id of ["RG8Code", "RG8CodeNoSemicolon", "RG8Hidden", "RG8Style", "RG8Break",
+					"RG9Decimal", "RG9Hex", "RG9WordBreak", "RG9HiddenWord", "RG9Directional", "quoteDuplicate", "listDuplicate"]) {
+					rejectionReasons[`${file}-${id}`] = `${owner}: plain-heading`;
+				}
+				rejectionReasons[`${file}-plainDuplicate`] = `${owner}: owner`;
+			}
+			const acceptanceReasons = {
+				clean: "unchanged control",
+				wrap: "plain duty wrap",
+				wrapModel: "wrap in one model copy",
+				wrapAnchor: "wrap in abstraction test",
+				htmlOutsideWorkflow: "HTML lookalike outside owner",
+				boldOutsideWorkflow: "bold lookalike outside owner",
+				validModelRewrap: "different soft wraps in the two model copies",
+				fakeFenceOutsideWorkflow: "fenced lookalike outside owner",
+				allowedOutsideWorkflow: "appendix outside owner",
+				conflictOutsideWorkflow: "conflicting appendix outside owner",
+				differentLevel: "same title at a different level outside the section",
+				RG7List: "plain list-item wrap",
+			};
+			const probeResults = Object.entries(probes).map(([id, changes]) => {
+				const docs = { ...formDocs, ...changes };
+				const problems = assignedFormProblems(docs);
+				const accepted = acceptsAssignedForms(docs, problems);
+				const changed = Object.keys(changes).length > 0 &&
+					Object.entries(changes).every(([file, value]) => value !== formDocs[file]);
+				const expected = acceptanceReasons[id] !== undefined;
+				const reason = expected ? acceptanceReasons[id] : rejectionReasons[id];
+				// Inline ATX text can fail for the same prose reason as the heading.
+				const shapeAgrees = id !== "ATX0" ||
+					formBlocks(docs.design)?.filter(({ type, text }) => type === "heading" && text === "## Example").length === 1;
+				const agrees = shapeAgrees && reason !== undefined && (id === "clean" ? !changed : changed) && accepted === expected
+					&& (expected ? problems.length === 0 : problems.includes(reason));
+				console.log(`NOTE assigned-form probe ${id}: expected ${expected ? "accept" : "reject"}, observed ${accepted ? "accept" : "reject"}, ${reason}${agrees ? "" : ` (diagnostics: ${problems.join(", ")}${shapeAgrees ? "" : ", missing expected heading"})`}`);
+				return { id, changed, rejected: !accepted && agrees, agrees };
+			});
+			const probeIds = [...Object.keys(rejectionReasons), ...Object.keys(acceptanceReasons)];
+			const probesAgree = probeResults.length === probeIds.length &&
+				probeIds.every((id) => Object.hasOwn(probes, id)) && probeResults.every(({ agrees }) => agrees);
+			let ambiguousTargetRejected = false;
+			try {
+				mutationSpan("reuse reuse", "reuse", "ambiguous control");
+			} catch (error) {
+				ambiguousTargetRejected = error.message === "Expected one mutation target in ambiguous control, found 2: reuse";
+			}
+			console.log(`NOTE assigned-form probe RG10Ambiguous: expected reject, observed ${ambiguousTargetRejected ? "reject" : "accept"}`);
+			const allProbesAgree = probesAgree && ambiguousTargetRejected;
+			const modelPairControl = modelProblems({ ...formDocs, ...probes.reorder }).join() === "design-model-rule,model-copy-mismatch";
+			const modelSplitControl = modelProblems({ ...formDocs, ...probes.RG3 }).join() ===
+				"workflow-model-rule,design-model-rule,model-copy-mismatch";
+			mutationAudit.record("assigned-forms", [
+				...formAttacks, ...probeResults.filter(({ id }) => Object.hasOwn(rejectionReasons, id)),
+			]);
+			const substitutions = new Map([
+				["never", "always"], ["not", ""], ["no", "some"], ["only", ""],
+				["every", "some"], ["all", "some"], ["each", "some"], ["must", "may"],
+				["and", "or"], ["or", "and"], ["that", "or"],
+			]);
+			const sentenceMutants = (sentence) => {
+				const mutants = new Set([""]);
+				for (const { 0: word, index } of sentence.matchAll(/[\p{L}\p{N}]+(?:[-'][\p{L}\p{N}]+)*/gu)) {
+					const replace = (value) => sentence.slice(0, index) + value + sentence.slice(index + word.length);
+					mutants.add(replace(""));
+					const other = substitutions.get(word.toLowerCase());
+					if (other) mutants.add(replace(word[0] === word[0].toUpperCase() ? other[0].toUpperCase() + other.slice(1) : other));
+				}
+				return mutants;
+			};
+			const runFormSweep = () => {
+				const sweep = new Map();
+				const sweepFailures = [];
+				for (const [file, heading, ...groups] of sentenceOwners) {
+					const source = formDocs[file];
+					// Enumerate original source spans for edits. Evaluate mutations with the lexer.
+					const actual = splitDutySentences(formSection(source, heading)?.filter(({ type }) => type === "paragraph")
+						.map(({ raw }) => raw.trim()).join("\n\n") ?? "");
+					const counts = sweep.get(file) ?? { sentences: 0, mutants: 0, rejected: 0 };
+					sweep.set(file, counts);
+					for (const [names, expected] of groups.flatMap((group) => assignedDutyGroups[group])) {
+						counts.sentences++;
+						const originals = actual.filter((sentence) => normalizeText(sentence) === expected);
+						if (originals.length !== 1) {
+							sweepFailures.push({ file, expected, problem: "expected one source sentence" });
+							continue;
+						}
+						const match = mutationSpan(source, expected, `${file} ${heading}`);
+						for (const mutant of sentenceMutants(expected)) {
+							counts.mutants++;
+							const changed = replaceSpan(source, match, mutant);
+							const problems = ownedSentenceProblems(file, heading, groups, changed);
+							if (changed !== source && names.split(" ").every((id) => problems.includes(id))) counts.rejected++;
+							else sweepFailures.push({ file, expected, mutant, problems });
+						}
+					}
+				}
+				return { sweep, sweepFailures };
+			};
+			const { sweep, sweepFailures } = runFormSweep();
+			for (const [file, counts] of sweep) console.log(`NOTE assigned-form sweep ${file}: ${counts.sentences} sentences, ${counts.rejected}/${counts.mutants} rejected`);
+			const taskNoteAttacks = [
+				["notes-direct-read", "A design adversary receives", "An adversary may read task notes directly. A design adversary receives"],
+				["notes-reference", "Every reviewer receives them", "Provide a separate notes path. Every reviewer receives them"],
+				["notes-extract", "Every reviewer receives them", "Provide a separate notes extract. Every reviewer receives them"],
+				["notes-follow-link", "Never follow them.", "Follow links to task notes in the design."],
+				["notes-implementation-exception", "Implementation reviewers receive", "Implementation reviewers may receive task notes. Implementation reviewers receive"],
+				["notes-screened-episode", "Pass every selected episode whole and intact.", "Screen out task notes from each episode. Pass every selected episode whole and intact."],
+				["notes-stuck-fix-separate", "The exception does\nnot permit a direct read", "Supply task notes separately or read them directly. The exception does\nnot permit a direct read"],
+			].map(([id, before, after]) => {
+				const source = replaceSpan(reviews, mutationSpan(reviews, before, id), after);
+				return { id, changed: source !== reviews,
+					rejected: resolveDispatchUnits(workflow, source).some(({ count, text, expected }) => count !== 1 || text !== expected) };
+			});
+			mutationAudit.record("task-note-review", taskNoteAttacks);
+
+			const rewrapThree = () => {
+				const rewrapped = { ...formDocs };
+				for (const [file, before, after] of [
+					["design", "Reuse models first.", "Reuse models\nfirst."],
+					["workflow", "Each model fits all its uses.", "Each model\nfits all its uses."],
+					["map", "Check every map fact against source evidence.", "Check every map fact\nagainst source evidence."],
+				]) {
+					const match = mutationSpan(formDocs[file], before, file);
+					rewrapped[file] = replaceSpan(formDocs[file], match, distinctWrap(match[0], after));
+				}
+				return rewrapped;
+			};
+			const wrapTarget = (file, target, previous) => {
+				const source = formDocs[file];
+				const match = mutationSpan(source, previous ? `${previous} ${target}` : target, file);
+				const split = target.indexOf(" ");
+				const splitTarget = `${target.slice(0, split)}\n${target.slice(split + 1)}`;
+				const wrapped = previous ? `${previous} ${splitTarget}` : ` ${splitTarget}`;
+				// A paragraph opener can shift one column without joining another block.
+				return { ...formDocs, [file]: replaceSpan(source, match, distinctWrap(match[0], wrapped)) };
+			};
+			const definition = dutySentence("model-both-definition");
+			const reuse = dutySentence("model-both-reuse");
+			const layouts = [
+				["RG6Rewrap", rewrapThree],
+				["RG11GateRewrap", () => wrapTarget("design", dutySentence("author-no-follow"), dutySentence("author-review-pointer"))],
+				["RG11DesignReuse", () => wrapTarget("design", reuse, definition)],
+				["RG11WorkflowReuse", () => wrapTarget("workflow", reuse, definition)],
+				["RG11Abstraction", () => wrapTarget("workflow", dutySentence("shared-test"))],
+				["RG11ModelDefinition", () => wrapTarget("workflow", definition)],
+				["RG11ReviewPrivacy", () => wrapTarget("implementation", dutySentence("implementation-no-notes"))],
+				["RG11MapLength", () => wrapTarget("map", dutySentence("map-size"))],
+			];
+			// Pin the intended output spans independently of the layout builders.
+			const expectedWraps = {
+				RG6Rewrap: {
+					design: "Reuse models\nfirst.",
+					workflow: "Each model\nfits all its uses.",
+					map: "Check every map fact\nagainst source evidence.",
+				},
+				RG11GateRewrap: { design: "Follow the review contract. Reviewers\nnever follow note paths." },
+				RG11DesignReuse: { design: `${definition} Reuse\nmodels first.` },
+				RG11WorkflowReuse: { workflow: `${definition} Reuse\nmodels first.` },
+				RG11Abstraction: { workflow: " Use\nthe abstraction test in design assessment and triage." },
+				RG11ModelDefinition: { workflow: ` A\n${definition.slice(2)}` },
+				RG11ReviewPrivacy: { implementation: dutySentence("implementation-no-notes").replace("Never ", " Never\n") },
+				RG11MapLength: { map: " Aim\nfor about 1,500 words." },
+			};
+			const rewrapResults = layouts.map(([id, build]) => {
+				const expected = {};
+				const report = (changed, accepted, reason, diagnostics) => {
+					console.log(`NOTE assigned-form probe ${id}: expected accept, observed ${accepted ? "accept" : "reject"}, ${changed ? "changed input" : "unchanged input"}${reason ? `, ${reason}` : ""}`);
+					return { id, pass: !reason, reason, diagnostics };
+				};
+				for (const [file, span] of Object.entries(expectedWraps[id])) {
+					const source = formDocs[file];
+					try {
+						const match = mutationSpan(source, normalizeText(span), `${id} ${file}`);
+						expected[file] = replaceSpan(source, match, distinctWrap(match[0], span));
+					} catch (error) {
+						return report(false, false, `source-span: ${error.message}`, []);
+					}
+				}
+				const input = build();
+				const changed = Object.keys(input).filter((file) => input[file] !== formDocs[file]);
+				const wanted = Object.keys(expected);
+				const nonRewrap = changed.find((file) => normalizeText(input[file]) !== normalizeText(formDocs[file]));
+				const wrongSpan = wanted.find((file) => input[file] !== expected[file]);
+				const diagnostics = assignedFormProblems(input);
+				const accepted = diagnostics.length === 0 && acceptsAssignedForms(input, diagnostics);
+				const reason = changed.length !== wanted.length || changed.some((file) => !Object.hasOwn(expected, file))
+					? `changed-documents: expected ${wanted.join(", ")}, found ${changed.join(", ") || "none"}`
+					: nonRewrap ? `not-pure-rewrap: ${nonRewrap}`
+					: wrongSpan ? `intended-span: ${wrongSpan}`
+					: !accepted ? "semantic-predicate" : undefined;
+				return report(changed.length > 0, accepted, reason, diagnostics);
+			});
+			const rewrapPass = rewrapResults.map(({ id }) => id).join() ===
+				"RG6Rewrap,RG11GateRewrap,RG11DesignReuse,RG11WorkflowReuse,RG11Abstraction,RG11ModelDefinition,RG11ReviewPrivacy,RG11MapLength"
+				&& rewrapResults.every(({ pass }) => pass);
+
 			const countFreeResults = new Map();
 			const countFree = (text) => {
 				if (!countFreeResults.has(text)) {
@@ -6162,6 +6958,16 @@ omitted and why.`);
 			checkAll("contract-dispatch-context", "four complete dispatch-policy units resolve exactly once and equal independent expectations. They cover the focused implementation-context obligation, research-log lifecycle, reviewer-input contract, and stuck-fix policy. Counterfactuals reject missing current-context inputs, a restored mandatory whole-log read, other policy weakening, or additions inside a unit, while benign text outside the units remains accepted. Five bounded UTF-8 measurements remain exact", [
 				["map reading rules belong once to the worker reference and all removal and whole-document repeat mutations fail", acceptsMapOwnership(mapReference, mapOutside) && mapOwnershipAttacks.every(Boolean), mapOwnershipAttacks],
 				["production, maintenance, applicability and edit prerequisites reject independent removal", productionRemovals.every(({ changed, rejected }) => changed && rejected), productionRemovals],
+				["assigned form duties, review destinations and both model copies reject independent mutations", acceptsAssignedForms(formDocs) && [...formAttacks, ...taskNoteAttacks].every(({ changed, rejected }) => changed && rejected), {
+					missingOrWeak: assignedFormProblems(formDocs),
+					ineffective: [...formAttacks, ...taskNoteAttacks].filter(({ changed, rejected }) => !changed || !rejected),
+				}],
+				["every required rewrap applies its intended spans to exactly its expected documents and passes the assigned-form predicate without diagnostics", rewrapPass, {
+					layouts: rewrapResults.map(({ id }) => id), failures: rewrapResults.filter(({ pass }) => !pass),
+				}],
+				["all assigned-form probes agree with their expected decisions and reasons", allProbesAgree, probeResults.filter(({ agrees }) => !agrees)],
+				["the full model copies disagree on the one-copy reorder and the unequal split", modelPairControl && modelSplitControl, { modelPairControl, modelSplitControl }],
+				["every assigned duty sentence rejects word and sentence mutations by name", sweepFailures.length === 0, sweepFailures],
 				["all three presentation duties have independent presence pins and removal controls", acceptsMapPresentation(workflow) && mapPresentationRemovals.every(Boolean), mapPresentationRemovals],
 				["the workflow pointer names the worker task and rejects loss of the no-read duty", acceptsMapPointer(workflow) && !acceptsMapPointer(workflow.replace(mapNoRead, "")), mapNoRead],
 				["published heading-policy descriptions are count-free across root, verification and recursive docs paths", acceptsCountDocuments(countDocuments) && countDocuments.has("docs/maps.md") && countAttacks.every(Boolean), { files: [...countDocuments.keys()], attacks: countAttacks.length }],
@@ -6174,6 +6980,7 @@ omitted and why.`);
 				["the four approved policy units form the exact roster and resolve once", dispatchUnitResults.map(({ id }) => id).join() === "implementation-reference,research-log-lifecycle,reviewer-input-contract,stuck-fix-policy" && dispatchUnitResults.every(({ count }) => count === 1), dispatchUnitResults.map(({ id, count }) => ({ id, count }))],
 				["every complete policy unit equals its independent expectation", dispatchUnitResults.every(({ text, expected }) => text === expected), dispatchUnitResults.filter(({ text, expected }) => text !== expected).map(({ id, text, expected }) => ({ id, text, expected }))],
 				["the exact focused-context reference occurs once and has its measured UTF-8 bytes including its final line feed", dispatchUnitById.get("implementation-reference")?.text.split(dispatchReference.trim()).length - 1 === 1 && Buffer.byteLength(dispatchReference, "utf8") > 0, { occurrences: dispatchUnitById.get("implementation-reference")?.text.split(dispatchReference.trim()).length - 1, bytes: Buffer.byteLength(dispatchReference, "utf8") }],
+				["task notes are excluded separately and stay intact when embedded in an eligible whole episode", dispatchUnitById.get("reviewer-input-contract")?.text.includes("task notes or extracts, separate note references") && dispatchUnitById.get("stuck-fix-policy")?.text.includes("Pass every selected episode whole and intact. Embedded material remains present regardless of its type, source, or amount."), "separate input and embedded evidence have different policies"],
 				["accepted ordinary evidence and unrestricted embedded implementer-episode content remain in the expectations", dispatchUnitById.get("reviewer-input-contract")?.expected.includes("Ordinary repository and library evidence needed for the assignment remains available") && dispatchUnitById.get("stuck-fix-policy")?.expected.includes("Embedded material remains present regardless of its type, source, or amount") && dispatchUnitById.get("stuck-fix-policy")?.expected.includes("Do not screen content for eligibility"), dispatchUnitResults.map(({ id, expected }) => ({ id, expected }))],
 				["quantifier, private-source, role, direct-read, gate, episode-source, screening, and filtering counterfactuals each change input and fail", mutationOutcomes.every(({ changed, accepted }) => changed && !accepted), mutationOutcomes],
 				["a missing anchor makes each owned unit unresolved", missingUnitOutcomes.every(({ count, text }) => count === 0 && text === ""), missingUnitOutcomes],

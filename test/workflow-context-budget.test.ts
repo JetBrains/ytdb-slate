@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync, statSync, mkdtempSync, rmSync } from "node:fs";
+import { readFileSync, readdirSync, statSync, mkdtempSync, rmSync } from "node:fs";
 import { dirname, relative, resolve, join, sep } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
@@ -174,7 +174,7 @@ test("preservation share controls every phase and session coordinate", async () 
   const start = classificationStart[key]!;
   assert.deepEqual(start, preservationStart[key]!.map((n) => n - 1), `source-stage preservation proof ${key}`);
   const ceilings = [start[0] + 566, start[1] + extra + 3061];
-  assert.deepEqual(actual, [start[0] + 342 + workflowDoctrineDelta, start[1] + extra + 3058 + workflowDoctrineDelta]);
+  assert.deepEqual(actual, [phaseTotals[key]![0], phaseTotals[key]![1]! + extra]);
   actual.forEach((value, i) => {
    checkLimit(value, ceilings[i]!, key);
    checkLimit(ceilings[i]!, ceilings[i]!, key);
@@ -264,7 +264,7 @@ async function render(publishing: boolean): Promise<string> {
 }
 function membership(ids: Record<string, string>): void {
   assert.equal(new Set(Object.values(ids)).size, Object.keys(ids).length, "duplicate exported identity");
-  for (const id of new Set([...(reads as Read[]).map((r) => r[0]), "MAPS_DOC", "SAFE_RECORD_WRITE_DOC"])) {
+  for (const id of new Set([...(reads as Read[]).map((r) => r[0]), "MAPS_DOC", "SAFE_RECORD_WRITE_DOC", "DESIGN_FORMAT_DOC"])) {
     assert.ok(ids[id], `missing export ${id}`);
     assert.ok(!relative(directory, ids[id]!).startsWith(".."), `escaped export ${id}`);
     assert.ok(statSync(ids[id]!).isFile(), `missing file ${id}`);
@@ -379,8 +379,13 @@ const classificationStart: Record<string, [number, number]> = {
 };
 // Compare the four-model doctrine with the doctrine in the fixed classification inputs.
 const workflowDoctrineDelta = -772;
+const formDelta = (key: string, side: number) => {
+  const [phase, , nesting] = key.split(" ");
+  return 799 + (Number(phase) >= 5 ? 27 : 0) - (side === 1 ? 68 : 0)
+    + (nesting === "nested" || side === 1 && Number(phase) >= 7 ? 4 : 0);
+};
 const phaseTotals = Object.fromEntries(Object.entries(classificationStart)
-  .map(([key, pair]) => [key, [pair[0] + 342 + workflowDoctrineDelta, pair[1] + 3058 + workflowDoctrineDelta]]));
+  .map(([key, pair]) => [key, pair.map((value, side) => value + [342, 3058][side]! + workflowDoctrineDelta + formDelta(key, side))]));
 
 test("placement keeps exception membership, phase shares and literal worker ceilings", async () => {
   const has = (set: Read[]) => set.some(([id]) => id === "RECORD_WRITE_RECOVERY_DOC");
@@ -420,8 +425,15 @@ test("placement keeps exception membership, phase shares and literal worker ceil
   assert.equal(narrow, 5200);
   assert.equal(bytes(source("RECORD_WRITE_RECOVERY_DOC")), 4191);
   const ceiling = (value: number, limit: number) => assert.ok(value <= limit);
+  const map = bytes(source("MAPS_DOC")), design = bytes(source("DESIGN_FORMAT_DOC"));
+  const combined = [common + narrow + map, common + bytes(worker) + map];
+  assert.equal(design, 3369);
+  assert.equal(map, 3726);
+  assert.deepEqual(combined, [21011, 30291]);
   const cases = [[common, 12088], [narrow, 5200], [bytes(worker), 14500], [common + narrow, 17287],
-    [common + narrow + 3766, 21053], [common + bytes(worker), 26587], [common + bytes(worker) + 3766, 30353]];
+    [combined[0], 21053], [common + bytes(worker), 26587], [combined[1], 30353], [design, 3369],
+    [combined[0]! + 1925, 22979], [combined[1]! + 1925, 32279],
+    [combined[0]! + 2479, 23533], [combined[1]! + 2479, 32833]];
   for (const [value, limit] of cases) {
     ceiling(value!, limit!);
     ceiling(limit! - 1, limit!);
@@ -463,6 +475,8 @@ function references(text: string, origin: string, installedPrefix = directory): 
         return target ? `(${target})` : use;
       });
     const found = [...candidates.matchAll(/(?:[\w./<>`*{}-]+\/)?[\w*{}<>.-]+\.md\b/g)];
+    if (found.length === 0) continue;
+    const context = createHash("sha256").update(line).digest("hex");
     for (const match of found) {
       const raw = match[0].replace(/^[<`]+/, "");
       let target: string;
@@ -470,7 +484,7 @@ function references(text: string, origin: string, installedPrefix = directory): 
       else if (isMapName(raw)) target = `variable:${raw}`;
       else if (raw.startsWith("/") || /[*{}]|slate-changes\//.test(raw) || /(?:research-log|implementer-report|design|vN|observation)\.md$/.test(raw)) target = `variable:${raw}`;
       else target = relative(directory, resolve(origin.startsWith("doctrine") ? directory : dirname(join(directory, origin)), raw));
-      result.push({ source: origin, target, context: createHash("sha256").update(line).digest("hex") });
+      result.push({ source: origin, target, context });
     }
   }
   return result;
@@ -550,7 +564,7 @@ function table(rows: string[], costs: string[], entries: string[]): string {
     "Only exceeded stored limits become the row's start total plus its approved share. All other limits stay fixed.",
     "The classification and recovery allowance applies independently to each required and maximum row.",
     "Research candidate ceilings are 78,275 required and 151,209 maximum bytes.",
-    "Actual research totals are 77,279 required and 150,434 maximum bytes.",
+    "Actual research totals are 78,078 required and 151,165 maximum bytes.",
     "Each phase and session row permits at most 566 required and 3,061 maximum bytes above the classification and recovery start. No sibling saving transfers.",
     "The protected pool owns 211 bytes (187 + 5 + 17 + 2). This ownership adds no measured headroom. Unused share moves only by recorded user decision.",
     "",
@@ -612,9 +626,14 @@ function table(rows: string[], costs: string[], entries: string[]): string {
     "| --- | ---: | ---: |",
     ...costs,
     "",
-    "Maps use a soft guideline of about 1,500 words, with Mermaid diagrams under 40 nodes.",
-    "The worker reference is 3766 bytes. See [maps.md](maps.md) for its writer and authorized checker readers.",
-    "Map text, worker reference reads and composed drafts are real excluded costs.",
+    "Maps and designs have soft guidelines of about 1,500 and 2,500 words.",
+    "Diagrams do not count. The map reference is 3726 bytes per full read.",
+    "See [maps.md](maps.md) for its worker readers. The design reference is 3369 bytes",
+    "per full read by a design author, with a 3,369-byte bound. Name",
+    "[design-format.md](design-format.md) in design-writing tasks without reading it.",
+    "The orchestrator never reads it, including on worker failure. Count worker",
+    "reads again on each repeat. Worker reads, record text and composed drafts",
+    "are separate costs outside the fixed orchestrator rows.",
     "The safe-write section is 12,085 bytes and includes privacy rules.",
     "Only its worker read is a separate excluded cost. Its orchestrator read enters phase totals.",
     "Whole applicable designs supplied to reviewers are excluded costs that repeat across reviewers and fix-gate rounds.",
@@ -670,6 +689,9 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
   const doctrines = await Promise.all([render(false), render(true)]);
   assert.deepEqual(doctrines.map((text) => bytes(text.split(directory).join(""))), [8802, 8872]);
   doctrines.forEach((text, i) => { sources[`doctrine-${i}`] = text; });
+  sources["maps.md"] = source("MAPS_DOC").split("\n").find((line) => line.includes("for shared forms."))!;
+  sources["context-budget.md"] = source("CONTEXT_BUDGET_DOC").split("\n").filter((line) =>
+    line.includes("for its worker readers.") || line.includes("in design-writing tasks")).join("\n");
   validateLimitKeys(limits);
   for (const key of expectedKeys) {
     exactLimits(key, limits[key]);
@@ -711,6 +733,7 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
     assert.equal(has(maximum, "REVIEW_IMPLEMENTATION_INPUT_DOC"), false);
     assert.equal(has(required, "MAPS_DOC"), false);
     assert.equal(has(maximum, "MAPS_DOC"), false);
+    noDesignRead(required, maximum);
     assert.equal(has(required, "SAFE_RECORD_WRITE_DOC"), false);
     assert.equal(has(maximum, "SAFE_RECORD_WRITE_DOC"), false);
     const doctrine = bytes(doctrines[publishing === "on" ? 1 : 0]!.split(directory).join(""));
@@ -744,8 +767,10 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
     checkLimit(maximum, pair[1], `design-track maximum ${scenario}`);
     return `| ${publishing} | ${required} | ${tokens(required)} | ${maximum} | ${tokens(maximum)} | ${pair[1]} | ${tokens(pair[1])} |`;
   });
-  assert.deepEqual(measured[0], { key: "1 off ordinary", requiredBytes: 77279, maximumBytes: 150434, proposed: [81143, 157956] });
+  assert.deepEqual(measured[0], { key: "1 off ordinary", requiredBytes: 78078, maximumBytes: 151165, proposed: [81982, 158724] });
   checkChildCeiling(measured[0].requiredBytes, measured[0].maximumBytes);
+  checkLimit(bytes(source("REVIEW_RULES_DOC")), 24203, "review rules child ceiling");
+  assert.throws(() => checkLimit(24204, 24203, "review rules child ceiling"), /excess 1/);
   checkChildCeiling(78274, 151208);
   checkChildCeiling(78275, 151209);
   assert.ok(source("CONTEXT_BUDGET_DOC").includes("ceilings are 78,275 required and 151,209 maximum bytes."));
@@ -762,7 +787,7 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
   assert.throws(() => checkChildCeiling(78276, 151209), /child required reservation/);
   assert.throws(() => checkChildCeiling(78275, 151210), /child maximum reservation/);
   const publication = table(rows, costs, entries);
-  assert.equal(bytes(publication), 11971, "approved publication bytes");
+  assert.equal(bytes(publication), 12273, "measured publication bytes");
   if (process.env.SLATE_PHASE_INSPECT === "1") console.log(JSON.stringify({ measured, references: scan(sources), publication, excluded, costs }));
   assert.equal(Object.keys(limits).length, 36);
   assert.equal(rows.length, 36);
@@ -782,15 +807,15 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
   assert.equal(bytes(source("CHANGE_RECORDS_DOC").slice(...safeWriteSection[0]!)), 12085);
   assert.ok(source("CONTEXT_BUDGET_DOC").includes("Only its worker read is a separate excluded cost. Its orchestrator read enters phase totals."));
   const protectedHashes: Record<string, string> = {
-    "MAPS_DOC": "9d3df9f71b5007c7fae20b961c4ece296efeb9c03ed4ee4207f85c31f89fbc75",
-    "REVIEW_RULES_DOC": "2ca829f5e7b884f061e236860cd963dab9f50e57caa4a6dfd5bac53309de5d72"
+    "MAPS_DOC": "d99c8f7c89106038dafecb7c75f53d3a46d97bd9348bef2f15d41f19e000cfbd",
+    "REVIEW_RULES_DOC": "e77019cac879c9fb6049d4fdea2418721add6e082af66291074fd6c75194c0ce"
   };
   for (const [id, expected] of Object.entries(protectedHashes)) {
     assert.equal(createHash("sha256").update(source(id)).digest("hex"), expected, `${id} remains byte-identical`);
   }
   assert.equal(referenceOnly.MAPS_DOC, pending[0].reason);
   assert.match(source("MAPS_DOC"), /about 1,500 words/);
-  assert.match(source("MAPS_DOC"), /under 40 nodes/);
+  assert.match(source("MAPS_DOC"), /under 40\s+nodes/);
   for (const entry of sessionEntries) for (const scenario of scenarios.filter((s: string) => entry.plans.includes(s.split(" ")[1]))) {
     assert.ok(sessionReads(entry, scenario, true).every((r: Read) => r[0] !== "MAPS_DOC"));
   }
@@ -929,6 +954,58 @@ function expectedAccumulation(phase: number, scenario: string, maximum: boolean)
      r[2] === "nested" && plan === "nested" ||
      maximum && !["always", "publishing", "nested"].includes(r[2])));
 }
+function noDesignRead(...sets: Read[][]): void {
+  for (const set of sets) assert.ok(set.every(([id]) => id !== "DESIGN_FORMAT_DOC"), "worker reference in orchestrator reads");
+}
+
+test("design-reference permissions do not follow occurrence registration", () => {
+  const assignment = "Give design authors the summary, action type, decision inputs and task read limits.\nName [design-format.md](design-format.md) for design writing, [maps.md](maps.md)\nfor map writing or composition. Never read either, even on worker failure.";
+  const publication = "Maps and designs have soft guidelines of about 1,500 and 2,500 words.\nDiagrams do not count. The map reference is 3726 bytes per full read.\nSee [maps.md](maps.md) for its worker readers. The design reference is 3369 bytes\nper full read by a design author, with a 3,369-byte bound. Name\n[design-format.md](design-format.md) in design-writing tasks without reading it.\nThe orchestrator never reads it, including on worker failure. Count worker\nreads again on each repeat. Worker reads, record text and composed drafts\nare separate costs outside the fixed orchestrator rows.";
+  const authorized = scan({ "track-workflow.md": assignment, "context-budget.md": publication })
+    .filter((entry) => entry.target === "design-format.md");
+  const onlyDesign = (inputs: Record<string, string>, roster = occurrences) => {
+    const selected = roster.filter((r: any) => r.target === "design-format.md");
+    assert.equal(referenceOnly.DESIGN_FORMAT_DOC, "Worker-only design reference, no orchestrator read duty.");
+    assert.ok(selected.every((entry: any) => entry.reason === referenceOnly.DESIGN_FORMAT_DOC && !entry.recipient));
+    const keys = (items: any[]) => items.map(({ source, context }) => JSON.stringify([source, context])).sort();
+    assert.deepEqual(keys(selected), keys(authorized), "authorized design reference classification");
+    assert.deepEqual(keys(scan(inputs).filter((r) => r.target === "design-format.md")), keys(authorized), "authorized design reference contexts");
+    for (const [file, expected] of [["track-workflow.md", assignment], ["context-budget.md", publication]] as const)
+      assert.equal(inputs[file]?.split(expected).length, 2, "complete authorized instruction");
+  };
+  const inputs = Object.fromEntries(readdirSync(directory, { recursive: true, encoding: "utf8" })
+    .filter((file) => file.endsWith(".md")).map((file) => [file, readText(join(directory, file))]));
+  onlyDesign(inputs);
+  const repeated = "[first](design-format.md) [second](design-format.md)";
+  const sameLine = references(repeated, "track-workflow.md");
+  const context = createHash("sha256").update(repeated).digest("hex");
+  assert.deepEqual(sameLine, Array(2).fill({ source: "track-workflow.md", target: "design-format.md", context }));
+  for (const sentence of [
+    "Read design-format.md.",
+    "Read [the reference][author].\n[author]: design-format.md",
+    "Read the reference\n[here](design-format.md).",
+    "On worker failure, read design-format.md.",
+    "On resume, read design-format.md.",
+    "The adversary reads design-format.md.",
+  ]) {
+    const extra = { "track-workflow.md": sentence };
+    const updated = { ...inputs, "track-workflow.md": inputs["track-workflow.md"] + "\n" + sentence };
+    assert.throws(() => onlyDesign(updated), /authorized design reference contexts/);
+    const added = scan(extra).filter((r) => r.target === "design-format.md")
+      .map((r) => ({ ...r, count: 1, reason: referenceOnly.DESIGN_FORMAT_DOC }));
+    assert.ok(added.length > 0);
+    assert.throws(() => onlyDesign(updated, [...occurrences, ...added]), /authorized design reference classification/);
+  }
+  assert.throws(() => onlyDesign({ ...inputs, "review-rules.md": "Read design-format.md." }));
+  assert.throws(() => onlyDesign(inputs, occurrences.map((r: any) =>
+    r.target === "design-format.md" ? { ...r, recipient: "orchestrator" } : r)));
+  for (const condition of ["always", "worker failure", "resume"])
+    assert.throws(() => noDesignRead([...reads, ["DESIGN_FORMAT_DOC", 1, condition, "orchestrator", []]]), /worker reference/);
+  const withoutExport = { ...exported };
+  delete withoutExport.DESIGN_FORMAT_DOC;
+  assert.throws(() => membership(withoutExport), /missing export/);
+});
+
 function assertEntry(actual: Read[], entry: Entry, scenario: string, maximum: boolean, through = entry.phase): void {
   // mode.ts doctrine rules require fresh-session rereads and nested resume loading.
   // track-workflow.md § Resume order and reconciliation steps 4 and 7 and
@@ -941,6 +1018,7 @@ function assertEntry(actual: Read[], entry: Entry, scenario: string, maximum: bo
     ["BLAST_RADIUS_DOC", 1, "renewed focus judgment", "orchestrator",
       ["Focus areas and their gates", "Review coverage and the coverage register"]],
   ] : [];
+  noDesignRead(actual);
   assert.deepEqual(readSet(actual), readSet([...expectedAccumulation(through, scenario, maximum), ...extra]),
     `entry set ${entry.id} ${entry.phase} ${scenario} maximum=${maximum} through=${through}`);
 }

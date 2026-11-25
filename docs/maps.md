@@ -8,16 +8,13 @@ An implementation map describes delivered behavior at a named source commit.
 
 ## Worker readers and access
 
-Map-writing and map-composition workers read this reference.
-These workers include design authors, researchers, implementers, fixers and combined-map workers.
-Authorized checkers also read this reference.
+Read this reference only when assigned to write or compose a map or to check authorized map content.
 Design adversaries check baseline facts after independent review.
-Reviewer I checks supplied implementation-map facts after independent range review.
-Agentic fix gates check only fixer-selected statements and their related questions.
-Other implementation specialists and user-review fix-range gates receive no implementation-map input.
-Stuck-fix consultations gain no separate map input.
-Map access follows the Reviewer input contract in [review-rules.md](review-rules.md).
-Use [track-workflow.md](track-workflow.md#lifecycle-and-phases) for general design and presentation forms.
+Reviewer I checks supplied implementation facts after independent range review.
+Agentic fix gates check only fixer-selected statements and related questions.
+Specialists and user-review fix-range gates get no implementation map.
+Stuck-fix consultations get no separate map input.
+Follow the input contract in [review-rules.md](review-rules.md).
 
 ## Reading depth
 
@@ -32,6 +29,7 @@ Cite source paths and line numbers for baseline facts.
 
 ## Detail by track
 
+Put only the source commit in the scope paragraph.
 Change-level and design-track maps describe component contracts.
 A component contract states inputs, outputs and constraints at a component boundary.
 Code-track maps describe changed mechanisms.
@@ -41,7 +39,6 @@ This keeps the explanation focused on behavior that affects the decision.
 
 ## Baseline evidence
 
-Name the source commit before describing current behavior.
 Explain the affected components and how their contracts connect.
 Describe the relevant state, ordering, failures and limits.
 Use source citations to support the explanation rather than replace it.
@@ -59,20 +56,18 @@ A map is neither a test report nor a low-level design.
 
 ## Length and form
 
-Use a soft guideline of about 1,500 words for every map.
-State the reason when a map exceeds that guideline.
-Prose and tables count toward the guideline.
-Mermaid diagrams do not count toward it.
-Keep each Mermaid diagram under 40 nodes.
-Mermaid is an optional diagram notation.
-
-Use topic headings rather than question headings.
-Follow the mechanism in reader order.
-Keep one idea per sentence.
-Connect ideas by cause, order or condition.
-Tables and diagrams support connected text rather than replace it.
-Give every map diagram a topic title and state what its arrows mean.
-No explanation is needed when a map omits a diagram.
+Aim for about 1,500 words. Count prose and tables, not diagrams.
+Reduce only detail, never required form or meaning. Explain an excess.
+Report omitted questions and inadequate code-track detail. Link to applicable task notes.
+Use topic headings in reader order. No terms section. Explain terms at first use.
+Use one idea per sentence. Link ideas by cause, order or condition.
+Choose among text, tables, diagrams and pseudocode on equal terms.
+Explain diagrams and pseudocode. Title diagrams and explain arrows.
+Use top-level Mermaid blocks: flowchart (prefer TD), sequenceDiagram,
+stateDiagram-v2, classDiagram or erDiagram. Use them for components,
+data flow, sequences, states, pipelines or arguments. Use under 40
+nodes and labels under 28 characters. No classDef, style or linkStyle.
+See [track-workflow.md](track-workflow.md#lifecycle-and-phases) for shared forms.
 
 ## Private questions
 
