@@ -1,7 +1,9 @@
-import { closeSync, fchmodSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, fchmodSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { realTextPath, resolveProjectKey } from "./project-key.ts";
+import { isModelSpec, isThinkingLevel, type ThinkingLevel } from "./state.ts";
 
 export const SUMMARY_WIDGET_KEY = "slate-startup-summary";
 export function preferencePath(agentDir = getAgentDir()): string {
@@ -12,26 +14,29 @@ function jsonObject(value: unknown): value is Record<string, unknown> {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function readPreferences(path: string): Record<string, unknown> {
-	try {
-		lstatSync(path);
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
-		throw new Error(`Cannot read ${path}: ${String(error)}`);
-	}
+function readPreferences(path: string): { target: string; mode?: number; data: Record<string, unknown> } {
+	let target: string;
+	let mode: number;
 	let parsed: unknown;
 	try {
-		parsed = JSON.parse(readFileSync(path, "utf8"));
+		try { lstatSync(path); }
+		catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+			return { target: path, data: {} };
+		}
+		target = realTextPath(path);
+		mode = statSync(target).mode & 0o7777;
+		parsed = JSON.parse(readFileSync(target, "utf8"));
 	} catch (error) {
 		throw new Error(`Cannot read or parse ${path}: ${String(error)}`);
 	}
 	if (!jsonObject(parsed)) throw new Error(`${path} must contain a JSON object.`);
-	return parsed;
+	return { target, mode, data: parsed };
 }
 
 export function readStartupSummary(path = preferencePath()): { enabled: boolean; warning?: string } {
 	try {
-		const value = readPreferences(path).startupSummary;
+		const value = readPreferences(path).data.startupSummary;
 		if (value === undefined) return { enabled: false };
 		if (typeof value === "boolean") return { enabled: value };
 		return { enabled: true, warning: `slate: ${path} needs a boolean startupSummary value. The summary is on.` };
@@ -42,24 +47,39 @@ export function readStartupSummary(path = preferencePath()): { enabled: boolean;
 
 export type SaveResult = { path: string; durabilityWarning?: string };
 
-/** The optional hook only injects a failure at a test boundary before replacement. */
-export function saveStartupSummary(enabled: boolean, path = preferencePath(), hooks: { beforeReplace?: () => void; syncFolder?: (folder: string) => void } = {}): SaveResult {
-	// Read before any mutation. A malformed or unreadable old file must not be replaced.
-	const previous = readPreferences(path);
-	mkdirSync(dirname(path), { recursive: true });
-	// Write through a link rather than replacing the link itself.
-	let entry: ReturnType<typeof lstatSync> | undefined;
-	try { entry = lstatSync(path); }
-	catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-	const target = entry?.isSymbolicLink() ? realpathSync(path) : path;
-	let mode: number | undefined;
-	try { mode = statSync(target).mode & 0o7777; }
-	catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-	const temp = join(dirname(target), `.slate-preferences-${randomUUID()}.tmp`);
-	try {
-		const fd = openSync(temp, "wx", 0o666);
+type WriteHooks = { beforeReplace?: () => void; syncFolder?: (folder: string) => void };
+
+export function saveStartupSummary(enabled: boolean, path = preferencePath(), hooks: WriteHooks = {}): SaveResult {
+	return updatePreferences(path, "Startup summary", (data) => {
+		data.startupSummary = enabled;
+		return true;
+	}, hooks)!;
+}
+
+function checkStoreParent(folder: string): void {
+	for (;;) {
 		try {
-			writeFileSync(fd, `${JSON.stringify({ ...previous, startupSummary: enabled }, null, 2)}\n`);
+			realTextPath(folder);
+			return;
+		} catch (error) {
+			const parent = dirname(folder);
+			if ((error as NodeJS.ErrnoException).code !== "ENOENT" || parent === folder) throw error;
+			folder = parent;
+		}
+	}
+}
+
+function updatePreferences(path: string, label: string, update: (data: Record<string, unknown>) => boolean, hooks: WriteHooks): SaveResult | undefined {
+	const { target, mode, data } = readPreferences(path);
+	if (!update(data)) return undefined;
+	if (mode === undefined) checkStoreParent(dirname(target));
+	mkdirSync(dirname(target), { recursive: true });
+	const temp = join(dirname(target), `.slate-preferences-${randomUUID()}.tmp`);
+	// The temporary file must not expose store content to more readers than the target.
+	const fd = openSync(temp, "wx", mode ?? 0o666);
+	try {
+		try {
+			writeFileSync(fd, `${JSON.stringify(data, null, 2)}\n`);
 			if (mode !== undefined) fchmodSync(fd, mode);
 			fsyncSync(fd);
 		} finally { closeSync(fd); }
@@ -79,7 +99,7 @@ export function saveStartupSummary(enabled: boolean, path = preferencePath(), ho
 	catch (error) {
 		if (!unsupportedFolderFlush(error)) return {
 			path,
-			durabilityWarning: `Startup summary is saved in ${path}, but the folder could not be flushed. The choice may not survive a crash: ${String(error)}`,
+			durabilityWarning: `${label} is saved in ${path}, but the folder could not be flushed. The change may not survive a crash: ${String(error)}`,
 		};
 	}
 	return { path };
@@ -92,6 +112,56 @@ function syncFolder(folder: string): void {
 
 function unsupportedFolderFlush(error: unknown): boolean {
 	return ["ENOTSUP", "EOPNOTSUPP", "EINVAL", "EISDIR"].includes((error as NodeJS.ErrnoException).code ?? "");
+}
+
+type ProjectModel = { model: string; thinkingLevel: ThinkingLevel };
+type ProjectModelRead =
+	| { kind: "entry"; key: string; entry: ProjectModel }
+	| { kind: "none"; key: string }
+	| { kind: "invalid-entry"; key: string }
+	| { kind: "store-unreadable"; key: string; reason: string }
+	| { kind: "key-unavailable"; reason: string };
+
+function projectModels(data: Record<string, unknown>): Record<string, unknown> {
+	if (data.projectModels === undefined) return {};
+	if (!jsonObject(data.projectModels)) throw new Error("projectModels must be a JSON object.");
+	return data.projectModels;
+}
+
+function validProjectModel(value: unknown): value is ProjectModel {
+	return jsonObject(value) && isModelSpec(value.model) && isThinkingLevel(value.thinkingLevel);
+}
+
+export function readProjectModel(cwd: string, path = preferencePath()): ProjectModelRead {
+	let key;
+	try { key = resolveProjectKey(cwd); }
+	catch (error) { return { kind: "key-unavailable", reason: String(error) }; }
+	try {
+		const entries = projectModels(readPreferences(path).data);
+		if (!Object.hasOwn(entries, key)) return { kind: "none", key };
+		const entry = entries[key];
+		return validProjectModel(entry) ? { kind: "entry", key, entry } : { kind: "invalid-entry", key };
+	} catch (error) {
+		return { kind: "store-unreadable", key, reason: String(error) };
+	}
+}
+
+export function writeProjectModel(cwd: string, entry: ProjectModel | undefined, path = preferencePath(), hooks: WriteHooks = {}) {
+	let key;
+	try { key = resolveProjectKey(cwd); }
+	catch (error) { throw new Error(`Cannot determine the project key: ${String(error)}`); }
+	const saved = updatePreferences(path, "Project model change", (data) => {
+		const entries = projectModels(data);
+		if (entry !== undefined) {
+			if (!validProjectModel(entry)) throw new Error("A provider/id model and a valid thinking level are required.");
+			data.projectModels = { ...entries, [key]: entry };
+		} else {
+			if (!Object.hasOwn(entries, key)) return false;
+			delete entries[key];
+		}
+		return true;
+	}, hooks);
+	return { key, saved };
 }
 
 type SummaryStyleKind = "heading" | "action" | "command" | "dim";

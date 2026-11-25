@@ -1,10 +1,10 @@
-1060e6d504a3f89b9a1ba4e23d76fbff4329e1ff4fac986de192259a0444ca40  AGENTS.md
+26c34283cb56ea0aefb0857e52e9c7ee853dbb8906152ae09e087115705ed15a  AGENTS.md
 
 4d0a44cd1cbd7b2c72675c43b628e45ff2dcca5a8a8737ed57a177684b41498e  CHANGELOG.md
 
 2a8eaddb9765889e2ffdfd2977f5e5c9f40e6a2db0e8d8e0e5a5f685cc0f3f5e  README-GUIDELINES.md
 
-026c8dd6aba733392457fafa584dd7b4d917d93ac462a42804309b13303cecfa  README.md
+4aae4aa3fcf8c761fb14e87fb67d5a6f8c9992b996565b83dead35d1816b4edb  README.md
 
 997674ef7441686720a0bb6d4b8071442c28c1404ee3c2337f86664bb1869a03  RELEASING.md
 
@@ -12,7 +12,7 @@
 
 33eed092de61cd847813460d9d454ec84e6b507358168da61c939bf42b00ccc9  docs/change-records.md
 
-7382e6b5c4ceb6f4b221700d26a4f97adb9f39ceda6e713ea5ca0ae9d611e3fd  docs/configuration.md
+103f4e9243f4aa4384bc8afc9d68e19a45f5f253db48c9d5d7865d11e4f59fe3  docs/configuration.md
 
 8ab62392ab8e3c526b0cb89c1bcb77601dd17cf41afd20a69dd759b5d395f149  docs/context-budget.md
 
@@ -20,7 +20,7 @@
 
 69e5205073cf9a835a8e02d8a22c0cac1650439d824c8af9cfd2756aeb664c01  docs/design-principles.md
 
-606654ed9ff6178e0e853d7ce5378bc79dbc6056fc5561e1e7022873cfbca396  docs/model-routing.md
+7c5b60ebf02141c958a3dd56b547edc151382b8d089005385b9070b37de39e63  docs/model-routing.md
 
 0fae4450d2f24b44919521a210a39a694be0873a29ae1fb0dd124398d9859f15  docs/pr-publishing.md
 
@@ -90,4 +90,4 @@ ff583b7578b55fa21887fde2ca828eb55a6d9efa0851112d830802eae1cc86e4  research/opena
 
 266812b566da8edc5d90936b39bfc7d13e160cd42291aba56b6e00eac3cf5077  research/writing-threshold-provenance.md
 
-6d18a3e7f4c810f86158d8b27de255652dc841cc4a46e333f8acc37449df941e  verification/README.md
+f112efdde30c5331fdaff170edc8a18f9bc99b9bcffb5dadf0da8b958e068732  verification/README.md
