@@ -33,6 +33,47 @@ Slate stores this choice as the boolean `startupSummary` key in `<getAgentDir()>
 
 Run `/slate model save` to save the current model and thinking level of the main session.
 Changing the session model does not save a choice.
+Slate keeps the choice in the **private store**, `slate-preferences.json` in the Pi agent directory.
+
+Slate applies the private project model at the start of an interactive main session with no conversation messages on any branch.
+This includes a fresh launch and `/new`, even directly after a handoff.
+The rule applies with orchestrator mode on or off.
+
+A handoff continues work in a successor session.
+Slate excludes the successor session even if it cannot take the parent session's model.
+Slate also excludes sessions opened by `/resume`, `/fork`, or the `--fork` option.
+Slate still excludes a forked session when you reopen it.
+Slate does not apply the choice on `/reload`.
+Slate does not apply the choice in print mode, JSON mode, remote procedure call (RPC) mode, or worker threads.
+
+Model selection uses this order from lowest to highest priority:
+
+1. User Pi settings.
+2. Project Pi settings. Pi uses values from `.pi/settings.json` only when it trusts the project.
+3. Private project model.
+4. Explicit `--model`.
+
+When you specify a model with `--model`, Slate applies neither the stored model nor the stored thinking level.
+With `--thinking` alone, Slate uses that thinking level with the stored model.
+The **requested thinking level** is the command-line level when present and the stored level otherwise.
+Slate sets it after switching the model.
+The **effective thinking level** is the level Pi uses.
+
+When Slate applies the choice, one notice names the model and the effective thinking level.
+If both already match, Slate changes nothing and shows no notice.
+If the project has no entry, Slate remains silent.
+Slate warns and keeps the model Pi selected if:
+
+- Slate cannot determine the project key.
+- Slate cannot read the private store.
+- The entry is invalid.
+- Pi does not know the model.
+- The model has no configured credentials.
+- Pi refuses the switch or the switch fails before changing the session.
+
+If a switch fails after changing the session, Slate warns and names the model and thinking level in use.
+Slate records that live state.
+If the requested and effective thinking levels differ, Slate reports both levels.
 
 The **project key** identifies the project in `slate-preferences.json`.
 Run `/slate model` to show the saved choice and its project key.

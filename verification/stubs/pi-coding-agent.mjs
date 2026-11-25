@@ -30,6 +30,7 @@ export const createCodemodeExtension = () => (pi) => pi.registerTool({
   execute: async () => { throw new Error("codemode fixture must not execute"); },
 });
 export const getAgentDir = (...args) => codingAgentStub.getAgentDir(...args);
+export const parseArgs = () => { throw new Error("parseArgs stub called"); };
 export const shouldCompact = (...args) => codingAgentStub.shouldCompact(...args);
 const ESTIMATED_IMAGE_CHARS = 4800;
 function estimateTextAndImageContentChars(content) {
