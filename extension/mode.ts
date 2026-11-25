@@ -71,7 +71,7 @@ import {
 	type WritingChecker,
 } from "./writing.ts";
 import type { WorkerExtensionSet, WorkerExtensionUnit } from "./worker-extensions.ts";
-import { preferencePath, readStartupSummary, renderStartupSummary, saveStartupSummary, SUMMARY_WIDGET_KEY } from "./startup-summary.ts";
+import { preferencePath, readProjectModel, readStartupSummary, renderStartupSummary, saveStartupSummary, SUMMARY_WIDGET_KEY, writeProjectModel } from "./startup-summary.ts";
 
 const ORCHESTRATOR_TOOLS = ["read", "grep", "find", "ls", "thread", "threads", "episode", "slate_change"];
 
@@ -413,6 +413,7 @@ export function registerSlateMode(
 	// failure and checker failure through the real turn hook.
 	loadWritingChecker: () => Promise<WritingChecker> = loadWritingCheckerModule,
 	saveSummary: typeof saveStartupSummary = saveStartupSummary,
+	writeModel: typeof writeProjectModel = writeProjectModel,
 ): void {
 	let savedTools: string[] | undefined;
 	let uiCtx: ExtensionContext | undefined;
@@ -613,12 +614,54 @@ export function registerSlateMode(
 	});
 
 	pi.registerCommand("slate", {
-		description: "Slate orchestrator mode: on | off | summary [on | off] | handoff [focus] | resume | effective (no arg toggles)",
+		description: "Slate orchestrator mode: on | off | summary [on | off] | model [save | clear] | handoff [focus] | resume | effective (no arg toggles)",
 		handler: async (args, ctx) => {
 			uiCtx = ctx;
 			const trimmed = args?.trim() ?? "";
 			const [verb, ...rest] = trimmed.split(/\s+/);
 			const arg = verb?.toLowerCase();
+			if (arg?.startsWith("model")) {
+				if (arg !== "model") {
+					warnSummary(ctx, "Usage: /slate model [save | clear].");
+					return;
+				}
+				const action = rest[0]?.toLowerCase();
+				const info = (text: string) => ctx.hasUI ? ctx.ui.notify(text, "info") : console.log(text);
+				if (rest.length === 0) {
+					const result = readProjectModel(ctx.cwd);
+					if (result.kind === "key-unavailable") warnSummary(ctx, `Cannot determine the project key: ${result.reason}`);
+					else if (result.kind === "store-unreadable") warnSummary(ctx, `Cannot read the private store for ${result.key}: ${result.reason}`);
+					else if (result.kind === "invalid-entry") warnSummary(ctx, `Invalid project model for ${result.key}.`);
+					else if (result.kind === "entry") info(`Project key: ${result.key}. Stored model: ${result.entry.model}. Thinking level: ${result.entry.thinkingLevel}.`);
+					else info(`Project key: ${result.key}. No stored model.`);
+					return;
+				}
+				if (rest.length !== 1 || (action !== "save" && action !== "clear")) {
+					warnSummary(ctx, "Usage: /slate model [save | clear].");
+					return;
+				}
+				let result;
+				try {
+					if (action === "save") {
+						const { model, thinkingLevel } = ctx;
+						if (!model) throw new Error("The main session has no current model.");
+						if (thinkingLevel === undefined) throw new Error("The main session has no current thinking level.");
+						if (model.provider.includes("/")) throw new Error("The provider name contains a slash.");
+						result = writeModel(ctx.cwd, { model: `${model.provider}/${model.id}`, thinkingLevel });
+					} else result = writeModel(ctx.cwd, undefined);
+				} catch (error) {
+					warnSummary(ctx, `Cannot ${action} the project model: ${String(error)}`);
+					return;
+				}
+				if (result.saved?.durabilityWarning) warnSummary(ctx, result.saved.durabilityWarning);
+				else if (!result.saved) info(`No stored model to clear for ${result.key}.`);
+				else {
+					const reply = `${action === "save" ? "Saved" : "Cleared"} the project model for ${result.key}.`;
+					try { info(reply); }
+					catch (error) { warnSummary(ctx, `${reply} Slate could not show the reply: ${String(error)}`); }
+				}
+				return;
+			}
 			if (arg === "summary") {
 				const choice = rest[0]?.toLowerCase();
 				if (rest.length === 0) { displaySummary(ctx); return; }

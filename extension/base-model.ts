@@ -16,8 +16,8 @@
  * the model selector and an extension's pi.setModel all arrive as source "set"
  * (agent-session's setModel emits "set" unconditionally; only the cycle
  * keybinding emits "cycle", and "restore" is declared in the SDK but emitted by
- * no shipped code). So a switch slate is about to make is DECLARED first, and the
- * event matching that declaration is the one switch that does not move the base.
+ * no shipped code). Slate declares its switches against an active tracker.
+ * An event that matches the declaration does not move the base.
  *
  * DECLARATION LIFETIME — THE SETTER'S OWN DURATION, NEVER A CLOCK (BG10).
  * A declaration is IN FLIGHT from the moment it is declared until the SETTER
@@ -211,11 +211,14 @@ export interface BaseModelTracker {
 	 */
 	expectOwnSwitch(from: string | undefined, to: string): () => void;
 	/**
-	 * Run ONE slate-initiated model switch under a declaration: declares (from, to),
-	 * awaits `performSwitch`, and retires the declaration when it settles — on
-	 * success, on `false`, and on a throw alike. Returns exactly what
-	 * `performSwitch` returns and re-throws its error unchanged; the tracker itself
-	 * never throws. This is the sanctioned form at every slate switch site.
+	 * Use this method for a Slate switch against an active tracker.
+	 * It declares (from, to) and awaits `performSwitch`.
+	 * It retires the declaration when the switch settles.
+	 * It returns the switch result or rethrows the switch error unchanged.
+	 *
+	 * Private project model application runs before the tracker seed.
+	 * Slate suppresses the nested `model_select` observation during application.
+	 * Slate then seeds the tracker from the live state.
 	 */
 	ownSwitch<T>(from: string | undefined, to: string, performSwitch: () => Promise<T>): Promise<T>;
 	/** Called after a handoff adoption SUCCEEDS, to deliberately re-seed the base. */

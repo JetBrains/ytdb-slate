@@ -392,11 +392,17 @@ for an unknown or ambiguous route. Main recovery stays available during handoff
 pause. An unresolved stop keeps worker dispatch paused while brief writing waits
 for the user choice.
 
-Pi 1.6.0 model and effort switches are session-only unless the caller explicitly
-requests persistence. Slate retains shared saved-default ownership and its
-compatibility restoration guard. The guard covers explicit persistence and
-hosts that persist switches. A restoration failure is visible and can leave the
-changed default in place.
+Slate switches the main-session model during failover, handoff adoption, and
+[private project model application](configuration.md#private-project-model)
+at session start. Pi 1.6.0 model and effort switches are session-only unless
+the caller requests persistence.
+
+Failover and handoff adoption share an optional guard for global Pi model
+defaults. The guard attempts to restore only changes that match the switch.
+It warns if restoration fails. Private project model application does not use
+the guard. The verification ladder covers failover and handoff adoption. A recorded
+interactive run checks the private project model switch and the global Pi
+settings file.
 
 ## Package reliance boundary
 

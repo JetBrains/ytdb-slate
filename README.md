@@ -101,6 +101,9 @@ Slate independently implements the thread-weaving architecture from the Random L
 | `/slate summary` | Show the workflow summary in any mode, even when automatic display is off. |
 | `/slate summary off` | Stop automatic display and remove a visible summary. |
 | `/slate summary on` | Save automatic display for the next startup or mode activation. |
+| `/slate model` | Show the stored model, thinking level and [project key](docs/configuration.md#private-project-model). |
+| `/slate model save` | Save the current main-session model and thinking level for this project. |
+| `/slate model clear` | Remove the stored choice for this project. |
 | `/slate effective` | Show the effective logical-model policy and remembered route selections. |
 | `/slate handoff [focus]` | Prepare a new-session handoff, with an optional focus. |
 | `/slate resume` | Clear a context-budget pause and accept user prompts again. |

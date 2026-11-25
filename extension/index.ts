@@ -47,6 +47,7 @@ import { registerOrchestratorFailover } from "./failover.ts";
 import { registerSlateHandoff, sanitizeContextBudget } from "./handoff.ts";
 import { createLogicalRuntime, type LogicalRuntime } from "./logical-model-runtime.ts";
 import { registerSlateMode } from "./mode.ts";
+import { applyPrivateProjectModel, reportPrivateProjectModel } from "./project-model-startup.ts";
 import { registerNotificationEvents } from "./notification-events.ts";
 import { createTerminalNotificationChannels } from "./notification-terminal.ts";
 import { createPushNotificationChannel } from "./notification-push.ts";
@@ -80,18 +81,12 @@ export default function (pi: ExtensionAPI) {
 	// stale manager. Starts as the empty set (feature off) until session_start.
 	let resolveWorkerExtensionSet: () => WorkerExtensionSet = () => EMPTY_WORKER_EXTENSION_SET;
 
-	// One base-model tracker per session (base-model.ts), reassigned every
-	// session_start below so its seed and its one-report-per-condition budget are
-	// per session. TWO consumption modes, deliberately different (CQ12): the SWITCH
-	// SITES (failover.ts, handoff.ts) take the live `() => baseModel` indirection,
-	// because a switch always belongs to the CURRENT session; ThreadManager instead
-	// binds the instance BY VALUE at construction (CN20), so a manager orphaned by a
-	// session swap keeps answering with its own session's base model rather than a
-	// newer one's. Constructed eagerly here — before any session_start — so a
-	// model_select arriving during startup has somewhere to land, and so even the
-	// pre-session manager below can be given one; that pre-session instance reports
-	// through the console, since no extension context exists yet.
+	// Each session gets a new base-model tracker with its own seed and warnings.
+	// Failover and handoff read the current tracker when they switch models.
+	// The initial tracker receives selections before session_start.
+	// It reports through the console because no extension context exists yet.
 	let baseModel: BaseModelTracker = createBaseModelTracker({ warn: (msg) => console.warn(msg) });
+	let applyingPrivateProjectModel = false;
 	let logicalRuntime: Readonly<LogicalRuntime> | undefined;
 	let logicalSessionEpoch = 0;
 	let compressorRetryPolicy: CompressorRetryPolicy | undefined;
@@ -124,10 +119,10 @@ export default function (pi: ExtensionAPI) {
 	// tracker, and pairs each event with the thinking level pi has already clamped
 	// by emission time (setModel emits AFTER its thinking cascade).
 	pi.on("model_select", async (event) => {
-		baseModel.observe(event, readLiveEffort(pi));
+		if (!applyingPrivateProjectModel) baseModel.observe(event, readLiveEffort(pi));
 	});
 
-	pi.on("session_start", async (_event, ctx) => {
+	pi.on("session_start", async (event, ctx) => {
 		notifications.retire();
 		// Invalidate asynchronous recovery before replacing session-owned state.
 		const epoch = ++logicalSessionEpoch;
@@ -168,6 +163,18 @@ export default function (pi: ExtensionAPI) {
 		// worker open or a doctrine build — after session_start finishes, so tools
 		// registered during session_start are captured (AD41).
 		resolveWorkerExtensionSet = createWorkerExtensionResolver(pi, () => config.workerExtensions ?? [], warn);
+		// The seed reads the final model and thinking level. Do not treat the
+		// private project model switch as a user selection during the switch.
+		applyingPrivateProjectModel = true;
+		try {
+			await applyPrivateProjectModel(pi, event, ctx);
+		} catch {
+			const warning = "slate: Slate could not complete private project model application. The session keeps its live model and thinking level.";
+			reportPrivateProjectModel(ctx, warning, "warning");
+		} finally {
+			applyingPrivateProjectModel = false;
+		}
+		if (epoch !== logicalSessionEpoch || !lifecycleRecoveryOwnership.isCurrentLifecycle()) return;
 		// Fresh tracker per session, seeded from the session's OWN resolved model —
 		// undefined is legitimate (no model, or no auth for one) and stays silent.
 		// Same warn channel as the sanitizers above. A handoff adoption re-seeds it

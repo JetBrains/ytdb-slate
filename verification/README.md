@@ -13,6 +13,44 @@ with `persist:true`. That explicit fixture keeps the compatibility restore under
 test. Worker sessions use a read-only settings snapshot, so even the explicit
 persisted control cannot reach the global file.
 
+The third main-session switch site is `extension/project-model-startup.ts`.
+It applies the private project model at session start without the global-settings
+guard. Unit tests cover the plain setters and startup order. A recorded
+interactive run covers this switch and the global settings file. The ladder
+does not exercise this site.
+
+Re-run the ladder after changes to the guard or any main-session switch site:
+failover, handoff adoption, or private project model application. Also re-run
+the ladder after changes to worker session opening or switching. Repeat the
+interactive check below after changes to private project model application
+or its startup order.
+
+## Private project model interactive check
+
+1. Set up a temporary home, agent directory and test project outside the
+   checkout. Set `HOME`, `PI_CODING_AGENT_DIR` and `PI_OFFLINE=1`. Use the pinned
+   Pi and an offline fixture that registers two models with fake credentials.
+   Set the first model as Pi's default in the isolated agent's `settings.json`.
+2. Use a real terminal or allocate a pseudo-terminal for the Pi process.
+   Launch Pi from the test project with `--no-extensions -e <checkout>` and
+   load the fixture with another `-e`. Do not pass `--model` or send a prompt.
+   Launch once and exit before taking the first settings fingerprint.
+   Pi can write `lastChangelogVersion` on this warm-up launch without a Slate switch.
+   Relaunch with no private entry. Record Pi's selected model and thinking level
+   at launch and after `/new`. Confirm that no application notice appears. Exit.
+3. In a separate setup session, select the second model with
+   `/model <provider/id>` and set a supported thinking level.
+   Run `/slate model save` and exit. Check that Pi's default is still the
+   first model. Relaunch with the control arguments. Record the application
+   notice and live model and thinking level at launch and after `/new`.
+   A launch without a differing saved entry proves nothing about the switch.
+4. Record the isolated agent's `settings.json` content hash, size and
+   modification time before and after each launch. Require all three to match
+   within each launch. If a tracing tool is available, trace file operations
+   in both launches. For example, use `strace -f -yy -e trace=%file,write,writev,pwrite64`
+   on Linux. Compare operations on the global settings file with the control.
+   Check for reads added by the switch and for any writes or file replacement.
+
 ## Unit-test process boundary
 
 `verification/run-tests.sh` runs two mandatory, disjoint processes from the

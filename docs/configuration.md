@@ -29,6 +29,155 @@ The short workflow summary is off by default. Run `/slate summary on` to save an
 
 Slate stores this choice as the boolean `startupSummary` key in `<getAgentDir()>/slate-preferences.json`. Pi uses `PI_CODING_AGENT_DIR` when that environment variable sets the agent directory. A missing file or key means the summary is off. Invalid values and read errors warn and enable the summary. This file does not grant home configuration permission in untrusted projects. A `startupSummary` key in either `slate.json` has no effect.
 
+## Private project model
+
+Run `/slate model save` to save the current model and thinking level of the main session.
+Changing the session model does not save a choice.
+Slate keeps the choice in the **private store**, `slate-preferences.json` in the Pi agent directory.
+
+Slate applies the private project model at the start of an interactive main session with no conversation messages on any branch.
+This includes a fresh launch and `/new`, even directly after a handoff.
+The rule applies with orchestrator mode on or off.
+
+A handoff continues work in a successor session.
+Slate excludes the successor session even if it cannot take the parent session's model.
+Slate also excludes sessions opened by `/resume`, `/fork`, or the `--fork` option.
+Slate still excludes a forked session when you reopen it.
+Slate does not apply the choice on `/reload`.
+Slate does not apply the choice in print mode, JSON mode, remote procedure call (RPC) mode, or worker threads.
+
+Model selection uses this order from lowest to highest priority:
+
+1. User Pi settings.
+2. Project Pi settings. Pi uses values from `.pi/settings.json` only when it trusts the project.
+3. Private project model.
+4. Explicit `--model`.
+
+When you specify a model with `--model`, Slate applies neither the stored model nor the stored thinking level.
+With `--thinking` alone, Slate uses that thinking level with the stored model.
+The **requested thinking level** is the command-line level when present and the stored level otherwise.
+Slate sets it after switching the model.
+The **effective thinking level** is the level Pi uses.
+
+When Slate applies the choice, one notice names the model and the effective thinking level.
+If both already match, Slate changes nothing and shows no notice.
+If the project has no entry, Slate remains silent.
+Slate warns and keeps the model Pi selected if:
+
+- Slate cannot determine the project key.
+- Slate cannot read the private store.
+- The entry is invalid.
+- Pi does not know the model.
+- The model has no configured credentials.
+- Pi refuses the switch or the switch fails before changing the session.
+
+If a switch fails after changing the session, Slate warns and names the model and thinking level in use.
+Slate records that live state.
+If the requested and effective thinking levels differ, Slate reports both levels.
+
+The **project key** identifies the project in `slate-preferences.json`.
+Run `/slate model` to show the saved choice and its project key.
+If the project has no stored model, Slate shows the key and reports the absence.
+Slate warns if the stored entry is invalid.
+Run `/slate model clear` to remove the choice.
+If there is no entry to clear, Slate reports that and leaves the file unchanged.
+
+Slate treats any input whose first word after `/slate` starts with `model` as a model command.
+Letter case does not matter.
+For any form other than the three listed above, Slate shows the valid forms.
+Slate leaves orchestrator mode unchanged.
+
+A worktree is a directory where Git checks out files.
+The **Git common directory** holds Git data shared by all worktrees of one clone.
+Slate uses its real path as the project key.
+All worktrees of one clone share one key.
+A bare repository has no worktree and uses its own directory as the Git common directory.
+
+Slate searches the working directory and its parents.
+The nearest directory with a `.git` entry or with Git data of its own decides the key.
+A `.git` entry can be a directory or a file that points to a Git directory.
+If Slate finds damaged or unreadable Git data there, it refuses to use a key.
+Slate does not use a repository further up.
+
+An empty or broken `.git` entry inside a repository also causes this refusal.
+Remove the empty or broken entry to continue.
+A hand-made `.git` file that points to another valid repository uses that repository's entry.
+If you run `/slate model clear` inside a nested repository, Slate uses that repository's key.
+A subdirectory shares its worktree's key unless a nearer `.git` entry or Git directory decides the result.
+If Slate cannot read or validate that nearer entry or directory, it reports that it cannot determine the key.
+If Slate finds no Git directory or `.git` entry, it uses the real path of the working directory as the key.
+If Slate cannot determine the key, none of the commands uses a substitute.
+Git environment variables such as `GIT_DIR` do not affect the key.
+
+The key matches the real path of the Git common directory that Git reports for these layouts:
+
+- A normal clone, which is a local copy of a repository.
+- A linked worktree, which shares Git data with another worktree.
+- A bare repository.
+- A nested repository, which sits inside another repository.
+- A submodule, which is a repository that another repository tracks.
+- A worktree with a separate Git directory.
+- A working directory inside a Git directory. Slate uses the key of the repository that owns that Git directory.
+- A working directory that you reach through a symbolic link. A symbolic link is a file system entry that points to another path.
+
+A new repository with no commits uses the same key as it does after its first commit.
+The key stays the same with a detached `HEAD`, which points to a commit instead of a branch.
+Git references name commits or other references.
+The key also stays the same with packed references or with reftable, two ways Git stores references.
+
+Slate checks the structure of Git files.
+Slate limits how much it reads from each file.
+Slate reads no Git configuration.
+Slate does not check who owns the repository.
+Slate does not stop when the search crosses a file system boundary.
+Slate gives an otherwise valid repository a key even if Git refuses it for one of these reasons.
+
+Slate refuses to use a key if the real path of the working directory or a Git directory is not valid text.
+Slate refuses to read or write the private store if its real path is not valid text.
+Before it creates the store, Slate checks the real path of the closest parent folder that exists.
+Slate refuses to create the store if that path is not valid text.
+
+Separate clones use separate Git common directories and do not share an entry.
+A normal clone stores its Git common directory at `<clone>/.git`, so moving the clone changes the key.
+A checkout that points to the same Git common directory after a move keeps its key.
+A new clone uses the earlier entry if it has the same Git common directory path.
+An entry stays until you remove it.
+
+You can edit the file by hand. The optional `projectModels` key holds a JSON object.
+Each property name is a project key. Its value holds a `model` and a `thinkingLevel`:
+
+```json
+{
+  "startupSummary": true,
+  "projectModels": {
+    "/home/dev/project/.git": {
+      "model": "anthropic/claude-sonnet-4-5",
+      "thinkingLevel": "medium"
+    }
+  }
+}
+```
+
+Use `provider/id` for `model`, not a name from Slate routing.
+Slate reads the text before the first slash as the provider.
+Slate cannot save a provider name with a slash or model text with white space.
+The thinking level is one of `off`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`.
+Remove a property from `projectModels` to remove its entry by hand.
+Slate refuses to save or clear if the file or `projectModels` is not a JSON object.
+You can save over an invalid entry for the current project or clear it.
+Slate does not validate other projects' entries during a save or clear.
+The file stays after the last clear.
+
+Each write replaces the whole file. If writes overlap, the later write wins.
+Slate keeps other keys and writes the file with two-space indentation.
+A number in a key that Slate does not own changes on rewrite if JavaScript cannot represent it exactly.
+Negative zero in such a key becomes zero on rewrite.
+
+After replacing the file, Slate asks the operating system to write the folder entry to disk.
+This operation is a **folder flush**.
+Slate warns if the folder flush fails.
+Slate gives no such warning on Windows or on a file system that offers no folder flush.
+
 ## Common starting point
 
 Create `.pi/slate.json` when you want new interactive sessions to start in orchestrator mode:
