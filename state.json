@@ -2,8 +2,8 @@
   "schema": 2,
   "version": "0.22.0",
   "identity": "4e8c94a40892442fc1ed6e050d516f90a28584c40635e8ebd3627abc4f3daca0",
-  "status": "upload-unknown",
-  "upload": "unknown",
+  "status": "published",
+  "upload": "verified",
   "promotion": "none",
   "requestBaseSha": "ce1fa0f0dd543319118a3cb758dda636f93e44c0",
   "releaseSha": "e93460693416868b47d0ec47f7d9cb8a5380c4a3",
@@ -20,12 +20,19 @@
     "releaseSha": "e93460693416868b47d0ec47f7d9cb8a5380c4a3",
     "execution": "45770889700:1"
   },
-  "registry": null,
+  "registry": {
+    "identity": "4e8c94a40892442fc1ed6e050d516f90a28584c40635e8ebd3627abc4f3daca0",
+    "releaseSha": "e93460693416868b47d0ec47f7d9cb8a5380c4a3",
+    "execution": "45770889700:1",
+    "result": "verified",
+    "upload": "verified",
+    "integrity": "sha512-jdsCXj/qXrs7i4odU3IEXLP/NpT16d6sFhVLXRHXk7yFWE3pkfU3G30LR4zCXym5KEnt5n6Q2zf31QWq18btQQ=="
+  },
   "installFailures": [],
   "installProof": null,
   "promotionEvidence": null,
   "tag": "v0.22.0",
   "internalTag": "slate-candidate",
   "createdAt": "2026-11-26T06:10:00.825Z",
-  "updatedAt": "2026-11-26T06:59:40.184Z"
+  "updatedAt": "2026-11-26T07:02:27.778Z"
 }
