@@ -1061,28 +1061,28 @@ exact current production renders are:
 
 | fixture | paths | portable characters | lines |
 | --- | ---: | ---: | ---: |
-| shipped logical section | 0 | 4528 | 9 |
-| trusted shipped-default doctrine | 5 | 9329 | 72 |
+| shipped logical section | 0 | 4938 | 9 |
+| trusted shipped-default doctrine | 5 | 9739 | 72 |
 | untrusted doctrine | 4 | 2711 | 33 |
-| draft pull requests, shipped policy | 6 | 9399 | 73 |
-| capped workers, shipped policy | 5 | 10676 | 82 |
-| draft plus capped workers | 6 | 10746 | 83 |
-| deferred issues plus capped workers | 5 | 10750 | 83 |
-| routing recommendations plus capped workers | 5 | 10729 | 83 |
-| draft plus deferred issues and capped workers | 6 | 10820 | 84 |
-| draft plus routing recommendations and capped workers | 6 | 10795 | 84 |
-| deferred issues plus routing recommendations and capped workers | 5 | 10803 | 84 |
-| canonical maximal baseline with all workflow options | 6 | 10869 | 85 |
-| maximal baseline with an open change | 6 | 11067 | 86 |
-| maximal baseline with source and legacy root log | 6 | 11297 | 88 |
-| dogfood config and extension roster | 6 | 9994 | 84 |
+| draft pull requests, shipped policy | 6 | 9809 | 73 |
+| capped workers, shipped policy | 5 | 11086 | 82 |
+| draft plus capped workers | 6 | 11156 | 83 |
+| deferred issues plus capped workers | 5 | 11160 | 83 |
+| routing recommendations plus capped workers | 5 | 11139 | 83 |
+| draft plus deferred issues and capped workers | 6 | 11230 | 84 |
+| draft plus routing recommendations and capped workers | 6 | 11205 | 84 |
+| deferred issues plus routing recommendations and capped workers | 5 | 11213 | 84 |
+| canonical maximal baseline with all workflow options | 6 | 11279 | 85 |
+| maximal baseline with an open change | 6 | 11477 | 86 |
+| maximal baseline with source and legacy root log | 6 | 11707 | 88 |
+| dogfood config and extension roster | 6 | 10404 | 84 |
 | 19,400-character policy plus draft, source and legacy log | 6 | 26046 | 86 |
 | same policy plus draft and deferred issues, source and legacy log | 6 | 26120 | 87 |
 | same policy plus routing recommendations, source and legacy log | 5 | 26029 | 86 |
 | same policy plus deferred issues and routing recommendations, source and legacy log | 5 | 26103 | 87 |
 | same policy plus draft and routing recommendations, source and legacy log | 6 | 26095 | 87 |
 | same boundary composition plus deferred issues | 6 | 26169 | 88 |
-| valid shipped policy plus 88 capped tools, source and legacy log | 6 | 28971 | 171 |
+| valid shipped policy plus 88 capped tools, source and legacy log | 6 | 29381 | 171 |
 
 Complete worker writing guidance measures 1161 UTF-8 bytes, including the design-scope exception.
 The permitted non-review preamble measures 2479 bytes.
@@ -1094,10 +1094,10 @@ characters. Each tool name has 64 characters. Each description has 140
 characters. The dogfood fixture reads `.pi/slate.json` and represents its two
 configured extension units.
 
-The canonical 10,869-character baseline uses all four default logical models,
+The canonical 11,279-character baseline uses all four default logical models,
 all three workflow options, and the capped worker roster. With an open change,
-a direct source folder, and a legacy root log, it measures 11,297 characters.
-Its required five-percent value is 11,862. The 26,300 whole-doctrine ceiling
+a direct source folder, and a legacy root log, it measures 11,707 characters.
+Its required five-percent value is 12,293. The 26,300 whole-doctrine ceiling
 keeps that reserve. The exact fixtures cover all eight workflow-option
 combinations.
 
@@ -1118,7 +1118,7 @@ not reserve-bearing canonical baselines.
 
 The over-cap counterfactual keeps the shipped logical policy valid and adds 88
 supported capped worker tools. With an open change, source, and legacy log, its
-28,971 portable characters exceed the ceiling by 2,671 characters.
+29,381 portable characters exceed the ceiling by 3,081 characters.
 This transformed fixture replaces the retired six-copy physical model-row shape.
 It does not assume an old per-row or per-tool increment. Removing the whole-
 doctrine comparison makes the counterfactual pass and therefore breaks the
@@ -1133,9 +1133,9 @@ Check the phase-row table with `test/workflow-context-budget.test.ts`.
 The logical limits remain 19,400 characters and 105 lines. The all-tail limit
 remains 24,600 characters. The whole-doctrine ceiling is 26,300 characters.
 
-The shipped model policy section has a separate limit of 4,755 portable
-characters and 9 lines. The character limit is the measured 4,528 characters
-plus five percent reserve, rounded up. The line limit has no reserve.
+The shipped model policy section has a limit of 5,185 portable characters and
+9 lines. The approval date is 2026-11-25. The character limit adds five percent
+to the measured 4,938 characters and rounds up. The line limit has no reserve.
 A fifth default model needs a new user approval. A higher limit requires a new user
 approval.
 
@@ -1157,12 +1157,13 @@ coverage, literal-limit enforcement, mutation controls, and publication equality
 literal limits approved by the user on 2026-10-16. The two nested research
 conditional limits were approved on 2026-10-25.
 Classification and recovery funding sets seven ordinary maximum limits independently.
-Research maxima are 151,934 bytes with publishing off and 163,446 with publishing on.
-Publishing-off ordinary maxima are 187,971 bytes in phases 2–4 and 240,000 in phases 5–6.
+Research maxima are 152,344 bytes with publishing off and 163,856 with publishing on.
+Publishing-off ordinary maxima are 188,381 bytes in phases 2–4 and 240,410 in phases 5–6.
 Publishing-off ordinary required limits are 79,389 bytes in phase 1, 115,341 in phases 2–4 and 139,693 in phases 5–6.
-All other stored phase limits stay fixed.
-Research measures 78,803 required and 151,890 maximum bytes.
-The separate research reservation is 79,000 required and 151,934 maximum bytes.
+The approval of 2026-11-26 assigns 410 bytes of shipped model policy text to each comparison start and each of these seven ordinary maximum limits.
+The five percent reserve does not apply to these seven increases. All other stored phase limits stay fixed.
+Research measures 79,213 required and 152,300 maximum bytes.
+The separate research reservation is 79,410 required and 152,344 maximum bytes.
 Independent classification-start literals bound every phase and session coordinate by 566 required and 3,061 maximum added bytes.
 The placement and preservation controls retain their source-stage proofs and session-specific extras.
 Earlier savings cannot fund these increases.

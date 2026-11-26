@@ -2,6 +2,12 @@
 
 Approved update notes for Slate releases appear here.
 
+## [0.22.0]
+
+You can now save a private model and thinking level for each project. Run `/slate model save` in the main session. Slate applies the saved choice when a new interactive session starts. `/slate model` shows the choice, and `/slate model clear` removes it. Use pi 1.6.0 or later.
+
+https://github.com/JetBrains/ytdb-slate/releases/tag/v0.22.0
+
 ## [0.21.0]
 
 The `threads` tool now lists the worker threads of the current session by default. The new `parentSession` parameter lists the threads of the newest earlier session. After a Slate handoff, `pi --continue` now opens the new session instead of the earlier session. Use pi 1.6.0 or later.
