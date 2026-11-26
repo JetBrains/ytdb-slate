@@ -1,23 +1,23 @@
-# ytdb-slate 0.21.0
+# ytdb-slate 0.22.0
 
-This release changes the default result of the `threads` tool. It also corrects which session `pi --continue` opens after a handoff.
+This release adds a private model choice for each project. It also extends the shipped guidance for the `luna-6` logical model.
 
 ## Highlights
 
-- The `threads` tool now lists every worker thread of the current session, newest first. A worker thread is a separate session that performs one action. The orchestrator is the main session that plans the work, and it calls this tool. A call without parameters never lists a thread of another session. The list has no row limit, and the result has no byte limit.
-- The new parameter `parentSession: true` lists the threads of the newest earlier session that has threads. Slate skips a session without threads.
-- The parameter `before` still lists older threads from all sessions. It now returns up to 20 threads instead of eight. Slate rejects a call that combines `before` with `parentSession: true`.
-- The result now names what it lists. It shows a count for the current session beside the totals for all threads.
-
-## Fixes
-
-- After a handoff, `pi --continue` could open the earlier session instead of the new session. A handoff transfers the work to a new session. Slate now finishes its last write to the earlier session before the new session starts its first turn. Slate then waits up to three seconds until the file system reports a later time than that last write. If this check fails, Slate shows a warning and still starts the new session. In that case, check which session `pi --continue` opened.
+- You can now save a private model for a project. Run `/slate model save` to save the current model and thinking level of the main session. The main session is the session that you start and type into. The thinking level is the pi setting for the amount of reasoning of the model. Slate stores the choice in `slate-preferences.json` in the pi agent directory, outside the repository. Other developers of the project do not receive your choice.
+- Slate applies the saved choice when an interactive main session starts with no conversation messages. This rule covers a new launch and `/new`. The rule applies with orchestrator mode on or off. In orchestrator mode, the main session plans the work and worker threads perform it.
+- `/slate model` shows the saved choice and the project key. The project key identifies the project in `slate-preferences.json`. `/slate model clear` removes the choice.
+- An explicit `--model` option has priority over the saved model and the saved thinking level. With `--thinking` alone, Slate uses that thinking level with the saved model.
+- Slate does not apply the choice in a worker thread or in the session that follows a handoff. A handoff transfers the work to a new session. Slate also does not apply the choice in a session opened with `/resume`, `/fork` or `--fork`, or on `/reload`. The same holds for print mode, JSON mode and remote procedure call (RPC) mode.
+- The shipped guidance for the logical model `luna-6` has three more cautions. A logical model is a model name in Slate routing, and `luna-6` serves auxiliary tasks. The cautions cover long file paths, text that must stay exact, and check commands that write to a record file. The model list, the ratings and the routing rules did not change.
 
 ## Compatibility
 
-No configuration keys or defaults changed. Saved threads need no migration. A thread that an earlier Slate version saved has no session ID. Such a thread no longer appears in the default list. The orchestrator finds it with `parentSession: true` or `before`. Slate lists at most 20 of these threads in one result. Slate now refuses to create a thread when pi supplies no session ID. An ordinary pi session always supplies one.
+No configuration keys or defaults in `slate.json` changed. Existing users need no action. Without a saved choice, Slate keeps the model that pi selected and shows no notice.
 
-The fix does not cover a new session that never starts a run, because such a session has no session file. Issue #621 tracks this case. The wait time was measured on Linux file systems only.
+The project key is the real path of the Git common directory. Worktrees of one clone share one choice. Separate clones do not share a choice. If you move a clone, save the choice again.
+
+Slate now treats any `/slate` input whose first word starts with `model` as a model command. For an invalid form, Slate shows the valid forms and leaves orchestrator mode unchanged.
 
 ## SDK compatibility
 

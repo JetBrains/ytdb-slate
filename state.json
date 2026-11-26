@@ -1,58 +1,24 @@
 {
   "schema": 2,
-  "version": "0.21.0",
-  "identity": "3a4b3846f4ba3cd1324f72b023ee7d3dad5c1900baa6984d0f8a297ffcf09195",
-  "status": "complete",
-  "upload": "verified",
-  "promotion": "verified",
-  "requestBaseSha": "a1088e4ea2c2ffb0d04338eae1578bdbe8df2714",
-  "releaseSha": "e1256ec4630357ea2566e871f524917da97bc7cd",
-  "releaseParent": "a1088e4ea2c2ffb0d04338eae1578bdbe8df2714",
-  "pullRequest": 626,
-  "claimExecution": "45372357694:1",
-  "uploadExecution": "45372357694:1",
-  "promoterExecution": "45372357694:2",
-  "artifact": {
-    "file": "ytdb-slate-0.21.0.tgz",
-    "sha256": "76ed1e5fdd947f7ca53022ae7239eafab6495dce89d633b50e0a523b8df773d4",
-    "integrity": "sha512-s9/q+Zn7ZieD6iepXf1rqQrsSzoJaDHhguSzJNSocPFufpSMidwnSVIuVrFcrmv0PkWYRNIS4+9YcztjTxWQkA==",
-    "identity": "3a4b3846f4ba3cd1324f72b023ee7d3dad5c1900baa6984d0f8a297ffcf09195",
-    "releaseSha": "e1256ec4630357ea2566e871f524917da97bc7cd",
-    "execution": "45372357694:1"
-  },
-  "registry": {
-    "identity": "3a4b3846f4ba3cd1324f72b023ee7d3dad5c1900baa6984d0f8a297ffcf09195",
-    "releaseSha": "e1256ec4630357ea2566e871f524917da97bc7cd",
-    "execution": "45372357694:1",
-    "result": "verified",
-    "upload": "verified",
-    "integrity": "sha512-s9/q+Zn7ZieD6iepXf1rqQrsSzoJaDHhguSzJNSocPFufpSMidwnSVIuVrFcrmv0PkWYRNIS4+9YcztjTxWQkA=="
-  },
+  "version": "0.22.0",
+  "identity": "4e8c94a40892442fc1ed6e050d516f90a28584c40635e8ebd3627abc4f3daca0",
+  "status": "prepared",
+  "upload": "none",
+  "promotion": "none",
+  "requestBaseSha": "ce1fa0f0dd543319118a3cb758dda636f93e44c0",
+  "releaseSha": null,
+  "releaseParent": null,
+  "pullRequest": null,
+  "claimExecution": null,
+  "uploadExecution": null,
+  "promoterExecution": null,
+  "artifact": null,
+  "registry": null,
   "installFailures": [],
-  "installProof": {
-    "identity": "3a4b3846f4ba3cd1324f72b023ee7d3dad5c1900baa6984d0f8a297ffcf09195",
-    "version": "0.21.0",
-    "releaseSha": "e1256ec4630357ea2566e871f524917da97bc7cd",
-    "releaseParent": "a1088e4ea2c2ffb0d04338eae1578bdbe8df2714",
-    "execution": "45372357694:2",
-    "registryIntegrity": "sha512-s9/q+Zn7ZieD6iepXf1rqQrsSzoJaDHhguSzJNSocPFufpSMidwnSVIuVrFcrmv0PkWYRNIS4+9YcztjTxWQkA==",
-    "proof": {
-      "command": "slate",
-      "source": "npm:ytdb-slate@0.21.0"
-    }
-  },
-  "promotionEvidence": {
-    "identity": "3a4b3846f4ba3cd1324f72b023ee7d3dad5c1900baa6984d0f8a297ffcf09195",
-    "releaseSha": "e1256ec4630357ea2566e871f524917da97bc7cd",
-    "execution": "45372357694:2",
-    "expectedLatest": "0.20.0",
-    "intentAt": "2026-11-24T11:47:30.788Z",
-    "before": "0.20.0",
-    "result": "verified",
-    "after": "0.21.0"
-  },
-  "tag": "v0.21.0",
+  "installProof": null,
+  "promotionEvidence": null,
+  "tag": "v0.22.0",
   "internalTag": "slate-candidate",
-  "createdAt": "2026-11-24T09:51:16.699Z",
-  "updatedAt": "2026-11-24T11:48:27.345Z"
+  "createdAt": "2026-11-26T06:10:00.825Z",
+  "updatedAt": "2026-11-26T06:10:00.825Z"
 }
