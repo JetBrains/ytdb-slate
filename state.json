@@ -2,17 +2,24 @@
   "schema": 2,
   "version": "0.22.0",
   "identity": "4e8c94a40892442fc1ed6e050d516f90a28584c40635e8ebd3627abc4f3daca0",
-  "status": "claimed",
-  "upload": "none",
+  "status": "upload-unknown",
+  "upload": "unknown",
   "promotion": "none",
   "requestBaseSha": "ce1fa0f0dd543319118a3cb758dda636f93e44c0",
   "releaseSha": "e93460693416868b47d0ec47f7d9cb8a5380c4a3",
   "releaseParent": "ce1fa0f0dd543319118a3cb758dda636f93e44c0",
   "pullRequest": 637,
   "claimExecution": "45770889700:1",
-  "uploadExecution": null,
+  "uploadExecution": "45770889700:1",
   "promoterExecution": null,
-  "artifact": null,
+  "artifact": {
+    "file": "ytdb-slate-0.22.0.tgz",
+    "sha256": "dde280d6b6c513205d44cf72624faf70055c3851b0b90fcd6fed3b17a26fd972",
+    "integrity": "sha512-jdsCXj/qXrs7i4odU3IEXLP/NpT16d6sFhVLXRHXk7yFWE3pkfU3G30LR4zCXym5KEnt5n6Q2zf31QWq18btQQ==",
+    "identity": "4e8c94a40892442fc1ed6e050d516f90a28584c40635e8ebd3627abc4f3daca0",
+    "releaseSha": "e93460693416868b47d0ec47f7d9cb8a5380c4a3",
+    "execution": "45770889700:1"
+  },
   "registry": null,
   "installFailures": [],
   "installProof": null,
@@ -20,5 +27,5 @@
   "tag": "v0.22.0",
   "internalTag": "slate-candidate",
   "createdAt": "2026-11-26T06:10:00.825Z",
-  "updatedAt": "2026-11-26T06:49:56.665Z"
+  "updatedAt": "2026-11-26T06:59:40.184Z"
 }
