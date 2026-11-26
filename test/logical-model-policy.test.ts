@@ -657,8 +657,8 @@ test("resolver exclusions are explicit and preserve the complete default roster"
   const repo = process.cwd();
   const ids = ["doctrine-original-base", "doctrine-original-controls"];
   const wrapper = join(repo, "verification/run-resolver-checks.sh");
-  const run = (script: string, args: string[] = [], strict = true) => {
-    const result = spawnSync("bash", [script, "--repo", repo, ...(strict ? ["--strict"] : []), ...args], {
+  const run = (script: string, args: string[] = [], strict = true, inputRepo = repo) => {
+    const result = spawnSync("bash", [script, "--repo", inputRepo, ...(strict ? ["--strict"] : []), ...args], {
       encoding: "utf8", timeout: 60_000, maxBuffer: 2 * 1024 * 1024,
     });
     const output = `${result.stdout}\n${result.stderr}`;
@@ -705,6 +705,15 @@ test("resolver exclusions are explicit and preserve the complete default roster"
       assert.match(selected.output, /^NOTE executed mutation counts: {"heading-policy":914}$/m);
       assert.match(selected.output, /^== summary: 4 pass, 0 fail, 0 not run \(4 result lines = 2 selected checks \+ scoped mutation audit \+ this roster audit\) ==$/m);
     }
+    const historyId = "contract-review-history";
+    const mixedIds = [historyId, ...selectedIds];
+    for (const selection of [mixedIds, [...mixedIds].reverse()]) {
+      const selected = run(wrapper, ["--only", selection.join(",")], false);
+      assert.equal(selected.status, 0, selected.output);
+      assert.deepEqual([...selected.output.matchAll(/^CHECK +(\S+) /gm)].map((match) => match[1]), [...mixedIds, "selected-mutation-audit", "roster"]);
+      assert.match(selected.output, /^NOTE executed mutation counts: {"review-history":17,"heading-policy":914}$/m);
+      assert.match(selected.output, /^== summary: 5 pass, 0 fail, 0 not run \(5 result lines = 3 selected checks \+ scoped mutation audit \+ this roster audit\) ==$/m);
+    }
     for (const args of [
       ["--only"], ["--only", ""], ["--only", "unknown-check"], ["--only", "roster"],
       ["--only", `${selectedIds[0]},`], ["--only", `,${selectedIds[0]}`],
@@ -719,8 +728,19 @@ test("resolver exclusions are explicit and preserve the complete default roster"
       assert.doesNotMatch(rejected.output, /^CHECK /m);
     }
     cpSync(join(repo, "verification"), join(root, "verification"), { recursive: true });
-    mkdirSync(join(root, "node_modules"));
-    symlinkSync(join(repo, "node_modules", "marked"), join(root, "node_modules", "marked"), "junction");
+    symlinkSync(join(repo, "node_modules"), join(root, "node_modules"), "junction");
+    mkdirSync(join(root, "docs"));
+    mkdirSync(join(root, "extension"));
+    cpSync(join(repo, "extension/worker-extensions.ts"), join(root, "extension/worker-extensions.ts"));
+    cpSync(join(repo, "package.json"), join(root, "package.json"));
+    const emptyHistory = run(join(root, "verification/run-resolver-checks.sh"), ["--only", historyId], false, root);
+    assert.equal(emptyHistory.status, 1, emptyHistory.output);
+    assert.deepEqual([...emptyHistory.output.matchAll(/^CHECK +(\S+) +(\S+) /gm)].map((match) => match.slice(1, 3)), [
+      [historyId, "FAIL"], ["selected-mutation-audit", "FAIL"], ["roster", "PASS"],
+    ]);
+    assert.match(emptyHistory.output, /history rules reject each restoration and accept benign discussion → no Markdown sources under docs\//);
+    assert.match(emptyHistory.output, /^NOTE executed mutation counts: \{\}$/m);
+    assert.match(emptyHistory.output, /^== summary: 1 pass, 2 fail, 0 not run \(3 result lines = 1 selected checks \+ scoped mutation audit \+ this roster audit\) ==$/m);
     const driver = join(root, "verification/resolver-checks.mjs");
     const source = readFileSync(driver, "utf8");
     // Each focused predicate must detect its own violations. Complete document
@@ -748,6 +768,7 @@ test("resolver exclusions are explicit and preserve the complete default roster"
       ["crash", target, 'throw new Error("selected control crash"); ' + target, selectedIds.join(","), "roster"],
       ["driver crash", 'if (startupError) throw startupError;', 'throw new Error("driver control crash");', selectedIds[1]!, "roster"],
       ["mutation missing", 'mutationAudit.record("heading-policy", headingPolicyAttacks,', 'mutationAudit.record("heading-policy", headingPolicyAttacks.slice(1),', selectedIds[0]!, "selected-mutation-audit"],
+      ["history mutation missing", 'mutationAudit.record("review-history", historyAttacks);', "", historyId, "selected-mutation-audit"],
       ["mutation outside scope", target, 'mutationAudit.record("outside-control", []); ' + target, selectedIds[1]!, "selected-mutation-audit"],
       ["mutation incomplete", 'mutationAudit.record("heading-policy", headingPolicyAttacks,', 'mutationAudit.record("heading-policy", headingPolicyAttacks.map((row, i) => i ? row : { ...row, rejected: false }),', selectedIds[0]!, "selected-mutation-audit"],
     ];
@@ -764,6 +785,7 @@ test("resolver exclusions are explicit and preserve the complete default roster"
         assert.match(result.output, /^CHECK +selected-mutation-audit +FAIL\b/m);
       }
       if (name === "driver crash") assert.match(result.output, /^CHECK +driver +FAIL\b/m);
+      if (name === "history mutation missing") assert.match(result.output, /^CHECK +contract-review-history +PASS\b/m);
     }
     for (const [before, after, status] of [
       ['() => jiti.import(`${REPO}/extension/worker-extensions.ts`)', '() => { throw new Error("unneeded import control"); }', 0],

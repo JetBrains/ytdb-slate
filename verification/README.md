@@ -952,18 +952,24 @@ fail `--strict`. The roster still requires every expected identifier exactly
 once. Without this option, the wrapper runs every check and keeps the default
 output format.
 
-`--only <id,id>` accepts only `contract-delivery-packages` and
-`contract-heading-regions`, individually or together. The driver owns this list.
+`--only <id,id>` accepts only `contract-delivery-packages`,
+`contract-heading-regions` and `contract-review-history`, alone or in combination.
+The driver owns this list.
 The wrapper validates option shape and passes the value through. Unknown or
 empty identifiers, duplicate identifiers, repeated options, `roster`, and any
 combination with `--exclude` refuse startup with exit 2. The wrapper reports
 `verification: refused to start — <reason>`.
 
-Selection loads only required modules and runs only the requested checks and
-their prerequisites. Checks retain their full-run implementations. The independent
-mutation roster supplies identities for selected families. Heading selection
-requires all `heading-policy` identities, including commit identity rules. Package selection has an empty
-mutation scope. Missing, duplicate, incomplete, outside-family or crashed mutation
+Selection skips unrelated checks and their conditional imports. The driver still
+loads its static imports, including `assigned-form-duties.ts`, which imports
+`marked`. The wrapper still runs its common prerequisite checks. The driver
+loads `extension/paths.ts` through jiti for heading and package selection, but
+not for history-only selection. Checks retain their full-run implementations.
+The independent mutation roster supplies identities for selected families. Heading selection
+requires all `heading-policy` identities, including commit identity rules. History
+selection runs the full escalation check's history assertion and audits its 17
+`review-history` identities. Package selection has an empty mutation scope.
+Missing, duplicate, incomplete, outside-family or crashed mutation
 execution fails `selected-mutation-audit`. Crash and driver failure lines always
 report. A separate `roster` audit requires each requested check and scoped audit
 exactly once. Missing, duplicate, unexpected and `NOT RUN` results fail the roster,
@@ -1028,15 +1034,22 @@ approved guarantee.
 
 `test/delivery-reference-contract.test.ts` runs disposable mutations through the
 real strict resolver wrapper. The clean case runs the full suite with
-`--exclude doctrine-original-base,doctrine-original-controls`. The 51 changed
-cases select their package or heading check with `--only`. Each rejected case
-requires exit 1 and its target failure. Each changed case requires the exact
-selected report identifiers, roster PASS and selected summary. Heading-anchor
-removals also require scoped mutation audit FAIL. Accepted changed cases prove
-only target-check acceptance, not whole-suite acceptance of the edit.
-An unchanged-document equivalence case compares both selected verdicts and
-executed mutation counts with the clean full run. The default resolver run
-still covers both original-base checks.
+`--exclude doctrine-original-base,doctrine-original-controls`. The 76 changed
+package and heading cases and 34 forbidden history cases select their target
+check with `--only`. Each rejected selected case requires exit 1 and its target
+failure. Each selected case requires the exact report identifiers, roster PASS
+and selected summary. Heading-anchor removals and forbidden history cases require
+scoped mutation audit FAIL. Forbidden history cases also require the history
+failure diagnostic and 17 recorded rows. The count and audit failure do not
+prove identity accounting on dirty input. Accepted selected cases prove only
+target-check acceptance, not whole-suite acceptance of the edit.
+
+The 17 safeguard cases, two resolver-body cases and ten compliant history cases
+run with only the two original-base checks excluded. Compliant history cases
+require all non-excluded checks to pass. Three clean comparison runs match
+selected verdicts and executed mutation counts against the clean nearly full run.
+The clean history selection requires both audits to pass and accounts for all 17
+history identities. The default resolver run covers both original-base checks.
 Run this test and the strict resolver suite after changing the scanner,
 its reviewed roster, or a reference-bearing documentation context.
 

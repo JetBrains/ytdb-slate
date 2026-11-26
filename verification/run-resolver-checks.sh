@@ -27,7 +27,8 @@
 #                      doctrine-original-controls (no other ids are accepted)
 # Exclusions print EXCLUDED and a separate summary count, never PASS or NOT RUN.
 # The roster still requires every expected check exactly once.
-#   --only <id,id>  select contract-delivery-packages and/or contract-heading-regions
+#   --only <id,id>  select from contract-review-history, contract-heading-regions,
+#                  and contract-delivery-packages
 # Selection skips unrelated work and audits the selected mutation families.
 # Selection cannot combine with --exclude. A selected NOT RUN always fails.
 #

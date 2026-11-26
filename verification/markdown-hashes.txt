@@ -1,4 +1,4 @@
-feb4e4b685de84361e1f9e2ff7ecafe06b8a702da90d6ce9d8762cf23646fdc6  AGENTS.md
+935472976b6c7a95a769e139da6c5bf9bc05a4b8e43481277d7ead15ba8f1e77  AGENTS.md
 
 4d0a44cd1cbd7b2c72675c43b628e45ff2dcca5a8a8737ed57a177684b41498e  CHANGELOG.md
 
@@ -98,4 +98,4 @@ ff583b7578b55fa21887fde2ca828eb55a6d9efa0851112d830802eae1cc86e4  research/opena
 
 266812b566da8edc5d90936b39bfc7d13e160cd42291aba56b6e00eac3cf5077  research/writing-threshold-provenance.md
 
-9b94d9470e7bfb0a1935959b8a597439e59d35a2227dbc66cd7023b3cfcd39fa  verification/README.md
+fe01afa0490678f2ad89abc4506f617b76d1507231838406c40ade5900fe86a4  verification/README.md

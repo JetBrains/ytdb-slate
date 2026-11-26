@@ -30,6 +30,7 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
     const loading = workflow.slice(workflow.indexOf(begin), workflow.indexOf(end) + end.length);
     assert.ok(readme.includes(readmeReference) && workflow.includes(actor) && loading.includes("Immediately before"));
 
+    const historyContract = "contract-review-history";
     let cleanOutput = "";
     const mutationCounts = (output: string): Record<string, number> => JSON.parse(output.match(/^NOTE executed mutation counts: (.+)$/m)![1]!);
     function selectedOutput(output: string, contract: string, accepted: boolean, auditAccepted = true): void {
@@ -62,7 +63,10 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
           assert.match(output, new RegExp(`^CHECK +${contract} +${accepted ? "PASS" : "FAIL"}\\b`, "m"));
           assert.match(output, /^CHECK +roster +PASS\b/m);
           if (focusedGroup) assert.ok(output.includes("all 53 surviving identities retain active rules →"), output);
-          if (name.startsWith("history restoration:")) assert.ok(output.includes("history rules reject each restoration and accept benign discussion →"), output);
+          if (contract === historyContract) {
+            assert.ok(output.includes("history rules reject each restoration and accept benign discussion →"), output);
+            assert.deepEqual(mutationCounts(output), { "review-history": 17 });
+          }
           if (name === "clean source") {
             assert.equal(mutationCounts(output)["review-history"], 17);
             assert.equal(mutationCounts(output)["boundary-regression"], 25);
@@ -85,19 +89,25 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
 
     await check("clean source", {}, true);
     await t.test("selected checks equal clean full-run verdicts and mutation counts", { timeout: 10_000 }, () => {
-      for (const contract of ["contract-heading-regions", "contract-delivery-packages"]) {
+      for (const [contract, fullContract, expectedCounts] of [
+        ["contract-heading-regions", "contract-heading-regions", { "heading-policy": 914 }],
+        ["contract-delivery-packages", "contract-delivery-packages", {}],
+        [historyContract, "contract-escalation-routing", { "review-history": 17 }],
+      ] as const) {
         const result = spawnSync("bash", [join(fixture, "verification/run-resolver-checks.sh"), "--repo", fixture, "--only", contract], {
           encoding: "utf8", timeout: 5_000, maxBuffer: 2 * 1024 * 1024,
         });
         const output = `${result.stdout}\n${result.stderr}`;
         assert.equal(result.error, undefined, output);
+        assert.equal(result.signal, null, output);
         assert.equal(result.status, 0, output);
-        const verdict = new RegExp(`^CHECK +${contract} +(PASS|FAIL|NOT RUN)`, "m");
-        assert.equal(output.match(verdict)?.[1], cleanOutput.match(verdict)?.[1], output);
+        assert.match(cleanOutput, new RegExp(`^CHECK +${fullContract} +PASS\\b`, "m"));
+        assert.match(output, new RegExp(`^CHECK +${contract} +PASS\\b`, "m"));
         assert.match(output, /^CHECK +roster +PASS\b/m);
         selectedOutput(output, contract, true);
-        assert.deepEqual(mutationCounts(output), contract === "contract-heading-regions" ? { "heading-policy": 914 } : {});
-        if (contract === "contract-heading-regions") assert.equal(mutationCounts(cleanOutput)["heading-policy"], 914);
+        const counts = mutationCounts(output);
+        assert.deepEqual(counts, expectedCounts);
+        for (const [family, count] of Object.entries(counts)) assert.equal(count, mutationCounts(cleanOutput)[family]);
       }
     });
     const resolverFile = "verification/resolver-checks.mjs";
@@ -164,7 +174,7 @@ test("delivery references stay inside reviewed contexts across shipped docs", { 
       for (const text of [rule!, rule!.replace(/ /g, "\n")]) {
         await check(`history restoration: ${text}`, {
           [file!]: original + "\n" + text + "\n",
-        }, false, "contract-escalation-routing");
+        }, false, historyContract, false);
       }
     }
     for (const rule of ["The implementation commit message must not include designs.", "Do not include designs in the implementation commit body.", "Keep review fixes in separate commits and do not squash them.", "The implementation commit message describes intent, not the design.", "A user-chosen privacy rewrite may rewrite history after preserving the reviewed head."]) {

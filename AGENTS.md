@@ -73,7 +73,7 @@ The checks write in these places only:
 
 CI is not hermetic beyond that, and it makes no such claim: the install fills the npm cache under `HOME`, like every other install.
 
-The workflow uses a read-only token (`permissions: contents: read`). Four events start it: `pull_request`, `merge_group`, a `push` to `main` or `release/[0-9]*`, and `workflow_dispatch`. It never uses `pull_request_target`. Each Linux job stops after 20 minutes (`timeout-minutes: 20`). Each macOS and Windows job stops after five minutes. `test/delivery-reference-contract.test.ts` uses bounded resolver selection for changed-document cases. The workflow pins each third-party action to a commit SHA. The Linux job matrix pins **Node 22.23.1 and Node 24.18.0**: those are the exact versions on which native TypeScript execution, LCOV, `stripTypeScriptTypes`, physical-line DA emission, directive matching and the full suite were measured. A floating major would take experimental APIs beyond the evidence silently; an exact pin instead costs a manual re-measurement and workflow edit for every accepted Node patch. pi needs node 22.19.0 or later, and the two pins still exercise both current LTS lines.
+The workflow uses a read-only token (`permissions: contents: read`). Four events start it: `pull_request`, `merge_group`, a `push` to `main` or `release/[0-9]*`, and `workflow_dispatch`. It never uses `pull_request_target`. Each Linux job stops after 20 minutes (`timeout-minutes: 20`). Each macOS and Windows job stops after five minutes. `test/delivery-reference-contract.test.ts` uses bounded resolver selection for package, heading and forbidden history cases. The workflow pins each third-party action to a commit SHA. The Linux job matrix pins **Node 22.23.1 and Node 24.18.0**: those are the exact versions on which native TypeScript execution, LCOV, `stripTypeScriptTypes`, physical-line DA emission, directive matching and the full suite were measured. A floating major would take experimental APIs beyond the evidence silently; an exact pin instead costs a manual re-measurement and workflow edit for every accepted Node patch. pi needs node 22.19.0 or later, and the two pins still exercise both current LTS lines.
 
 The Linux jobs use the version-specific `ubuntu-24.04` runner label. They keep the five checks below and the stable names `Node 22` and `Node 24`. The full suite and patch-coverage gate run only on Linux.
 
@@ -252,18 +252,23 @@ scan, and the scan does not make the brands tamper-proof.
 Run it with `bash verification/run-resolver-checks.sh --repo . --strict`. Exit 0
 means every check passed. Exit 1 means a check failed or disappeared. Exit 2
 means the wrapper refused to start.
-`--only <id,id>` selects only `contract-delivery-packages` and/or
-`contract-heading-regions`. It skips unrelated imports, sections and contract
-work. The driver owns the selectable list. Unknown, empty, duplicate or repeated
+`--only <id,id>` selects one or more of `contract-delivery-packages`,
+`contract-heading-regions` and `contract-review-history`. Selection skips unrelated
+checks and their conditional imports. The driver still loads its static imports,
+and the wrapper still runs its common prerequisite checks. The driver owns the
+selectable list. Unknown, empty, duplicate or repeated
 selection, `roster`, and any combination with `--exclude` refuse with exit 2.
-Heading selection audits all independent `heading-policy` identities.
-Package selection audits an empty mutation scope. Missing, duplicate, incomplete,
+Heading selection audits all independent `heading-policy` identities. History
+selection shares the full escalation check's history assertion and audits all
+17 `review-history` identities. Package selection audits an empty mutation scope. Missing, duplicate, incomplete,
 outside-family or crashed mutation execution fails the scoped audit. The separate
 selected roster rejects missing, duplicate, unexpected or `NOT RUN` reports even
 without `--strict`. A selected pass proves only its requested checks and scoped
-accounting. Changed accepted delivery-reference cases prove target acceptance,
-not whole-suite acceptance. The clean case retains the full run and supplies
-verdict and executed-mutation-count equivalence evidence. Re-run it after a change to any covered
+accounting. Accepted selected delivery-reference cases prove target acceptance,
+not whole-suite acceptance. Compliant history cases require acceptance by every
+non-excluded check. The clean comparisons match selected verdicts and mutation
+counts against the clean run with the two original-base checks excluded. Re-run
+the resolver suite after a change to any covered
 production module, doctrine source, workflow contract, import edge, or published
 budget figure. `verification/README.md` records the fixture basis and check
 families.
