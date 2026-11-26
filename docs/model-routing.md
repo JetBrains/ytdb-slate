@@ -98,12 +98,13 @@ Luna uses these cautions in order:
 
 1. `May treat supplied repair context as permission to implement despite explicit task limits. Restrict write access for record-only work and verify the changed files.`
 2. `Do not use Luna to handle complex texts.`
-3. `May shorten long file paths in tool calls. Give the full path and require a read-back of the edited lines.`
+3. `May shorten long file paths in tool calls. Give the full path and require a read-back of the edited lines. Require one shell variable for each long path, and forbid typing the path again.`
 4. `May undo its own checked writes before it ends. Check the final file state after every record task.`
 5. `For an append outside a research log or implementer report, anchor one single-block edit on the exact current last line, then read back the tail.`
 6. `May report state outside the task scope incorrectly. Verify such a claim before acting on it.`
-7. `May change apostrophe or backslash characters, or omit text, when it stages supplied text. Its own comparison with the staged file cannot detect this. Require a quoted heredoc or the file-writing tool, a stated line count and a read-back against the task text.`
+7. `May change apostrophe or backslash characters, or omit text, when it stages supplied text. Its own comparison with the staged file cannot detect this. Require a quoted heredoc or the file-writing tool, a stated line count and a read-back against the task text. May change staged text to reach a stated line count. State that equality with the task text decides, and forbid a change that only reaches a count.`
 8. `For an append with cat, name exactly one source file in the command.`
+9. `In a check command, may redirect output to the record itself. Give the check as explicit commands with a temporary target, and state that only the append may write to the record.`
 
 Sol uses these cautions in order:
 

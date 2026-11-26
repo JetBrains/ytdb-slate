@@ -1,5 +1,5 @@
-// Reviewed source-read assignments. The user approved the "1 off ordinary" limit pair on 2026-11-12.
-// Its limits equal the 2026-10-16 limits plus 979 bytes of approved shipped model policy growth, with no five percent reserve.
+// Reviewed source-read assignments. The approved "1 off ordinary" limits are 77,245 and 145,881 bytes as of 2026-11-25.
+// Each limit uses its 2026-11-12 approved value plus 410 bytes of approved shipped model policy growth, with no five percent reserve.
 // The other 35 pairs retain the 2026-10-16 approval and ceil(baseline bytes * 1.05) byte limits.
 // A higher limit requires a new user approval.
 export const phases = ["Research", "Risk assessment", "Design validation", "Focus reconfirmation", "Adversarial design review", "Final design approval", "Track loop", "Final acceptance", "Delivery"];
@@ -45,7 +45,7 @@ export const conditionalSets = [
   ["Manual review", ["REVIEW_COMMON_POLICY_DOC", "WRITING_GUIDANCE_DOC", ...["RI", "CN", "DU", "SE", "PF", "TQ", "PL", "LX", "NL", "CB", "GR", "UF"].map((id) => `REVIEW_${id}_DOC`)]],
 ];
 export const limits = {
-  "1 off ordinary": [76835, 145471],
+  "1 off ordinary": [77245, 145881],
   "1 off nested": [129137, 197773],
   "1 on ordinary": [92700, 161336],
   "1 on nested": [145981, 214617],
