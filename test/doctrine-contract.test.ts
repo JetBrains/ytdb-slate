@@ -600,7 +600,7 @@ test("fixed doctrine preserves loading clauses and resolves filenames beside Lif
     assert.match(doctrine, /Never for routine dispatch\. Skip if in context\./);
     assert.doesNotMatch(doctrine, /P1[34] —|Workflow steps in code/);
     const proportional = readFileSync(RECURSIVE_WORKFLOW_DOC, "utf8").split("## Proportional process\n\n")[1]!.split("\n## ")[0]!;
-    const retained = "Use [track-workflow.md](track-workflow.md) § Recursive planning and loading for record triggers.\nEntering a design track triggers its research log and nested gates.\nAn ordinary code track or a high-level design alone triggers neither extra record.\nStandalone designs and maps follow the lifecycle artifact summary.\nQuestions follow unresolved decisions rather than record or track counts.\n";
+    const retained = "Use [track-workflow.md](track-workflow.md) § Recursive planning and loading for record triggers.\nEntering a design track triggers its research log and nested gates.\nAn ordinary code track or a high-level design alone triggers neither extra record.\nThat section names the exceptions for standalone designs and maps.\nQuestions follow unresolved decisions rather than record or track counts.\n";
     const valid = (text: string) => text === retained && !text.includes("Use [design-principles.md]");
     assert.ok(valid(proportional));
     assert.equal(valid(`Use [design-principles.md](design-principles.md) § 4. Operating principles for proportional process.\n${proportional}`), false);
@@ -1363,7 +1363,7 @@ test("artifact summaries preserve record triggers and standalone exceptions", ()
     const source = normalize(read(file));
     const rules = [...triggerRules, file === "track-workflow"
       ? "Standalone designs and maps use the artifact exceptions in [design-principles.md](design-principles.md) P11."
-      : "Standalone designs and maps follow the lifecycle artifact summary."];
+      : "That section names the exceptions for standalone designs and maps."];
     const accepts = (text: string) => rules.every((rule) => text.includes(rule));
     assert.ok(accepts(source), file);
     for (const rule of rules) {

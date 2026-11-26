@@ -4,7 +4,7 @@
 
 2a8eaddb9765889e2ffdfd2977f5e5c9f40e6a2db0e8d8e0e5a5f685cc0f3f5e  README-GUIDELINES.md
 
-0769a196b4b59d30efbd9d010421b8fee90e7241f2f4808453ff0c3959983eab  README.md
+c1c7b98c8fba58bbb22492caf4a00757ab2f3fb5bb8139df97ff71c9d37bf702  README.md
 
 997674ef7441686720a0bb6d4b8071442c28c1404ee3c2337f86664bb1869a03  RELEASING.md
 
@@ -14,7 +14,7 @@ c3ec46232ae59a874141e6528bebf5a079f492e72048f86474166fde53d58d20  docs/blast-rad
 
 c3819aec43b401eb3554c269e838bea74aad8b74745692cbdd7171116953e099  docs/configuration.md
 
-008b6903e0c11d69ccd789486016cbd9701bd5063f20c8c3d20ebf8dba6e6d2e  docs/context-budget.md
+72423f9a0b849d2ec4e33cb74a127217da6f00486ff62fdde30d7b0d88532f2f  docs/context-budget.md
 
 a19eef7bf9a86c2cf57f5f510534791c02320b6ce2259eabc3a9e7099d8254c5  docs/delivery-packages.md
 
@@ -30,7 +30,7 @@ fee431abc1270b0111d85fcfed53a50ec72b1dc17bc25f86df3935e57d1f5675  docs/model-rou
 
 a8a7a5f753092bb4ad98f57fd3241c6c318be13c7d67d8766baaa4148c57f89a  docs/record-write-recovery.md
 
-0fd4d0b0f79b7fda32e7b7fc6bcdfb4f57ffe19d6d160dd5cc4b2f2c59c0dc40  docs/recursive-workflow.md
+1382a35c14e22fcb4c180d6c56686aaf57f004a8148193edfa8e127ec403eb17  docs/recursive-workflow.md
 
 5e88766faf4b58aba0715e704b38619c02cb9a0c851c037700600d554f6a5784  docs/review-common-policy.md
 

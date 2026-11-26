@@ -65,7 +65,7 @@ Use [track-workflow.md](track-workflow.md) § Track size and split for change co
 Use [track-workflow.md](track-workflow.md) § Recursive planning and loading for record triggers.
 Entering a design track triggers its research log and nested gates.
 An ordinary code track or a high-level design alone triggers neither extra record.
-Standalone designs and maps follow the lifecycle artifact summary.
+That section names the exceptions for standalone designs and maps.
 Questions follow unresolved decisions rather than record or track counts.
 
 ## Recorded-workflow compatibility

@@ -43,6 +43,10 @@ Add input validation to the account settings endpoint. First research the releva
 
 Slate researches, assesses risks, and asks for required decisions before editing code. You judge designs and review results. You accept the whole change before merging.
 
+A map helps you understand the code without reading it. Slate can write a **baseline map** that explains the code before the change. The design uses that map.
+
+Slate can also write an **implementation map** that explains the code after the change. Reviewers who receive a map check its facts against the code. A map does not replace the design. A map cannot prove that the code is correct.
+
 See [workflow](docs/track-workflow.md), [nested planning](docs/recursive-workflow.md), and [publishing guidance](docs/pr-publishing.md) for rules.
 
 ## How Slate differs from spec-driven development
@@ -120,13 +124,7 @@ Slate limits which extensions worker threads can load and which project settings
 
 ## Roadmap
 
-The planned vision has two levels between requirements and code. A high-level design states what must be true and why. A low-level design shows how the code works through:
-
-- **Baseline map:** explains how the current code works before a change.
-- **Implementation map:** explains what the delivered code does.
-- **Neutral pseudocode:** describes logic without a specific programming language.
-
-Maps are under development. Other plans:
+Plans:
 
 1. Exact design guarantees, reasoning, and review against the approved design ([#402](https://github.com/JetBrains/ytdb-slate/issues/402), [#403](https://github.com/JetBrains/ytdb-slate/issues/403), [#404](https://github.com/JetBrains/ytdb-slate/issues/404)).
 2. Asynchronous threads, a detailed cost breakdown, and a read-only view of thread execution.
@@ -142,7 +140,7 @@ These documents define workflow and reference behavior. Slate uses installed pat
 - [`docs/change-records.md`](docs/change-records.md) defines identifiers, code ranges, design markers, and safe writes to change records.
 - [`docs/configuration.md`](docs/configuration.md) defines settings, merge rules, and path warnings.
 - [`docs/context-budget.md`](docs/context-budget.md) defines context limits, model overrides, and measured prompt sizes.
-- [`docs/maps.md`](docs/maps.md) defines baseline and implementation maps for workers who write or compose them.
+- [`docs/maps.md`](docs/maps.md) defines baseline and implementation maps for workers who write, compose or check them.
 - [`docs/delivery-packages.md`](docs/delivery-packages.md) — the compact track and change package format, read only before package preparation
 - [`docs/design-principles.md`](docs/design-principles.md) explains the architecture and its trade-offs.
 - [`docs/model-routing.md`](docs/model-routing.md) defines logical-model routing, recovery, and accepted limits.

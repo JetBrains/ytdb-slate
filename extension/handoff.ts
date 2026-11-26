@@ -62,10 +62,10 @@ import {
 const DEFAULT_PAUSE_THRESHOLD_PERCENT = 40;
 const DEFAULT_CONTEXT_BUDGET_TOKENS = 400_000;
 /**
- * Head-room subtracted (together with pi's compaction reserveTokens) from the
- * context window when clamping the budget: the pause must land with enough
- * room left for the orchestrator to WRITE the handoff brief before pi's own
- * compaction point (contextWindow − reserveTokens).
+ * This margin is meant to leave room to write the handoff brief before Pi's
+ * compaction point. The half-window floor can shrink that room or put the
+ * pause threshold above Pi's compaction point. The clamp does not guarantee
+ * room for the brief.
  */
 const BRIEF_HEADROOM_TOKENS = 32_768;
 /** Used when the merged settings cannot be read (mirrors pi's own default). */

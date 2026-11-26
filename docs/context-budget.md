@@ -736,7 +736,7 @@ The reference scanner checks filenames and reviewed contexts, not read semantics
 A reviewer checks recipients, conditions, dependencies, and first-read phases.
 After any resume, handoff, or reread duty changes, reconcile session-entry
 assignments against source duties even when tests pass. Follow
-[Workflow-phase context maintenance](../verification/README.md#workflow-phase-context-maintenance)
+[Workflow-phase context maintenance](https://github.com/JetBrains/ytdb-slate/blob/main/verification/README.md#workflow-phase-context-maintenance)
 and record either the updated assignments, expectations, and publication or a no-change decision.
 <!-- workflow-phase:end -->
 

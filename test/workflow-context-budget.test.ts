@@ -651,7 +651,7 @@ function table(rows: string[], costs: string[], entries: string[]): string {
     "A reviewer checks recipients, conditions, dependencies, and first-read phases.",
     "After any resume, handoff, or reread duty changes, reconcile session-entry",
     "assignments against source duties even when tests pass. Follow",
-    "[Workflow-phase context maintenance](../verification/README.md#workflow-phase-context-maintenance)",
+    "[Workflow-phase context maintenance](https://github.com/JetBrains/ytdb-slate/blob/main/verification/README.md#workflow-phase-context-maintenance)",
     "and record either the updated assignments, expectations, and publication or a no-change decision.",
     "<!-- workflow-phase:end -->"
   ].join("\n");
@@ -791,7 +791,7 @@ test("workflow phase budgets, reference coverage, and exact publication", { time
   assert.throws(() => checkChildCeiling(79411, 152344), /child required reservation/);
   assert.throws(() => checkChildCeiling(79410, 152345), /child maximum reservation/);
   const publication = table(rows, costs, entries);
-  assert.equal(bytes(publication), 12507, "measured publication bytes");
+  assert.equal(bytes(publication), 12554, "measured publication bytes");
   if (process.env.SLATE_PHASE_INSPECT === "1") console.log(JSON.stringify({ measured, references: scan(sources), publication, excluded, costs }));
   assert.equal(Object.keys(limits).length, 36);
   assert.equal(rows.length, 36);

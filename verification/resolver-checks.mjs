@@ -1869,7 +1869,7 @@ try {
 			["rationale positive and removal controls", protect(rationale, rationaleDuties) && discriminate(rationale, rationaleDuties), rationale],
 			["P14 does not enter either trust-state doctrine", [trusted, untrusted].every((text) => !/P1[34] —|Workflow steps in code/.test(text))],
 			["proportional process has no rationale read and retains all four rules", (() => {
-				const retained = "Use [track-workflow.md](track-workflow.md) § Recursive planning and loading for record triggers.\nEntering a design track triggers its research log and nested gates.\nAn ordinary code track or a high-level design alone triggers neither extra record.\nStandalone designs and maps follow the lifecycle artifact summary.\nQuestions follow unresolved decisions rather than record or track counts.\n";
+				const retained = "Use [track-workflow.md](track-workflow.md) § Recursive planning and loading for record triggers.\nEntering a design track triggers its research log and nested gates.\nAn ordinary code track or a high-level design alone triggers neither extra record.\nThat section names the exceptions for standalone designs and maps.\nQuestions follow unresolved decisions rather than record or track counts.\n";
 				const actual = readFileSync(paths.RECURSIVE_WORKFLOW_DOC, "utf8").split("## Proportional process\n\n")[1].split("\n## ")[0];
 				const valid = (text) => text === retained && !text.includes("Use [design-principles.md]");
 				return valid(actual) && !valid(`Use [design-principles.md](design-principles.md) § 4. Operating principles for proportional process.\n${actual}`) && !valid(actual.replace("neither", "both"));
@@ -3564,7 +3564,7 @@ Use [track-workflow.md](track-workflow.md) § Track size and split for change co
 Use [track-workflow.md](track-workflow.md) § Recursive planning and loading for record triggers.
 Entering a design track triggers its research log and nested gates.
 An ordinary code track or a high-level design alone triggers neither extra record.
-Standalone designs and maps follow the lifecycle artifact summary.
+That section names the exceptions for standalone designs and maps.
 Questions follow unresolved decisions rather than record or track counts.
 
 ## Recorded-workflow compatibility
@@ -3755,7 +3755,7 @@ Use [change-records.md](change-records.md) § Design authority and privacy.`) },
 				["each comparison rejects its changed input and disabling it accepts that violation", pointerComparisonControls.every(({ changed, rejected, disabledAccepts }) => changed && rejected && disabledAccepts), pointerComparisonControls],
 				["outside-region edits preserve the pointer expectations", acceptsNestedPointers(`${recursive}\n## Outside pointer control\nUnrelated text.\n`), "outside control"],
 			]);
-			const completeNestedDigest = "0fd4d0b0f79b7fda32e7b7fc6bcdfb4f57ffe19d6d160dd5cc4b2f2c59c0dc40";
+			const completeNestedDigest = "1382a35c14e22fcb4c180d6c56686aaf57f004a8148193edfa8e127ec403eb17";
 			const acceptsCompleteNested = (source) => createHash("sha256").update(source).digest("hex") === completeNestedDigest;
 			const completeNestedAttacks = [
 				["weaker-record-rule", `${recursive}\n## Additional record guidance\nWorkers may replace earlier log entries.\n`],
