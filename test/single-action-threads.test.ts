@@ -15,7 +15,7 @@ import { registerSlateTools } from "../extension/tools.ts";
 import { renderCompactResult } from "../extension/render.ts";
 import { sanitizeThreadRecord, SLATE_STATE_FORMAT, SlateStore, THREAD_TYPES, type EpisodeRecord, type ThreadRecord } from "../extension/state.ts";
 import { actionTemporaryMessage, ACTION_TEMPORARY_MESSAGE_TYPE, MAX_CONTEXT_EPISODES, messagesForCompression, ThreadManager, type DispatchOptions, type DispatchResult } from "../extension/threads.ts";
-import { changeGuidance, isJudgementThreadType, workerSystemPromptBlocks, WORKER_REQUEST_CONTRACT_ERROR, type WorkerRequestContract } from "../extension/worker.ts";
+import { openWorkerSession, type WorkerSession, changeGuidance, isJudgementThreadType, workerSystemPromptBlocks, WORKER_REQUEST_CONTRACT_ERROR, type WorkerRequestContract } from "../extension/worker.ts";
 import { bindFakeWorkerRequest } from "./worker-request-contract-fixture.ts";
 
 function deferred<T = void>() {
@@ -185,6 +185,80 @@ test("display progress retains failures outside the evidence tail", { timeout: 5
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test("dispatch waits for real managed settlement before returning and releasing its action folder", { timeout: 10_000 }, async () => {
+  const root = mkdtempSync(join(tmpdir(), "slate-dispatch-real-settlement-"));
+  const previousAgent = process.env.PI_CODING_AGENT_DIR, previousOffline = process.env.PI_OFFLINE;
+  process.env.PI_CODING_AGENT_DIR = join(root, "agent");
+  process.env.PI_OFFLINE = "1";
+  const store = new SlateStore({ appendEntry() {} } as unknown as ExtensionAPI);
+  store.currentChange = createChangeFolder();
+  mkdirSync(join(root, "slate-changes", store.currentChange), { recursive: true });
+  const manager = new ThreadManager(store, {}, undefined, fixtureRuntime());
+  const entered = deferred(), release = deferred(), settling = deferred();
+  let session: WorkerSession | undefined, held: Promise<void> | undefined;
+  let returned = false, shutdown = false, shutdownStarted = false, temporary = "";
+  const ctx = {
+    sessionManager: { getSessionId: () => "single-action" },
+    cwd: root, hasUI: false, isProjectTrusted: () => true, model: workerModel("test", "worker"),
+    modelRegistry: {
+      find: () => workerModel("test", "worker"), hasConfiguredAuth: () => true,
+      getAvailable: async () => [], getRegisteredProviderIds: () => [],
+      getRegisteredNativeProvider: () => undefined, getRegisteredProviderConfig: () => undefined,
+    },
+  } as unknown as ExtensionContext;
+  const internals = manager as any;
+  internals.openWorkerFor = async (args: any) => {
+    session = await openWorkerSession({
+      ctx, config: { workerExtensions: [], cacheKeyEnabled: false }, extensionPaths: [],
+      onCreated: args.observeSession,
+    });
+    const worker = session;
+    worker.prompt = async (text: string) => {
+      if (text === "held managed call") { entered.resolve(); await release.promise; }
+      else { held = worker.sendUserMessage("held managed call"); await entered.promise; }
+    };
+    bindFakeWorkerRequest(worker, args.requestContract);
+    const settle = worker.settleManagedOperations.bind(worker);
+    worker.settleManagedOperations = () => { settling.resolve(); return settle(); };
+    const close = worker.shutdownWorker.bind(worker);
+    worker.shutdownWorker = async () => { shutdownStarted = true; await close(); shutdown = true; };
+    temporary = [...store.actionTemporaryOwners][0]!.path;
+    internals.live.set(args.thread.id, worker);
+    return { session: worker };
+  };
+  let action: Promise<DispatchResult> | undefined;
+  try {
+    action = manager.dispatch({ ...TEST_ROUTE, type: "general", task: "hold managed settlement" }, ctx, undefined);
+    void action.then(() => { returned = true; }, () => { returned = true; });
+    await settlesWithin(settling.promise, "real settlement to begin", 5_000);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(session!.activeManagedOperationCount(), 1);
+    assert.equal(returned, false, "dispatch cannot return while admitted work remains live");
+    assert.equal(store.episodes.size, 0, "dispatch cannot record an outcome before managed settlement");
+    assert.equal(shutdownStarted, false, "dispatch awaits settlement before shutdown");
+    assert.equal(shutdown, false);
+    assert.equal(existsSync(temporary), true);
+    assert.equal(store.actionTemporaryOwners.size, 1);
+    assert.throws(() => store.assertNoActionTemporaryOwners(), /cannot close/);
+    release.resolve();
+    await settlesWithin(held!, "the admitted managed call");
+    await settlesWithin(action, "dispatch after real settlement", 3_000);
+    assert.equal(session!.activeManagedOperationCount(), 0);
+    assert.equal(shutdown, true);
+    assert.equal(store.actionTemporaryOwners.size, 0);
+    assert.equal(existsSync(temporary), false);
+  } finally {
+    release.resolve();
+    if (action) await settlesWithin(action.catch(() => undefined), "dispatch cleanup", 3_000);
+    await settlesWithin(manager.disposeAll(), "manager cleanup", 1_000);
+    if (previousAgent === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previousAgent;
+    if (previousOffline === undefined) delete process.env.PI_OFFLINE;
+    else process.env.PI_OFFLINE = previousOffline;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("action folders join shutdown and completion across terminal outcomes", { timeout: 10_000 }, async (t) => {
   for (const mode of ["ok", "failed", "throw", "tool-error", "nonempty", "settlement", "shutdown", "storage", "cancel", "startup", "completion", "message-error"]) {
     const root = mkdtempSync(join(tmpdir(), "slate-action-lifetime-"));
@@ -203,6 +277,7 @@ test("action folders join shutdown and completion across terminal outcomes", { t
       setThinkingLevel(level: string) { session.thinkingLevel = level; },
       async sendCustomMessage(message: unknown, options: unknown) {
         assert.deepEqual(options, { triggerTurn: false });
+        assert.equal((message as { customType?: unknown }).customType, "slate-action-temporary");
         if (mode === "message-error") throw new Error("message append failed");
         session.messages.push({ role: "custom", ...message as object });
       },
@@ -391,6 +466,10 @@ test("production dispatch excludes hidden action messages at the compressor boun
     mkdirSync(join(root, ".pi/slate/episodes"), { recursive: true });
     writeFileSync(prior, "PRIOR");
     store.episodes.set("t99.e1", { id: "t99.e1", threadId: "t99", task: "prior", status: "ok", file: prior, createdAt: 1 });
+    const writing = { role: "custom", customType: "slate-writing-reminder", content: "shared writing prose", display: true };
+    const lookalike = { role: "assistant", stopReason: "stop", content: [{ type: "text", text: writing.content }] };
+    const completed = { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "completed fact" }] };
+    const tool = { role: "toolResult", content: [{ type: "text", text: "tool fact" }] };
     for (const contextEpisodeIds of [[], ["t99.e1"]]) for (const rewritten of [false, true]) {
       const manager = new IsolatedManager(store, {}, undefined, fixtureRuntime());
       const internal = manager as any;
@@ -403,8 +482,7 @@ test("production dispatch excludes hidden action messages at the compressor boun
           // A history rewrite can move retained context into the action slice.
           if (rewritten) session.messages.unshift(user);
           else session.messages.push(user);
-          session.messages.push({ role: "assistant", stopReason: "stop", content: [{ type: "text", text: "completed fact" }] });
-          session.messages.push({ role: "toolResult", content: [{ type: "text", text: "tool fact" }] });
+          session.messages.push(completed, writing, lookalike, tool);
         },
       };
       internal.openWorkerFor = async (args: any) => {
@@ -417,9 +495,10 @@ test("production dispatch excludes hidden action messages at the compressor boun
       assert.ok(calls.length > 0, JSON.stringify(result));
       const captured = calls.at(-1)!;
       assert.equal(captured.task, "compress action");
-      assert.doesNotMatch(JSON.stringify(captured.messages), /Action temporary folder:|\/tmp\/action\./);
-      assert.match(JSON.stringify(captured.messages), /completed fact/);
-      assert.match(JSON.stringify(captured.messages), /tool fact/);
+      assert.deepEqual(captured.messages, [
+        ...(!rewritten && contextEpisodeIds.length === 0 ? [{ role: "user", content: "compress action" }] : []),
+        completed, lookalike, tool,
+      ], `compressor messages with prior episodes=${contextEpisodeIds.length} and rewrite=${rewritten}`);
       assert.equal(session.messages.filter((message) => (message as any).customType === ACTION_TEMPORARY_MESSAGE_TYPE).length, 1);
       assert.equal(result.episode.task, "compress action");
     }
@@ -1384,14 +1463,16 @@ test("cancellation after finalized assistant text then an empty abort retains a 
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("episode compression excludes worker reminders and only the injected user prompt", () => {
+test("compression list excludes both reminder identities and only the injected user prompt", () => {
   const injected = { role: "user", content: "loaded episode text" };
   const assistant = { role: "assistant", content: "result" };
   const compacted = { role: "compactionSummary", content: "summary" };
   const reminder = { role: "custom", customType: "slate-worker-reminder", content: "reminder" };
-  const otherCustom = { role: "custom", customType: "other", content: "keep" };
+  const writing = { role: "custom", customType: "slate-writing-reminder", content: "writing prose" };
+  const visible = { ...writing, display: true };
+  const otherCustom = { ...writing, customType: "other" };
   assert.deepEqual(
-    messagesForCompression([compacted, reminder, injected, assistant, reminder, otherCustom], "loaded episode text"),
+    messagesForCompression([compacted, writing, reminder, injected, assistant, reminder, visible, otherCustom], "loaded episode text"),
     [compacted, assistant, otherCustom],
   );
   assert.deepEqual(messagesForCompression([reminder, assistant, reminder]), [assistant]);
@@ -1403,6 +1484,14 @@ test("episode compression excludes worker reminders and only the injected user p
   }
   const hidden = { role: "custom", ...actionTemporaryMessage("slate-changes/change/tmp/action.aaaaaa") };
   assert.deepEqual(messagesForCompression([hidden, assistant, hidden]), [assistant]);
+  const lookalikes = [
+    { ...writing, role: "assistant" },
+    { ...writing, role: "user" },
+    { ...writing, role: "toolResult", isError: true },
+  ];
+  const kept = messagesForCompression([writing, ...lookalikes, visible]);
+  assert.equal(kept.length, lookalikes.length);
+  lookalikes.forEach((entry, index) => assert.strictEqual(kept[index], entry));
   const generated = "loaded episode text\n\n## Action\n\ntask";
   const user = { role: "user", content: generated }, tool = { role: "toolResult", content: generated }, failure = { role: "assistant", stopReason: "error", content: generated };
   assert.deepEqual(messagesForCompression([user, tool, failure, user], generated), [tool, failure, user]);
@@ -1411,8 +1500,9 @@ test("episode compression excludes worker reminders and only the injected user p
 
 async function dispatchWithUnpairedToolResult(
   handledToolResult: boolean,
-  compactionEvent?: "successful" | "aborted" | "missing-result",
+  compactionEvent?: "successful" | "aborted" | "missing-result" | "retained",
   retainFolder = false,
+  observeTurn?: (reason: unknown) => void,
 ) {
   const root = mkdtempSync(join(tmpdir(), "slate-reminder-miss-"));
   try {
@@ -1434,6 +1524,7 @@ async function dispatchWithUnpairedToolResult(
       thinkingLevel: "off",
       sessionFile: undefined,
       workerReminderHandledToolResult: () => handledToolResult,
+      workerReminderCompletedTurn: observeTurn,
       subscribe(listener: (event: Record<string, unknown>) => void) {
         listeners.add(listener);
         return () => listeners.delete(listener);
@@ -1442,6 +1533,19 @@ async function dispatchWithUnpairedToolResult(
         const toolResult = { role: "toolResult", toolCallId: "call-1", toolName: "read", content: [{ type: "text", text: "data" }] };
         const assistant = { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "done" }], usage: {} };
         session.messages.push(toolResult);
+        if (observeTurn) {
+          const content = ["call-1", "skipped-call"].map((id) => ({ type: "toolCall", id, name: "read", arguments: {} }));
+          for (const listener of listeners) {
+            listener({ type: "turn_end", message: { role: "assistant", stopReason: "toolUse", content }, toolResults: [toolResult] });
+            listener({ type: "turn_end", message: { role: "assistant", stopReason: "aborted", content }, toolResults: [] });
+          }
+        }
+        if (compactionEvent === "retained") {
+          session.messages.push(
+            { role: "custom", customType: "slate-worker-reminder", content: "independent evidence" },
+            { role: "custom", customType: "slate-writing-reminder", content: "fabricated writing evidence" },
+          );
+        }
         if (compactionEvent === "successful") {
           session.messages.push({ role: "custom", customType: "slate-worker-reminder", content: "reminder" });
           session.messages.splice(0, session.messages.length, { role: "compactionSummary", content: "summary" });
@@ -1488,6 +1592,18 @@ async function dispatchWithUnpairedToolResult(
     rmSync(root, { recursive: true, force: true });
   }
 }
+
+test("worker turn subscriber forwards the reported reason after incomplete tool batches", { timeout: 1000 }, async () => {
+  const reasons: unknown[] = [];
+  await dispatchWithUnpairedToolResult(false, undefined, false, (reason) => reasons.push(reason));
+  assert.deepEqual(reasons, ["toolUse", "aborted"]);
+});
+
+test("raw action history retains independent reminder evidence beside writing context", { timeout: 1000 }, async () => {
+  const result = await dispatchWithUnpairedToolResult(true, "retained");
+  assert.equal(result.episode.status, "ok");
+  assert.doesNotMatch(JSON.stringify(result), /reminder is missing/);
+});
 
 test("a missing worker reminder warns without changing a successful action", { timeout: 1000 }, async () => {
   const result = await dispatchWithUnpairedToolResult(true);

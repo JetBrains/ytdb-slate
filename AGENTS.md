@@ -73,11 +73,13 @@ The checks write in these places only:
 
 CI is not hermetic beyond that, and it makes no such claim: the install fills the npm cache under `HOME`, like every other install.
 
-The workflow uses a read-only token (`permissions: contents: read`). Four events start it: `pull_request`, `merge_group`, a `push` to `main` or `release/[0-9]*`, and `workflow_dispatch`. It never uses `pull_request_target`. Each Linux job stops after 20 minutes (`timeout-minutes: 20`). Each macOS and Windows job stops after five minutes. `test/delivery-reference-contract.test.ts` uses bounded resolver selection for changed-document cases. The workflow pins each third-party action to a commit SHA. The Linux job matrix pins **Node 22.23.1 and Node 24.18.0**: those are the exact versions on which native TypeScript execution, LCOV, `stripTypeScriptTypes`, physical-line DA emission, directive matching and the full suite were measured. A floating major would take experimental APIs beyond the evidence silently; an exact pin instead costs a manual re-measurement and workflow edit for every accepted Node patch. pi needs node 22.19.0 or later, and the two pins still exercise both current LTS lines.
+The workflow uses a read-only token (`permissions: contents: read`). Four events start it: `pull_request`, `merge_group`, a `push` to `main` or `release/[0-9]*`, and `workflow_dispatch`. It never uses `pull_request_target`. Each Linux job stops after 20 minutes (`timeout-minutes: 20`). Each macOS and Windows job stops after five minutes. `test/delivery-reference-contract.test.ts` uses bounded resolver selection for package, heading and forbidden history cases. The workflow pins each third-party action to a commit SHA. The Linux job matrix pins **Node 22.23.1 and Node 24.18.0**: those are the exact versions on which native TypeScript execution, LCOV, `stripTypeScriptTypes`, physical-line DA emission, directive matching and the full suite were measured. A floating major would take experimental APIs beyond the evidence silently; an exact pin instead costs a manual re-measurement and workflow edit for every accepted Node patch. pi needs node 22.19.0 or later, and the two pins still exercise both current LTS lines.
 
 The Linux jobs use the version-specific `ubuntu-24.04` runner label. They keep the five checks below and the stable names `Node 22` and `Node 24`. The full suite and patch-coverage gate run only on Linux.
 
 The narrow jobs are `macOS notification push` on `macos-15` (arm64) and `Windows notification push` on `windows-2025` (x64). These labels fix the operating-system line, not the image revision. Missing prerequisites fail and no required case skips.
+
+The Windows job also runs `test/safe-record-write.test.ts` with `--test-concurrency=1`.
 
 The Linux jobs install `dbus`, `libnotify-bin`, `python3-dbus-next`, `openssh-client`, `openssh-server` and `tmux` with `apt-get` before the five checks. See [verification/README.md § Continuous integration](verification/README.md#continuous-integration) for commands, notification check details and the duty to re-measure the Node structured-event schema.
 
@@ -98,9 +100,9 @@ The five Linux checks follow. Install the Linux read-back prerequisites above an
 1. `PI_BIN`, when you set it. The harness prints `NOTE` lines for this case. `PI_BIN` is an override for an expert user, and it is not a security boundary.
 2. `node_modules/.bin/pi` in the checkout. The install above creates it, and a CI runner has no other pi.
 
-The three harnesses then differ on purpose. The **resolver checks** and **peer linker** accept a pi from `PATH` as a last choice, and they apply no version guard. The resolver checks borrow only the jiti transpiler inside pi; an old jiti can only fail to transpile the sources, and then the run stops with no summary. The peer linker instead imports the SDK copies bundled with that pi, so choosing the checkout-local exact pin before `PATH` is load-bearing: CI has both paths available through npm, and must not silently take another global installation. A `PI_BIN` override remains explicit and prints a note.
+The three harnesses then differ on purpose. The **resolver checks** and **peer linker** accept a pi from `PATH` as a last choice. The peer linker imports the SDK copies bundled with that pi, so choosing the checkout-local exact pin before `PATH` is load-bearing: CI has both paths available through npm, and must not silently take another global installation. A `PI_BIN` override remains explicit and prints a note.
 
-The **load check** accepts no pi from `PATH`, and it also requires the same version from `pi --version` as the `@earendil-works/pi-coding-agent` pin. pi's rpc output shapes are the evidence for its checks, and a new shape can look like "no events" and pass in silence. The verification ladder keeps its own rule: it needs `pi` on `PATH`.
+The **load check** accepts no pi from `PATH` and requires the same version from `pi --version` as the `@earendil-works/pi-coding-agent` pin. pi's rpc output shapes are the evidence for its checks, and a new shape can look like "no events" and pass in silence. The verification ladder keeps its own rule: it needs `pi` on `PATH`.
 
 The three Linux CI harnesses (the packaging guards, the load check and the resolver checks) share one exit-code contract:
 
@@ -250,18 +252,23 @@ scan, and the scan does not make the brands tamper-proof.
 Run it with `bash verification/run-resolver-checks.sh --repo . --strict`. Exit 0
 means every check passed. Exit 1 means a check failed or disappeared. Exit 2
 means the wrapper refused to start.
-`--only <id,id>` selects only `contract-delivery-packages` and/or
-`contract-heading-regions`. It skips unrelated imports, sections and contract
-work. The driver owns the selectable list. Unknown, empty, duplicate or repeated
+`--only <id,id>` selects one or more of `contract-delivery-packages`,
+`contract-heading-regions` and `contract-review-history`. Selection skips unrelated
+checks and their conditional imports. The driver still loads its static imports,
+and the wrapper still runs its common prerequisite checks. The driver owns the
+selectable list. Unknown, empty, duplicate or repeated
 selection, `roster`, and any combination with `--exclude` refuse with exit 2.
-Heading selection audits all 894 independent `heading-policy` identities.
-Package selection audits an empty mutation scope. Missing, duplicate, incomplete,
+Heading selection audits all independent `heading-policy` identities. History
+selection shares the full escalation check's history assertion and audits all
+17 `review-history` identities. Package selection audits an empty mutation scope. Missing, duplicate, incomplete,
 outside-family or crashed mutation execution fails the scoped audit. The separate
 selected roster rejects missing, duplicate, unexpected or `NOT RUN` reports even
 without `--strict`. A selected pass proves only its requested checks and scoped
-accounting. Changed accepted delivery-reference cases prove target acceptance,
-not whole-suite acceptance. The clean case retains the full run and supplies
-verdict and executed-mutation-count equivalence evidence. Re-run it after a change to any covered
+accounting. Accepted selected delivery-reference cases prove target acceptance,
+not whole-suite acceptance. Compliant history cases require acceptance by every
+non-excluded check. The clean comparisons match selected verdicts and mutation
+counts against the clean run with the two original-base checks excluded. Re-run
+the resolver suite after a change to any covered
 production module, doctrine source, workflow contract, import edge, or published
 budget figure. `verification/README.md` records the fixture basis and check
 families.
@@ -321,14 +328,7 @@ This net is outside CI, the load check and the ladder. It proves the real
 hook, steer, next-turn, provider and persistence paths. It proves `display: false`
 structurally, not visual TUI invisibility. Check that presentation manually.
 
-Re-run it after these changes:
-
-- Requirement text, rendering, cadence or gates in `extension/writing-reminder.ts`.
-- Reminder config in `extension/writing.ts`.
-- Reminder hooks or reset ordering in `extension/mode.ts`.
-- The handoff `forceNext` assignment in `extension/handoff.ts`.
-- Custom-message type, options, steer delivery or next-turn delivery.
-- The canary, harness, pi pin, RPC shape or JSONL shape.
+See the [writing-reminder integration re-run rules](verification/README.md#boundary-and-re-run-rules).
 
 A change to `extension/handoff.ts` still requires the full ladder. Run the
 pure-resolver checks for reminder policy, config, mode, doctrine or ordering
@@ -336,17 +336,19 @@ changes.
 
 ### Worker-reminder integration check
 
-`bash verification/run-worker-reminder-check.sh --repo .` starts one real offline pi session against a deterministic in-process provider. The orchestrator calls the real `thread` tool. The worker issues two independent built-in reads in one turn. The continuation provider context must receive one exact hidden worker reminder. The worker transcript must persist both unchanged tool results and one custom message with `display: false`. The compressor request and durable episode must contain no reminder. The thread result must contain no reminder-miss warning.
+`bash verification/run-worker-reminder-check.sh --repo .` starts isolated real offline Pi sessions against a deterministic in-process provider. The orchestrator calls the real `thread` tool. Workers use built-in reads, including independent reads in one turn. The provider context must receive the expected exact hidden reminders. The worker transcript must retain the expected tool results and hidden reminder records with `display: false`. The compressor request and durable episode must contain no automatic reminder. Successful delivery must not produce a reminder-miss warning.
 
-The harness keeps `workerExtensions` empty and sets `cacheKeyEnabled` to `false`. It proves that the internal component loads across those two boundaries. Its fixed roster reports 18 result lines, including the roster audit. The roster has 17 expected checks plus the audit. The harness exits 0 when every assertion passes, 1 when a check fails and 2 when it refuses to start. A clean run removes its disposable scratch directory. A failed run keeps it and prints the path.
+The normal cases keep `workerExtensions` empty and set `cacheKeyEnabled` to `false`. They prove that the internal component loads across those two boundaries. Matched cases compare tools-only and combined reminders. Other cases exercise the default cadence with the setting omitted, both steering modes, construction rejection, threshold compaction, recovery, and independent model and compaction-handler follow-ups. The harness audits the expected check roster for each case. It exits 0 when every assertion passes, 1 when a check fails, 2 when it refuses to start and 130 when it handles cancellation. A clean case removes its disposable scratch directory. A failed case keeps it and prints the path.
 
-This net is outside CI, the load check and the ladder. It proves one clean worker path through the loader, tool-result hook, steer queue, provider context, JSON Lines persistence and episode filtering. It proves that successful delivery produces no false reminder-miss warning. A single clean run cannot prove that a real missing reminder produces the warning. The pure `worker-reminder-detection` and `worker-reminder-wiring` checks, plus `test/single-action-threads.test.ts`, prove the current rule. The rule reports a miss only when session-local handler evidence exists, the retained action slice has no exact reminder and no successful compaction invalidated that slice. Aborted compaction and a compaction event without a result do not suppress the warning. A real reminder loss during a successful compaction inside the same action is not reported. The project accepts this blind spot because the retained action slice no longer supports a conclusion about delivery. The integration run proves `display: false` structurally. It does not prove visual invisibility in the terminal user interface. Check that presentation manually. It does not prove concurrent worker-session isolation. The pure `worker-reminder-state` check covers two interleaved factory instances.
+This net is outside CI, the load check and the ladder. It proves matched worker paths through the loader, tool-result hook, steer queue, provider context, JSON Lines persistence and episode filtering. It proves that successful delivery produces no false reminder-miss warning. A single clean run cannot prove that a real missing reminder produces the warning. The pure `worker-reminder-detection` and `worker-reminder-wiring` checks, plus `test/single-action-threads.test.ts`, prove the current rule. The rule reports a miss only when session-local handler evidence exists, the retained action slice has no message with role `custom` and custom type `slate-worker-reminder`, and no successful compaction invalidated that slice. The warning check does not compare the text or display flag. The integration harness checks both. Aborted compaction and a compaction event without a result do not suppress the warning. A real reminder loss during a successful compaction inside the same action is not reported. The project accepts this blind spot because the retained action slice no longer supports a conclusion about delivery. The integration run proves `display: false` structurally. It does not prove visual invisibility in the terminal user interface. Check that presentation manually. It does not prove concurrent worker-session isolation. The pure `worker-reminder-state` check covers two interleaved factory instances.
 
 Re-run it after these changes:
 
 - Reminder type, text, factory state, hook registration, message shape or detection in `extension/worker-reminder.ts`.
-- Internal factory loading or loader-error reporting in `extension/worker.ts`.
-- Action-slice detection, warning delivery or compression filtering in `extension/threads.ts`.
+- Worker reminder construction, session settings, factory loading or loader-error reporting in `extension/worker.ts`.
+- Configuration source merging or permission checks for worker writing in `extension/config.ts`.
+- Completed-turn input, observation capture, action-slice detection, warning delivery or compression filtering in `extension/threads.ts`.
+- Shared writing forms or cadence validation in `extension/writing-reminder.ts` or `extension/writing.ts`.
 - Custom-message or steer semantics.
 - `verification/run-worker-reminder-check.sh` or `verification/worker-reminder-canary.ts`.
 - The pi pin, RPC shape, provider-evidence shape or JSON Lines shape.
@@ -385,7 +387,7 @@ The self-test uses temporary fixtures outside the checkout. It proves recursive 
 A missing, all-zero, absent or HEAD-equal base exits 2. `workflow_dispatch` has no event change boundary. It runs the tests with `--no-gate` and emits a GitHub warning plus a job-summary section. It does not invent a diff or pass silently.
 
 **CI keeps a WARN green but makes it prominent.** The gate enforces a fixed 70% branch floor for 1–19 changed branches and the configured branch floor (85% by default) at 20 or more. Zero changed branches, zero line records, and uncommitted in-scope files produce WARN with exit 0 and require manual disposition. For WARN, the test step keeps exit 0, emits a GitHub warning annotation, and copies the OVERALL/WARN/VERDICT lines into the job summary with the instruction to record a manual disposition on the pull request. A green check is not that disposition.
-- **The harness adds no test-only dependency and no publish payload.** It uses Node built-ins, shell, `git`, the SDK bundled with pi, and the exact-pinned `typescript` devDependency. TypeScript has four direct uses: `npm run typecheck`, the coverage gate's executable-line classifier, package-content analysis, and the logical-model import-syntax check. `test/`, `verification/` and `tsconfig.json` stay outside the `files` whitelist (§ Packaging rules), so no part of this reaches a consumer install.
+- **The harness adds no publish payload.** It uses Node built-ins, shell, `git`, the SDK bundled with pi, and exact-pinned tooling devDependencies. TypeScript has four direct uses: `npm run typecheck`, the coverage gate's executable-line classifier, package-content analysis, and the logical-model import-syntax check. The direct `marked` dependency has one use: Markdown block parsing in the assigned-forms rule checks. Its exact pin matches the version the pi SDK installs. `test/`, `verification/` and `tsconfig.json` stay outside the `files` whitelist (§ Packaging rules), so no part of this reaches a consumer install.
 - **Native execution depends on an ERASABLE-SYNTAX invariant, and the compiler enforces it.** There is still no build step: stable native type stripping lets Node execute the TypeScript tests and every extension module they import directly, but it handles erasable syntax only. Constructor parameter properties are not erasable and were the single construct that would have forced `--experimental-transform-types`; this change replaced them in `extension/state.ts` and `extension/threads.ts` with explicit fields. Keep `erasableSyntaxOnly: true`: `npm run typecheck` now rejects a parameter property ANYWHERE under `extension/`, including in a module no test imports. Without that compiler guard, such a module passes both the typecheck and the tests, then throws when a real pi session loads it. (`--experimental-test-coverage` stays isolated in the wrapper, because Node's native LCOV API is separately still experimental.)
 - **The two SDK import mechanisms have different jobs.** The ordinary path is `link-peers.sh` above: it resolves pi's own bundled copy of every declared SDK peer, replaces any installed package or stale link at the local target, symlinks the pi copies into `node_modules`, and verifies every resulting target. That is zero stub code, it keeps coverage clean, and it tests against the SDK the installed pi runs. Treat the alternate `verification/test-hooks.mjs`, `verification/test-resolve-hooks.mjs` and `verification/stubs/*.mjs` path as INTENTIONALLY DORMANT scaffolding until a test invocation activates it with `--import ./verification/test-hooks.mjs`; the absence of that preload is not evidence that the scaffold is dead. A test that must CONTROL SDK behaviour, scripted failure injection for example, uses the preload so `module.register()` maps peer imports to the mutable local stubs.
 - **The default floors are 85% LINE and 85% BRANCH patch coverage at 20 or more changed branches, with a fixed 70% BRANCH floor for 1–19 changed branches. Coverage is measured on the committed `<base>..HEAD` diff rather than on the repository. Line and branch floors are independent.** This is a FLOOR, not a target; the wrapper prints the configured floors and the gate prints the live numerators, denominators and percentages on every run. Branch coverage is the load-bearing metric for concurrency work, because the defects at issue are untaken paths — a waiter never woken, a join that throws, an abort arriving mid-flight — which line coverage does not distinguish. Coverage is not evidence by itself: a test that calls a function and asserts nothing can execute every measured path and still be worth nothing. A test earns its place only if it fails when the behaviour regresses.
@@ -439,7 +441,7 @@ Before you edit `README.md`, read `README-GUIDELINES.md`.
 ## Packaging rules
 
 - Keep the pi-bundled SDK packages (`@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent`, `@earendil-works/pi-tui`, `typebox`) in `peerDependencies` with the version `"*"`. Never bundle them, and never add them to `dependencies`.
-- **The devDependency carve-out.** `devDependencies` also pins the same four packages to exact versions, so the typecheck, the load check and the unit tests use one known SDK. That practice is correct, and a bundle is a different matter: npm installs `devDependencies` for no consumer, and it installs `dependencies` only. `devDependencies` pins the tooling in the same place and for the same reason: `@types/node` serves the typecheck, and `typescript` serves the typecheck, coverage classification, package-content analysis, and the logical-model import-syntax check. `tsconfig.json`, `test/` and `verification/` all sit outside the `files` whitelist, so no part of the checks or the tests reaches a consumer install. Re-check that boundary with `npm pack --dry-run --json` after a packaging change.
+- **The devDependency carve-out.** `devDependencies` also pins the same four packages to exact versions, so the typecheck, the load check and the unit tests use one known SDK. That practice is correct, and a bundle is a different matter: npm installs `devDependencies` for no consumer, and it installs `dependencies` only. `devDependencies` pins the tooling in the same place and for the same reason: `@types/node` serves the typecheck, `typescript` serves the typecheck, coverage classification, package-content analysis, and the logical-model import-syntax check, and `marked` serves only the assigned-forms Markdown block checks as a direct dependency. Its exact pin matches the version the pi SDK installs. The packed manifest records the development pin, but the archive does not include marked code. `tsconfig.json`, `test/` and `verification/` all sit outside the `files` whitelist, so no part of the checks or the tests reaches a consumer install. Re-check that boundary with `npm pack --dry-run --json` after a packaging change.
 - **Commit `package-lock.json`.** This repo ignored the file while the four SDK packages existed as `"*"` peers only, because a lockfile then pinned an arbitrary resolution from npm. The exact pins in `devDependencies` removed that reason, and the lockfile now records the versions that this repo chose. `npm ci --ignore-scripts`, the install that CI runs, also needs the file.
 - **Never add an install-time lifecycle script.** npm runs `prepare`, `postinstall`, `install` and `preinstall` on **every consumer install**. Add none of them to `scripts`.
 - The `files` whitelist in `package.json` **must include `docs/`**. The doctrine points at those files at package-resolved paths at run time. A publish without them ships a doctrine with a dangling citation in every rule, and an orchestrator that reads the workflow rules finds nothing. This is a rule and not a note, because adversarial review raised it as a finding (`AD6` in that round). Action-level routing needed no packaging change, because `docs/` ships as a whole and covered `docs/model-routing.md` on its first day. That fact makes the rule MORE important: one more doc now resolves at a package-resolved path at run time.

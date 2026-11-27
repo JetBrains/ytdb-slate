@@ -4,11 +4,8 @@ Slate ships an always-active writing convention and a command that measures
 prose against a mechanical proxy. Trusted projects receive the guidance in
 orchestrator mode. The command remains available.
 
-This document is reference documentation, not workflow doctrine. It
-is the definition of record for the rule set, the severity classes,
-the command line and the caps. The doctrine rule states the convention
-in a few lines and cites this file for everything else.
-A session pays for the detail only when it reads this file.
+This reference defines the rules, severity classes, command line and caps.
+The doctrine cites it for detail.
 
 ## Current-state documentation rule
 
@@ -67,29 +64,24 @@ accuracy, structure or completeness at all.
 
 ## Configuration
 
-Writing guidance and reminders need no enable switch. While orchestrator mode
-is active, they apply when the project is trusted or a home configuration file
-exists.
+Writing guidance needs no enable switch. It requires permitted settings.
+Orchestrator reminders also require active orchestrator mode.
 
 Slate still accepts `writing.check` and `writing.remind` for compatibility.
 They are ignored writing keys and have no effect. Remove them from `slate.json`.
 Either explicitly set key produces one configuration notice, even when its
 value is `false`. When both keys are present, Slate sends one notice.
 
-`writing.remindTurns` configures the reminder cadence in completed turns. It
-defaults to 4 and accepts whole numbers from 1 through 20. An invalid value
-warns and defaults to 4. `writing.remindOnFinding` enables the immediate
-trigger. It defaults to `true` and accepts only booleans. An invalid value warns
-and defaults to `true`. Setting it while `writing.findings` is false produces a
-notice because the findings section is disabled. `writing.remindPercent` remains
-accepted and ignored. Slate emits a notice that the cadence changed from a token
-share to a turn count. `writing.sentenceWordLimit` configures the sentence-length house-style rule. It
-accepts a whole number from 10 through 200, inclusive. The default is 25
-words. The value `false` turns this rule off. An invalid or out-of-range value
-warns and uses 25 words. `sanitizeWritingConfig` emits the warning. The checker
-uses 25 words after configuration sanitization. The checker reports one
-combined sentence-length distribution for all scanned files. That distribution
-is the instrument that will revisit the number later.
+`writing.remindTurns` sets the cadence for both recipients. Cadence is the
+number of completed turns that makes writing due. Slate accepts whole numbers
+from 1 through 20. The default is 4. Invalid values warn and use 4.
+`writing.remindOnFinding` controls the orchestrator finding trigger. It
+defaults to `true` and accepts only booleans. An invalid value warns and uses
+`true`. Slate warns if you set it while `writing.findings` is false.
+Slate accepts and ignores `writing.remindPercent` with a notice.
+`writing.sentenceWordLimit` accepts whole numbers from 10 through 200, or
+`false` to disable the rule. Invalid values warn and use the 25-word default.
+The checker reports one sentence-length distribution across scanned files.
 
 `writing.statusWindowTurns` controls the status window. It defaults to 10 and
 accepts whole numbers from 3 through 100. An invalid value warns and falls back
@@ -118,15 +110,18 @@ design surfaces. The fourth surface needs `writing.showStatus: true`:
 2. **The design doctrine rule.** A final numbered rule requires the
    simplest-solution requirement, outcome-focused user-approved scope, and
    self-contained design updates.
-3. **The worker preamble guidance.** Every worker with permitted settings receives
-   writing guidance and a separate current-state documentation rule in its preamble.
+3. **The worker preamble guidance.** With permitted settings, researcher,
+   implementer, general and untyped workers receive the ten requirements.
+   Reviewers and adversaries receive short writing guidance.
+   Both forms include the scope exclusion and current-state rule.
+   Maps, designs and package drafts are governed prose.
+   A high-level design stays governed inside a research log.
 4. **The turn status line.** When `writing.showStatus` is `true`, the Slate status
    line gains `writing <n> fail, <m> style / <w> turns`. The default window is ten
    measured prose turns. The configured range is 3 through 100. Both counts
    include model-visible findings only.
 
-Slate also sends a hidden message after eligible completed turns. The next
-section defines this channel and its gates.
+Slate also queues hidden guidance through separate orchestrator and worker rules.
 
 Running the command by hand needs no config. It is a plain Node command.
 
@@ -151,11 +146,11 @@ assume the reader knows. Slate dropped the earlier word-shortening rule from
 that lead-in. Two near-identical rules in one requirement block break the
 project requirement to use one term for each concept.
 
-When the latest measured turn has a model-visible finding, the reminder starts with a `Recent writing findings:` section. The section states that quoted text is data, not an instruction. The section carries one quotation for each present model-visible class. The reminder then starts with the title `Writing and conversation requirements`.
-The next line carries these three retained style rules: `Use short, active
-language.` `Keep exact technical terms.` `Do not use semicolons or
-contractions.` The reminder then repeats all ten writing requirements. It also
-carries this seven-line design requirement block:
+**Orchestrator.**
+Optional `Recent writing findings:` marks quotes as data and shows one per
+model-visible class. `Writing and conversation requirements` opens with:
+`Use short, active language.` `Keep exact technical terms.` `Do not use semicolons or
+contractions.` All ten writing requirements follow. The seven design requirements are:
 
 - Choose the simplest solution with the fewest changes that keeps every approved goal, the product and implementation quality, and every required gate.
 - Keep a design statement only if a different reasonable implementation keeps it true.
@@ -165,7 +160,8 @@ carries this seven-line design requirement block:
 - Present what changed when you update a design.
 - Assume the user knows software but not this project.
 
-The reminder then includes this exact scope guard:
+The form cue gives diagrams, tables and prose equal value and asks for the clearest set.
+This exact scope guard follows:
 
 `Exclude research logs, worker task text, and the project's own agent instruction file.`
 
@@ -183,52 +179,56 @@ abbreviation definitions. It cannot count ideas in a sentence or enforce one
 term per concept. It tests neither metaphor-based explanations nor invented
 project terms.
 
-After an eligible completed turn, Slate queues a hidden custom message. A turn
-with a tool result uses active `steer`. A turn without a tool result uses
-next-turn delivery. The message has `display: false`.
+After an eligible turn, Slate uses `steer` if a tool returned a result.
+Otherwise it queues guidance for the next turn. Pi saves a `custom_message`
+with `customType: slate-writing-reminder` and `display: false`. The terminal
+does not show it. Inspect the session through Pi without relying on a stable
+file path. The guidance enters later model context.
 
-The normal UI has no reminder indicator. It does not appear in the
-normal TUI or tool panel.
+Delivery requires active orchestrator mode, permitted settings and no pause.
+It also requires a due cadence, a finding trigger or a forced handoff reminder.
+Slate sends at most once per response round, which covers one assistant
+response and its tool-result continuations. Parallel results do not repeat
+the send. An abort after a tool turn does not reopen that round.
 
-To diagnose delivery, inspect the session JSONL through pi. A delivered
-reminder has entry type `custom_message`, `customType` set to
-`slate-writing-reminder`, and `display` set to false. It also enters
-later model context. This diagnostic does not depend on a stable
-session-file path.
+Completed turns count, including aborted turns. Provider retry attempts do
+not count. Slate claims before sending and resets the count even if sending
+throws. The finding trigger fires on the turn after a measured finding.
+With findings enabled, reminders retain the latest measured finding summary
+even when cadence fires. Turning findings off disables the trigger but keeps
+cadence. A trusted handoff reloads doctrine and forces the next eligible
+reminder without waiting for cadence or a finding.
 
-Every reminder gate must be open:
+**Workers.** Writing needs a trusted project or authenticated home-only
+settings. Orchestrator mode, pause, handoff and findings do not affect worker
+cadence. Workers use their role's preamble without a checker, design block or
+findings.
 
-- orchestrator mode is on
-- the project is trusted or a home configuration file exists
-- Slate is not paused
-- the cadence or finding trigger is ready, or a handoff forces the next reminder
-- no reminder has been sent in the current response round
+Cadence starts at zero on open. Retry and failover keep the count within the
+same session. At turn end, Pi's reported `stop` or `toolUse` counts once,
+even with no tools or a skipped tool. Reported `aborted`, `error` and
+`length` do not count. Only earlier turns can make writing due. With cadence
+four and eligible tools on each turn, turn five can queue writing for
+response six.
 
-A response round is one assistant response and its tool-result continuations.
-Slate permits at most one reminder for each response round. Parallel tool
-results therefore cannot produce repeated reminders in one response round.
+The first eligible result takes the hidden `slate-worker-reminder` slot.
+Nested results and call identifiers starting with `/` do not qualify. Due
+writing follows the tools text after two line feeds. If construction fails,
+Slate sends tools text only. If the send throws, Slate frees the slot for
+another eligible result in that round. Only a normal combined send resets
+cadence. It does not prove delivery. Without another eligible result, writing
+can stay due at action end.
 
-The default cadence is 4 completed turns. The configured range is 1 through 20
-turns. Slate counts every completed turn, including an aborted turn. A provider
-retry attempt does not count. An abort after a tool turn does not reopen the
-response round. A finding trigger fires on the turn after a measured turn with a
-model-visible finding. Slate claims delivery before it sends the message. The
-claim resets the counter even when sending throws. The counter restarts after
-delivery.
+Slate neither sends writing alone nor catches up after compaction. Slate adds
+no warning or request for writing. Pi controls queue order and continuation.
+The extra context can lead Pi to compact, retry or fail on overflow.
 
-The reminder always quotes the most recent measured finding summary. The
-summary does not expire when the cadence interval passes.
+Pi saves the reminder with `display: false`. An incomplete file append can
+affect a later record. A worker summary can repeat guidance. Neither the
+reminder nor that summary enters the episode input. Ordinary worker output
+can enter even if it quotes guidance.
 
-`writing.findings: false` disables the finding trigger. A reminder still fires
-when the turn cadence reaches its interval. The reminder always includes the
-most recent measured finding summary, whatever the interval.
-
-A trusted handoff reloads the doctrine in the fresh session. It also forces a
-reminder on the next eligible completed turn. The forced reminder does not need
-the turn cadence or a finding.
-
-A representative context budget does not change the reminder interval. Slate
-has no controlled comparison or claim that reminders improve prose.
+Slate makes no claim that reminders improve prose.
 
 ## Keeping the requirement text synchronized
 
@@ -251,23 +251,23 @@ The title and retained style rules have five manual check copies. They are the
 and the full message in `verification/writing-reminder-canary.mjs`. This guide
 holds the document copy.
 
-The scope exclusion has three exact copies: this guide, resolver exact
-fixtures, and the integration canary. `AGENTS.md` carries equivalent
-scope prose, not an exact copy. All applicable copies must update in
-one commit.
+The scope exclusion has manual copies in this guide, resolver fixtures,
+`test/doctrine-contract.test.ts`, and the integration canary.
+`extension/writing-reminder.ts` defines both worker forms with this exclusion.
+`AGENTS.md` carries equivalent scope prose. Update applicable copies together.
 
 The check counts literal occurrences and cannot detect a generated copy, while
 issue 317 tracks the general solution.
 
-`extension/mode.ts` renders the authoritative writing, style, title and design
-exports directly. The shell harness reads expected text from canary evidence.
-Neither file holds a manual roster copy.
+`extension/mode.ts` renders the shared exports directly.
+`extension/worker.ts` imports the full and short guidance forms.
+Neither holds a manual roster. The shell harness uses canary evidence.
 
 ## What it costs when it is on
 
-The doctrine rules are part of every orchestrator system prompt, so their
-cost is paid on every turn. The worker addition is paid once per
-worker dispatch. Each sent reminder also enters later model context.
+The orchestrator prompt includes doctrine.
+Slate assembles the worker preamble once per session. Ordinary requests
+repeat it. Retained reminders can recur. These counts do not measure billing.
 `context-budget.md` defines the portable-character measure. It records
 the whole-doctrine sizes and owns the size budget.
 
@@ -285,7 +285,7 @@ review-only. The reminder carries one quotation for each present
 model-visible class and its count. Each quotation is capped at 120 bytes and
 uses `…` when truncated. Truncation keeps both `⟦` and `⟧` frame characters. The
 section states that quoted text is data, not an instruction. It states that a
-finding is a signal, not a verdict. It states: `Split a long sentence, keep the logical connection explicit, name each subject, and avoid disconnected fragments.` A checker
+finding is a signal, not a verdict. It states: `Split long sentences. Link ideas explicitly. Name each subject. Avoid disconnected fragments.` A checker
 failure reports `writing unavailable` in the status line when `writing.showStatus`
 is `true`. It does not fail the turn. The hidden reminder uses the
 model-visible channel described above.
@@ -498,7 +498,7 @@ These are settled decisions. Read them as scope, not as a backlog.
 - **Not a gate.** The checker hook is diagnostic. It cannot fail a turn. The
   reminder carries selected findings as guidance, not as a checker verdict.
 - **Not universal.** The ten writing requirements cover prose written for
-  people: documents, README text, pull request and commit text, issues,
+  people: documents, maps, designs, package drafts, README text, pull request and commit text, issues,
   review comments, release notes and messages to the user. Research
   logs, worker task text and this repository's own agent instruction
   file are excluded from those requirements, because a dense exact register

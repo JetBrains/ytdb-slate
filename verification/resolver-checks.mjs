@@ -30,7 +30,8 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { dirname, join, sep } from "node:path";
 import { pathToFileURL } from "node:url";
-import { EXPECTED_MUTATIONS, createMutationAudit, loadWithMutationAudit, mutationAuditControls } from "./record-mutation-roster.mjs";
+import { EXPECTED_MUTATIONS, createMutationAudit, loadWithMutationAudit, mutationAuditControls, safeWriteDuties, activeOwnerControls, activeOwnerControlIds, acceptsSafeWriteDuty, acceptsDutyRoster, safeWriteAttacks, writerFieldAttacks } from "./record-mutation-roster.mjs";
+import { assignedDutyGroups, dutyParagraph, dutySentence, formBlocks, formSection, hasNonPlainHeading, implementationInputProblems, implementationOwner, ownedFormProblems, sameBlocks, splitDutySentences, wholeImplementationInputProblems, workerFormReferences } from "./assigned-form-duties.ts";
 
 const [, , REPO, JITI, WORK, ...OPTIONS] = process.argv;
 function refuse(reason) {
@@ -42,7 +43,11 @@ const STRICT = OPTIONS[0] === "strict";
 if (STRICT || OPTIONS[0] === "") OPTIONS.shift();
 const EXCLUDABLE = ["doctrine-original-base", "doctrine-original-controls"];
 const EXCLUDED = new Set();
-const SELECTABLE = { "contract-heading-regions": ["heading-policy"], "contract-delivery-packages": [] };
+const SELECTABLE = {
+	"contract-review-history": ["review-history"],
+	"contract-heading-regions": ["heading-policy"],
+	"contract-delivery-packages": [],
+};
 const SELECTED = new Set();
 if (OPTIONS.length) {
 	if (OPTIONS.length !== 2 || !["--exclude", "--only"].includes(OPTIONS[0])) refuse("expected one --exclude or --only <id,id> option, not both");
@@ -59,9 +64,65 @@ if (OPTIONS.length) {
 const ONLY = SELECTED.size > 0;
 const wants = (id) => !ONLY || SELECTED.has(id);
 const selectedFamilies = [...new Set([...SELECTED].flatMap((id) => SELECTABLE[id]))];
+const assignedFormMutationIds = {
+ "assigned-forms": [
+  "classification-removed", "classification-worker-only", "classification-wrong-heading", "classification-heading-missing", "classification-heading-renamed",
+  "review-unrelated-heading", "review-worker-reference", "map-author-pointer", "shared-forms-empty", "model-workflow-moved",
+  "model-author-removed", "model-drift", "credit-duplicate", "credit-moved", "model-read",
+  "design-hard-word-cap", "map-hard-word-cap", "model-owner", "model-joint-revision", "model-retirement-approval",
+  "model-retirement-proven-access", "form-cue", "cue-before-guard", "summary-input", "triage-route",
+  "recursive-gates", "level-pointer", "levels", "evidence", "review-route",
+  "map-scope-only", "pseudocode-definition", "workflow-narrow-first", "common-separate-notes", "common-metadata",
+  "common-metadata-no-follow", "parent-review-boundary", "implementation-no-notes", "implementation-denies-read", "implementation-metadata",
+  "implementation-metadata-no-follow", "author-fewest", "author-approved-goals", "author-product-and-implementation-quality", "author-required-gates",
+  "author-off-goal-disclosure", "author-no-goal-edit", "author-regressions", "author-show-changes", "author-reader",
+  "author-narrow-first", "author-conversion-proposal", "child-mechanism-ownership", "child-split-ownership", "author-review-pointer",
+  "shared-test", "high-level", "low-level", "report-route", "exclude-detail",
+  "omissions", "baseline-omissions", "conversion-reason", "split-detail", "no-length-split",
+  "preserve-gates", "parent-detail", "notes-handoff", "notes-copy", "no-follow",
+  "author-only", "map-only", "author-no-orchestrator", "design-opening", "no-opening-cap",
+  "form-fields", "alternatives", "design-terms-history", "baseline-authority", "author-abstraction",
+  "behavior", "limits", "compatibility", "author-detail", "design-equal-forms",
+  "design-helpful-diagram", "design-diagram-explain", "design-diagram-placement", "design-diagram-types", "design-diagram-size",
+  "design-diagram-style", "design-size", "design-detail-bound", "design-omissions", "direct-children",
+  "component-fields", "interaction-text", "interaction-diagram", "one-table", "identifier",
+  "title", "scope", "activation", "differences", "prerequisites",
+  "funding", "mechanisms", "private-notes", "notes-metadata", "author-note-copy",
+  "author-no-follow", "map-size", "map-detail-limit", "map-omissions", "map-notes",
+  "map-reader-order", "map-connected-text", "map-equal-forms", "map-pseudocode", "map-arrows",
+  "map-diagram-placement", "map-diagram-types", "map-diagram-purposes", "map-diagram-size", "map-diagram-style",
+  "map-pointer", "model-both-definition", "model-both-reuse", "model-both-one-model", "model-both-fitness",
+  "model-both-special-cases", "model-both-coexistence", "model-both-translation", "model-both-retirement", "model-both-specialized-model",
+  "conditional-approval", "permissive-goal-edit", "delivered-research-permission", "implementation-task-logs",
+  "G2a", "G2b", "G2c", "RG3", "extra", "ATX0", "ATX1",
+  "ATX3", "nested", "setext1", "setext2", "moveNamed", "moveUnnamed", "reorder",
+  "fenceBack", "fenceTilde", "comment", "bullet", "ordered", "quote", "hardbreak",
+  "outside", "mixed", "indentedCode", "dupOwner", "silentDef", "extraParagraph", "fakeFencedHeadingOutside",
+  "fakeCommentHeadingOutside", "deliveredQuote", "deliveredMove", "orderedException", "duplicateSentence", "hiddenAfterEnd", "lateChild",
+  "plainAppend", "permissiveConditional", "creditDrop", "insertBetweenGroups", "hardCapOtherMapSection",
+  "RG4Decimal", "RG4Strong", "RG4Review", "RG4Escape", "RG4ZeroWidth", "RG4Space", "RG4Closed", "RG5Preface", "RG5Tail",
+  "ownerSetext", "ownerIndent", "ownerClosed", "nonPlainOutsideWorkflow", "ampOutsideWorkflow", "lessOutsideWorkflow",
+  "workflow-RG8Code", "workflow-RG8CodeNoSemicolon", "workflow-RG8Hidden", "workflow-RG8Style", "workflow-RG8Break",
+  "workflow-RG9Decimal", "workflow-RG9Hex", "workflow-RG9WordBreak", "workflow-RG9HiddenWord", "workflow-RG9Directional",
+  "workflow-plainDuplicate", "workflow-quoteDuplicate", "workflow-listDuplicate",
+  "reviews-RG8Code", "reviews-RG8CodeNoSemicolon", "reviews-RG8Hidden", "reviews-RG8Style", "reviews-RG8Break",
+  "reviews-RG9Decimal", "reviews-RG9Hex", "reviews-RG9WordBreak", "reviews-RG9HiddenWord", "reviews-RG9Directional",
+  "reviews-plainDuplicate", "reviews-quoteDuplicate", "reviews-listDuplicate",
+  "design-RG8Code", "design-RG8CodeNoSemicolon", "design-RG8Hidden", "design-RG8Style", "design-RG8Break",
+  "design-RG9Decimal", "design-RG9Hex", "design-RG9WordBreak", "design-RG9HiddenWord", "design-RG9Directional",
+  "design-plainDuplicate", "design-quoteDuplicate", "design-listDuplicate",
+  "implementation-RG8Code", "implementation-RG8CodeNoSemicolon", "implementation-RG8Hidden", "implementation-RG8Style", "implementation-RG8Break",
+  "implementation-RG9Decimal", "implementation-RG9Hex", "implementation-RG9WordBreak", "implementation-RG9HiddenWord", "implementation-RG9Directional",
+  "implementation-plainDuplicate", "implementation-quoteDuplicate", "implementation-listDuplicate",
+ ],
+ "task-note-review": [
+  "notes-direct-read", "notes-reference", "notes-extract", "notes-follow-link", "notes-implementation-exception",
+  "notes-screened-episode", "notes-stuck-fix-separate"
+ ],
+};
 const mutationAudit = createMutationAudit(ONLY
 	? Object.fromEntries(selectedFamilies.map((family) => [family, EXPECTED_MUTATIONS[family]]))
-	: EXPECTED_MUTATIONS);
+	: { ...EXPECTED_MUTATIONS, ...assignedFormMutationIds });
 
 // One value feeds each doctrine-budget assertion and each maintained published
 // statement. The independent JSON pin below protects the approved ceilings from
@@ -90,12 +151,14 @@ async function startupImport(load, selectedNeeded = false) {
 	startupError ??= result.error;
 	return result.module ?? {};
 }
+// Heading and package selection need paths. History reads the documents directly.
+const needsPaths = wants("contract-heading-regions") || wants("contract-delivery-packages");
 // Use pi's TypeScript loader for the same module resolution as the host.
-const { createJiti } = await startupImport(() => import(pathToFileURL(JITI).href), true);
-const jiti = await startupImport(() => createJiti(import.meta.url), true);
+const { createJiti } = await startupImport(() => import(pathToFileURL(JITI).href), needsPaths);
+const jiti = await startupImport(() => createJiti(import.meta.url), needsPaths);
 const we = await startupImport(() => jiti.import(`${REPO}/extension/worker-extensions.ts`));
 const mode = await startupImport(() => jiti.import(`${REPO}/extension/mode.ts`));
-const paths = await startupImport(() => jiti.import(`${REPO}/extension/paths.ts`), true);
+const paths = await startupImport(() => jiti.import(`${REPO}/extension/paths.ts`), needsPaths);
 // The router and the profile table are imported defensively: a missing or broken
 // module of either must not take the rest of the suite down with it. It becomes
 // one loud FAIL plus explicit NOT RUN lines for the checks it voids.
@@ -406,6 +469,7 @@ const DOCTRINE_CONTRACT_IDS = [
 	"contract-recursive-planning",
 	"contract-recursive-owner-agreement",
 	"contract-recursive-records",
+	...Array.from({ length: 40 }, (_, i) => `contract-duty-S${String(i + 1).padStart(2, "0")}`),
 	"contract-recursive-split-pointers",
 	"contract-recursive-delivery",
 	"contract-heading-regions",
@@ -904,6 +968,11 @@ try {
 			...designCopySources.map(([name, source]) => [`${name} design`, designLines.filter((line) => literalOccurrences(source, line) < 1)]),
 		]);
 		const exactScope = "Exclude research logs, worker task text, and the project's own agent instruction file.";
+		const designInLog = "A high-level design remains governed even inside a research log.";
+		const currentState = "Describe only the current state in the README, docs, code comments and the project's own agent instruction file, not removed features or past behavior, but allow change records such as pull request descriptions, commit bodies, release notes and issues to describe removals and past behavior.";
+		const exactWorker = [`${writingTitle}:`, styleLines.join(" "), ...writingLines.map(line => `- ${line}`), "", exactScope, designInLog, currentState].join("\n");
+		const exactReviewer = `Use short, active sentences. Write sentences a non-native reader understands on one reading. Do not use semicolons or contractions. Apply these rules to your prose. ${exactScope} ${currentState}`;
+		const formCue = "- Give diagrams, tables and prose equal value. Choose the clearest set.";
 		const exactReminder = [
 			`${writingTitle}:`,
 			styleLines.join(" "),
@@ -911,6 +980,7 @@ try {
 			"",
 			"Design requirements:",
 			...designLines.map((line) => `- ${line}`),
+			formCue,
 			"",
 			exactScope,
 		].join("\n");
@@ -920,8 +990,8 @@ try {
 			const scopeAt = lines.indexOf(exactScope);
 			const style = lines[1];
 			const writing = lines.slice(2, designAt - 1);
-			const design = lines.slice(designAt + 1, scopeAt - 1);
-			const shape = lines[0] === `${writingTitle}:` && style === styleLines.join(" ") && designAt > 2 && scopeAt === lines.length - 1 && lines[designAt - 1] === "" && lines[scopeAt - 1] === "" && [...writing, ...design].every((line) => /^- .+$/.test(line));
+			const design = lines.slice(designAt + 1, scopeAt - 2);
+			const shape = lines[0] === `${writingTitle}:` && style === styleLines.join(" ") && designAt > 2 && scopeAt === lines.length - 1 && lines[designAt - 1] === "" && lines[scopeAt - 1] === "" && lines[scopeAt - 2] === formCue && [...writing, ...design].every((line) => /^- .+$/.test(line));
 			return { shape, style, writing: writing.map((line) => line.slice(2)), design: design.map((line) => line.slice(2)) };
 		};
 		checkAll("writing-reminder-render", "doctrine renders every writing requirement, while parsed reminder blocks exactly match both ordered rosters and the shared exclusion guard", [
@@ -931,6 +1001,7 @@ try {
 			["scope source exact", reminder.WRITING_SCOPE_EXCLUSION === exactScope, reminder.WRITING_SCOPE_EXCLUSION],
 			["doctrine scope exact and indented", reminder.renderWritingScopeExclusion("   ") === `   ${exactScope}`, reminder.renderWritingScopeExclusion("   ")],
 			["reminder exact", reminder.renderWritingReminder() === exactReminder, reminder.renderWritingReminder()],
+			["role forms are exact", reminder.WORKER_WRITING_GUIDANCE === exactWorker && reminder.REVIEWER_WRITING_GUIDANCE === exactReviewer && reminder.WORKER_DESIGN_SCOPE_EXCEPTION === designInLog, "independent ordered rosters and literal role guidance"],
 			["parsed reminder rosters exactly match code order and text", (() => { const parsed = parseReminderRosters(reminder.renderWritingReminder()); return parsed.shape && JSON.stringify(parsed.writing) === JSON.stringify(writingLines) && JSON.stringify(parsed.design) === JSON.stringify(designLines); })(), parseReminderRosters(reminder.renderWritingReminder())],
 		]);
 
@@ -967,12 +1038,11 @@ try {
 		check("writing-reminder-gates", ignoredKeysAbsent && reminder.writingReminderGateOpen(open, false) && !reminder.writingReminderGateOpen(open, true) && branches.every(([, gate]) => !reminder.writingReminderGateOpen(gate, false)), "orchestrator mode, trust, pause, and sent-this-round close independently; ignored writing keys and a UI gate are absent", { branches, open });
 
 		const reminderContent = reminder.renderWritingReminderMessage();
-		const multibyteSource = `⟦${"界".repeat(100)}⟧`;
-		const helperExcerpt = checker.excerpt(multibyteSource, 0, multibyteSource.length);
-		const worstSummary = writing.summarizeWritingFindings([
-			...Array.from({ length: checker.MAX_FINDINGS - 1 }, () => ({ id: "SEMICOLON", class: "fail", excerpt: helperExcerpt })),
-			{ id: "PARA6", class: "house-style", excerpt: helperExcerpt },
-		]);
+		const suffix = ";".repeat(8) + " Hi.".repeat(7);
+		const prose = [`${"文".repeat(27)}a; ${"文".repeat(28)}${suffix}`, ...Array(99).fill(`Begin${suffix}`)].join("\n\n");
+		const counters = writing.createWritingCounters();
+		const measured = writing.measureWritingTurn({ role: "assistant", content: [{ type: "text", text: prose }] }, checker, counters);
+		const worstSummary = counters.latest ?? {};
 		const worstReminderContent = reminder.renderWritingReminderMessage(worstSummary);
 		const claimBase = { ...closedAdvance, forceNext: true };
 		const claimed = reminder.claimWritingReminder(claimBase, { send: true }, reminderContent);
@@ -1002,7 +1072,7 @@ try {
 			`- Fail (${worstSummary.failCount}): ${worstSummary.failQuotation}`,
 			`- Style (${worstSummary.styleCount}): ${worstSummary.styleQuotation}`,
 			"A finding is a signal, not a verdict.",
-			"Split a long sentence, keep the logical connection explicit, name each subject, and avoid disconnected fragments.", "",
+			"Split long sentences. Link ideas explicitly. Name each subject. Avoid disconnected fragments.", "",
 		].join("\n");
 		checkAll("writing-reminder-full-render", "the full hidden message has a closed findings grammar followed by the complete requirement block", [
 			["plain message has one header followed by the requirement block", reminderContent.startsWith("[slate] Reminder:\n\n") && reminderContent.slice("[slate] Reminder:\n\n".length) === exactReminder, reminderContent],
@@ -1014,10 +1084,13 @@ try {
 		const quotationLines = worstReminderContent.split("\n").filter((line) => /^- (?:Fail|Style) \(/.test(line));
 		const quotationBytes = [worstSummary.failQuotation, worstSummary.styleQuotation].map((quote) => Buffer.byteLength(quote ?? "", "utf8"));
 		const absolutePathShape = /(?:[\\/]{2}[^\s\\/]+[\\/][^\s\\/]+|\/[^\s/]+\/[^\s/]+|[A-Za-z]:[\\/][^\s\\/]+(?:[\\/][^\s\\/]+)*)/;
+		const cappedFindings = checker.checkText("Word; ".repeat(1201)).findings.length;
 		checkAll("writing-reminder-size", "the multibyte two-class render stays inside the measured bound with reserve and keeps its structural labels", [
-			["both helper-derived quotations reach the 120-byte cap", helperExcerpt.startsWith("⟦") && quotationBytes.length === 2 && quotationBytes.every((bytes) => bytes === 120), { helperExcerpt, quotationBytes }],
+			["checker keeps the actual reminder finding cap at 1000", checker.MAX_FINDINGS === 1000 && cappedFindings === 1000, { exported: checker.MAX_FINDINGS, observed: cappedFindings }],
+			["canonical content byte counts remain exact", [reminderContent, worstReminderContent, reminder.WORKER_WRITING_GUIDANCE, reminder.REVIEWER_WRITING_GUIDANCE].map(text => Buffer.byteLength(text)).join(",") === "1429,1899,1161,543", "clean, findings, full, short"],
+			["reachable turn yields both capped quotations", measured === "measured" && Buffer.byteLength(prose) === 4461 && quotationBytes.every((bytes) => bytes === 120), { measured, quotationBytes }],
 			["the 2000-byte bound keeps five percent reserve", worstReminderBytes <= 2000 && hasReminderReserve(worstReminderBytes, 2000), { bytes: worstReminderBytes, bound: 2000, reserveRequired: Math.ceil(worstReminderBytes * 1.05), reserve: 2000 - worstReminderBytes }],
-			["two quotation lines render with cap-derived counts, balanced frames, and visible truncation markers", quotationLines.length === 2 && new RegExp(`^- Fail \\(${checker.MAX_FINDINGS - 1}\\): ⟦.*…⟧$`).test(quotationLines[0]) && /^- Style \(1\): ⟦.*…⟧$/.test(quotationLines[1]), quotationLines],
+			["two quotation lines render with reachable counts and balanced frames", quotationLines.length === 2 && /^- Fail \(801\): ⟦.*…⟧$/.test(quotationLines[0]) && /^- Style \(100\): ⟦.*…⟧$/.test(quotationLines[1]), quotationLines],
 			["no absolute path makes size install-dependent", !absolutePathShape.test(worstReminderContent), absolutePathShape.exec(worstReminderContent)],
 			["header, section labels, and exclusion each render once", occurrences(worstReminderContent, "[slate] Reminder:") === 1 && occurrences(worstReminderContent, "Recent writing findings:") === 1 && occurrences(worstReminderContent, `${writingTitle}:`) === 1 && occurrences(worstReminderContent, "Design requirements:") === 1 && occurrences(worstReminderContent, exactScope) === 1, worstReminderContent],
 		]);
@@ -1466,14 +1539,14 @@ try {
 			dogfood: metrics(await doctrine(dogExtensions, () => dogRuntime, true, dogConfig)),
 		};
 		const exact = {
-			prompt: { portable: 4938, lines: 9, paths: 0 }, trusted: { portable: 9746, lines: 72, paths: 5 },
-			untrusted: { portable: 2711, lines: 33, paths: 4 }, draft: { portable: 9816, lines: 73, paths: 6 },
-			extensions: { portable: 11093, lines: 82, paths: 5 }, allTails: { portable: 11163, lines: 83, paths: 6 },
-			followUp: { portable: 11167, lines: 83, paths: 5 }, routing: { portable: 11146, lines: 83, paths: 5 },
-			draftFollowUp: { portable: 11237, lines: 84, paths: 6 }, draftRouting: { portable: 11212, lines: 84, paths: 6 },
-			followUpRouting: { portable: 11220, lines: 84, paths: 5 }, maximal: { portable: 11286, lines: 85, paths: 6 },
-			maximalOpen: { portable: 11484, lines: 86, paths: 6 }, maximalLinked: { portable: 11714, lines: 88, paths: 6 },
-			dogfood: { portable: 10411, lines: 84, paths: 6 },
+			prompt: { portable: 4938, lines: 9, paths: 0 }, trusted: { portable: 9739, lines: 72, paths: 5 },
+			untrusted: { portable: 2711, lines: 33, paths: 4 }, draft: { portable: 9809, lines: 73, paths: 6 },
+			extensions: { portable: 11086, lines: 82, paths: 5 }, allTails: { portable: 11156, lines: 83, paths: 6 },
+			followUp: { portable: 11160, lines: 83, paths: 5 }, routing: { portable: 11139, lines: 83, paths: 5 },
+			draftFollowUp: { portable: 11230, lines: 84, paths: 6 }, draftRouting: { portable: 11205, lines: 84, paths: 6 },
+			followUpRouting: { portable: 11213, lines: 84, paths: 5 }, maximal: { portable: 11279, lines: 85, paths: 6 },
+			maximalOpen: { portable: 11477, lines: 86, paths: 6 }, maximalLinked: { portable: 11707, lines: 88, paths: 6 },
+			dogfood: { portable: 10404, lines: 84, paths: 6 },
 		};
 		const doctrineBaselines = Object.values(rendered);
 		checkAll("doctrine-budget", "exact production renders match published portable baselines and every current baseline keeps five-percent reserve", [
@@ -1538,11 +1611,11 @@ try {
 			["19,401 rejected", aboveChars.promptText() === undefined && aboveChars.criticalErrors.some((x) => /19401 portable characters/.test(x)), aboveChars.criticalErrors],
 			["105 lines accepted", atLines.promptText()?.split("\n").length === 105, atLines.criticalErrors],
 			["106 lines rejected", aboveLines.promptText() === undefined && aboveLines.criticalErrors.some((x) => /106 lines/.test(x)), aboveLines.criticalErrors],
-			["whole-doctrine padding stays inside the supported label cap", labelAt === 118 && labelAt + 1 <= 128, { at: labelAt, above: labelAt + 1 }],
+			["whole-doctrine padding stays inside the supported label cap", labelAt === 125 && labelAt + 1 <= 128, { at: labelAt, above: labelAt + 1 }],
 			["whole-doctrine equality is accepted and first-over-limit is rejected", portable(wholeAt) === 26300 && portable(wholeAbove) === 26301 && portable(wholeAt) <= DOCTRINE_LIMITS.maximalChars && !(portable(wholeAbove) <= DOCTRINE_LIMITS.maximalChars), { at: portable(wholeAt), above: portable(wholeAbove), ceiling: DOCTRINE_LIMITS.maximalChars }],
-			["boundary compositions stay exact and below whole-doctrine cap", portable(featureOffDraft) === 26053 && portable(featureOffTight) === 26127 && portable(routingWithoutDrafts) === 26036 && portable(routingWithFollowUp) === 26110 && portable(routing) === 26102 && portable(deferred) === 26176 && [featureOffDraft, featureOffTight, routingWithoutDrafts, routingWithFollowUp, routing, deferred].every((text) => portable(text) <= DOCTRINE_LIMITS.maximalChars), { featureOffDraft: portable(featureOffDraft), featureOffTight: portable(featureOffTight), routingWithoutDrafts: portable(routingWithoutDrafts), routingWithFollowUp: portable(routingWithFollowUp), routing: portable(routing), deferred: portable(deferred) }],
+			["boundary compositions stay exact and below whole-doctrine cap", portable(featureOffDraft) === 26046 && portable(featureOffTight) === 26120 && portable(routingWithoutDrafts) === 26029 && portable(routingWithFollowUp) === 26103 && portable(routing) === 26095 && portable(deferred) === 26169 && [featureOffDraft, featureOffTight, routingWithoutDrafts, routingWithFollowUp, routing, deferred].every((text) => portable(text) <= DOCTRINE_LIMITS.maximalChars), { featureOffDraft: portable(featureOffDraft), featureOffTight: portable(featureOffTight), routingWithoutDrafts: portable(routingWithoutDrafts), routingWithFollowUp: portable(routingWithFollowUp), routing: portable(routing), deferred: portable(deferred) }],
 			["boundary composition line counts match the published tables", featureOffDraft.split("\n").length === 86 && featureOffTight.split("\n").length === 87 && routingWithoutDrafts.split("\n").length === 86 && routingWithFollowUp.split("\n").length === 87 && routing.split("\n").length === 87 && deferred.split("\n").length === 88, { featureOffDraft: featureOffDraft.split("\n").length, featureOffTight: featureOffTight.split("\n").length, routingWithoutDrafts: routingWithoutDrafts.split("\n").length, routingWithFollowUp: routingWithFollowUp.split("\n").length, routing: routing.split("\n").length, deferred: deferred.split("\n").length }],
-			["fresh valid-router over-cap control reaches whole-doctrine guard", portable(over) === 29388 && over.split("\n").length === 171 && portable(over) > DOCTRINE_LIMITS.maximalChars, portable(over)],
+			["fresh valid-router over-cap control reaches whole-doctrine guard", portable(over) === 29381 && over.split("\n").length === 171 && portable(over) > DOCTRINE_LIMITS.maximalChars, portable(over)],
 		]);
 	});
 
@@ -1796,7 +1869,7 @@ try {
 			["rationale positive and removal controls", protect(rationale, rationaleDuties) && discriminate(rationale, rationaleDuties), rationale],
 			["P14 does not enter either trust-state doctrine", [trusted, untrusted].every((text) => !/P1[34] —|Workflow steps in code/.test(text))],
 			["proportional process has no rationale read and retains all four rules", (() => {
-				const retained = "Use [track-workflow.md](track-workflow.md) § Recursive planning and loading for record triggers.\nEntering a design track triggers its research log and nested gates.\nAn ordinary code track or a high-level design alone triggers neither extra record.\nQuestions follow unresolved decisions rather than record or track counts.\n";
+				const retained = "Use [track-workflow.md](track-workflow.md) § Recursive planning and loading for record triggers.\nEntering a design track triggers its research log and nested gates.\nAn ordinary code track or a high-level design alone triggers neither extra record.\nThat section names the exceptions for standalone designs and maps.\nQuestions follow unresolved decisions rather than record or track counts.\n";
 				const actual = readFileSync(paths.RECURSIVE_WORKFLOW_DOC, "utf8").split("## Proportional process\n\n")[1].split("\n## ")[0];
 				const valid = (text) => text === retained && !text.includes("Use [design-principles.md]");
 				return valid(actual) && !valid(`Use [design-principles.md](design-principles.md) § 4. Operating principles for proportional process.\n${actual}`) && !valid(actual.replace("neither", "both"));
@@ -2230,6 +2303,66 @@ try {
 
 	}
 		await section("doctrine-contracts", async () => {
+			const normalize = (text) => text.trim().replace(/\r\n/g, "\n");
+			const normalizeText = (text) => normalize(text).replace(/\s+/g, " ").trim();
+			function evaluateReviewHistory() {
+				// Reject the listed history forms and accept the listed correct sentences.
+				// The matcher covers the listed rule forms.
+				const historyFault = (source) => normalizeText(source).split(/(?<=[.!?]) |\band (?=do not\b)/).some((line) => {
+					// Match concept combinations, with negation scoped to the described duty.
+					const prohibited = /\b(?:do not|never|must not|shall not|cannot|may not|no longer|not required|not permitted|not allowed|forbid\w*|prohibit\w*)\b/i.test(line);
+					const designs = /\b(?:designs?|architecture)\b/i.test(line);
+					const body = /\bcommit\b/i.test(line) && /\b(?:body|message)\b/i.test(line) || /\bimplementation message\b/i.test(line);
+					const fixes = /\b(?:fix(?:es)?|corrections)\b/i.test(line);
+					const separateFixes = fixes && /\b(?:separate|distinct|individual)\b/i.test(line);
+					if (separateFixes && prohibited && /\b(?:keep|retain|preserve|leave|remain)\b/i.test(line)) return true;
+					if (prohibited) return false;
+					if (designs && body && !/\bnot the design\b/i.test(line)) return true;
+					const beforeReview = /\b(?:before|prior to|ahead of|until)\b.*\buser\b.*\breview|\bbefore presenting\b.*\buser\b|\bpre-(?:user-)?review\b/i.test(line);
+					const combined = /\b(?:one|single) commit\b|\bsquash\w*\b|\bconsolidat\w*\b/i.test(line);
+					const presentToUser = /\bpresent\b.*\bto the user\b/i.test(line);
+					const foldCorrections = /\bfold review corrections into the implementation commit\b/i.test(line);
+					if ((beforeReview || presentToUser) && combined && /\bimplementation\b/i.test(line) && fixes || foldCorrections) return true;
+					const rewrite = /\brebas\w*\b|\bforce[- ]push\w*\b|\brewrit\w*\b.*\b(?:history|commits?)\b|\b(?:history|commits?)\b.*\brewrit\w*\b/i.test(line);
+					const privacyOnly = /\bonly\b.*\buser-chosen privacy rewrite\b|\buser-chosen privacy rewrite\b.*\bafter preserving the reviewed head\b/i.test(line);
+					const hostMerge = /\b(?:squash|rebase) merge\b/i.test(line);
+					return rewrite && !privacyOnly && !hostMerge && (/\b(?:routine|ordinary|exception|allow\w*|permit\w*|may|can)\b/i.test(line) || beforeReview);
+				});
+				const historyCases = [
+					["design-body", "When the track has a high-level design, the cumulative implementation commit body carries the track high-level design followed by the track low-level design."],
+					["architecture-body", "Put the approved architecture and detailed design in every implementation message."],
+					["review-collapse", "Before user review, squash implementation and review fixes into one commit."],
+					["review-combine", "Before presenting work to the user, combine the implementation and fixes into a single commit."],
+					["routine-rewrite", "The pre-user-review cumulative-commit rule is the only routine rewrite exception while that rule exists."],
+					["ordinary-rebase", "Allow ordinary pre-review rebases and force-push updates."],
+					["approved-design-body", "Include the approved high-level and low-level designs in each implementation commit body."],
+					["prior-review-combine", "Prior to user review, combine implementation and machine-review fixes into one commit."],
+					["review-before-user", "Squash the implementation and review fixes before the user reviews them."],
+					["permitted-rebase", "You may rebase and force-push before user review."],
+					["forbidden-separate-fixes", "Never keep machine-review fixes as separate commits."],
+					["body-before-commit", "Copy both approved designs into the body of every implementation commit."],
+					["present-single-commit", "Present a single commit containing implementation and reviewer fixes to the user."],
+					["consolidate-corrections", "Consolidate implementation and review corrections into one commit ahead of user review."],
+					["rebase-until-review", "Rebase the change branch freely until user review begins."],
+					["forbidden-individual-fixes", "Machine-review fixes must not remain as individual commits."],
+					["fold-corrections", "Always fold review corrections into the implementation commit."],
+				];
+				const historyAssertion = "history rules reject each restoration and accept benign discussion";
+				const historySources = readdirSync(join(REPO, "docs"), { recursive: true }).filter((file) => file.endsWith(".md")).map((file) => readFileSync(join(REPO, "docs", file), "utf8"));
+				if (historySources.length === 0) return [historyAssertion, false, "no Markdown sources under docs/"];
+				const historyAttacks = historyCases.map(([id, rule]) => ({
+					id, changed: historySources.every((source) => !source.includes(rule)),
+					rejected: historySources.every((source) => !historyFault(source) && historyFault(source + "\n" + rule) && historyFault(source + "\n" + rule.replace(/ /g, "\n"))),
+				}));
+				mutationAudit.record("review-history", historyAttacks);
+				const historyControls = ["Discuss the design with its reviewers.", "Intent: Preserve implementation history. Deviation delta:", "Only a user-chosen privacy rewrite permits rewriting history.", "The implementation commit message must not include designs.", "Do not include designs in the implementation commit body.", "Never squash implementation and review fixes before user review.", "Do not permit routine rebases or force-pushes.", "Keep review fixes in separate commits and do not squash them.", "The implementation commit message describes intent, not the design.", "A user-chosen privacy rewrite may rewrite history after preserving the reviewed head."];
+				return [historyAssertion, historySources.every((source) => !historyFault(source)) && historyAttacks.every(({ rejected }) => rejected) && historyControls.every((source) => !historyFault(source) && !historyFault(source.replace(/ /g, "\n"))), historyAttacks];
+			}
+			if (ONLY && wants("contract-review-history")) {
+				checkAll("contract-review-history", "shipped history rules reject forbidden restorations", [evaluateReviewHistory()]);
+				if (SELECTED.size === 1) return;
+			}
+
 			const workflow = readFileSync(join(REPO, "docs", "track-workflow.md"), "utf8");
 			const blast = readFileSync(join(REPO, "docs", "blast-radius.md"), "utf8");
 			const reviews = readFileSync(join(REPO, "docs", "review-rules.md"), "utf8");
@@ -2239,6 +2372,26 @@ try {
 			const principles = readFileSync(join(REPO, "docs", "design-principles.md"), "utf8");
 			const projectReadme = readFileSync(join(REPO, "README.md"), "utf8");
 			const workflowDocs = [workflow, reviews, blast, userNotes, deliveryPackages, publishing].join("\n");
+			const designReviewPolicyBegin = "<!-- design-review-policy:begin -->";
+			const designReviewPolicyEnd = "<!-- design-review-policy:end -->";
+			const designReviewPolicyFixture = `The user validates the design and judges whether it is the simplest solution.
+The orchestrator then reconfirms every focus line against that design. Each
+proved DESIGN-TRIGGERING area receives one fresh adversarial design reviewer.
+The orchestrator selects required reviews and reuses applicable unchanged design reviews
+without asking approval of the review count.
+A fresh adversary tests the design and cited evidence. Every review with no
+findings, including an adversarial design review, ends with the exact standalone
+line \`No findings.\`
+
+The orchestrator triages each finding by strengthening a rationale, reversing
+a decision, recording an accepted risk, or routing low-level material to the
+implementer report. Hold a routed finding in the research log until its
+owning track starts. The implementer then copies it into that track's report.
+The finding stays in that track's implementer report. Each design reversal
+permits one additional independent adversarial design-review round. This
+permission changes neither ordinary fix-round nor consultation caps. The user
+gives final design approval after adversarial review and triage. When no
+adversarial review is required, validation and final approval form one gate.`;
 			const block = (source, name) => {
 				const begin = `<!-- ${name}:begin -->`;
 				const end = `<!-- ${name}:end -->`;
@@ -2252,8 +2405,6 @@ try {
 					endCount: source.split(end).length - 1,
 				};
 			};
-			const normalize = (text) => text.trim().replace(/\r\n/g, "\n");
-			const normalizeText = (text) => normalize(text).replace(/\s+/g, " ").trim();
 			const literalPatterns = new Map();
 			const literalPattern = (text) => {
 				let pattern = literalPatterns.get(text);
@@ -2649,9 +2800,7 @@ for each proved DESIGN-TRIGGERING area. Final design
 approval follows those reviews. The design stage is the only stage where an
 adversarial reviewer receives the risk record and area proofs as
 separate inputs. Implementation reviewers and both repair gates receive neither.
-The stuck-fix consultation follows the whole-episode exception in
-[review-rules.md](review-rules.md) and receives no separately supplied risk
-record or area proof.
+Stuck-fix consultation uses [review-rules.md](review-rules.md) § Reviewer input contract: applicable approved designs, intact episodes, no separate risk record or area proof.
 
 Before code review, the orchestrator compares the committed difference with the
 proved set. A missed area follows the late-area route below. For an area that no
@@ -2731,12 +2880,12 @@ minor dispositions, and moot or rejected findings in both review phases.
 
 Five cases require a user decision: a waiver, a scope exception, a pre-existing
 defect, lowering a blocker, and an implementation-level finding without a recommended fix.
-A design-level finding that adds goals or non-goals requires approval.
-A fix that changes an approved guarantee, assumption, or reasoning requires design-update approval.
+At every severity, obtain user design-update approval before a fix adds goals or non-goals, or changes approved guarantees, assumptions or reasoning.
+Without approval, stop that repair. Record the decision in the owning research log. Existing waiver, deferral and scope routes do not bypass termination.
 Record every design-level change in the design update or track package.
-Automatic repair never bypasses halt rules, user notes, checks, gates, or acceptance.`);
+Repair bypasses no halt, user note, check, gate or acceptance.`);
 			const repairRule = (source) => normalizeText(source).includes(automaticRepair);
-			const repairMutations = ["both review phases", "waiver", "scope exception", "pre-existing", "lowering a blocker", "without a recommended fix", "adds goals or non-goals", "design-update approval", "minor dispositions", "halt rules", "acceptance"].map((term) => normalizeText(workflow).replace(automaticRepair, automaticRepair.replace(term, "REMOVED RULE")));
+			const repairMutations = ["both review phases", "waiver", "scope exception", "pre-existing", "lowering a blocker", "without a recommended fix", "adds goals or non-goals", "design-update approval", "minor dispositions", "halt", "acceptance"].map((term) => normalizeText(workflow).replace(automaticRepair, automaticRepair.replace(term, "REMOVED RULE")));
 			const ownerMutation = riskLifecycle.replace("The orchestrator judges", "The implementer judges");
 			const proofMutation = proofSection.replace("becomes proved when the orchestrator judges its proof sufficient", "becomes proved only through user approval");
 			const skippedMutation = proofSection.replace("SKIPPED and adds no gate or reviewer", "SKIPPED and adds its reviewer");
@@ -2760,7 +2909,7 @@ Automatic repair never bypasses halt rules, user notes, checks, gates, or accept
 				["late area after size-triggered Reviewer I adds only its specialist", /If Reviewer I already ran\s+because of size or another proved area, dispatch only the new area specialist\.\s+Do not dispatch Reviewer I again/.test(riskLifecycle), riskLifecycle],
 				["later-area duplicate-Reviewer-I mutation fails exact comparison", lateAdditionalAreaMutation !== riskLifecycle && lateAdditionalAreaMutation !== expectedRiskLifecycle, lateAdditionalAreaMutation],
 				["new-track independent assessment is explicit", /new track created after the original confirmation gate needs an independent\norchestrator assessment and risk record before implementation starts/.test(workflow), workflow.match(/.{0,100}new track created.{0,200}/s)?.[0]],
-				["implementer reports size followed by one unplanned-risk line", /ends its response with an approximate track size in counted lines, followed by\s+`unplanned risk: none` or one line/.test(workflow), workflow.match(/.{0,100}unplanned risk.{0,140}/s)?.[0]],
+				["implementer reports size followed by one unplanned-risk line", /names any map statements its fix relies on and ends with approximate counted lines, then\s+`unplanned risk: none` or one line/.test(workflow), workflow.match(/.{0,100}unplanned risk.{0,140}/s)?.[0]],
 			]);
 
 			const focusGates = normalizeText(workflow.match(/^## Focus classes and gates\n([\s\S]*?)(?=^<!-- focus-area-table:begin -->)/m)?.[1] ?? "");
@@ -2824,8 +2973,6 @@ Automatic repair never bypasses halt rules, user notes, checks, gates, or accept
 			const benignPhaseHandoff = benignPhaseHandoffSources.map(resolvePhaseHandoff);
 			const wrongState = focusGates.replace("Only a proved area", "A NAMED area");
 			const skippedApproval = focusGates.replace("Only a proved area adds a focus-dependent gate or area reviewer.", "A SKIPPED area adds an area reviewer.");
-			const designReviewPolicyBegin = "<!-- design-review-policy:begin -->";
-			const designReviewPolicyEnd = "<!-- design-review-policy:end -->";
 			const resolveDesignReviewPolicy = (source) => {
 				const resolution = block(source, "design-review-policy");
 				return {
@@ -2834,24 +2981,7 @@ Automatic repair never bypasses halt rules, user notes, checks, gates, or accept
 					text: resolution.count === 1 && resolution.endCount === 1 ? normalizeText(resolution.text) : "",
 				};
 			};
-			const expectedDesignReviewPolicy = normalizeText(`The user validates the design and judges whether it is the simplest solution.
-The orchestrator then reconfirms every focus line against that design. Each
-proved DESIGN-TRIGGERING area receives one fresh adversarial design reviewer.
-The orchestrator selects required reviews and reuses applicable unchanged design reviews
-without asking approval of the review count.
-A fresh adversary tests the design and cited evidence. Every review with no
-findings, including an adversarial design review, ends with the exact standalone
-line \`No findings.\`
-
-The orchestrator triages each finding by strengthening a rationale, reversing
-a decision, recording an accepted risk, or routing low-level material to the
-implementer report. Hold a routed finding in the research log until its
-owning track starts. The implementer then copies it into that track's report.
-The finding stays in that track's implementer report. Each design reversal
-permits one additional independent adversarial design-review round. This
-permission changes neither ordinary fix-round nor consultation caps. The user
-gives final design approval after adversarial review and triage. When no
-adversarial review is required, validation and final approval form one gate.`);
+			const expectedDesignReviewPolicy = normalizeText(designReviewPolicyFixture);
 			const designReviewPolicy = resolveDesignReviewPolicy(workflow);
 			const designReviewMutations = [
 				workflow.replace("Each design reversal\npermits one additional independent adversarial design-review round.", "A design may receive only one additional independent adversarial design-review round in total."),
@@ -2883,7 +3013,7 @@ adversarial review is required, validation and final approval form one gate.`);
 				};
 			};
 			const expectedP11Source = `- **P11 — Proportional process.** *(Repo-local note, not from the report.)*
-  The current change folder's research log is the sole permitted unconditional-artifact exception for
+  The current change folder's research log, standalone designs and maps are permitted unconditional-artifact exceptions for
   authors of future rules. Every other future rule that adds process cost names
   the condition that engages it. The condition is a proved focus area, an
   artifact whose own existence a proved focus area decides, or specific
@@ -2911,7 +3041,7 @@ required reviews, ordered gates, user authority, or final acceptance.`;
 			const p11 = p11Resolution.text;
 			const p11Mutations = [
 				p11.replace("a proved focus area, an artifact whose own existence a proved focus area decides", "the size grade, a proved focus area, an artifact whose own existence either decides"),
-				p11.replace("The current change folder's research log is the sole permitted unconditional-artifact exception", "The research log and implementer report are permitted unconditional-artifact exceptions"),
+				p11.replace("The current change folder's research log, standalone designs and maps are permitted unconditional-artifact exceptions", "The research log and implementer report are permitted unconditional-artifact exceptions"),
 				p11.replace("or specific evidence that does not appear in every track", "or any available evidence"),
 				p11.replace("It does not remove or condition current required artifacts", "It may condition current required artifacts"),
 				p11.replace("Questions follow unresolved decisions", "Questions follow workflow steps"),
@@ -2956,7 +3086,7 @@ required reviews, ordered gates, user authority, or final acceptance.`;
 				["P11 is one exact independently specified policy unit", p11Resolution.count === 1 && p11 === expectedP11, { resolution: p11Resolution, expected: expectedP11 }],
 				["missing and duplicate P11 units fail closed across P12, end-of-file, and alternate-number boundaries", missingP11Source !== principles && missingP11.count === 0 && missingP11.text === "" && [duplicateP11WithP12, duplicateP11AtEnd, duplicateP11WithP13].every(({ count, text }) => count === 2 && text === ""), { missingP11, duplicateP11WithP12, duplicateP11AtEnd, duplicateP11WithP13 }],
 				["benign text outside P11 preserves one exact unit", benignP11.count === 1 && benignP11.text === expectedP11, benignP11],
-				["P11 permits only proved focus, focus-decided artifacts, or non-universal evidence, preserves current reports, and scales questions with unresolved decisions", /condition is a proved focus area, an artifact whose own existence a proved focus area decides, or specific evidence that does not appear in every track/.test(p11) && /research log is the sole permitted unconditional-artifact exception/.test(p11) && /authors of future rules/.test(p11) && /does not remove or condition current required artifacts/.test(p11) && /per-track implementer report/.test(p11) && /Questions follow unresolved decisions, not the number of workflow steps, records, or tracks/.test(p11) && /do not remove reassessment, required reviews, ordered gates, user authority, or final acceptance/.test(p11) && !/size grade/.test(p11) && !/Reviewer I on every track/.test(p11), p11],
+				["P11 permits only proved focus, focus-decided artifacts, or non-universal evidence, preserves current reports, and scales questions with unresolved decisions", /condition is a proved focus area, an artifact whose own existence a proved focus area decides, or specific evidence that does not appear in every track/.test(p11) && /research log, standalone designs and maps are permitted unconditional-artifact exceptions/.test(p11) && /authors of future rules/.test(p11) && /does not remove or condition current required artifacts/.test(p11) && /per-track implementer report/.test(p11) && /Questions follow unresolved decisions, not the number of workflow steps, records, or tracks/.test(p11) && /do not remove reassessment, required reviews, ordered gates, user authority, or final acceptance/.test(p11) && !/size grade/.test(p11) && !/Reviewer I on every track/.test(p11), p11],
 				["restored grade, widened exception, universal evidence, current-artifact, question-scaling, and authority weakening mutations all fail", p11Mutations.every((mutation) => mutation !== p11 && mutation !== expectedP11), p11Mutations],
 				["wrong proof state fails", wrongState !== focusGates && !/Only a proved area adds a focus-dependent gate or area reviewer/.test(wrongState), wrongState],
 				["SKIPPED approval mutation fails", skippedApproval !== focusGates && !/Only a proved area adds a focus-dependent gate or area reviewer/.test(skippedApproval), skippedApproval],
@@ -3092,7 +3222,9 @@ log.`),
 					id: "workflow-coverage",
 					source: workflow,
 					extract: regionUnit(/^## Review coverage\n\n([\s\S]*?)(?=^### Routing recommendations at change completion)/gm),
-					expected: normalizeText(`Every part of a track range must reach its complete routine implementation
+					expected: normalizeText(`Use [review-rules.md](review-rules.md) § Reviewer input contract.
+
+Every part of a track range must reach its complete routine implementation
 reviewer set. The set contains every specialist for a proved area. It contains
 exactly one Reviewer I when an area is proved. Without a proved area, it
 contains Reviewer I only when the implementer's approximate size is above 100
@@ -3270,7 +3402,7 @@ Late areas add only specialists if Reviewer I ran.`),
 					id: "lifecycle-planning", source: workflow,
 					extract: markedUnit("recursive-planning-policy"),
 					boundary: "<!-- recursive-planning-policy:end -->",
-					expected: normalizeText(`A design track plans and completes a nested change. A multi-track change requires a high-level design. An estimate above 100 counted lines and a proved DESIGN-TRIGGERING area remain separate design triggers. A required high-level design alone does not create a design track. Expand a design track when work reaches it. Each subtree root receives its own high-level design and independent risk assessment. A subtree contains a node and its descendant tracks. Design-track designs have no size cap. Each design track completes the gates of a nested multi-track change. Each code track keeps its independent gates. Reuse applicable evidence only under § Confirmation gate's user-decision reuse rule. An ordinary split creates at most five direct child tracks. An ordinary plan that needs more than five direct children must add a design track. Load [recursive-workflow.md](recursive-workflow.md) for that design track. An implementer-requested split may add siblings beyond five to the same level. The exception does not automatically create another level. Obtain each new track's required approvals before implementation. The exception changes neither review requirements nor repair budgets. Track numbers remain stable and are never reused. Every change reads [change-records.md](change-records.md) § Identifiers, code ranges, and design markers and § Manual records and safe writes. Load [recursive-workflow.md](recursive-workflow.md) when the current or proposed plan contains a design track or review-fix child track. A review-fix child track repairs outstanding work under a user-approved split. Check the loading condition during planning and again during resume reconciliation. Load the document before proposing a review-fix split. Read the applicable sections before relying on their rules. A lazy plan needs no total descendant count to apply the condition. A small tree with a design track still loads the whole document. A change with neither triggering track type reads only the named common sections. For nested work, use [recursive-workflow.md](recursive-workflow.md) § Dependency order and pauses. The approved plan supplies specific evidence for proportional process. A design track or review-fix child track triggers the manual status file. Entering a design track triggers its research log and nested gates. An ordinary code track or a high-level design alone triggers neither extra record. These conditions add no unconditional-artifact exception. Questions follow unresolved decisions rather than record or track counts. [recursive-workflow.md](recursive-workflow.md) owns the nested planning relations.`),
+					expected: normalizeText(`A design track plans and completes a nested change. A multi-track change requires a high-level design. An estimate above 100 counted lines and a proved DESIGN-TRIGGERING area remain separate design triggers. A required high-level design alone does not create a design track. Expand a design track when work reaches it. Each subtree root receives its own high-level design and independent risk assessment. A subtree contains a node and its descendant tracks. Design tracks govern direct children only. Each child governs its own work. Each design track completes the gates of a nested multi-track change. Each code track keeps its independent gates. Reuse applicable evidence only under § Confirmation gate's user-decision reuse rule. An ordinary split creates at most five direct child tracks. An ordinary plan that needs more than five direct children must add a design track. Load [recursive-workflow.md](recursive-workflow.md) for that design track. An implementer-requested split may add siblings beyond five to the same level. The exception does not automatically create another level. Obtain each new track's required approvals before implementation. The exception changes neither review requirements nor repair budgets. Track numbers remain stable and are never reused. Every change reads [change-records.md](change-records.md) § Identifiers, code ranges, and design markers and § Manual records and safe writes. Load [recursive-workflow.md](recursive-workflow.md) when the current or proposed plan contains a design track or review-fix child track. A review-fix child track repairs outstanding work under a user-approved split. Check the loading condition during planning and again during resume reconciliation. Load the document before proposing a review-fix split. Read the applicable sections before relying on their rules. A lazy plan needs no total descendant count to apply the condition. A small tree with a design track still loads the whole document. A change with neither triggering track type reads only the named common sections. For nested work, use [recursive-workflow.md](recursive-workflow.md) § Dependency order and pauses. The approved plan supplies specific evidence for proportional process. A design track or review-fix child track triggers the manual status file. Entering a design track triggers its research log and nested gates. An ordinary code track or a high-level design alone triggers neither extra record. Standalone designs and maps use the artifact exceptions in [design-principles.md](design-principles.md) P11. Questions follow unresolved decisions rather than record or track counts. [recursive-workflow.md](recursive-workflow.md) owns the nested planning relations.`),
 				},
 				{
 					id: "nested-design", source: recursive,
@@ -3281,7 +3413,7 @@ Each subtree root receives its own high-level design and independent risk assess
 A multi-track change requires a high-level design.
 An estimate above 100 counted lines and a proved DESIGN-TRIGGERING area remain
 separate design triggers.
-Design-track designs have no size cap.
+Design tracks govern direct children only.
 Each design track completes the gates of a nested multi-track change.
 Each code track keeps its independent gates.
 Use [track-workflow.md](track-workflow.md) § Confirmation gate for user-decision reuse.`),
@@ -3310,12 +3442,12 @@ Use [track-workflow.md](track-workflow.md) § Confirmation gate for user-decisio
 				[0, "proposal loading", "before proposing a review-fix split", "after proposing a review-fix split"],
 				[0, "small tree", "A small tree with a design track still loads the whole document.", "Small trees never load the document."],
 				[0, "conditional records", "triggers neither extra record", "requires both extra records"],
-				[0, "proportional process", "add no unconditional-artifact exception", "add an unconditional-artifact exception"],
+				[0, "proportional process", "Standalone designs and maps use the artifact exceptions", "Every artifact uses the artifact exceptions"],
 				[1, "lazy expansion", "when work reaches it", "at root planning"],
 				[1, "independent risk", "independent risk assessment", "inherited risk approval"],
 				[1, "multi-track design", "requires a high-level design", "needs no high-level design"],
 				[1, "size trigger", "above 100 counted lines", "above 400 counted lines"],
-				[1, "uncapped design", "have no size cap", "have a 400-line cap"],
+				[1, "direct-child authority", "govern direct children only", "govern all descendants"],
 				[1, "nested gates", "completes the gates", "skips the gates"],
 				[1, "code gates", "keeps its independent gates", "uses only parent gates"],
 				[2, "merge unit", "The change is the merge unit.", "Each child is the merge unit."],
@@ -3357,7 +3489,7 @@ Use [track-workflow.md](track-workflow.md) § Confirmation gate for user-decisio
 				"Each subtree root receives its own high-level design and independent risk assessment.",
 				"A multi-track change requires a high-level design.",
 				"An estimate above 100 counted lines and a proved DESIGN-TRIGGERING area remain separate design triggers.",
-				"Design-track designs have no size cap.",
+				"Design tracks govern direct children only.",
 				"Each design track completes the gates of a nested multi-track change.",
 				"Each code track keeps its independent gates.",
 			];
@@ -3407,7 +3539,7 @@ Each subtree root receives its own high-level design and independent risk assess
 A multi-track change requires a high-level design.
 An estimate above 100 counted lines and a proved DESIGN-TRIGGERING area remain
 separate design triggers.
-Design-track designs have no size cap.
+Design tracks govern direct children only.
 Each design track completes the gates of a nested multi-track change.
 Each code track keeps its independent gates.
 Use [track-workflow.md](track-workflow.md) § Confirmation gate for user-decision reuse.
@@ -3432,6 +3564,7 @@ Use [track-workflow.md](track-workflow.md) § Track size and split for change co
 Use [track-workflow.md](track-workflow.md) § Recursive planning and loading for record triggers.
 Entering a design track triggers its research log and nested gates.
 An ordinary code track or a high-level design alone triggers neither extra record.
+That section names the exceptions for standalone designs and maps.
 Questions follow unresolved decisions rather than record or track counts.
 
 ## Recorded-workflow compatibility
@@ -3440,21 +3573,21 @@ Use [track-workflow.md](track-workflow.md) § Migration for compatibility.
 Use its § Session handoff and the research log for ownership.`);
 			}
 			const protectedRepairOwners = Object.freeze({
-				"repair-rounds": "850fecdacea6768febb420af28c5e950a8d1349dac494a05699bdba823409953",
-				"repair-consultations": "86f0f04219e871881c7f99263689d848fc78772d2b034e3d359cdc6662f4d780",
+				"repair-rounds": "b7dff47aa20e7c4d89ca59b7eded2a0cf27e268d8a1895f92083372ee943ebc3",
+				"repair-consultations": "782230608dd19a0d4c15b5c9914f257f8824a366e6b1dbda8aef3b8c0fba63e8",
 				"child-fix-title": "423264fe845a64f12e87dafc1740bf71ba8cbc23d8afd6344bc14bd6f98a1348",
 			});
-			const protectedRepairSummary = "2cdf9eafbc4a97834cfc62419c4f88ff015530018d4d085e635677ddab2ff988";
+			const protectedRepairSummary = "b017165f26ad0eeadf033ab5c16a11ee68c8793a0dc79761be5a4f2396f654d7";
 			if (!ONLY) {
 			const agreementDigest = (text) => createHash("sha256").update(normalizeText(text)).digest("hex");
 			sharedRecursiveRules = [
 				{ id: "loading", rules: loadingRules, extract: regionUnit(/^## Loading and planning\n([\s\S]*?)(?=^## Nested designs and gates\n)/gm) },
 				{ id: "nested", rules: nestedRules, extract: markedUnit("nested-design-policy") },
 				{ id: "records", rules: recordRules, extract: regionUnit(/^## Proportional process\n([\s\S]*?)(?=^## Recorded-workflow compatibility\n)/gm) },
-				{ id: "status-trigger", rules: ["A design track or review-fix child track triggers the manual status file."], extract: headingUnit("## Manual records and safe writes") },
-				{ id: "canonical-grammar", owner: markedUnit("marker-identity-policy"), rules: ["Write positive decimal components without leading zeros, separated by dots."], extract: headingUnit("## Identifiers, code ranges, and design markers") },
-				{ id: "repair-records", owner: markedUnit("multi-track-handoff"), rules: ["For a review-fix subtree, use the affected code track's existing records."], extract: headingUnit("## Manual records and safe writes") },
-				{ id: "append-only", owner: regionUnit(/^Use a safe write method\. ([\s\S]*?)(?=^### Handoff summary\n)/gm), rules: ["Research logs and implementer reports are append-only.", "A correction is a new entry."], extract: headingUnit("## Manual records and safe writes") },
+				{ id: "status-trigger", summaryRules: ["A design track or review-fix child requires manual status."], rules: ["A design track or review-fix child track triggers the manual status file."], extract: headingUnit("## Manual records and safe writes") },
+				{ id: "canonical-grammar", owner: markedUnit("marker-identity-policy"), summaryRules: ["A **canonical path number** uses positive decimal components without leading zeros, separated by dots."], rules: ["Write positive decimal components without leading zeros, separated by dots."], extract: headingUnit("## Identifiers, code ranges, and design markers") },
+				{ id: "repair-records", owner: markedUnit("multi-track-handoff"), rules: ["For a review-fix subtree, use the affected code track's existing records."], summaryRules: ["Review-fix subtrees use the affected code track's existing records."], extract: headingUnit("## Manual records and safe writes") },
+				{ id: "append-only", owner: regionUnit(/^(Use \[change-records\.md\]\(change-records\.md\) § Manual records and safe writes[\s\S]*?)(?=^### Handoff summary\n)/gm), summaryRules: ["Logs and reports are append-only, including their first write.", "Append corrections as new entries."], rules: ["for append-only logs, reports", "corrections and checks"], extract: headingUnit("## Manual records and safe writes") },
 				{ id: "resume-entry", owner: headingUnit("## Resume order and reconciliation"), rules: ["Before relying on a summary, check that its named subtree entry exists."], extract: headingUnit("## Resume and folder forks") },
 				{ id: "repair-rounds", document: "reviews", owner: headingUnit("## Fix loop and gate verdicts"), rules: ["Run at most two ordinary fix rounds."], extract: headingUnit("## Review-fix subtrees and repair limits") },
 				{ id: "repair-consultations", document: "reviews", owner: headingUnit("## Stuck-fix consultation"), rules: ["The ordinary budget permits one consultation."], extract: headingUnit("## Review-fix subtrees and repair limits") },
@@ -3463,12 +3596,12 @@ Use its § Session handoff and the research log for ownership.`);
 			];
 			const commonRelationIds = new Set(["status-trigger", "canonical-grammar", "repair-records", "append-only"]);
 			const recursiveSummaryResults = (recursiveSource, workflowSource, reviewSource = reviews, deliverySource = deliveryPackages, commonSource = commonRecords) => {
-				return sharedRecursiveRules.map(({ id, rules, extract, document = "workflow", owner = markedUnit("recursive-planning-policy") }) => {
+				return sharedRecursiveRules.map(({ id, rules, summaryRules = rules, extract, document = "workflow", owner = markedUnit("recursive-planning-policy") }) => {
 					const owningUnit = owner({ workflow: workflowSource, reviews: reviewSource, delivery: deliverySource }[document]);
 					const summary = extract(commonRelationIds.has(id) ? commonSource : recursiveSource);
 					return { id, bounded: owningUnit.count === 1 && summary.count === 1, agrees: owningUnit.count === 1 && summary.count === 1
 						&& (!protectedRepairOwners[id] || (agreementDigest(owningUnit.text) === protectedRepairOwners[id] && agreementDigest(summary.text) === protectedRepairSummary))
-						&& rules.every((rule) => owningUnit.text.includes(rule) && summary.text.includes(rule)) };
+						&& rules.every((rule, index) => owningUnit.text.includes(rule) && summary.text.includes(summaryRules[index])) };
 				});
 			};
 			recursiveSummariesAgree = (...sources) => recursiveSummaryResults(...sources).every(({ agrees }) => agrees);
@@ -3476,13 +3609,14 @@ Use its § Session handoff and the research log for ownership.`);
 				const result = recursivePrefix(source);
 				return result.count === 1 && result.text === recursivePrefixExpected;
 			};
-			recursiveAgreementAttacks = sharedRecursiveRules.flatMap(({ id, rules, document = "workflow" }) => rules.flatMap((rule, index) => ["summary", "owner"].map((side) => {
+			recursiveAgreementAttacks = sharedRecursiveRules.flatMap(({ id, rules, summaryRules = rules, document = "workflow" }) => rules.flatMap((rule, index) => ["summary", "owner"].map((side) => {
+				const sideRule = side === "summary" ? summaryRules[index] : rule;
 				const commonSide = side === "summary" && commonRelationIds.has(id);
 				const source = side === "summary" ? (commonSide ? commonRecords : recursive) : { workflow, reviews, delivery: deliveryPackages }[document];
 				const normalized = normalizeText(source);
-				const altered = normalized.replace(rule, `Contradicting ${id} rule ${index}.`);
+				const altered = normalized.replace(sideRule, `Contradicting ${id} rule ${index}.`);
 				// Replace the same phrase in raw source without changing heading boundaries.
-				const pattern = new RegExp(rule.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+"), "g");
+				const pattern = new RegExp(sideRule.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+"), "g");
 				const changed = source.replace(pattern, `Contradicting ${id} rule ${index}.`);
 				const results = recursiveSummaryResults(side === "summary" && !commonSide ? changed : recursive, side === "owner" && document === "workflow" ? changed : workflow, side === "owner" && document === "reviews" ? changed : reviews, side === "owner" && document === "delivery" ? changed : deliveryPackages, commonSide ? changed : commonRecords);
 				const target = results.find((result) => result.id === id);
@@ -3526,14 +3660,14 @@ Use its § Session handoff and the research log for ownership.`);
 			const recordDigest = (text) => createHash("sha256").update(normalizeText(text)).digest("hex");
 			const resumeOrderExpected = normalizeText(`Resume in this fixed order: 1. Read the initial request and latest state summary. Before relying on a summary, check that its named subtree entry exists. An older summary without a subtree reference still resumes under its recorded workflow. 2. Read later decisions and the active subtree's records. When the summary names an existing current implementer report, read it there. Use [recursive-workflow.md](recursive-workflow.md) § Resume and folder forks for tree reconciliation and read-only source boundaries. Before resuming a paused subtree, read its typed \`decision\` entry in the owning parent research log. Check that its unfinished sibling dependency has completed and its recorded resume condition holds. Confirm the decision records a boundary between code-track ranges, with no open range. A status entry alone authorizes neither pause nor resume. 3. Inspect marker commits and the current branch state. 4. Reconcile the declared file list, track table, coverage register, proved focus areas, risk record, and live diff. 5. Re-run any stale precondition check. 6. Apply the user-decision reuse rule before asking any question. 7. Continue only after answering: **What changed since the last state summary, and does it change focus, scope, or required gates?** A mismatch pauses work. Reconcile it in the log. Use marker commits and Git history as boundary authority. The track table is display-only.`);
 			const recursiveRecordUnits = [
-				{ id: "identifiers-ranges", source: commonRecords, start: "## Identifiers, code ranges, and design markers", extract: headingUnit("## Identifiers, code ranges, and design markers"), expected: "1374fd12c19b6005802b48e1084a45dab32f03efd5ee59c32c993f796932db03" },
-				{ id: "tool-records-and-recovery", source: commonRecords, start: "## Manual records and safe writes", extract: headingUnit("## Manual records and safe writes"), expected: "8ec25b74e709c2f8a72556947aecee40f0cff2f38947976e9609c0e2436b47e0" },
-				{ id: "resume-forks", source: recursive, start: "## Resume and folder forks", extract: headingUnit("## Resume and folder forks"), expected: "0bf3c8bcc7b36ee0dd8a5a6fd514b73f5e19b5514f5a3a1711034ac2b051729e" },
+				{ id: "identifiers-ranges", source: commonRecords, start: "## Identifiers, code ranges, and design markers", extract: headingUnit("## Identifiers, code ranges, and design markers"), expected: "0d995abc7711561bde6f3b397106a7c4957559453f5d45320352cfd1bfc52ffb" },
+				{ id: "tool-records-and-recovery", source: commonRecords, start: "## Manual records and safe writes", extract: headingUnit("## Manual records and safe writes"), expected: "bc77d3c7268cc5d96d60c977d1a35978e133222fecf2924182b4851a9f3d3601" },
+				{ id: "resume-forks", source: recursive, start: "## Resume and folder forks", extract: headingUnit("## Resume and folder forks"), expected: "953d25a6c6cf11abdf8fc12aeea4db0223480331fb6c199e507c9e87ac0e5fc7" },
 				{ id: "handoff-pointer", source: recursive, start: "## Handoff boundaries", extract: headingUnit("## Handoff boundaries"), expected: "225c24f843fa607d5ebfd489e574e16641953dab064546450ea0082463bf48d0" },
 				{ id: "marker-identity", source: workflow, extract: markedUnit("marker-identity-policy"), expected: "ae24e23298695b323c803f31515c87ee8de5777cd0b0a13dba90d747c9df4308" },
 				{ id: "resume-order", source: workflow, start: "## Resume order and reconciliation", extract: headingUnit("## Resume order and reconciliation"), expected: recordDigest(resumeOrderExpected) },
 				{ id: "general-handoff", source: workflow, start: "### Handoff summary", extract: headingUnit("### Handoff summary"), expected: "b3aaa6e40d75e2a2e311e8da00982a70b8fbe46e3921a578e01274f98fe171ee" },
-				{ id: "closed-range-feedback", source: workflow, start: "### Closed-range corrections", extract: headingUnit("### Closed-range corrections"), expected: "460af97e1d77774e44cad918e52d89a1c36ecad5ab107d25c1a8a21b191f22f3" },
+				{ id: "closed-range-feedback", source: workflow, start: "### Closed-range corrections", extract: headingUnit("### Closed-range corrections"), expected: "b162898f9f10b91f3ed511220678f9ba534cdb886ce93bac72d7e07e3a416143" },
 			];
 			const acceptsRecordUnit = (unit, source) => {
 				const resolved = unit.extract(source);
@@ -3556,8 +3690,8 @@ Use its § Session handoff and the research log for ownership.`);
 			// review-rules.md input amendments and RG9 common-text mutations.
 			// Independent reviewed pins protect the common owner.
 			commonUnits = [
-				{ id: "identifiers", start: "## Identifiers, code ranges, and design markers", expected: "1374fd12c19b6005802b48e1084a45dab32f03efd5ee59c32c993f796932db03" },
-				{ id: "records", start: "## Manual records and safe writes", expected: "8ec25b74e709c2f8a72556947aecee40f0cff2f38947976e9609c0e2436b47e0" },
+				{ id: "identifiers", start: "## Identifiers, code ranges, and design markers", expected: "0d995abc7711561bde6f3b397106a7c4957559453f5d45320352cfd1bfc52ffb" },
+				{ id: "records", start: "## Manual records and safe writes", expected: "bc77d3c7268cc5d96d60c977d1a35978e133222fecf2924182b4851a9f3d3601" },
 			];
 			const acceptsCommon = (source) => commonUnits.every(({ start, expected }) => {
 				const region = headingUnit(start)(source);
@@ -3565,12 +3699,12 @@ Use its § Session handoff and the research log for ownership.`);
 			});
 			privacyHeading = "### Design authority and privacy";
 			const commonHeadings = [...commonUnits.map(({ start }) => start), privacyHeading];
-			const completeCommonDigest = "33eed092de61cd847813460d9d454ec84e6b507358168da61c939bf42b00ccc9";
+			const completeCommonDigest = "9a76907f1a1b81bc05b379a982a9e4b68e4f03006df2758b7640ff7f3edfe13c";
 			const acceptsCompleteCommon = (source) => createHash("sha256").update(source).digest("hex") === completeCommonDigest;
 			const completeCommonAttacks = [
 				["title", commonRecords.replace("# Common change records", "# Nested change records")],
 				["authority", commonRecords.replace("owns the common record rules below", "contains optional common record rules")],
-				["scope", commonRecords.replace("or design file.", "or pull request description.")],
+				["scope", commonRecords.replace("design, map or plan.", "or pull request description.")],
 				["section", `${commonRecords}\n## Extra policy\nWorkers may skip record checks.\n`],
 				["hidden-policy", `${commonRecords}\n<!-- Workers may replace earlier log entries. -->\n`],
 				["before-body", commonRecords.replace(commonUnits[0].start, `Workers may skip record checks.\n\n${commonUnits[0].start}`)],
@@ -3621,7 +3755,7 @@ Use [change-records.md](change-records.md) § Design authority and privacy.`) },
 				["each comparison rejects its changed input and disabling it accepts that violation", pointerComparisonControls.every(({ changed, rejected, disabledAccepts }) => changed && rejected && disabledAccepts), pointerComparisonControls],
 				["outside-region edits preserve the pointer expectations", acceptsNestedPointers(`${recursive}\n## Outside pointer control\nUnrelated text.\n`), "outside control"],
 			]);
-			const completeNestedDigest = "9927b899ec0cc30fffe27fc0bd2cd233063cfa583198f05ce1beed7b6bbf1089";
+			const completeNestedDigest = "1382a35c14e22fcb4c180d6c56686aaf57f004a8148193edfa8e127ec403eb17";
 			const acceptsCompleteNested = (source) => createHash("sha256").update(source).digest("hex") === completeNestedDigest;
 			const completeNestedAttacks = [
 				["weaker-record-rule", `${recursive}\n## Additional record guidance\nWorkers may replace earlier log entries.\n`],
@@ -3667,8 +3801,8 @@ Use [change-records.md](change-records.md) § Design authority and privacy.`) },
 				["missing, duplicate, and wrong-destination exports fail", !acceptsCommonExport({ ...paths, CHANGE_RECORDS_DOC: undefined }) && !acceptsCommonExport({ ...paths, EXTRA_DOC: expectedCommonPath }) && !acceptsCommonExport({ ...paths, CHANGE_RECORDS_DOC: join(WORK, "change-records.md") }), "export counterfactuals"],
 			]);
 			commonWarnings = [
-				{ id: "session", text: "Record contents can also appear in saved worker sessions and command text." },
-				{ id: "perms", text: "Pi saves session files with default permissions, which can expose record text to other local users." },
+				{ id: "session", text: "Records can appear in saved worker sessions and command text." },
+				{ id: "perms", text: "Pi's default session permissions can expose record text to other local users." },
 				{ id: "issue", text: "[Issue #499](https://github.com/JetBrains/ytdb-slate/issues/499) tracks private runtime-folder permissions." },
 			];
 			const acceptsCommonWarning = (source, text) => {
@@ -3701,169 +3835,113 @@ Use [change-records.md](change-records.md) § Design authority and privacy.`) },
 			const toolsSource = readFileSync(join(REPO, "extension", "tools.ts"), "utf8");
 			const noRecipeReferences = (...sources) => sources.every((source) => !/safe-record-recipe|safe-record\.py|runnable recipe/i.test(source));
 			const recordPolicy = recursiveRecordUnits.find((unit) => unit.id === "tool-records-and-recovery");
-			const directWriteBlock = commonRecords.match(/^Record-only workers write research logs[\s\S]*?^The worker retries the edit only after a successful comparison\.$/m)?.[0] ?? "";
-			const appendToolBan = "A worker never uses `>`, the write tool, the edit tool, or `sed -i` on an existing log or report.";
+			const directWriteBlock = headingUnit("## Manual records and safe writes")(commonRecords).rawText;
+			const appendToolBan = "Never use `>`, write or edit tools, or `sed -i` on an existing log or report.";
 			const recordContractRules = new Map([
-				["record-only-task-record-names-removed", "The orchestrator names the records in the worker's task."],
-				["record-only-task-assigned-method-removed", "Each record-only task states the write and check method of these rules for each assigned record."],
-				["record-only-task-source-rule-removed", "When a source folder exists, the task states the read-only source rule."],
-				["start-copy-removed", "the worker copies the record to a temporary file in its supplied action folder."],
-				["start-copy-location-inside-records", "copies the record to a temporary file in its supplied action folder"],
-				["start-copy-after-first-write", "Before its first write to a record in an action,"],
-				["new-record-empty-start-copy-removed", "For a record that does not exist yet, that copy is an empty file."],
-				["new-text-temporary-file-removed", "The worker writes each new text to its own temporary file in its supplied action folder before it writes the record."],
-				["new-text-temporary-file-shared", "each new text to its own temporary file"],
-				["new-text-temporary-file-inside-records", "writes each new text to its own temporary file in its supplied action folder"],
-				["new-text-temporary-file-after-write", "before it writes the record."],
-				["new-log-first-temporary-append-removed", "A worker creates a new log or report by appending its first temporary file with `>>`."],
-				["new-report-first-temporary-append-removed", "A worker creates a new log or report by appending its first temporary file with `>>`."],
-				["append-temporary-file-removed", "An append adds one temporary file to the record with `>>`."],
-				["append-temporary-file-operator-removed", "An append adds one temporary file to the record with `>>`."],
-				["status-rewrite-temporary-copy-removed", "A `status.md` rewrite or a new design file copies its temporary file to the record."],
-				["new-design-temporary-copy-removed", "A `status.md` rewrite or a new design file copies its temporary file to the record."],
-				["final-check-before-last-write", "After its last write to a record,"],
-				["final-check-whole-record-removed", "the worker checks the whole record once."],
-				["final-check-once-per-record-removed", "the worker checks the whole record once."],
-				["append-equality-start-copy-removed", "must equal the start copy followed by every appended temporary file in order."],
-				["append-equality-every-temporary-file-removed", "every appended temporary file in order."],
-				["append-equality-temporary-order-removed", "every appended temporary file in order."],
-				["append-equality-cat-removed", "The worker checks this with `cat` and `cmp`."],
-				["append-equality-cmp-removed", "The worker checks this with `cat` and `cmp`."],
-				["status-final-temporary-equality-removed", "A `status.md` file or a new design file must equal its last temporary file."],
-				["new-design-final-temporary-equality-removed", "A `status.md` file or a new design file must equal its last temporary file."],
-				["status-final-cmp-removed", "The worker checks this with `cmp`."],
-				["new-design-final-cmp-removed", "The worker checks this with `cmp`."],
-				["changed-design-diff-removed", "by `diff` and confirms"],
-				["changed-design-verified-copy-removed", "compares the design with its verified versioned copy by `diff`"],
-				["changed-design-intended-differences-removed", "and confirms that every difference is intended."],
-				["check-report-per-record-removed", "The worker reports one check for each record in its final response."],
-				["check-report-final-response-removed", "The worker reports one check for each record in its final response."],
-				["check-report-exact-task-path-removed", "the exact record path from the task,"],
-				["check-report-comparison-description-removed", "what the worker compared, and the result."],
-				["check-report-result-removed", "what the worker compared, and the result."],
-				["count-incomplete-check-report", "only when all three parts appear in the episode."],
-				["unreported-written-record-read-removed", "The orchestrator reads each record that the task assigns for writing and that has no counted check report."],
-				["unreported-read-extended-to-read-only-records", "that the task assigns for writing and that has no counted check report."],
-				["unreported-read-depends-on-tool-warning", "The orchestrator reads each record that the task assigns for writing and that has no counted check report."],
-				["unreported-read-after-another-write", "The orchestrator reads it before any other write to that record."],
-				["failed-check-retry-route-removed", "When a check report shows a failure, the orchestrator follows the retry rules."],
-				["failed-final-check-end-only-inspection", "After a failed final check, the orchestrator inspects the whole record."],
-				["required-retry-reads-addition-removed", "These reads add to the reads that the retry rules require."],
-				["required-retry-reads-replacement-permitted", "They never replace a required read."],
-				["status-retry-complete-rewrite-removed", "After a failed or unclear `status.md` write, the worker rewrites the whole file again."],
-				["unequal-versioned-copy-refusal-removed", "If `cmp` shows different bytes or the copy is missing,"],
-				["missing-versioned-copy-refusal-removed", "If `cmp` shows different bytes or the copy is missing,"],
-				["invalid-versioned-copy-existing-file-protection-removed", "the worker leaves any existing file unchanged."],
-				["versioned-copy-retry-next-unused-name-removed", "The worker copies again with `cp -n` to the next unused versioned name."],
-				["versioned-copy-retry-cmp-before-design-change-removed", "The worker checks the new copy with `cmp` before changing the design."],
-				["failed-design-edit-comparison-removed", "If an edit to an existing design fails or ends without a clear report,"],
-				["unclear-design-edit-comparison-removed", "If an edit to an existing design fails or ends without a clear report,"],
-				["design-retry-verified-copy-comparison-removed", "the orchestrator compares the design file with its verified versioned copy."],
-				["design-retry-before-orchestrator-cmp", "The orchestrator uses `cmp` before any retry."],
-				["unchanged-design-edit-only-retry-removed", "If the design is unchanged, a worker retries only the edit."],
-				["partial-design-restore-removed", "If the design changed in part, a worker restores it from the verified copy with `cp`."],
-				["partial-design-restore-cp-removed", "restores it from the verified copy with `cp`."],
-				["partial-design-restore-cmp-removed", "The worker uses `cmp` to check that the restored design equals the verified copy."],
-				["partial-design-retry-before-restoration-comparison", "The worker retries the edit only after a successful comparison."],
-				["change-start-while-record-writer-permitted", "The orchestrator does not start or close a change while a record-writing worker runs."],
-				["change-close-while-record-writer-permitted", "The orchestrator does not start or close a change while a record-writing worker runs."],
-				["log-report-retry-missing-text-not-resent", "If the text is missing, it sends the write again."],
-				["log-report-retry-present-text-resent", "If the text is present, it sends nothing again."],
-				["log-report-retry-partial-text-resent", "If only part of the text is present, the next write adds a correction entry that names the cut-off entry."],
-				["log-report-retry-before-inspection", "the orchestrator reads the record before any retry."],
-				["log-report-partial-correction-without-entry-name", "a correction entry that names the cut-off entry."],
+				["record-only-task-record-names-removed", {"owner":"C","rule":"Tasks name destinations, creation/edit, write/check methods, read-only sources and checked operation/attempt entries.","operand":"Tasks name destinations, creation/edit, write/check methods, read-only sources and checked operation/attempt entries.","replacement":""}],
+				["record-only-task-assigned-method-removed", {"owner":"C","rule":"write/check methods","operand":"write/check methods","replacement":"Each record-only task states the method for only one assigned record."}],
+				["record-only-task-source-rule-removed", {"owner":"C","rule":"read-only sources","operand":"read-only sources","replacement":""}],
+				["start-copy-removed", {"owner":"W","rule":"copy current bytes to an action-folder start file (empty if new).","operand":"copy current bytes to an action-folder start file (empty if new).","replacement":"the worker makes no start copy."}],
+				["start-copy-location-inside-records", {"owner":"W","rule":"action-folder start file","operand":"action-folder start file","replacement":"copies the record to a temporary file beside retained records, outside its action folder"}],
+				["start-copy-after-first-write", {"owner":"W","rule":"Before first write,","operand":"Before first write,","replacement":"After its first write to a record in an action,"}],
+				["new-record-empty-start-copy-removed", {"owner":"W","rule":"(empty if new).","operand":"(empty if new).","replacement":""}],
+				["new-text-temporary-file-removed", {"owner":"W","rule":"Put payloads in separate files there.","operand":"Put payloads in separate files there.","replacement":"The worker writes each new text directly to the record."}],
+				["new-text-temporary-file-shared", {"owner":"W","rule":"payloads in separate files","operand":"payloads in separate files","replacement":"all new texts to one shared temporary file"}],
+				["new-text-temporary-file-inside-records", {"owner":"W","rule":"Put payloads in separate files there","operand":"Put payloads in separate files there","replacement":"writes each new text to its own temporary file beside retained records, outside its action folder"}],
+				["new-text-temporary-file-after-write", {"owner":"W","rule":"separate files there.","operand":"separate files there.","replacement":"after it writes the record."}],
+				["new-log-first-temporary-append-removed", {"owner":"C","rule":"Logs and reports are append-only, including their first write.","operand":"Logs and reports are append-only, including their first write.","replacement":"A worker creates only a new report by appending its first temporary file with `>>`."}],
+				["new-report-first-temporary-append-removed", {"owner":"C","rule":"Logs and reports are append-only, including their first write.","operand":"Logs and reports are append-only, including their first write.","replacement":"A worker creates only a new log by appending its first temporary file with `>>`."}],
+				["append-temporary-file-removed", {"owner":"W","rule":"Append with `>>`.","operand":"Append with `>>`.","replacement":"An append adds arbitrary text to the record with `>>`."}],
+				["append-temporary-file-operator-removed", {"owner":"W","rule":"Append with `>>`.","operand":"Append with `>>`.","replacement":"An append adds one temporary file to the record with `>`."}],
+				["status-rewrite-temporary-copy-removed", {"owner":"W","rule":"Copy the temporary file for status creation or rewrites. Use the assigned command for new designs, maps and plans.","operand":"Copy the temporary file for status creation or rewrites. Use the assigned command for new designs, maps and plans.","replacement":"Only a new design file copies its temporary file to the record."}],
+				["new-design-temporary-copy-removed", {"owner":"W","rule":"Copy the temporary file for status creation or rewrites. Use the assigned command for new designs, maps and plans.","operand":"Copy the temporary file for status creation or rewrites. Use the assigned command for new designs, maps and plans.","replacement":"Only a `status.md` rewrite copies its temporary file to the record."}],
+				["final-check-before-last-write", {"owner":"C","rule":"After the last write,","operand":"After the last write,","replacement":"Before its last write to a record,"}],
+				["final-check-whole-record-removed", {"owner":"C","rule":"check the whole record once.","operand":"check the whole record once.","replacement":"the worker checks only the last entry once."}],
+				["final-check-once-per-record-removed", {"owner":"C","rule":"check the whole record once.","operand":"check the whole record once.","replacement":"the worker checks the whole record repeatedly."}],
+				["append-equality-start-copy-removed", {"owner":"C","rule":"must equal the start copy followed by every appended temporary file in order.","operand":"must equal the start copy followed by every appended temporary file in order.","replacement":"must equal every appended temporary file in order."}],
+				["append-equality-every-temporary-file-removed", {"owner":"C","rule":"every appended temporary file in order.","operand":"every appended temporary file in order.","replacement":"some appended temporary files in order."}],
+				["append-equality-temporary-order-removed", {"owner":"C","rule":"every appended temporary file in order.","operand":"every appended temporary file in order.","replacement":"every appended temporary file in any order."}],
+				["append-equality-cat-removed", {"owner":"W","rule":"With `cat` and `cmp`, check log/report equals start copy plus appended payloads in order.","operand":"With `cat` and `cmp`, check log/report equals start copy plus appended payloads in order.","replacement":"with `cmp`."}],
+				["append-equality-cmp-removed", {"owner":"W","rule":"With `cat` and `cmp`, check log/report equals start copy plus appended payloads in order.","operand":"With `cat` and `cmp`, check log/report equals start copy plus appended payloads in order.","replacement":"The worker checks this with `cat`."}],
+				["status-final-temporary-equality-removed", {"owner":"C","rule":"Check a status file or new design, map or plan against its last temporary file with `cmp`.","operand":"Check a status file or new design, map or plan against its last temporary file with `cmp`.","replacement":"Only a new design file must equal its last temporary file."}],
+				["new-design-final-temporary-equality-removed", {"owner":"C","rule":"Check a status file or new design, map or plan against its last temporary file with `cmp`.","operand":"Check a status file or new design, map or plan against its last temporary file with `cmp`.","replacement":"Only a `status.md` file must equal its last temporary file."}],
+				["status-final-cmp-removed", {"owner":"C","rule":"Check a status file or new design, map or plan against its last temporary file with `cmp`.","operand":"Check a status file or new design, map or plan against its last temporary file with `cmp`.","replacement":"The worker checks only new design files with `cmp`."}],
+				["new-design-final-cmp-removed", {"owner":"C","rule":"Check a status file or new design, map or plan against its last temporary file with `cmp`.","operand":"Check a status file or new design, map or plan against its last temporary file with `cmp`.","replacement":"The worker checks only `status.md` files with `cmp`."}],
+				["changed-design-diff-removed", {"owner":"C","rule":"`diff` against","operand":"`diff` against","replacement":"without `diff` and confirms"}],
+				["changed-design-verified-copy-removed", {"owner":"C","rule":"`diff` against the verified copy","operand":"`diff` against the verified copy","replacement":"compares the design with an arbitrary file by `diff`"}],
+				["changed-design-intended-differences-removed", {"owner":"C","rule":"and confirm every difference is intended.","operand":"and confirm every difference is intended.","replacement":"and accepts unintended differences."}],
+				["check-report-per-record-removed", {"owner":"C","rule":"Final response: report each record's exact task path, comparison and result.","operand":"Final response: report each record's exact task path, comparison and result.","replacement":"The worker reports one check for the entire action in its final response."}],
+				["check-report-final-response-removed", {"owner":"C","rule":"Final response: report each record's exact task path, comparison and result.","operand":"Final response: report each record's exact task path, comparison and result.","replacement":"The worker reports one check for each record only in a temporary file."}],
+				["check-report-exact-task-path-removed", {"owner":"C","rule":"each record's exact task path","operand":"each record's exact task path","replacement":"an approximate filename,"}],
+				["check-report-comparison-description-removed", {"owner":"C","rule":"comparison and result","operand":"comparison and result","replacement":"the result alone."}],
+				["check-report-result-removed", {"owner":"C","rule":"comparison and result","operand":"comparison and result","replacement":"what the worker compared."}],
+				["count-incomplete-check-report", {"owner":"C","rule":"Only all three episode parts count as a check.","operand":"Only all three episode parts count as a check.","replacement":"even when only one part appears in the episode."}],
+				["unreported-written-record-read-removed", {"owner":"C","rule":"Before writing again, read unchecked assigned records and retry instructions.","operand":"Before writing again, read unchecked assigned records and retry instructions.","replacement":""}],
+				["unreported-read-extended-to-read-only-records", {"owner":"C","rule":"unchecked assigned records and retry instructions.","operand":"unchecked assigned records and retry instructions.","replacement":"that the task assigns for reading or writing and that has no counted check report."}],
+				["unreported-read-depends-on-tool-warning", {"owner":"C","rule":"Before writing again, read unchecked assigned records and retry instructions.","operand":"Before writing again, read unchecked assigned records and retry instructions.","replacement":"The orchestrator reads each record assigned for writing without a counted check report only when a tool-error warning appears."}],
+				["unreported-read-after-another-write", {"owner":"C","rule":"Before writing again,","operand":"Before writing again,","replacement":"The orchestrator may write again before reading it."}],
+				["failed-check-retry-route-removed", {"owner":"C","rule":"Failed check: worker reports and stops. Orchestrator applies exception rules.","operand":"Failed check: worker reports and stops. Orchestrator applies exception rules.","replacement":""}],
+				["failed-final-check-end-only-inspection", {"owner":"E","rule":"Failed final check: inspect the whole record.","operand":"Failed final check: inspect the whole record.","replacement":"After a failed final check, the orchestrator inspects only the end of the record."}],
+				["required-retry-reads-addition-removed", {"owner":"C","rule":"and retry instructions.","operand":"and retry instructions.","replacement":""}],
+				["required-retry-reads-replacement-permitted", {"owner":"C","rule":"and retry instructions.","operand":"and retry instructions.","replacement":"They may replace a required read."}],
+				["status-retry-complete-rewrite-removed", {"owner":"E","rule":"Failed or unclear `status.md`: retry a whole rewrite.","operand":"Failed or unclear `status.md`: retry a whole rewrite.","replacement":"After a failed or unclear `status.md` write, the worker writes only the missing suffix."}],
+				["unequal-versioned-copy-refusal-removed", {"owner":"E","rule":"Missing or different preservation copy:","operand":"Missing or different preservation copy:","replacement":"Only if the copy is missing,"}],
+				["missing-versioned-copy-refusal-removed", {"owner":"E","rule":"Missing or different preservation copy:","operand":"Missing or different preservation copy:","replacement":"Only if `cmp` shows different bytes,"}],
+				["invalid-versioned-copy-existing-file-protection-removed", {"owner":"E","rule":"leave current unchanged.","operand":"leave current unchanged.","replacement":"the worker overwrites an existing file."}],
+				["versioned-copy-retry-next-unused-name-removed",{"owner":"W","rule":"Each allows first attempt + one next-name retry with first recorded identity as expected.","operand":"Each allows first attempt + one next-name retry with first recorded identity as expected.","replacement":"Use the occupied versioned name for every retry."}],
+				["versioned-copy-retry-cmp-before-design-change-removed",{"owner":"W","rule":"Preserve: equal true, equal full sourceHash/destinationHash, retainedVerified true.","operand":"Preserve: equal true, equal full sourceHash/destinationHash, retainedVerified true.","replacement":"Preserve: accept copy exit alone."}],
+				["failed-design-edit-comparison-removed",{"owner":"E","rule":"Unclear or failed edit: compare with its intended logged copy.","operand":"Unclear or failed edit: compare with its intended logged copy.","replacement":"Only unclear edits need comparison."}],
+				["unclear-design-edit-comparison-removed",{"owner":"E","rule":"Unclear or failed edit: compare with its intended logged copy.","operand":"Unclear or failed edit: compare with its intended logged copy.","replacement":"Only failed edits need comparison."}],
+				["design-retry-verified-copy-comparison-removed",{"owner":"W","rule":"Compare regular non-link leaves only with the intended eligible logged restore copy. Never guess.","operand":"Compare regular non-link leaves only with the intended eligible logged restore copy. Never guess.","replacement":"Compare against any available copy."}],
+				["design-retry-before-orchestrator-cmp",{"owner":"W","rule":"Unchanged bytes: authorized edit retry only.","operand":"Unchanged bytes: authorized edit retry only.","replacement":"Retry the edit before comparing current bytes."}],
+				["unchanged-design-edit-only-retry-removed", {"owner":"E","rule":"If unchanged, retry only the edit.","operand":"If unchanged, retry only the edit.","replacement":"If the design is unchanged, a worker retries the copy and edit."}],
+				["partial-design-restore-removed",{"owner":"W","rule":"Otherwise retain changed bytes with checked recovery-only logging before restoration. Check restored bytes before retry.","operand":"Otherwise retain changed bytes with checked recovery-only logging before restoration. Check restored bytes before retry.","replacement":"Retry partial edits without restoration."}],
+				["partial-design-restore-cp-removed",{"owner":"W","rule":"Repair over present bytes needs command retention and restore-source verification against its own eligible hash.","operand":"Repair over present bytes needs command retention and restore-source verification against its own eligible hash.","replacement":"Repair by unchecked replacement without command retention."}],
+				["partial-design-restore-cmp-removed",{"owner":"W","rule":"Check restored bytes before retry.","operand":"Check restored bytes before retry.","replacement":"Retry without checking restored bytes."}],
+				["partial-design-retry-before-restoration-comparison",{"owner":"W","rule":"Check restored bytes before retry.","operand":"Check restored bytes before retry.","replacement":"Check restored bytes after retry."}],
+				["change-start-while-record-writer-permitted", {"owner":"C","rule":"Allow one writer per record. Do not start or close a change while a record writer runs.","operand":"Allow one writer per record. Do not start or close a change while a record writer runs.","replacement":"The orchestrator does not close a change while a record-writing worker runs."}],
+				["change-close-while-record-writer-permitted", {"owner":"C","rule":"Allow one writer per record. Do not start or close a change while a record writer runs.","operand":"Allow one writer per record. Do not start or close a change while a record writer runs.","replacement":"The orchestrator does not start a change while a record-writing worker runs."}],
+				["log-report-retry-missing-text-not-resent", {"owner":"E","rule":"Retry absent text, never present text.","operand":"Retry absent text, never present text.","replacement":"If the text is missing, it sends nothing again."}],
+				["log-report-retry-present-text-resent", {"owner":"E","rule":"never present text.","operand":"never present text.","replacement":"If the text is present, it sends the write again."}],
+				["log-report-retry-partial-text-resent", {"owner":"E","rule":"Partial text: append a correction naming the cut-off entry.","operand":"Partial text: append a correction naming the cut-off entry.","replacement":"If only part of the text is present, the next write repeats the original entry."}],
+				["log-report-retry-before-inspection", {"owner":"E","rule":"Unclear or failed append: orchestrator reads its end before retry.","operand":"Unclear or failed append: orchestrator reads its end before retry.","replacement":"the orchestrator retries before reading the record."}],
+				["log-report-partial-correction-without-entry-name", {"owner":"E","rule":"a correction naming the cut-off entry.","operand":"a correction naming the cut-off entry.","replacement":"a correction entry without naming the cut-off entry."}],
 			]);
-			const recordRuleCount = (source, rule) => {
-				const resolved = recordPolicy.extract(source);
-				return resolved.count === 1 ? resolved.text.split(rule).length - 1 : NaN;
-			};
-			const recordContractAttacks = ((recursive) => [
-				["append-only-operator-removed", recursive.replace("On an existing log or report, a worker appends only with the shell operator `>>`.", "")],
+			const namedSources = { C: commonRecords, W: readFileSync(join(REPO, "docs/safe-record-write.md"), "utf8"), E: readFileSync(join(REPO, "docs/record-write-recovery.md"), "utf8") };
+			const namedRegion = (source, owner) => normalizeText(owner === "C" ? headingUnit("## Manual records and safe writes")(source).rawText : owner === "W" ? headingUnit("## Record preparation and recovery execution")(source).rawText : source);
+			const recordRuleCount = (sources, entry) => namedRegion(sources[entry.owner], entry.owner).split(entry.rule).length - 1;
+			const namedAttacks = [...recordContractRules].map(([id, entry]) => {
+				const original = namedSources[entry.owner];
+				const source = { ...namedSources, [entry.owner]: original.replace(new RegExp(entry.operand.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+")), () => entry.replacement) };
+				return { id, changed: source[entry.owner] !== original, rejected: recordRuleCount(source, entry) !== 1,
+					originalRuleCount: recordRuleCount(namedSources, entry), mutatedRuleCount: recordRuleCount(source, entry) };
+			});
+			const recordContractAttacks = [...((recursive) => [
+				["append-only-operator-removed", recursive.replace("Append each temporary file with `>>`, as in `cat temporary-file >> file`.", "")],
 				["permit-truncating-redirection", recursive.replace(appendToolBan, "A worker may use `>` on an existing log or report.")],
 				["permit-write-tool", recursive.replace(appendToolBan, "A worker may use the write tool on an existing log or report.")],
 				["permit-edit-tool", recursive.replace(appendToolBan, "A worker may use the edit tool on an existing log or report.")],
 				["permit-sed-in-place", recursive.replace(appendToolBan, "A worker may use `sed -i` on an existing log or report.")],
-				["design-copy-cp-n-removed", recursive.replace("The worker uses `cp -n` to make the copy.", "The worker changes the existing design without making the copy.")],
-				["design-copy-cmp-removed", recursive.replace("The worker then uses `cmp` to check that the copy equals the current file.", "")],
-				["design-copy-exit-status-authority", recursive.replace("The worker accepts the copy only when `cmp` shows equal bytes, regardless of the `cp -n` exit status.", "The worker accepts the copy when `cp -n` exits successfully, regardless of the `cmp` result.")],
+				["design-copy-cp-n-removed", recursive.replace("Before edits, match identity and check record-only logging of separate command retention beside it.", "The worker changes the existing design without command retention.")],
+				["design-copy-cmp-removed", recursive.replace("Before edits, match identity and check record-only logging of separate command retention beside it.", "Before edits, accept command retention without checking it.")],
+				["design-copy-exit-status-authority", recursive.replace("Before edits, match identity and check record-only logging of separate command retention beside it.", "Before edits, accept retention from a successful command exit alone.")],
 				["direct-write-block-missing", recursive.replace(directWriteBlock, "")],
 				["direct-write-block-contradictory", recursive.replace(directWriteBlock, `${directWriteBlock}\nA worker may rewrite earlier log entries.`)],
 				["direct-write-block-duplicate", recursive.replace(directWriteBlock, `${directWriteBlock}\n\n${directWriteBlock}`)],
-				["omit-transcript-limit", recursive.replace("Record contents can also appear in saved worker sessions and command text.", "Record contents never appear in saved worker sessions or command text.")],
-				["record-only-task-record-names-removed", recursive.replace("The orchestrator names the records in the worker's task.", "")],
-				["record-only-task-assigned-method-removed", recursive.replace("Each record-only task states the write and check method of these rules for each assigned record.", "Each record-only task states the method for only one assigned record.")],
-				["record-only-task-source-rule-removed", recursive.replace("When a source folder exists, the task states the read-only source rule.", "")],
-				["start-copy-removed", recursive.replace("the worker copies the record to a temporary file in its supplied action folder.", "the worker makes no start copy.")],
-				["start-copy-location-inside-records", recursive.replace("copies the record to a temporary file in its supplied action folder", "copies the record to a temporary file beside retained records, outside its action folder")],
-				["start-copy-after-first-write", recursive.replace("Before its first write to a record in an action,", "After its first write to a record in an action,")],
-				["new-record-empty-start-copy-removed", recursive.replace("For a record that does not exist yet, that copy is an empty file.", "")],
-				["new-text-temporary-file-removed", recursive.replace("The worker writes each new text to its own temporary file in its supplied action folder before it writes the record.", "The worker writes each new text directly to the record.")],
-				["new-text-temporary-file-shared", recursive.replace("each new text to its own temporary file", "all new texts to one shared temporary file")],
-				["new-text-temporary-file-inside-records", recursive.replace("writes each new text to its own temporary file in its supplied action folder", "writes each new text to its own temporary file beside retained records, outside its action folder")],
-				["new-text-temporary-file-after-write", recursive.replace("before it writes the record.", "after it writes the record.")],
-				["new-log-first-temporary-append-removed", recursive.replace("A worker creates a new log or report by appending its first temporary file with `>>`.", "A worker creates only a new report by appending its first temporary file with `>>`.")],
-				["new-report-first-temporary-append-removed", recursive.replace("A worker creates a new log or report by appending its first temporary file with `>>`.", "A worker creates only a new log by appending its first temporary file with `>>`.")],
-				["append-temporary-file-removed", recursive.replace("An append adds one temporary file to the record with `>>`.", "An append adds arbitrary text to the record with `>>`.")],
-				["append-temporary-file-operator-removed", recursive.replace("An append adds one temporary file to the record with `>>`.", "An append adds one temporary file to the record with `>`.")],
-				["status-rewrite-temporary-copy-removed", recursive.replace("A `status.md` rewrite or a new design file copies its temporary file to the record.", "Only a new design file copies its temporary file to the record.")],
-				["new-design-temporary-copy-removed", recursive.replace("A `status.md` rewrite or a new design file copies its temporary file to the record.", "Only a `status.md` rewrite copies its temporary file to the record.")],
-				["final-check-before-last-write", recursive.replace("After its last write to a record,", "Before its last write to a record,")],
-				["final-check-whole-record-removed", recursive.replace("the worker checks the whole record once.", "the worker checks only the last entry once.")],
-				["final-check-once-per-record-removed", recursive.replace("the worker checks the whole record once.", "the worker checks the whole record repeatedly.")],
-				["append-equality-start-copy-removed", recursive.replace("must equal the start copy followed by every appended temporary file in order.", "must equal every appended temporary file in order.")],
-				["append-equality-every-temporary-file-removed", recursive.replace("every appended temporary file in order.", "some appended temporary files in order.")],
-				["append-equality-temporary-order-removed", recursive.replace("every appended temporary file in order.", "every appended temporary file in any order.")],
-				["append-equality-cat-removed", recursive.replace("The worker checks this with `cat` and `cmp`.", "The worker checks this with `cmp`.")],
-				["append-equality-cmp-removed", recursive.replace("The worker checks this with `cat` and `cmp`.", "The worker checks this with `cat`.")],
-				["status-final-temporary-equality-removed", recursive.replace("A `status.md` file or a new design file must equal its last temporary file.", "Only a new design file must equal its last temporary file.")],
-				["new-design-final-temporary-equality-removed", recursive.replace("A `status.md` file or a new design file must equal its last temporary file.", "Only a `status.md` file must equal its last temporary file.")],
-				["status-final-cmp-removed", recursive.replace("The worker checks this with `cmp`.", "The worker checks only new design files with `cmp`.")],
-				["new-design-final-cmp-removed", recursive.replace("The worker checks this with `cmp`.", "The worker checks only `status.md` files with `cmp`.")],
-				["changed-design-diff-removed", recursive.replace("by `diff` and confirms", "without `diff` and confirms")],
-				["changed-design-verified-copy-removed", recursive.replace("compares the design with its verified versioned copy by `diff`", "compares the design with an arbitrary file by `diff`")],
-				["changed-design-intended-differences-removed", recursive.replace("and confirms that every difference is intended.", "and accepts unintended differences.")],
-				["check-report-per-record-removed", recursive.replace("The worker reports one check for each record in its final response.", "The worker reports one check for the entire action in its final response.")],
-				["check-report-final-response-removed", recursive.replace("The worker reports one check for each record in its final response.", "The worker reports one check for each record only in a temporary file.")],
-				["check-report-exact-task-path-removed", recursive.replace("the exact record path from the task,", "an approximate filename,")],
-				["check-report-comparison-description-removed", recursive.replace("what the worker compared, and the result.", "the result alone.")],
-				["check-report-result-removed", recursive.replace("what the worker compared, and the result.", "what the worker compared.")],
-				["count-incomplete-check-report", recursive.replace("only when all three parts appear in the episode.", "even when only one part appears in the episode.")],
-				["unreported-written-record-read-removed", recursive.replace("The orchestrator reads each record that the task assigns for writing and that has no counted check report.", "")],
-				["unreported-read-extended-to-read-only-records", recursive.replace("that the task assigns for writing and that has no counted check report.", "that the task assigns for reading or writing and that has no counted check report.")],
-				["unreported-read-depends-on-tool-warning", recursive.replace("The orchestrator reads each record that the task assigns for writing and that has no counted check report.", "The orchestrator reads each record assigned for writing without a counted check report only when a tool-error warning appears.")],
-				["unreported-read-after-another-write", recursive.replace("The orchestrator reads it before any other write to that record.", "The orchestrator may write again before reading it.")],
-				["failed-check-retry-route-removed", recursive.replace("When a check report shows a failure, the orchestrator follows the retry rules.", "")],
-				["failed-final-check-end-only-inspection", recursive.replace("After a failed final check, the orchestrator inspects the whole record.", "After a failed final check, the orchestrator inspects only the end of the record.")],
-				["required-retry-reads-addition-removed", recursive.replace("These reads add to the reads that the retry rules require.", "")],
-				["required-retry-reads-replacement-permitted", recursive.replace("They never replace a required read.", "They may replace a required read.")],
-				["status-retry-complete-rewrite-removed", recursive.replace("After a failed or unclear `status.md` write, the worker rewrites the whole file again.", "After a failed or unclear `status.md` write, the worker writes only the missing suffix.")],
-				["unequal-versioned-copy-refusal-removed", recursive.replace("If `cmp` shows different bytes or the copy is missing,", "Only if the copy is missing,")],
-				["missing-versioned-copy-refusal-removed", recursive.replace("If `cmp` shows different bytes or the copy is missing,", "Only if `cmp` shows different bytes,")],
-				["invalid-versioned-copy-existing-file-protection-removed", recursive.replace("the worker leaves any existing file unchanged.", "the worker overwrites an existing file.")],
-				["versioned-copy-retry-next-unused-name-removed", recursive.replace("The worker copies again with `cp -n` to the next unused versioned name.", "The worker copies again with `cp -n` to the existing versioned name.")],
-				["versioned-copy-retry-cmp-before-design-change-removed", recursive.replace("The worker checks the new copy with `cmp` before changing the design.", "The worker changes the design before checking the new copy.")],
-				["failed-design-edit-comparison-removed", recursive.replace("If an edit to an existing design fails or ends without a clear report,", "Only if an edit to an existing design ends without a clear report,")],
-				["unclear-design-edit-comparison-removed", recursive.replace("If an edit to an existing design fails or ends without a clear report,", "Only if an edit to an existing design fails,")],
-				["design-retry-verified-copy-comparison-removed", recursive.replace("the orchestrator compares the design file with its verified versioned copy.", "the orchestrator compares the design file with an unverified file.")],
-				["design-retry-before-orchestrator-cmp", recursive.replace("The orchestrator uses `cmp` before any retry.", "The orchestrator uses `cmp` after retrying.")],
-				["unchanged-design-edit-only-retry-removed", recursive.replace("If the design is unchanged, a worker retries only the edit.", "If the design is unchanged, a worker retries the copy and edit.")],
-				["partial-design-restore-removed", recursive.replace("If the design changed in part, a worker restores it from the verified copy with `cp`.", "If the design changed in part, a worker retries without restoration.")],
-				["partial-design-restore-cp-removed", recursive.replace("restores it from the verified copy with `cp`.", "restores it from the verified copy by an unchecked edit.")],
-				["partial-design-restore-cmp-removed", recursive.replace("The worker uses `cmp` to check that the restored design equals the verified copy.", "")],
-				["partial-design-retry-before-restoration-comparison", recursive.replace("The worker retries the edit only after a successful comparison.", "The worker retries the edit before checking the restoration.")],
-				["change-start-while-record-writer-permitted", recursive.replace("The orchestrator does not start or close a change while a record-writing worker runs.", "The orchestrator does not close a change while a record-writing worker runs.")],
-				["change-close-while-record-writer-permitted", recursive.replace("The orchestrator does not start or close a change while a record-writing worker runs.", "The orchestrator does not start a change while a record-writing worker runs.")],
-				["log-report-retry-missing-text-not-resent", recursive.replace("If the text is missing, it sends the write again.", "If the text is missing, it sends nothing again.")],
-				["log-report-retry-present-text-resent", recursive.replace("If the text is present, it sends nothing again.", "If the text is present, it sends the write again.")],
-				["log-report-retry-partial-text-resent", recursive.replace("If only part of the text is present, the next write adds a correction entry that names the cut-off entry.", "If only part of the text is present, the next write repeats the original entry.")],
-				["log-report-retry-before-inspection", recursive.replace("the orchestrator reads the record before any retry.", "the orchestrator retries before reading the record.")],
-				["log-report-partial-correction-without-entry-name", recursive.replace("a correction entry that names the cut-off entry.", "a correction entry without naming the cut-off entry.")],
-			].map(([id, source]) => {
-				const attack = { id, changed: source !== recursive, rejected: !acceptsRecordUnit(recordPolicy, source) };
-				const rule = recordContractRules.get(id);
-				return rule === undefined ? attack : { ...attack, originalRuleCount: recordRuleCount(recursive, rule), mutatedRuleCount: recordRuleCount(source, rule) };
-			}))(commonRecords);
-			mutationAudit.record("record-contract", recordContractAttacks);
+				["omit-transcript-limit", recursive.replace("Records can appear in saved worker sessions and command text.", "Record contents never appear in saved worker sessions or command text.")],
+			].map(([id, source]) => ({ id, changed: source !== recursive, rejected: !acceptsRecordUnit(recordPolicy, source) })))(commonRecords), ...namedAttacks];
+			const dutySources = { C: commonRecords, W: readFileSync(join(REPO, "docs/safe-record-write.md"), "utf8"), E: readFileSync(join(REPO, "docs/record-write-recovery.md"), "utf8") };
+			const dutyAttacks = safeWriteAttacks(dutySources);
+            const activeControls = await activeOwnerControls(dutySources, REPO);
+			for (const [id, sentences] of safeWriteDuties) {
+				const attacks = dutyAttacks.filter((attack) => attack.id.startsWith(id + "/"));
+				checkAll(`contract-duty-${id}`, "each retained clause rejects independent word removal", [
+					["current and outside-region control pass", acceptsDutyRoster() && acceptsSafeWriteDuty(dutySources, sentences) && acceptsSafeWriteDuty({ ...dutySources, C: "Benign framing.\n" + commonRecords }, sentences), id],
+					["parsed owner controls", JSON.stringify(activeControls.map((r) => r.id)) === JSON.stringify(activeOwnerControlIds) && activeControls.every((r) => r.passed), activeControls.filter((r) => !r.passed)],
+                    ["all weakening cases change and fail", attacks.length > 0 && attacks.every((a) => a.changed && a.rejected), attacks.filter((a) => !a.changed || !a.rejected)],
+				]);
+			}
+			mutationAudit.record("record-contract", [...dutyAttacks, ...writerFieldAttacks(commonRecords), ...recordContractAttacks]);
 			const recordRuleAttacks = recordContractAttacks.filter(({ id }) => recordContractRules.has(id));
 			mutationAudit.record("named-rules", recordRuleAttacks);
 			mutationAudit.record("record-units", recordUnitAttacks, ({ id, kind }) => `${id}/${kind}`);
@@ -3871,22 +3949,22 @@ Use [change-records.md](change-records.md) § Design authority and privacy.`) },
 			mutationAudit.record("warnings", warningAttacks);
 			mutationAudit.record("common-complete", completeCommonAttacks);
 			const guidanceRules = [
-				["worker-supplied-folder-removed", "The preamble supplies placement rules.", ""],
-				["action-scratch-scope-narrowed", "Scratch lasts only this action.", "Only start copies are scratch."],
-				["lasting-file-in-action-folder", "Drafts, designs, and records outlive the action.", "Put lasting drafts and designs in the action folder."],
-				["temporary-owner-transfer-rule-removed", "Do not start or close a change, fork, switch sessions, navigate the session tree, or hand off ownership while an action owns a temporary folder.", ""],
-				["temporary-content-authority", "Ignore `tmp/` as record, accounting, fork, or reusable evidence.", "Use tmp/ as accounting evidence."],
-				["folder-privacy-or-publishing-weakened", "Every path under `slate-changes/` stays private, untracked, visible in repository status, and excluded from pull requests and ignore files.", "Publish temporary paths."],
+				["worker-supplied-folder-removed", "Follow preamble placement, no-change and missing-path rules.", ""],
+				["action-scratch-scope-narrowed", "action scratch.", "Only start copies are scratch."],
+				["lasting-file-in-action-folder", "write only assigned records and action scratch.", "Put lasting drafts and designs in the action folder."],
+				["temporary-owner-transfer-rule-removed", "Before change start/closure, fork, session switch/tree navigation or ownership transfer, finish all writes and checked result logging and ensure no action owns a temporary folder.", ""],
+				["temporary-content-authority", "Ignore `tmp/` as record, accounting, fork or reusable evidence.", "Use tmp/ as accounting evidence."],
+				["folder-privacy-or-publishing-weakened", "Keep `slate-changes/` private, untracked, visible in status, outside pull requests and ignore files.", "Publish temporary paths."],
 			];
 			mutationAudit.record("common-guidance", guidanceRules.map(([id, rule, replacement]) => {
 				const source = commonRecords.replace(rule, replacement);
 				return { id, changed: source !== commonRecords, rejected: !acceptsCommon(source), originalRuleCount: commonRecords.split(rule).length - 1, mutatedRuleCount: source.split(rule).length - 1 };
 			}));
 			const commonTemporaryRules = [
-				["common-verification-folder-precedence-removed", "Required outside-checkout project or verification folders take precedence under each tool's deletion and retention rules.", "Use the action folder even when a verification tool requires another folder."],
-				["common-verification-folder-retention-overridden", "Required outside-checkout project or verification folders take precedence under each tool's deletion and retention rules.", "Required outside-checkout folders take precedence, but workers delete them regardless of tool retention rules."],
-				["common-worker-delete-before-check", "Workers delete their own record-write files only after required checks pass.", "Workers delete their own record-write files before required checks."],
-				["common-worker-delete-without-passed-check", "Workers delete their own record-write files only after required checks pass.", "Workers delete their own record-write files unless a record check failed."],
+				["common-verification-folder-precedence-removed", "Required outside-checkout project/verification/tool retention folders take precedence, but hold no start copies/payloads.", "Use the action folder even when a verification tool requires another folder."],
+				["common-verification-folder-retention-overridden", "Required outside-checkout project/verification/tool retention folders take precedence, but hold no start copies/payloads.", "Required outside-checkout folders take precedence, but workers delete them regardless of tool retention rules."],
+				["common-worker-delete-before-check", "Delete record-write files only on a pass, else keep evidence and report failure.", "Workers delete their own record-write files before required checks."],
+				["common-worker-delete-without-passed-check", "Delete record-write files only on a pass, else keep evidence and report failure.", "Workers delete their own record-write files unless a record check failed."],
 			];
 			const commonTemporaryAttacks = commonTemporaryRules.map(([id, rule, replacement]) => {
 				const source = commonRecords.replace(rule, replacement);
@@ -3900,25 +3978,25 @@ Use [change-records.md](change-records.md) § Design authority and privacy.`) },
 				["four single-occurrence violations fail their intended manual-record protection", commonTemporaryAttacks.every(({ changed, rejected, intended, originalRuleCount, mutatedRuleCount }) => changed && rejected && intended && originalRuleCount === 1 && mutatedRuleCount === 0), commonTemporaryAttacks],
 			]);
 			const rulePreservingRecord = commonRecords.replace(directWriteBlock, `${directWriteBlock}\nThe worker reads plain text.`);
-			const recordRuleControls = [...recordContractRules].map(([id, rule]) => ({ id, count: recordRuleCount(rulePreservingRecord, rule) }));
+			const recordRuleControls = [...recordContractRules].map(([id, entry]) => ({ id, count: recordRuleCount({ ...namedSources, C: rulePreservingRecord }, entry) }));
 			const authoritativeReaders = (commonSource, publishingSource, deliverySource, nestedSource = recursive) => {
 				const r = normalizeText(commonSource), p = normalizeText(publishingSource), d = normalizeText(deliverySource);
-				return r.includes("The current `root-design.md` or `track-<number>-design.md` is authoritative for its node.")
-					&& r.includes("The owning research log records each approved design hash and aggregate evidence.")
-					&& normalizeText(nestedSource).includes("A successor design names its read-only source design.")
+				return r.includes("`versions/` whole bytes must match filename hashes.") && r.includes("`.vN.md` whole bytes must match owning-log hashes.") && r.includes("Current `root-design.md` or `track-<number>-design.md` governs its root or design-track node.")
+					&& r.includes("Logs hold decisions, approval hashes, links and accounting, not design authority.")
+					&& normalizeText(nestedSource).includes("Use [change-records.md](change-records.md) § Manual records and safe writes for successor design, map and plan identity.")
 					&& p.includes("When a high-level design exists, read the current authoritative root design at creation.")
 					&& p.includes("A copied design in a log is not the authoritative plan.")
 					&& d.includes("current authoritative `root-design.md`") && d.includes("authoritative `track-<number>-design.md`")
 					&& d.includes("Temporary files and incomplete retained copies are not accounting sources.")
-					&& d.includes("A design copy under `versions/` is evidence only when its complete bytes match the hash in its name.")
-					&& d.includes("A `<name>.vN.md` design copy is evidence when its complete bytes match the hash recorded in the owning log.")
-					&& d.includes("The current design file remains authoritative.");
+					&& d.includes("Use [change-records.md](change-records.md) § Manual records and safe writes for evidence identity and recorded-workflow compatibility.")
+					&& d.includes("Maps supply facts, not approval, acceptance or completion evidence.")
+					&& d.includes("Discovery grants no design authority to a retained earlier node kind.");
 			};
 			const readerAttacks = ((recursive) => [
-				[recursive.replace("is authoritative for its node", "is not authoritative for its node"), publishing, deliveryPackages],
+				[recursive.replace("governs its root or design-track node", "is not authoritative for its node"), publishing, deliveryPackages],
 				[recursive, publishing.replace("read the current authoritative root design", "read a copied design in the log"), deliveryPackages],
 				[recursive, publishing, deliveryPackages.replace("and authoritative `track-<number>-design.md`", "")],
-				[recursive, publishing, deliveryPackages.replace("is evidence when its complete bytes match the hash recorded in the owning log", "is never evidence")],
+				[recursive.replace("`versions/` whole bytes must match filename hashes.", "Recorded copies may have different bytes."), publishing, deliveryPackages],
 			].map(([r, p, d], index) => ({ id: ["root-authority", "publishing-authority", "delivery-authority", "version-bytes"][index], changed: r !== recursive || p !== publishing || d !== deliveryPackages, rejected: !authoritativeReaders(r, p, d) })))(commonRecords);
 			const canonicalMarkerCommand = "git commit --allow-empty -m 'Track <path-number> complete: <short name>' -m 'Change: <change title>'";
 			const acceptsMarkerCommand = (source) => {
@@ -3982,7 +4060,7 @@ Use [change-records.md](change-records.md) § Design authority and privacy.`) },
 					id: "workflow-migration",
 					source: workflow,
 					extract: regionUnit(/^## Migration\n\n([\s\S]*?)(?=^## Layering richer workflows on top)/gm),
-					expected: normalizeText(`An existing change finishes under its recorded workflow unless the user explicitly authorizes migration. Keep its recorded marker spelling and publishing arrangement. Keep existing level pull requests and retained references as evidence. Never move or delete those references automatically. A needed stacked rewrite pauses for a user decision. At closure, report leftover references for the user to delete. Do not rename markers or rewrite history to resemble a tree. Every new change uses the current workflow. A new change without design tracks or review-fix children has one level. It needs no manual status file or design-track research log. Missing manual tree records do not make an existing session unreadable. The publishing setting and its disabled default remain unchanged.`),
+					expected: normalizeText(`An existing change finishes under its recorded workflow unless the user explicitly authorizes migration. Keep its recorded marker spelling and publishing arrangement. Keep existing level pull requests and retained references as evidence. Never move or delete those references automatically. A needed stacked rewrite pauses for a user decision. At closure, report leftover references for the user to delete. Do not rename markers or rewrite history to resemble a tree. Every new change uses the current workflow. For log-content migration, record the exact source line range and full hash. The standalone design must equal that span, including entry prefixes, without summary or correction. Log its full hash under [change-records.md](change-records.md) § Manual records and safe writes. Later corrections need a new user-approved design version. A new change without design tracks or review-fix children has one level. It needs no manual status file or design-track research log. Missing manual tree records do not make an existing session unreadable. The publishing setting and its disabled default remain unchanged.`),
 				},
 			];
 			const publishingMigrationResults = publishingMigrationUnits.map((unit) => ({ id: unit.id, expected: unit.expected, ...unit.extract(unit.source) }));
@@ -4088,8 +4166,8 @@ The split bypasses no stuck-fix consultation or required fix gate.`) },
 				{ id: "repairs", source: recursive, start: "## Review-fix subtrees and repair limits", expected: protectedRepairSummary },
 				{ id: "aggregate", source: recursive, start: "## Whole-subtree acceptance", expected: "5086c2cea0fe27c090ff39b42cf1f26ed690f22b412d38ba362efa381e6f14f1" },
 				{ id: "issues", source: recursive, start: "## Packages, attribution, and issues", end: null, expected: "90f54deda3a1be019069dfe198b33c39772fce2467c64321b124bbbe7202ec2b" },
-				{ id: "sources", source: deliveryPackages, start: "## Durable accounting", expected: "6d952bcbfe6c9914da9bffa5b2db9a61b06296a5fa784069c580bf542e2a631e" },
-				{ id: "workflow-accounting", source: workflow, start: "### Delivery history and accounting", expected: "66e62a8eff125255b5ff607a5f5e41012f63ce9da0de128cb4729f41a03a27e6" },
+				{ id: "sources", source: deliveryPackages, start: "## Durable accounting", expected: "432ea03fd73abdf2f77e0841be7f9837c50912aaf3dadb4fe18b7d977cbb786e" },
+				{ id: "workflow-accounting", source: workflow, start: "### Delivery history and accounting", expected: "ea8080fec01554edc1a3050d23aaf351520d5ca51e5e2d4bd1d4f1e9dae7dd1b" },
 				{ id: "notes-accounting", source: userNotes, start: "### Final accounting preparation", expected: "34a1af81ea8c9cb69a4e6dcb948ad1492bc057c0caa05213fd15364d053b253f" },
 				{ id: "publishing-sync", source: publishing, start: "## Keeping the PR in sync", expected: "4d0b485020a5fef57f7a07b5e5e42adccb26c6482f0cff2bf7c04a513e72acf8" },
 				{ id: "public-roadmap", source: readFileSync(join(REPO, "docs", "roadmap.md"), "utf8"), start: "## Larger changes", expected: recordDigest(roadmapExpected) },
@@ -4104,7 +4182,7 @@ The split bypasses no stuck-fix consultation or required fix gate.`) },
 				}
 				: headingUnit(unit.start) }));
 			const repairEscalationDigest = "9f61738c4c77d9e59406480fdaa58485ce66fb2a921e634ed26c45c4cc1ee99b";
-			const EXPECTED_DELIVERY_PACKAGES_SHA256 = "541f2cc8917cd2c6874d2670fac537ef249f54be0a93145066ba290884717394";
+			const EXPECTED_DELIVERY_PACKAGES_SHA256 = "133f3bb1550bda8ad7245d228e53707ee844658d39100a2f8220b56f3750e982";
 			if (!ONLY) {
 			const acceptsRecursiveDelivery = (unit, source) => {
 				const resolved = unit.extract(source);
@@ -4174,20 +4252,18 @@ const sequentialAcceptanceAttacks = [
 			]);
 			const repairEscalation = headingUnit("## Mandatory escalation set");
 			const repairState = regionUnit(/^(Its plain-text \*\*repair state\*\* column[\s\S]*?)(?=^Create `track-<number>-research-log\.md`)/gm);
-			const repairStateExpected = normalizeText(`Its plain-text **repair state** column shows each code track and review-fix child's repair use.
-Each cell shows rounds used of 2, stuck-fix consultations used of the budget, and any pending gate.
-No fixed machine-readable format is required.
-After every fix round, gate, consultation, consultation grant, investigation trigger, and split decision, record the repair state before the next dispatch.
-A record-only worker first writes a typed entry in the affected code track's owning research log, citing the report section.
-Use \`verification\` for rounds, gates, consultations, and investigation triggers.
+			const repairStateExpected = normalizeText(`Its plain-text **repair state** column shows code tracks/review-fix children: rounds used of 2, stuck-fix consultations used/budget, pending gates.
+No fixed machine format.
+Before dispatch, record repair state after each fix round, gate, consultation/grant, investigation trigger or split decision.
+First, a record-only worker writes a typed entry citing the report section in the affected code track’s owning log.
+Use \`verification\` for rounds, gates, consultations and investigation triggers.
 Use \`decision\` for consultation grants and split decisions.
-The worker updates the \`status.md\` entry and cell second, before the next dispatch.
-The typed log entries are the evidence for each count.
-A cell grants no round.
-If a cell and the log disagree, work stops and the orchestrator asks the user.
-No automatic correction lowers a count.
+Second, the worker updates the status entry and cell before dispatch.
+Log entries prove counts. Cells grant no rounds.
+If a cell and log disagree, stop and ask the user.
+Automatic correction lowers no count.
 A change without a design track or review-fix child has no \`status.md\`.
-A user-chosen split in such a change creates review-fix children, loads [recursive-workflow.md](recursive-workflow.md), and creates \`status.md\`.`);
+A user-chosen split creates review-fix children and \`status.md\`. Load [recursive-workflow.md](recursive-workflow.md).`);
 			const repairRegister = regionUnit(/^## Override log\n([\s\S]*?)(?=^## Register entry shape\n)/gm);
 			const repairRegisterExpected = normalizeText(`The override log is created when its first event occurs. Exactly these events
 enter it:
@@ -4219,9 +4295,9 @@ delivery and is never created as an empty register.`);
 				["common-inheritance", userNotes, recursive, reviews, `${commonRecords}\nChildren inherit the repair budget.\n`],
 				["requirement-count", userNotes, recursive.replace("A split never resets the per-requirement count of failed ordinary rounds.", "A split resets the per-requirement count of failed ordinary rounds."), reviews],
 				["sibling-identity", userNotes, recursive.replace("A split at any depth creates sibling review-fix children under the same affected code track.", "A split of a child creates grandchildren with their own reports."), reviews],
-				["log-before-cell", userNotes, recursive, reviews, commonRecords.replace("A record-only worker first writes a typed entry", "A record-only worker writes the cell first, then a typed entry")],
-				["automatic-lowering", userNotes, recursive, reviews, commonRecords.replace("No automatic correction lowers a count.", "An automatic correction may lower a count.")],
-				["investigation-trigger-record", userNotes, recursive, reviews, commonRecords.replace("consultation grant, investigation trigger, and split decision", "consultation grant and split decision")],
+				["log-before-cell", userNotes, recursive, reviews, commonRecords.replace("First, a record-only worker writes a typed entry", "A record-only worker writes the cell first, then a typed entry")],
+				["automatic-lowering", userNotes, recursive, reviews, commonRecords.replace("Automatic correction lowers no count.", "An automatic correction may lower a count.")],
+				["investigation-trigger-record", userNotes, recursive, reviews, commonRecords.replace("consultation/grant, investigation trigger or split decision", "consultation/grant or split decision")],
 				["leftover-repairs", userNotes, recursive.replace("Those repairs take redesign or waive only.", "Those repairs get two further rounds."), reviews],
 				["budget-disclosure", userNotes.replace("The split escalation record stores that budget.", "The split escalation record omits that budget."), recursive, reviews],
 			].map(([id, notesSource, recursiveSource, reviewSource, commonSource = commonRecords]) => ({ id, changed: notesSource !== userNotes || recursiveSource !== recursive || reviewSource !== reviews || commonSource !== commonRecords, rejected: !acceptsRepairAuthorization(notesSource, recursiveSource, reviewSource, commonSource) }));
@@ -4410,6 +4486,10 @@ A needed stacked rewrite pauses for a user decision.
 At closure, report leftover references for the user to delete.
 Do not rename markers or rewrite history to resemble a tree.
 Every new change uses the current workflow.
+For log-content migration, record the exact source line range and full hash.
+The standalone design must equal that span, including entry prefixes, without summary or correction.
+Log its full hash under [change-records.md](change-records.md) § Manual records and safe writes.
+Later corrections need a new user-approved design version.
 A new change without design tracks or review-fix children has one level.
 It needs no manual status file or design-track research log.
 Missing manual tree records do not make an existing session unreadable.
@@ -4418,7 +4498,7 @@ The publishing setting and its disabled default remain unchanged.`) },
 A later aggregate package cannot authorize rewriting earlier user-reviewed ranges.
 Keep the local change branch and accepted-marker branches until root closure.
 Use the local branch for delivery verification and resume.
-Do not rebase after user review except for a user-chosen privacy rewrite under the duties below.
+Do not rebase except for a user-chosen privacy rewrite under the duties below.
 Use an ordinary merge of a moved base only for conflicts or required checks, between code-track ranges.
 That merge belongs to no track and carries the change title under § Commit titles and bodies.
 
@@ -4492,32 +4572,22 @@ needed for abandonment, and the close deletes nothing.
 
 A publishing-disabled single-track change starts at step 2.
 A multi-track change repeats step 1 for each track, then runs steps 2 through 4.`) },
-{ id: "private-set", source: commonRecords, extract: headingUnit("### Design authority and privacy"), expected: normalizeText(`The **private set** contains every path under \`slate-changes/\`, saved-session text, and private reasoning.
+{ id: "private-set", source: commonRecords, extract: headingUnit("### Design authority and privacy"), expected: normalizeText(`The **private set** is all paths under \`slate-changes/\`, saved-session text and private reasoning.
 Umask limits private creation permissions.
 Same-user processes can still access folders.
-**Private bytes** are bytes from that set.
+**Private bytes** come from that set.
 A write approves no design and grants no completion or gate authority.
-The owning log records approved design hashes.
-SHA-256 means Secure Hash Algorithm, 256-bit.
-A hash identifies the exact file bytes.
-Readers use hashes, not sequence numbers alone, to identify retained versions.
-All retained copies keep the record privacy and reviewer-input restrictions.
-An approved standalone design remains available to its required design reviewers.
-Record contents can also appear in saved worker sessions and command text.
-Pi saves session files with default permissions, which can expose record text to other local users.
+Design/map/plan identity: § Manual records and safe writes.
+Reviewer access: [review-rules.md](review-rules.md) § Reviewer input contract.
+Records can appear in saved worker sessions and command text.
+Pi's default session permissions can expose record text to other local users.
 [Issue #499](https://github.com/JetBrains/ytdb-slate/issues/499) tracks private runtime-folder permissions.`) },
 { id: "workflow-accounting", source: workflow, extract: headingUnit("### Delivery history and accounting"), expected: normalizeText(`A bootstrap commit created to open a draft pull request uses
-\`Bootstrap: <intent title>\`. It is not part of any track. Re-pin every recorded
-commit range after the rewrite, including the coverage register and any range
-in a track packet. Complete the rewrite before user review, so later
-user-review fix commits do not invalidate the reviewed range.
+\`Bootstrap: <intent title>\`. It opens publishing before owned implementation
+starts and is not part of any track.
 
-Use ordinary branch updates by default. Do not routinely force-push.
-The pre-user-review cumulative-commit rule is the only routine rewrite exception while that rule exists.
-
-When draft-pull-request publishing is enabled, update its current branch with a
-lease-protected force-push. The lease must prevent discarding a commit pushed
-by another party.
+Use ordinary branch updates. Do not routinely rewrite history or force-push.
+Only a user-chosen privacy rewrite permits rewriting history under the duties below.
 
 Markers follow § Commit titles and bodies.
 A multi-track boundary adds one empty marker commit after
@@ -4548,7 +4618,7 @@ Never destroy the exact state the user reviewed.
 A later aggregate package cannot authorize rewriting earlier user-reviewed ranges.
 Keep the local change branch and accepted-marker branches until root closure.
 Use the local branch for delivery verification and resume.
-Do not rebase after user review except for a user-chosen privacy rewrite under the duties below.
+Do not rebase except for a user-chosen privacy rewrite under the duties below.
 Use an ordinary merge of a moved base only for conflicts or required checks, between code-track ranges.
 That merge belongs to no track and carries the change title under § Commit titles and bodies.
 
@@ -5004,7 +5074,7 @@ const oneBranchCases = [
  [
   "no-rebase-after-review",
   "accepted-history",
-  "Do not rebase after user review except for a user-chosen privacy rewrite under the duties below."
+  "Do not rebase except for a user-chosen privacy rewrite under the duties below."
  ],
  [
   "pause-between-ranges",
@@ -5134,11 +5204,11 @@ const peerPinAttacks = levelPolicyUnits.map((unit) => {
  return { id: `${unit.id}/exception`, changed: source !== unit.source, rejected: !acceptsLevelUnit(unit, source) };
 });
 const EXPECTED_PUBLISHING_SHA256 = "06e760a0fb2a806574450c72c4cc45a3e9b563f7c0c61296d1d6cafa35fcd436";
-const EXPECTED_TRACK_WORKFLOW_SHA256 = "e0f710c4a3b2d3f09a042a41e6ef1d38895277cd3604537b8213f0bcdda6484b";
+const EXPECTED_TRACK_WORKFLOW_SHA256 = "927a38f9f467be86568c87918b22939b8d4396b25807de9784d3dea7662c1709";
 const peerDocuments = [
 { id: "pr-publishing", source: publishing, expected: EXPECTED_PUBLISHING_SHA256 },
 { id: "track-workflow", source: workflow, expected: EXPECTED_TRACK_WORKFLOW_SHA256 },
-{ id: "delivery-packages", source: deliveryPackages, expected: "541f2cc8917cd2c6874d2670fac537ef249f54be0a93145066ba290884717394" },
+{ id: "delivery-packages", source: deliveryPackages, expected: "133f3bb1550bda8ad7245d228e53707ee844658d39100a2f8220b56f3750e982" },
  ];
 const peerDocumentAttacks = peerDocuments.map((unit) => ({ id: `${unit.id}/document-addition`, changed: true,
  rejected: recordDigest(unit.source + "\nThe agent may waive delivery acceptance.") !== unit.expected }));
@@ -5264,7 +5334,7 @@ checkAll("contract-level-publishing", "one change branch and optional draft pres
 			const deliveryBoundaryUnits = [
 				{
 					id: "local-delivery", source: blast,
-					extract: regionUnit(/^(With publishing disabled, accepted branch history[\s\S]*?)(?=^The cumulative commit)/gm),
+					extract: regionUnit(/^(With publishing disabled, accepted branch history[\s\S]*?)(?=^Original implementation)/gm),
 					expected: normalizeText(`With publishing disabled, accepted branch history is the delivery.
 Follow
 [track-workflow.md](track-workflow.md) § Delivery history and accounting.`),
@@ -5320,7 +5390,6 @@ When the project has no issue tracker, record the deferral in the owning researc
 			// These checks detect only the named historical wordings. Document and
 			// region fingerprints, plus review of each fingerprint update, guard
 			// against reworded restorations.
-			const trackDesignRule = "When the track has a high-level design, the cumulative implementation commit body carries the track high-level design followed by the track low-level design.";
 			const boundaryRegressionCases = [
 				{
 					id: "G1-mandatory-section", source: publishing, heading: "## Description rules",
@@ -5360,13 +5429,7 @@ When the project has no issue tracker, record the deferral in the owning researc
 					bad: "Move accounting out of untracked records before root closure.",
 					good: "Keep accounting in the retained private research log through and after root closure.",
 				},
-				...[
-					["review-design-blast", blast, "## Commit discipline for drift and boundaries"],
-					["review-design-workflow", workflow, "## Delivery and termination"],
-				].map(([id, source, heading]) => ({
-					id, source, heading, required: trackDesignRule,
-					bad: "When the track has a high-level design, the cumulative implementation commit body carries only a short summary.",
-				})),
+
 			];
 			const runBoundaryRegressions = (normalize = true) => boundaryRegressionCases.map((entry) => {
 				const extract = headingUnit(entry.heading);
@@ -5404,14 +5467,14 @@ When the project has no issue tracker, record the deferral in the owning researc
 			]);
 			// This pin covers only the commit-discipline region. Content edits need
 			// a reviewed digest refresh. Whitespace-only reflow passes.
-			const EXPECTED_COMMIT_DISCIPLINE_SHA256 = "c6f0aedef50085711c91cab51d11ea3a4bc27d500b3359c2b20ddf214d104daf";
+			const EXPECTED_COMMIT_DISCIPLINE_SHA256 = "8b37049c603059ccfdb57b384f7002989ddc67d9d90911658487bec59e2910be";
 			const commitDisciplinePattern = /^(## Commit discipline for drift and boundaries\r?\n[\s\S]*?)(?=^## |$(?![\s\S]))/gm;
 			const commitDisciplineRegion = regionUnit(commitDisciplinePattern);
 			const acceptsCommitDiscipline = (source) => {
 				const region = commitDisciplineRegion(source);
 				return region.count === 1 && recordDigest(region.text) === EXPECTED_COMMIT_DISCIPLINE_SHA256;
 			};
-			const changedCommitDiscipline = blast.replace(commitDisciplinePattern, (raw) => `${raw}\nA short summary of the design is enough.\n`);
+			const changedCommitDiscipline = blast.replace(commitDisciplinePattern, (raw) => `${raw}\nImplementation bodies must contain the high-level and low-level designs.\n`);
 			const reflowedCommitDiscipline = blast.replace(commitDisciplinePattern, (raw) =>
 				raw.replace(/^(##[^\n]*\n)([\s\S]*)$/, (_match, heading, body) => heading + body.replace(/\s+/g, "\n")));
 			const acceptsDeliveryBoundary = (unit, source) => {
@@ -5422,7 +5485,7 @@ When the project has no issue tracker, record the deferral in the owning researc
 				const source = unit.source.replace(literalPattern(unit.expected), (raw) => raw.replace(literalPattern(before), after));
 				return { id: `${unit.id}/${kind}`, changed: source !== unit.source, rejected: !acceptsDeliveryBoundary(unit, source) };
 			})).concat({
-				id: "commit-discipline/design-summary", changed: changedCommitDiscipline !== blast,
+				id: "commit-discipline/design-body-restoration", changed: changedCommitDiscipline !== blast,
 				rejected: !acceptsCommitDiscipline(changedCommitDiscipline),
 			});
 			mutationAudit.record("delivery-boundaries", deliveryBoundaryAttacks);
@@ -5452,12 +5515,12 @@ Host-generated target-branch commits are exempt.`);
 			const hasFirstIdentity = (body) => body.split("\n")[0] === identityLine;
 			const bodyContents = [
 				"Intent: Add commit identity.\n\nDeviation delta:",
-				"High-level design\nKeep one identity.\n\nLow-level design\nPut the line first.",
+				"Intent: Keep review fixes separate.\n\nDeviation delta: Approved title change.",
 				"",
 			];
 			const expectedBodies = [
 				"Change: Use one pull request per change\n\nIntent: Add commit identity.\n\nDeviation delta:",
-				"Change: Use one pull request per change\n\nHigh-level design\nKeep one identity.\n\nLow-level design\nPut the line first.",
+				"Change: Use one pull request per change\n\nIntent: Keep review fixes separate.\n\nDeviation delta: Approved title change.",
 				"Change: Use one pull request per change",
 			];
 			const validBodies = bodyContents.map((content) => content ? `${identityLine}\n\n${content}` : identityLine);
@@ -5471,6 +5534,7 @@ Host-generated target-branch commits are exempt.`);
 				] : []),
 			].map(({ id, body }) => ({ id, changed: body !== validBodies[index], rejected: !keepsBodyContent(body, index) })));
 			mutationAudit.record("change-identity", [...identityAttacks, ...bodyAttacks]);
+			const reviewHistory = evaluateReviewHistory();
 			const escalationRule = normalizeText("Pre-existing defects, exhausted budgets, disputed stuck-fix results, blocker lowering, and regressions route through [user-notes.md](user-notes.md) § Mandatory escalation set.");
 			const deferredRule = normalizeText("Deferred work becomes a tracked issue. A project with no issue tracker records the deferral in the owning research log. Disclose relevant concerns in the user package.");
 			const occurrencesOf = (text, fragment) => text.split(fragment).length - 1;
@@ -5481,10 +5545,11 @@ Host-generated target-branch commits are exempt.`);
 			const droppedTarget = normalizeText(reviews.replaceAll("Mandatory escalation set.", "the review log."));
 			checkAll("contract-escalation-routing", "mandatory escalation routing and deferred-work tracking hold as assertions of their own, after the terminal end marker and outside every acceptance unit, so neither protection depends on that unit", [
 				["named boundary regressions reject restored rules and accept allowed lookalikes in the same region", normalizationRejected && boundaryRegressionResults.every(({ baseline, changed, rejected, controlChanged, accepted, wrappedChanged, wrappedRejected }) => baseline && changed && rejected && controlChanged && accepted && wrappedChanged && wrappedRejected), { boundaryRegressionResults, normalizationRejected }],
+				reviewHistory,
 				["both common identity owners agree", acceptsChangeIdentity(workflow) && acceptsCommitDiscipline(blast), "common identity owners"],
 				["later identity mentions are allowed", hasFirstIdentity(`${identityLine}\n\nIntent: Explain ${identityLine}\n${identityLine}`), "only the first line is required"],
 				["missing or misplaced identity and dropped or changed body content fail", [...identityAttacks, ...bodyAttacks].every(({ changed, rejected }) => changed && rejected), [...identityAttacks, ...bodyAttacks]],
-				["valid two-part, design-bearing and marker bodies keep content intact", validBodies.every(keepsBodyContent), validBodies],
+				["valid ordinary and marker bodies keep content intact", validBodies.every(keepsBodyContent), validBodies],
 				["the commit-discipline region matches its reviewed fingerprint", acceptsCommitDiscipline(blast), commitDisciplineRegion(blast)],
 				["whitespace-only region reflow and outside edits preserve the fingerprint", reflowedCommitDiscipline !== blast && acceptsCommitDiscipline(reflowedCommitDiscipline) && acceptsCommitDiscipline(`${blast}\n## Outside fingerprint control\nUnrelated text.\n`), "region reflow and outside control"],
 				["delivery boundary copies equal independent content expectations", deliveryBoundaryUnits.every((unit) => acceptsDeliveryBoundary(unit, unit.source)), deliveryBoundaryUnits.map((unit) => ({ id: unit.id, ...unit.extract(unit.source) }))],
@@ -5619,7 +5684,7 @@ verbatim retention of every tool result.`);
 				[reviews.replace("at most 100 counted lines or documentation-only", "at most 100 counted lines"), reviewerICharter],
 			];
 			const approvedDigests = Object.freeze({
-				ri: "380d8d974d4460ccdcd3ab5029ad3cf190449806f0989d5315b8b96ddbbd7ab3",
+				ri: "bfddf46edc0d00c9ac7801379e9af4df1f881e7f005a8a025d03ace283fe0377",
 				cn: "fb2eaf412ddcc6797701ac8c4c05fcd8c634819b22a0b69d9b292c4dc4dd2ae8",
 				du: "5f98a4e3bcffb695991f5392abb713de9f11454e3248656ad85ee4c2e1494ba2",
 				se: "e5ae88718099d595c980f69656360a139e211be350aba99ea7e355c09b68741b",
@@ -5633,7 +5698,7 @@ verbatim retention of every tool result.`);
 				uf: "d63fddb00199e3c8c4a4081d8c79c45f4032b36c1ca2be9618dd05af9caaa9fd",
 			});
 			approvedContentDigests = Object.freeze({
-				ri: "c23a1624fa6910fa914743a4daf3d406431ce17360e4ef1e94ba12fde3ab60a9",
+				ri: "6b596c25457b580f5a593ab1ffdb3ea907918f662d2d271250f576bed009c5b4",
 				cn: "9353b4d0727cc6643c3a87fdf6065683e9afaf6937a5d1a63d91668f0c51dd5a",
 				du: "c071f183e9800ae2bc1f5699cd082b4c8db257254b1d11bb5db3f27fa352a116",
 				se: "7ae8a9e8f634eb0b89ea1d93696a3980c0b9a6fae07a55367dba23c3a195cdca",
@@ -5735,9 +5800,9 @@ verbatim retention of every tool result.`);
 			// No complete heading region is protocol-only. The mixed regions contain
 			// level or reference operations alongside surviving accounting duties.
 			const survivingAccountingRules = [
-				"The pre-user-review cumulative-commit rule is the only routine rewrite exception while that rule exists.",
-				"Complete the rewrite before user review, so later user-review fix commits do not invalidate the reviewed range.",
-				"Re-pin every recorded commit range after the rewrite, including the coverage register and any range in a track packet.",
+				"Use ordinary branch updates. Do not routinely rewrite history or force-push.",
+				"Only a user-chosen privacy rewrite permits rewriting history under the duties below.",
+				"Accepted history is delivery. Acceptance adds no commit or rewrite.",
 			];
 			const accountingOwner = headingOwnedUnits.find(({ id }) => id === "workflow-accounting");
 			const acceptsSurvivingAccounting = (source) => {
@@ -5817,11 +5882,11 @@ verbatim retention of every tool result.`);
 			});
 			mutationAudit.record("heading-policy", headingPolicyAttacks, ({ id, kind }) => `${id}/${kind}`);
 			const privacyUnit = headingOwnedUnits.find((unit) => unit.id === "manual-records");
-			const privacyRule = "Pi saves session files with default permissions, which can expose record text to other local users.";
+			const privacyRule = "Pi's default session permissions can expose record text to other local users.";
 			const privacyMutation = commonRecords.replace(privacyRule, "Session permissions need no attention.");
 			checkAll("contract-heading-regions", "all 19 heading-owned regions retain complete independent content protection and fence-aware same-level or higher boundaries", [
-				["surviving rewrite limits reject weakening without relying on the mixed accounting fingerprint", acceptsSurvivingAccounting(accountingOwner.source) && survivingAccountingControls.length === 3 && survivingAccountingControls.every(({ changed, rejected }) => changed && rejected), survivingAccountingControls],
-				["surviving and mixed heading groups exhaust the independent mutation roster", new Set([...survivingHeadingIds, ...mixedHeadingIds]).size === 19 && survivingHeadingIds.length + mixedHeadingIds.length === 19 && headingOwnedUnits.every(({ id }) => [...survivingHeadingIds, ...mixedHeadingIds].includes(id)) && survivingHeadingAttacks.length + mixedHeadingAttacks.length === 894, { surviving: survivingHeadingAttacks.length, mixed: mixedHeadingAttacks.length }],
+				["independent history safeguards reject weakening without relying on the mixed accounting fingerprint", acceptsSurvivingAccounting(accountingOwner.source) && survivingAccountingControls.length === 3 && survivingAccountingControls.every(({ changed, rejected }) => changed && rejected), survivingAccountingControls],
+				["surviving and mixed heading groups exhaust the independent mutation roster", new Set([...survivingHeadingIds, ...mixedHeadingIds]).size === 19 && survivingHeadingIds.length + mixedHeadingIds.length === 19 && headingOwnedUnits.every(({ id }) => [...survivingHeadingIds, ...mixedHeadingIds].includes(id)) && survivingHeadingAttacks.length + mixedHeadingAttacks.length === 914, { surviving: survivingHeadingAttacks.length, mixed: mixedHeadingAttacks.length }],
 				["surviving heading safeguards reject every existing violation", survivingHeadingAttacks.length > 0 && survivingHeadingAttacks.every(({ changed, rejected, intended }) => changed && rejected && intended), survivingHeadingAttacks],
 				["mixed heading regions keep every current safeguard active", mixedHeadingAttacks.length > 0 && mixedHeadingAttacks.every(({ changed, rejected, intended }) => changed && rejected && intended), mixedHeadingAttacks],
 				["the exact region roster resolves once and matches independent expectations", JSON.stringify(headingOwnedUnits.map((unit) => unit.id)) === JSON.stringify(expectedHeadingRegionIds) && headingOwnedUnits.every((unit) => acceptsRecordUnit(unit, unit.source)), headingOwnedUnits.map((unit) => ({ id: unit.id, result: unit.extract(unit.source).reason }))],
@@ -5855,7 +5920,7 @@ verbatim retention of every tool result.`);
 				["perspectives remain separate and retired prefixes absent", roles.length === 12 && !roles.some((role) => ["BC", "CT", "SF", "RG"].includes(role.prefix)), roles.map((role) => role.prefix)],
 			]);
 
-			const dispatchReference = "Research log: the current `slate-changes/<change>/research-log.md` remains the retained full record. The dispatch names its exact path and the implementer's `slate-changes/<change>/track-<number>-implementer-report.md` path. Use the references and excerpts supplied for this action. Read more history only when a relevant question remains unresolved.\n";
+			const dispatchReference = "Research log: `slate-changes/<change>/research-log.md`. Report: `slate-changes/<change>/track-<number>-implementer-report.md`. Use supplied references and excerpts. Read further history only for unresolved relevant questions.\n";
 			const boundedCharters = [
 				["non-local logic defect reviewer charter", "nl", 2464, "Non-local logic defect reviewer"],
 				["consumer contract break reviewer charter", "cb", 2748, "Consumer contract break reviewer"],
@@ -5875,12 +5940,12 @@ verbatim retention of every tool result.`);
 			].join("\n");
 			const contextBudget = readFileSync(join(REPO, "docs", "context-budget.md"), "utf8");
 			const expectedInjected = [
-				["Reviewer I", 8664, 8541], ["Concurrency reviewer", 7418, 7295],
-				["Data loss and recovery reviewer", 7613, 7490], ["Security reviewer", 7560, 7437],
-				["Performance reviewer", 7615, 7492], ["Test-quality and structure reviewer", 8869, 8746],
-				["Prose reviewer", 7827, 7704], ["Licensing reviewer", 7558, 7435],
-				["Non-local logic defect reviewer", 8555, 8432], ["Consumer contract break reviewer", 8839, 8716],
-				["Governing-rule defect reviewer", 8948, 8825], ["Unreported failure reviewer", 8480, 8357],
+				["Reviewer I", 9260, 9137], ["Concurrency reviewer", 7922, 7799],
+				["Data loss and recovery reviewer", 8117, 7994], ["Security reviewer", 8064, 7941],
+				["Performance reviewer", 8119, 7996], ["Test-quality and structure reviewer", 9373, 9250],
+				["Prose reviewer", 8331, 8208], ["Licensing reviewer", 8062, 7939],
+				["Non-local logic defect reviewer", 9059, 8936], ["Consumer contract break reviewer", 9343, 9220],
+				["Governing-rule defect reviewer", 9452, 9329], ["Unreported failure reviewer", 8984, 8861],
 			];
 			const docsPrefix = paths.REVIEW_RULES_DOC.slice(0, -"review-rules.md".length);
 			const extensionPrefix = paths.WRITING_CHECKER.slice(0, -"writing-check.mjs".length);
@@ -5890,12 +5955,15 @@ verbatim retention of every tool result.`);
 			});
 			const publishedInjected = [...contextBudget.matchAll(/^\| (Reviewer I|[^|]+ reviewer) \| ([\d,]+) \| ([\d,]+) \|$/gm)]
 				.map((match) => [match[1], Number(match[2].replaceAll(",", "")), Number(match[3].replaceAll(",", ""))]);
+			const reviewRulesFit = (reviews) => Buffer.byteLength(reviews) <= 24403;
+			const childReviewRulesFit = (reviews) => Buffer.byteLength(reviews) <= 24203;
 			checkAll("contract-review-sizes", "production-rendered per-perspective injected bytes, portable path basis, and published table match exact independent pins", [
 				["all twelve portable sizes are exact and rendered bytes add both installed path prefixes", injected.every(([, rendered, portable], i) => portable === expectedInjected[i][2] && rendered === portable + Buffer.byteLength(docsPrefix, "utf8") + Buffer.byteLength(extensionPrefix, "utf8")), injected],
 				["all twelve published rows use the declared 123-byte prefix basis and exact portable pins", JSON.stringify(publishedInjected) === JSON.stringify(expectedInjected) && publishedInjected.every(([, rendered, portable]) => rendered === portable + 123) && contextBudget.includes("prefixes totaling 123 UTF-8 bytes") && contextBudget.includes("Prefixes totaling 145 bytes add 22 bytes"), publishedInjected],
-				["policy growth stays within 100 bytes and reviewer-rule growth within 400 bytes", Buffer.byteLength(readFileSync(paths.REVIEW_COMMON_POLICY_DOC, "utf8")) - 2841 === 89 && Buffer.byteLength(reviews) - 22912 <= 400, { policy: Buffer.byteLength(readFileSync(paths.REVIEW_COMMON_POLICY_DOC, "utf8")) - 2841, reviewRules: Buffer.byteLength(reviews) - 22912 }],
+				["policy growth stays within 100 bytes and review rules within the approved 24,403-byte cap", Buffer.byteLength(readFileSync(paths.REVIEW_COMMON_POLICY_DOC, "utf8")) - 2841 === 89 && reviewRulesFit(reviews), { policy: Buffer.byteLength(readFileSync(paths.REVIEW_COMMON_POLICY_DOC, "utf8")) - 2841, reviewRules: Buffer.byteLength(reviews) }],
+				["approved cap and child ceiling pass equality and fail the first extra UTF-8 byte", [[24403, reviewRulesFit], [24203, childReviewRulesFit]].every(([cap, fits]) => fits("x".repeat(cap)) && !fits("x".repeat(cap + 1))) && childReviewRulesFit(reviews), Buffer.byteLength(reviews)],
 				["all approved perspective content matches independent snapshots", Object.entries(approvedContentDigests).every(([id, expected]) => hash(roleFiles[id] ?? "") === expected), Object.fromEntries(Object.entries(roleFiles).map(([id, content]) => [id, hash(content)]))],
-				["common and implementation text keep independent approved snapshots", hash(readFileSync(paths.REVIEW_COMMON_POLICY_DOC, "utf8")) === "bbf3bd833faabba61dad28de933320d88c8cb77ab34c450e361ce77139311227" && hash(readFileSync(paths.REVIEW_IMPLEMENTATION_INPUT_DOC, "utf8")) === "e8bbe7a6b03f175a41cb25af633e8fc32e0bce17c85b4db5061d508bc10b0872", "two shared source files"],
+				["common and implementation text keep independent approved snapshots", hash(readFileSync(paths.REVIEW_COMMON_POLICY_DOC, "utf8")) === "bbf3bd833faabba61dad28de933320d88c8cb77ab34c450e361ce77139311227" && hash(readFileSync(paths.REVIEW_IMPLEMENTATION_INPUT_DOC, "utf8")) === "03cfcbc6326c9c98d783316069dc7880b18e42513d1906d04d4d3ae7b69ab177", "two shared source files"],
 			]);
 
 			// Complete owned policy units use independent expectations. Exact equality is
@@ -5905,12 +5973,21 @@ verbatim retention of every tool result.`);
 				{
 					id: "implementation-reference",
 					source: workflow,
-					extract: regionUnit(/^(Every implementation dispatch carries this focused current-context block:\n[\s\S]*?)(?=Every implementation dispatch either carries)/gm),
-					expected: normalizeText(`Every implementation dispatch carries this focused current-context block:
+					extract: regionUnit(/^(Edit logged maps: name eligible stored-bytes hash, verified preserved-copy path and checked entries.\nEvery implementation dispatch carries this focused current-context block:\n[\s\S]*?)(?=Each implementation dispatch carries)/gm),
+					expected: normalizeText(`Edit logged maps: name eligible stored-bytes hash, verified preserved-copy path and checked entries.
+Every implementation dispatch carries this focused current-context block:
 
-> Research log: the current \`slate-changes/<change>/research-log.md\` remains the retained full record. The dispatch names its exact path and the implementer's \`slate-changes/<change>/track-<number>-implementer-report.md\` path. Use the references and excerpts supplied for this action. Read more history only when a relevant question remains unresolved.
+> Research log: \`slate-changes/<change>/research-log.md\`. Report: \`slate-changes/<change>/track-<number>-implementer-report.md\`. Use supplied references and excerpts. Read further history only for unresolved relevant questions.
 
-The block states the current approved design when one exists, the current task and acceptance condition, assigned findings and compact evidence when fixing, affected code or documents, relevant decisions, and unresolved relevant questions. The orchestrator supplies these inputs through specific section references or bounded excerpts. Implementers and fixers use the supplied current context. The full log remains available for unresolved relevant questions and retention. No implementation dispatch requires reading the entire historical log. This rule does not change reviewer input restrictions.`),
+Name any current approved design (standalone or log-held), task, acceptance condition, findings with compact fix evidence, affected files, decisions and open questions.
+Give implementers and fixers section references or bounded excerpts, not a required whole-log read.
+Assign maps per code track: facts, not requirements.
+For a stored baseline, obtain its path and source commit from the log and name both.
+Single-track work uses the root baseline.
+Recorded changes keep their workflow until user-approved migration.
+Implementers map final source per [maps.md](maps.md).
+Fixers maintain maps per source commit.
+Keep reviewer input restrictions.`),
 				},
 				{
 					id: "research-log-lifecycle",
@@ -5931,33 +6008,37 @@ The block states the current approved design when one exists, the current task a
 						const rawText = source.slice(body, boundary).trim();
 						return { count: 1, text: normalizeText(rawText), rawText };
 					},
-					expected: normalizeText(`No reviewer may receive or directly read a manual status file, leftover record temporary file, their references or contents, the research log, a research-log reference, a research-log extract, an implementer report, private orchestrator triage, or implementer reasoning. The reviewer must not seek those sources, even when repository tools can reach them. Private orchestrator triage means the orchestrator's private deliberation and implementation rationale. Implementer reasoning means private reasoning produced by an implementer. These are distinct sources.
+					fixture: `${dutyParagraph("review-private")}
 
-This restriction applies to a design-stage adversary, Reviewer I, every implementation specialist, an agentic fix gate, a user-review fix-range gate, and a stuck-fix consultation. Ordinary repository and library evidence needed for the assigned work remains available. This permission is not a closed changed-file allowlist.
+These restrictions govern every review role below. Ordinary repository and library evidence needed for the assignment remains available beyond changed files.
 
-A design-stage adversarial reviewer receives the standalone approved design, approved change context, track intention, applicable risk record and area proofs, tracked source evidence, charter, and output contract. This is the only reviewer role that receives the risk record and area proofs as separate artifacts.
+Applicable designs are whole standalone design files. Every reviewer receives them under its stage contract. Recorded changes with log-held approved designs keep their current reviewer inputs until user-authorized migration. Supply neither a log-held design nor its extract. An orchestrator-written statement of an approved decision is approved context, not a log extract. Outside design-stage review, designs provide context, not correctness proof or a duty to repeat whole-design review.
 
-Reviewer I and implementation specialists receive the approved review range, track intention, applicable charter, output contract, and ordinary evidence. They receive no risk record, area proof, implementer episode, implementer report, private triage, or implementer reasoning.
+${dutyParagraph("review-adversary-input")}
 
-An agentic fix gate and a user-review fix-range gate receive the compact finding index, fix diff, approved scope context, and ordinary evidence needed to verify the fix. The compact index may contain only finding identifiers, evidence, validated severity, and required disposition. It contains no private orchestrator deliberation or implementer reasoning. Both gates receive no implementer episode or direct private source.
+Implementation reviewers receive applicable approved designs, approved range, intention, charter, output contract and ordinary evidence. Only Reviewer I receives an implementation map. Neither Reviewer I nor specialists receive risk records, area proofs or implementer episodes.
 
-The stuck-fix consultation in § Stuck-fix consultation is the only reviewer role that can receive an implementer episode. Its whole-episode rule does not permit a direct private read or a separately supplied private source.
+Both fix gates receive applicable approved designs, compact finding index, fix diff, approved scope context and needed ordinary evidence. The index contains only finding identifiers, evidence, validated severity and required disposition, without private triage or implementer reasoning. Neither gate receives implementer episodes or direct private sources. The fixer names the map statements its fix relies on. The orchestrator passes them unread to the agentic fix gate. A user-review fix-range gate receives no map statements.
+
+${dutyParagraph("review-map")}
+
+${dutyParagraph("review-episode-exception")}
 
 The supplied action temporary folder permits only the reviewer's own writing-checker diff and adds no reviewer input. A reviewer never lists tmp/ or reads another action's folder.
 
-A design-stage adversarial review also judges the simplest solution. The review checks the approved high-level design against slate's simplest-solution requirement. That requirement asks for the simplest solution with the fewest changes that keeps every approved goal, the product and implementation quality, and every required gate. The review judges the design as a whole and not one track at a time. This duty adds no artifact, no phase and no gate.
+${dutyParagraph("review-parent")}
 
-Every reviewer uses the [common review policy](review-common-policy.md) for writing checks, evidence, severity, identifiers, and output format. Resolve its writing-checker path from the installed package as \`../extension/writing-check.mjs\`. Resolve its writing-guidance path as \`writing-guidance.md\` beside the policy. Manual reviews combine this policy with their stage-specific input contract and applicable charter.`),
+Every reviewer uses the [common review policy](review-common-policy.md) for writing checks, evidence, severity, identifiers, and output format. Resolve its writing-checker path from the installed package as \`../extension/writing-check.mjs\`. Resolve its writing-guidance path as \`writing-guidance.md\` beside the policy. Manual reviews use this input contract, the common policy and applicable charter. Name [maps.md](maps.md) in authorized map-checking tasks without reading it.`,
 				},
 				{
 					id: "stuck-fix-policy",
 					source: reviews,
 					extract: regionUnit(/^## Stuck-fix consultation\n\n([\s\S]*?)(?=^## Termination and deferred-work routing)/gm),
-					expected: normalizeText(`One merged stuck-fix mechanism replaces separate escape routes. It may run when a round lands no fix, one finding returns STILL OPEN twice, the implementer cannot locate the cause, or fixes keep regressing.
+					fixture: `One merged stuck-fix mechanism replaces separate escape routes. It may run when a round lands no fix, one finding returns STILL OPEN twice, the implementer cannot locate the cause, or fixes keep regressing.
 
-Dispatch one fresh \`adversarial\` consultation. Its job is diagnosis, not a gate verdict. Pass only the smallest set of whole implementer episodes needed for evidence. Name each episode and reason. Only an implementer episode is eligible. A design-review, implementation-review, fix-gate, or other reviewer episode is not eligible.
+${dutyParagraph("review-episode-selection")}
 
-Pass every selected episode whole and intact. Embedded material remains present regardless of its type, source, or amount. It can include a risk record, area proof, research-log text, private triage, or implementer reasoning. Do not screen content for eligibility. Do not filter, drop, rewrite, or sanitize a needed episode because of embedded content. This is the sole reviewer episode exception and the user accepts its indirect exposure risk. The exception does not permit a direct read or separate delivery of a log, log reference, log extract, risk record, area proof, implementer report, private triage, or implementer reasoning.
+${dutyParagraph("review-episode-integrity")}
 
 The consultation returns either a concrete failed assumption and repair route, or \`design-flawed\` with evidence. It closes nothing and lowers no severity. A fresh gate must verify any resulting fix at major severity or above. Every fix round that lands any fix still receives a regression pass. The orchestrator may dispute a \`design-flawed\` result only through the mandatory user escalation. The accepted whole-episode exposure is not fixed, prevented, or detected by this rule.
 
@@ -5965,9 +6046,9 @@ The ordinary budget permits one consultation.
 Count that budget separately for each review-fix child.
 A second consultation for the same track or child requires an explicit user grant.
 Further consultation requires another grant.
-Record each grant in the override log.`),
+Record each grant in the override log.`,
 				},
-			];
+			].map((unit) => unit.fixture === undefined ? unit : { ...unit, expected: normalizeText(unit.fixture) });
 			const resolveDispatchUnits = (workflowSource = workflow, reviewSource = reviews) => dispatchPolicyUnits.map((unit) => {
 				const source = unit.source === workflow ? workflowSource : reviewSource;
 				return { id: unit.id, expected: unit.expected, ...unit.extract(source) };
@@ -5977,17 +6058,23 @@ Record each grant in the override log.`),
 			const reviewerInput = dispatchPolicyUnits.find(({ id }) => id === "reviewer-input-contract");
 			const amendment = "The supplied action temporary folder permits only the reviewer's own writing-checker diff and adds no reviewer input. A reviewer never lists tmp/ or reads another action's folder.";
 			const originalParagraphDigests = [
-				"861dc9144bb1e16eacf358b3fb1815b2e2ae080a206d28c7a3229c5021275d34", "f9f0228001b9e056eb489d5c6c3fee415fcf95ac23df822bd029f27eb0b1f3b3",
-				"f483f360f4d97036a9f09af119be8e40469e76380a93eccb25387473e074e878", "527f29a60ddd3564dfcbde73d357f3c43d867bb0b808b9d3852ddb3b385d48b1",
-				"3d991b3f9e25a2710869ef6bd13c69c1239e1dea6fa4378bb527b01a32384315", "bb64471333eef93ce91baac46799ce3ad4ff1c244b9ce34bc184c44d3c4e405f",
-				"2ddf2a77aff76b073c243ddff077dabcaa939fc205295e5ba3d746a18df6c9ab", "432813aee3332b7e91b0648bc96aa5fe7a5138c5c37c261e51a292cb0805ffa0",
-			];
+    "bb0a962879cbb970684ae81a5b3a48df76a0c0b16edd40d42f0d3cc4c2c1461f",
+    "cc07b77fae62cc67e2395a29361f5299a44e827db1de9919160da202d743799c",
+    "217150669c1324369d6cfb2e9793a65dd5dbadfceed64d9decae2a1350108c5b",
+    "23cfe8d8109a3659535cdf7afcce2cdad1601fc4ba93a59aafd915ef38993796",
+    "240446a6658d1bdd6f84a0d9409c2fdab0c819d21e4367bc5a6410f85aec39fd",
+    "1e9ae92984ec25a75ad4337a69b40591149304794309dfb5b547af21dbeabc58",
+    "92a11ed42896fcc16ef7ddd3a002c973ee4b3f3cf69b5ff171aab2ed1568de96",
+    "ae8e0598923ac355b57e64cd726e102aa4fb3ffd9a9bf6b7bbc4a3f256d55c84",
+    "91b653fb2aadb541a0cc573003447a16cde8dba7df4d8793d05b416cdb068319",
+    "aa7fa62764b20da108233c6df3f2b273b517bda1dec609ddca01e1f3ee8e57e8"
+];
 			const reviewerRawHash = (text) => createHash("sha256").update(text).digest("hex");
 			const inputParagraphs = (source) => reviewerInput.extract(source).rawText.trim().split(/\n\n/).filter((paragraph) => paragraph !== amendment);
-			const writeScope = "reviewer does not edit reviewed artifacts. The common review policy permits\nonly the reviewer's own writing-checker diff.";
+			const writeScope = "Never edit reviewed artifacts. The common review policy permits only the reviewer's writing-checker diff.";
 			const acceptsReviewerInputs = (source) => {
 				const unit = reviewerInput.extract(source), paragraphs = inputParagraphs(source);
-				return unit.count === 1 && unit.text === reviewerInput.expected && paragraphs.length === 8
+				return unit.count === 1 && unit.text === reviewerInput.expected && paragraphs.length === 10
 					&& source.split(writeScope).length === 2
 					&& paragraphs.every((paragraph, index) => reviewerRawHash(paragraph) === originalParagraphDigests[index]);
 			};
@@ -6008,8 +6095,8 @@ Record each grant in the override log.`),
 			});
 			const reviewerInputAttacks = reviewerInputAttacksFor(reviews);
 			mutationAudit.record("reviewer-inputs", reviewerInputAttacks);
-			checkAll("contract-review-inputs", "the complete input section protects all eight raw paragraphs and destination-only restrictions", [
-				["all eight original paragraphs remain byte-identical and ordered", acceptsReviewerInputs(reviews), inputParagraphs(reviews).map(reviewerRawHash)],
+			checkAll("contract-review-inputs", "the complete input section protects all ten raw paragraphs and destination-only restrictions", [
+				["all ten approved paragraphs remain byte-identical and ordered", acceptsReviewerInputs(reviews), inputParagraphs(reviews).map(reviewerRawHash)],
 				["each input attack fails complete section content, including the later grant", reviewerInputAttacks.every(({ changed, rejected, intended, originalRuleCount, mutatedRuleCount }) => changed && rejected && intended && originalRuleCount === 1 && mutatedRuleCount === 0), reviewerInputAttacks],
 				["an unrelated appendix preserves the input contract and write scope", acceptsReviewerInputs(reviews + "\n## Editorial appendix\n\nNo policy here.\n"), "positive outside control"],
 				["a duplicated outside-range anchor fails its own occurrence evidence", (() => {
@@ -6053,18 +6140,35 @@ Record each grant in the override log.`),
 			const policyMutationSources = [
 				["every-to-first", workflow.replace("Every implementation dispatch carries", "The first implementation dispatch carries"), reviews],
 				["every-to-some", workflow.replace("Every implementation dispatch carries", "Some implementation dispatches carry"), reviews],
-				["whole-log-required", workflow.replace("No implementation dispatch requires reading the entire\nhistorical log.", "Every implementation dispatch requires reading the entire\nhistorical log."), reviews],
-				["current-inputs-removed", workflow.replace("The block states the current approved design when one exists, the current task\nand acceptance condition, assigned findings and compact evidence when fixing,\naffected code or documents, relevant decisions, and unresolved relevant\nquestions.", "The block states the current task."), reviews],
-				["private-source-weakened", workflow, reviews.replace("a research-log\nreference", "an unrestricted research-log\nreference")],
-				["implementation-role-reversed", workflow, reviews.replace("They receive no risk record, area proof, implementer episode, implementer\nreport, private triage, or implementer reasoning.", "They may receive the research log, risk record, area proof, implementer episode, implementer report, private triage, and implementer reasoning.")],
-				["additive-direct-read", workflow, reviews.replace("A design-stage adversarial reviewer receives", "Reviewer I may directly read the research log and implementer reasoning.\n\nA design-stage adversarial reviewer receives")],
-				["fix-gate-episode", workflow, reviews.replace("Both gates receive no\nimplementer episode", "Both gates may receive an\nimplementer episode")],
+				["whole-log-required", workflow.replace("not a required whole-log read.", "Every implementation dispatch requires reading the entire\nhistorical log."), reviews],
+				["current-inputs-removed", workflow.replace("Name any current approved design (standalone or log-held), task, acceptance condition, findings with compact fix evidence, affected files, decisions and open questions.", "The block states the current task."), reviews],
+				["repeated-map-fact-check", workflow.replace("Implementers map final source per [maps.md](maps.md).", "Verify every map fact before dispatch. For map reading depth, use"), reviews],
+				["repeated-map-stopping-rule", workflow.replace("Implementers map final source per [maps.md](maps.md).", "Read every map until all questions are answered. For map reading depth, use"), reviews],
+				["private-source-weakened", workflow, reviews.replace("research logs (early, ordinary or design-track)", "only the current research log")],
+				["implementation-role-reversed", workflow, reviews.replace("Neither Reviewer I nor specialists receive risk records, area proofs or implementer episodes.", "They may receive the research log, risk record, area proof, implementer episode, implementer report, private triage, and implementer reasoning.")],
+				["additive-direct-read", workflow, reviews.replace("A design adversary receives", "Reviewer I may directly read the research log and implementer reasoning.\n\nA design adversary receives")],
+				["fix-gate-episode", workflow, reviews.replace("Neither gate receives implementer episodes", "Both gates may receive implementer episodes")],
 				["reviewer-episode", workflow, reviews.replace("Only an implementer episode is eligible.", "Any reviewer episode is eligible.")],
 				["shared-child-consultation", workflow, reviews.replace("Count that budget separately for each review-fix child.", "Share one consultation budget across all children.")],
 				["automatic-second-consultation", workflow, reviews.replace("A second consultation for the same track or child requires an explicit user grant.", "A second consultation is automatic.")],
 				["additive-screening", workflow, reviews.replace("Pass every selected episode whole and intact.", "Screen each selected episode and drop private reasoning when possible.\n\nPass every selected episode whole and intact.")],
 				["additive-filtering", workflow, reviews.replace("Pass every selected episode whole and intact.", "Filter research-log material from each selected episode.\n\nPass every selected episode whole and intact.")],
 			];
+			const productionRemovals = [
+			  ["production", "Implementers map final source per [maps.md](maps.md)."],
+			  ["maintenance", "Fixers maintain maps per source commit."],
+			  ["assignment", "Assign maps per code track: facts, not requirements."],
+			  ["applicability", "Recorded changes keep their workflow until user-approved migration."],
+			  ["edit-classification", "Edit logged maps:"],
+			  ["edit-hash", "eligible stored-bytes hash"],
+			  ["preserved-copy", "verified preserved-copy path"],
+			].map(([id, rule]) => {
+			  const source = workflow.replace(rule, "");
+			  return { id, changed: source !== workflow,
+			    rejected: !resolveDispatchUnits(source, reviews).every((unit) => unit.count === 1 && unit.text === unit.expected),
+			    originalRuleCount: workflow.split(rule).length - 1, mutatedRuleCount: source.split(rule).length - 1 };
+			});
+			mutationAudit.record("map-production", productionRemovals);
 			const mutationOutcomes = policyMutationSources.map(([id, workflowSource, reviewSource]) => ({
 				id,
 				changed: workflowSource !== workflow || reviewSource !== reviews,
@@ -6072,9 +6176,9 @@ Record each grant in the override log.`),
 			}));
 			// Exact pins include the report and ownership rules after the trigger list.
 			const reportRule = regionUnit(/^For each code track, the implementer creates\n([\s\S]*?)(?=^Tracks are contiguous)/gm);
-			const forkRule = regionUnit(/^Use a safe write method\. ([\s\S]*?)(?=^### Handoff summary\n)/gm);
+			const forkRule = regionUnit(/^(Use \[change-records\.md\]\(change-records\.md\) § Manual records and safe writes for append-only[\s\S]*?)(?=^### Handoff summary\n)/gm);
 			const expectedReportRule = normalizeText(`\`track-<number>-implementer-report.md\` in the current change folder when the track starts. The dispatch gives the exact path. The report is untracked working material. After a session with a different identifier takes ownership, create a report in the new change folder. If the source folder has this track's report, name it as read-only in the new report's first entry. Continue the work in the new report. The report has four required sections: changes to the high-level design with the reason for each, the low-level design, diagrams where they help, and checks run with their results. The report states the approximate track size in counted lines. Later fix rounds append to that report in the current change folder.`);
-			const expectedForkRule = normalizeText(`Follow the direct-write and retry rules for change records, including implementer reports. Use [change-records.md](change-records.md) § Manual records and safe writes for write methods, record checks, and inspection before retries. Research logs and implementer reports are append-only. A correction is a new entry. Slate checks the folder chain when it creates the change. Keep all manual records and leftover temporary files untracked and visible in repository status. Do not add them to an ignore file or a pull request. Exclude their references and contents from reviewer inputs. Use the common record rules for supplied action folders and temporary-reader exclusions. Never overwrite a record from a stale in-memory copy. When a session adopts a change owned by a different Pi session identifier, Slate starts a new folder. Its log first names the direct source folder as a read-only earlier log. Each source log's first entry links to its own source. Follow those links to read the full history. The source remains in place without copying. A resume or reload with the same identifier continues the current folder. A /tree move to parent history with a different owner creates a new folder on reload. A handoff makes the successor the owner of the current folder. If folder allocation fails, Slate saves no open change and reports the failure. If that save fails, Slate reports it too. A legacy root \`research-log.md\` remains read-only. Only the user deletes a delivered or abandoned change folder.`);
+			const expectedForkRule = normalizeText(`Use [change-records.md](change-records.md) § Manual records and safe writes for append-only logs, reports, corrections and checks. The orchestrator uses [record-write-recovery.md](record-write-recovery.md) for retry inspection. Slate checks the folder chain when it creates the change. Keep all manual records and leftover temporary files untracked and visible in repository status. Do not add them to an ignore file or a pull request. Reviewer access follows [review-rules.md](review-rules.md) § Reviewer input contract. Use the common record rules for supplied action folders and temporary-reader exclusions. Never overwrite a record from a stale in-memory copy. When a session adopts a change owned by a different Pi session identifier, Slate starts a new folder. Its log first names the direct source folder as a read-only earlier log. Each source log's first entry links to its own source. Follow those links to read the full history. The source remains in place without copying. A resume or reload with the same identifier continues the current folder. A /tree move to parent history with a different owner creates a new folder on reload. A handoff makes the successor the owner of the current folder. If folder allocation fails, Slate saves no open change and reports the failure. If that save fails, Slate reports it too. A legacy root \`research-log.md\` remains read-only. Only the user deletes a delivered or abandoned change folder.`);
 			const acceptsLateRules = (source) => {
 				const report = reportRule(source);
 				const fork = forkRule(source);
@@ -6104,15 +6208,786 @@ omitted and why.`);
 				resolveDispatchUnits(workflow, reviews.replace("### Reviewer input contract", "### Review inputs"))[2],
 				resolveDispatchUnits(workflow, reviews.replace("## Stuck-fix consultation", "## Diagnostic consultation"))[3],
 			];
-			const duplicatedWorkflow = `${workflow}\n\nEvery implementation dispatch carries this focused current-context block:\n\n> ${dispatchReference.trim()}\n\nThe block states the current approved design when one exists, the current task and acceptance condition, assigned findings and compact evidence when fixing, affected code or documents, relevant decisions, and unresolved relevant questions. The orchestrator supplies these inputs through specific section references or bounded excerpts. Implementers and fixers use the supplied current context. The full log remains available for unresolved relevant questions and retention. No implementation dispatch requires reading the entire historical log. This rule does not change reviewer input restrictions.\n\nEvery implementation dispatch either carries a trigger.\n\nStart a change with \`slate_change start\` before the first implementation dispatch. Slate creates \`slate-changes/<change>/research-log.md\` without waiting for a retained trigger. It records the generated folder name and owning Pi session identifier in saved state. Each track creates its implementer report there at track start. Append a retained entry immediately when any trigger below fires. \`slate_change close\` clears the current change after delivery or abandonment. It deletes no files.\n\n- a second non-obvious decision.\n- a surprise about repository behaviour.\n- a NAMED focus area.\n- a session boundary.\n- multiple tracks.\n- a plan-changing ruling.\n- a user request.\n- an unresolved question needed later.\n\nOpen these sections:`;
+			const duplicatedWorkflow = `${workflow}\n\nEdit logged maps: name eligible stored-bytes hash, verified preserved-copy path and checked entries.\nEvery implementation dispatch carries this focused current-context block:\n\n> ${dispatchReference.trim()}\n\nThe block states the current approved design when one exists, the current task and acceptance condition, assigned findings and compact evidence when fixing, affected code or documents, relevant decisions, and unresolved relevant questions. The orchestrator supplies these inputs through specific section references or bounded excerpts. Implementers and fixers use the supplied current context. The full log remains available for unresolved relevant questions and retention. No implementation dispatch requires reading the entire historical log. This rule does not change reviewer input restrictions.\n\nEach implementation dispatch carries a trigger.\n\nStart a change with \`slate_change start\` before the first implementation dispatch. Slate creates \`slate-changes/<change>/research-log.md\` without waiting for a retained trigger. It records the generated folder name and owning Pi session identifier in saved state. Each track creates its implementer report there at track start. Append a retained entry immediately when any trigger below fires. \`slate_change close\` clears the current change after delivery or abandonment. It deletes no files.\n\n- a second non-obvious decision.\n- a surprise about repository behaviour.\n- a NAMED focus area.\n- a session boundary.\n- multiple tracks.\n- a plan-changing ruling.\n- a user request.\n- an unresolved question needed later.\n\nOpen these sections:`;
 			const duplicatedReviews = `${reviews}\n\n### Reviewer input contract\n\n${dispatchUnitById.get("reviewer-input-contract")?.text}\n\n## Reviewer sets, merge rule and charters\n\n## Stuck-fix consultation\n\n${dispatchUnitById.get("stuck-fix-policy")?.text}\n\n## Termination and deferred-work routing`;
 			const duplicateUnitOutcomes = resolveDispatchUnits(duplicatedWorkflow, duplicatedReviews);
 			const benignWorkflow = `${workflow}\n\n<!-- resolver benign dispatch-context control -->`;
 			const benignReviews = `${reviews}\n\n## Editorial appendix\n\nThis note changes no dispatch policy.`;
 			const benignOutcomes = resolveDispatchUnits(benignWorkflow, benignReviews);
+			const mapReference = readFileSync(paths.MAPS_DOC, "utf8");
+			const mapRules = ["Start with decision-dependent questions.", "Stop reading when no questions remain.",
+				"Before relying on a baseline fact, check current source when that source changed after the map commit.",
+				"Check every map fact against source evidence."];
+			const mapOutside = [workflow, readFileSync(paths.CONTEXT_BUDGET_DOC, "utf8"), await doctrine(we.EMPTY_WORKER_EXTENSION_SET, undefined, true, {}), await doctrine(we.EMPTY_WORKER_EXTENSION_SET, undefined, true, { workflow: { draftPRs: true } })];
+			const acceptsMapOwnership = (reference, outside) => mapRules.every((rule) => normalizeText(reference).split(rule).length === 2 && outside.every((text) => !normalizeText(text).includes(rule)));
+			const mapOwnershipAttacks = mapRules.flatMap((rule) => [
+				!acceptsMapOwnership(mapReference.replace(rule, ""), mapOutside),
+				...mapOutside.flatMap((_, index) => [rule, rule.replace(" ", "\n")].map((repeat) =>
+					!acceptsMapOwnership(mapReference, mapOutside.map((text, i) => i === index ? text + "\n" + repeat : text)))),
+			]);
+			const mapNoRead = "Never read either, even on worker failure.";
+			const acceptsMapPointer = (text) => normalizeText(text).includes("Name [design-format.md](design-format.md) for design writing, [maps.md](maps.md) for map writing or composition.") && text.split(mapNoRead).length === 2;
+			const mapPresentationRules = [[0, 2], [3, 5], [5, 9]].map(([start, end]) =>
+				assignedDutyGroups["workflow-form"].slice(start, end).map(([, sentence]) => sentence).join(" "));
+			const acceptsMapPresentation = (text) => mapPresentationRules.every((rule) => normalizeText(text).includes(rule));
+			const mapPresentationRemovals = mapPresentationRules.map((rule) => {
+				const changed = workflow.replace(privacyPattern(rule), "");
+				return changed !== workflow && !acceptsMapPresentation(changed);
+			});
+			const designReference = readFileSync(paths.DESIGN_FORMAT_DOC, "utf8");
+			const formDocs = { workflow, recursive, reviews, design: designReference, map: mapReference,
+				implementation: readFileSync(paths.REVIEW_IMPLEMENTATION_INPUT_DOC, "utf8"),
+				maintenance: readFileSync(join(REPO, "verification", "README.md"), "utf8"),
+				writing: readFileSync(paths.WRITING_GUIDANCE_DOC, "utf8"),
+			};
+			const formOwners = [
+				["maintenance", "## Workflow-phase context maintenance", [
+					["model-owner", "The main workflow owns the shared design model rule."],
+					["model-joint-revision", "Revise both copies together."],
+					["model-retirement-approval", "Retire the duplicate only after approval"],
+					["model-retirement-proven-access", "and measured proof that both readers can reach one shared copy."],
+				]],
+				["writing", "## Writing requirements and reminders", [
+					["form-cue", "The form cue gives diagrams, tables and prose equal value and asks for the clearest set."],
+					["cue-before-guard", "asks for the clearest set. This exact scope guard follows:"],
+				]],
+				["workflow", "## Lifecycle and phases", [
+					["summary-input", "Give design authors the summary, action type, decision inputs and task read limits."],
+				]],
+				["workflow", "## Lifecycle and phases", [
+					["triage-route", "The orchestrator triages each finding by strengthening a rationale, reversing a decision, recording an accepted risk, or routing low-level material to the implementer report."],
+				]],
+				["recursive", "## Nested designs and gates", [
+					["recursive-gates", "§ Lifecycle and phases for design gates,"],
+				]],
+				["reviews", "## Findings and output", [
+					["level-pointer", "The design-stage reviewer assigns that value using [track-workflow.md](track-workflow.md) § Lifecycle and phases."],
+					["levels", "A design-stage finding also records `level` as `design` or `implementation`."],
+					["evidence", "A code citation may supply evidence for a design-stage finding. The citation is never the finding itself."],
+					["review-route", "A design-stage reviewer whose finding fails the abstraction test records its level as `implementation` and routes it to the implementer report instead of the design discussion."],
+				]],
+				["map", "## Detail by track", [
+					["map-scope-only", "Put only the source commit in the scope paragraph."],
+				]],
+			];
+			// The named controls also remove individual clauses of compound duties.
+			const namedSentenceRemovals = [
+				["workflow", "pseudocode-definition", dutySentence("pseudocode-definition")],
+				["workflow", "workflow-narrow-first", dutySentence("workflow-narrow-first")],
+				["reviews", "common-separate-notes", "task notes or extracts, separate note references"],
+				["reviews", "common-metadata", dutySentence("common-metadata")],
+				["reviews", "common-metadata-no-follow", dutySentence("common-metadata-no-follow")],
+				["reviews", "parent-review-boundary", dutySentence("parent-review-boundary")],
+				["implementation", "implementation-no-notes", "task notes or extracts, separate note references"],
+				["implementation", "implementation-denies-read", "Never receive, read or seek risk records, area proofs, implementer episodes or reports,"],
+				["implementation", "implementation-metadata", dutySentence("implementation-metadata")],
+				["implementation", "implementation-metadata-no-follow", dutySentence("implementation-metadata-no-follow")],
+				["design", "author-fewest", "Choose the fewest changes"],
+				["design", "author-approved-goals", "keep all approved goals,"],
+				["design", "author-product-and-implementation-quality", "product and implementation quality,"],
+				["design", "author-required-gates", "and required gates."],
+				["design", "author-off-goal-disclosure", dutySentence("author-off-goal-disclosure")],
+				["design", "author-no-goal-edit", dutySentence("author-no-goal-edit")],
+				["design", "author-regressions", dutySentence("author-regressions")],
+				["design", "author-show-changes", dutySentence("author-show-changes")],
+				["design", "author-reader", dutySentence("author-reader")],
+				["design", "author-narrow-first", dutySentence("author-narrow-first")],
+				["design", "author-conversion-proposal", dutySentence("author-conversion-proposal")],
+				["design", "child-mechanism-ownership", "Each child owns its mechanisms"],
+				["design", "child-split-ownership", "and internal splits."],
+				["design", "author-review-pointer", dutySentence("author-review-pointer")],
+				["workflow", "shared-test", dutySentence("shared-test")],
+				["workflow", "high-level", dutySentence("high-level")],
+				["workflow", "low-level", dutySentence("low-level")],
+				["workflow", "report-route", dutySentence("report-route")],
+				["workflow", "exclude-detail", dutySentence("exclude-detail")],
+				["workflow", "omissions", dutySentence("omissions")],
+				["workflow", "baseline-omissions", dutySentence("baseline-omissions")],
+				["workflow", "conversion-reason", dutySentence("conversion-reason")],
+				["workflow", "split-detail", dutySentence("split-detail")],
+				["workflow", "no-length-split", dutySentence("no-length-split")],
+				["workflow", "preserve-gates", dutySentence("preserve-gates")],
+				["workflow", "parent-detail", dutySentence("parent-detail")],
+				["workflow", "notes-handoff", dutySentence("notes-handoff")],
+				["workflow", "notes-copy", dutySentence("notes-copy")],
+				["workflow", "no-follow", dutySentence("no-follow")],
+				["design", "author-only", dutySentence("author-only")],
+				["design", "map-only", dutySentence("map-only")],
+				["design", "author-no-orchestrator", dutySentence("author-no-orchestrator")],
+				["design", "design-opening", dutySentence("design-opening")],
+				["design", "no-opening-cap", dutySentence("no-opening-cap")],
+				["design", "form-fields", dutySentence("form-fields")],
+				["design", "alternatives", dutySentence("alternatives")],
+				["design", "design-terms-history", dutySentence("design-terms-history")],
+				["design", "baseline-authority", dutySentence("baseline-authority")],
+				["design", "author-abstraction", dutySentence("author-abstraction")],
+				["design", "behavior", "Keep observable behavior,"],
+				["design", "limits", "binding limits,"],
+				["design", "compatibility", "compatibility and all decision-relevant guarantees and constraints."],
+				["design", "author-detail", dutySentence("author-detail")],
+				["design", "design-equal-forms", dutySentence("design-equal-forms")],
+				["design", "design-helpful-diagram", dutySentence("design-helpful-diagram")],
+				["design", "design-diagram-explain", dutySentence("design-diagram-explain")],
+				["design", "design-diagram-placement", dutySentence("design-diagram-placement")],
+				["design", "design-diagram-types", dutySentence("design-diagram-types")],
+				["design", "design-diagram-size", dutySentence("design-diagram-size")],
+				["design", "design-diagram-style", dutySentence("design-diagram-style")],
+				["design", "design-size", dutySentence("design-size")],
+				["design", "design-detail-bound", dutySentence("design-detail-bound")],
+				["design", "design-omissions", dutySentence("design-omissions")],
+				["design", "direct-children", dutySentence("direct-children")],
+				["design", "component-fields", dutySentence("component-fields")],
+				["design", "interaction-text", "interaction in text"],
+				["design", "interaction-diagram", "text and a diagram."],
+				["design", "one-table", "Give one table"],
+				["design", "identifier", "child identifier"],
+				["design", "title", ", title,"],
+				["design", "scope", ", scope boundary,"],
+				["design", "activation", "what it activates,"],
+				["design", "differences", "differences open at its marker,"],
+				["design", "prerequisites", "logical prerequisites"],
+				["design", "funding", "and funding share."],
+				["design", "mechanisms", dutySentence("mechanisms")],
+				["design", "private-notes", dutySentence("private-notes")],
+				["design", "notes-metadata", dutySentence("notes-metadata")],
+				["design", "author-note-copy", dutySentence("author-note-copy")],
+				["design", "author-no-follow", dutySentence("author-no-follow")],
+				["map", "map-size", dutySentence("map-size")],
+				["map", "map-detail-limit", dutySentence("map-detail-limit")],
+				["map", "map-omissions", dutySentence("map-omissions")],
+				["map", "map-notes", dutySentence("map-notes")],
+				["map", "map-reader-order", dutySentence("map-reader-order")],
+				["map", "map-connected-text", dutySentence("map-connected-text")],
+				["map", "map-equal-forms", dutySentence("map-equal-forms")],
+				["map", "map-pseudocode", dutySentence("map-pseudocode")],
+				["map", "map-arrows", dutySentence("map-arrows")],
+				["map", "map-diagram-placement", "Use top-level Mermaid blocks:"],
+				["map", "map-diagram-types", "flowchart (prefer TD), sequenceDiagram, stateDiagram-v2, classDiagram or erDiagram."],
+				["map", "map-diagram-purposes", dutySentence("map-diagram-purposes")],
+				["map", "map-diagram-size", dutySentence("map-diagram-size")],
+				["map", "map-diagram-style", dutySentence("map-diagram-style")],
+				["map", "map-pointer", dutySentence("map-pointer")],
+			];
+			const sentenceOwners = [
+				["design", "## Readers", "design-readers"],
+				["design", "## Purpose and form", "design-purpose"],
+				["design", "## Design reminder", "design-reminder"],
+				["design", "## Coherent design models", "shared-model", "design-credit"],
+				["design", "## Detail and handoff", "design-handoff"],
+				["workflow", "## Lifecycle and phases", "workflow-abstraction", "shared-model", "workflow-form", "workflow-omissions", "workflow-notes"],
+				["reviews", "### Reviewer input contract", "review-private", "review-adversary-input", "review-map", "review-episode-exception", "review-parent"],
+				["reviews", "## Stuck-fix consultation", "review-episode-selection", "review-episode-integrity"],
+				["implementation", implementationOwner, "implementation-private"],
+				["map", "## Worker readers and access", "map-readers"],
+				["map", "## Length and form", "map-form"],
+				["map", "## Private questions", "map-questions"],
+			];
+			const lifeHeading = "## Lifecycle and phases";
+			const modelHeading = "## Coherent design models";
+			// Keep the mixed context explicit. Share the duty and review policy fixtures.
+			const lifecycleFixture = `${lifeHeading}
+
+The mandatory phases run in this order:
+
+1. research.
+2. assess and record all eleven risk lines.
+3. design and validate for a multi-track change, a proved DESIGN-TRIGGERING area, or a per-track estimate above 100 counted lines.
+4. when a design exists, reconfirm the focus list against the validated design.
+5. when a design exists, run one adversarial design review for each proved
+   DESIGN-TRIGGERING area that has not reviewed the applicable design.
+6. when a design exists, obtain final design approval.
+7. run the track loop.
+8. obtain blocking final acceptance.
+9. deliver.
+
+The track loop presents the approved high-level design when required, plans and judges the track's independent risk record, implements, validates, compares the committed difference with the proved areas, reviews, and fixes. It then presents any changed high-level design when required and delivers the track package. It applies and commits required user-review fixes whenever the user requests them. It verifies their range when one exists and marks the boundary. The implementer produces the low-level design and implements it as one integrated action.
+
+Give design authors the summary, action type, decision inputs and task read limits. Name [design-format.md](design-format.md) for design writing, [maps.md](maps.md) for map writing or composition. Never read either, even on worker failure.
+
+${dutyParagraph("workflow-abstraction")}
+
+${dutyParagraph("shared-model")}
+
+${dutyParagraph("workflow-form")}
+
+${dutyParagraph("workflow-omissions")}
+
+${dutyParagraph("workflow-notes")}
+
+When an approved high-level design exists, present it before the track and after it. Omit the before phase only when approval state covers the track design. Approval state is the last approved version plus recorded changes that need no approval. Presentation alone grants no approval. Omit the after phase when implementation did not change the design. This omission skips only the design-difference presentation. It does not skip the track review. By default, a high-level design update presents what changed. It omits unchanged text that the reader does not need in order to act. The self-contained message test below governs every update. Restate the minimum context the reader needs to act. When no approved high-level design exists, neither presentation applies. A material deviation instead follows [blast-radius.md](blast-radius.md) § Halt and focus re-derivation.
+
+${designReviewPolicyBegin}
+${designReviewPolicyFixture}
+${designReviewPolicyEnd}
+
+Publishing depends on \`workflow.draftPRs\` in \`slate.json\`. When enabled, use [pr-publishing.md](pr-publishing.md) § One draft pull request. Its § Creation sets the draft timing. When publishing is disabled, create no pull request. The retained research log is the durable workflow record.`;
+			const sectionFixtures = {
+				workflow: lifecycleFixture,
+				reviews: `### Reviewer input contract\n\n${reviewerInput.fixture}\n\n## Stuck-fix consultation\n\n${dispatchPolicyUnits.find(({ id }) => id === "stuck-fix-policy").fixture}`,
+				...workerFormReferences,
+			};
+			const formCredit = dutySentence("model-credit");
+			const hasOnce = (source, rule) => source.split(rule).length === 2;
+			const softFormOwners = [
+				["design", "## Detail and handoff", dutySentence("design-size"), "2,500"],
+				["map", "## Length and form", dutySentence("map-size"), "1,500"],
+			];
+			const hardWordCap = /\b(?:never|do not|must not) exceed [\d,]+ words\b/i;
+			const selectedPerspectives = reviewPerspectives.REVIEW_PERSPECTIVES.map(({ name }) => name);
+			const fixedInputFiles = new Map();
+			const deliverInput = (source) => reviewPerspectives.loadImplementationReviewGuidance(selectedPerspectives, (path) => {
+				if (path === paths.REVIEW_IMPLEMENTATION_INPUT_DOC) return source;
+				if (!fixedInputFiles.has(path)) fixedInputFiles.set(path, readFileSync(path, "utf8"));
+				return fixedInputFiles.get(path);
+			});
+			const marker = "assigned-forms implementation input boundary";
+			const [beforeInput, afterInput, extraFrame] = deliverInput(marker).split(marker);
+			if (extraFrame !== undefined || beforeInput === undefined || afterInput === undefined)
+				throw new Error("Implementation-review input must be delivered exactly once");
+			const deliveredProblems = (source) => {
+				if (!source.trim()) return [`${implementationOwner}: delivery`];
+				const delivered = deliverInput(source);
+				if (!delivered.startsWith(beforeInput) || !delivered.endsWith(afterInput) ||
+					delivered.length <= beforeInput.length + afterInput.length)
+					return [`${implementationOwner}: delivery`];
+				return [...new Set([
+					...implementationInputProblems(delivered),
+					...wholeImplementationInputProblems(delivered.slice(beforeInput.length, delivered.length - afterInput.length)),
+				])];
+			};
+			const sectionText = (source, heading) => formSection(source, heading)?.map(({ text }) => text).join(" ") ?? "";
+			const ownedSentenceProblems = (file, heading, groups, source) => file === "implementation"
+				? deliveredProblems(source)
+				: ownedFormProblems(source, heading, formSection(sectionFixtures[file], heading), groups);
+			const expectedModel = formBlocks(dutyParagraph("shared-model"));
+			const modelProblems = (docs) => {
+				const [workflowModel, designModel] = [["workflow", lifeHeading, 5], ["design", modelHeading, 0]]
+					.map(([file, owner, start]) => {
+						// The section checks pin all prefix and suffix blocks. Compare the
+						// full span between them, including any extra model paragraphs.
+						const suffix = formSection(sectionFixtures[file], owner).length - start - 1;
+						const actual = formSection(docs[file], owner);
+						return actual?.slice(start, actual.length - suffix) ?? null;
+					});
+				return [
+					...(!sameBlocks(workflowModel, expectedModel) ? ["workflow-model-rule"] : []),
+					...(!sameBlocks(designModel, expectedModel) ? ["design-model-rule"] : []),
+					...(!sameBlocks(workflowModel, designModel) ? ["model-copy-mismatch"] : []),
+				];
+			};
+			const plainHeadingFiles = ["design", "map", "workflow", "reviews", "recursive", "implementation"];
+			const assignedFormProblems = (docs) => [
+				...plainHeadingFiles.filter((file) => hasNonPlainHeading(docs[file])).map((file) => `${file}: plain-heading`),
+				...sentenceOwners.flatMap(([file, heading, ...groups]) => ownedSentenceProblems(file, heading, groups, docs[file])),
+				...Object.entries(workerFormReferences).flatMap(([file, expected]) =>
+					sameBlocks(formBlocks(docs[file]), formBlocks(expected)) ? [] : [`${file}-whole-reference`]),
+				...formOwners.flatMap(([file, heading, rules]) => {
+					const scoped = plainHeadingFiles.includes(file);
+					const section = scoped ? formSection(docs[file], heading) : null;
+					const text = scoped ? section?.map(({ text }) => text).join(" ") ?? "" : headingUnit(heading)(docs[file]).text;
+					return [
+						...(scoped && !section && !hasNonPlainHeading(docs[file]) ? [`${heading}: owner`] : []),
+						...rules.filter(([, rule]) => !text.includes(rule)).map(([id]) => id),
+					];
+				}),
+				...softFormOwners.filter(([file, heading]) => hardWordCap.test(sectionText(docs[file], heading)))
+					.map(([file]) => `${file}-hard-word-cap`),
+				...modelProblems(docs),
+			];
+			const acceptsAssignedForms = (docs, problems = assignedFormProblems(docs)) => problems.length === 0
+				&& hasOnce(sectionText(docs.design, modelHeading), formCredit)
+				&& hasOnce(normalizeText(Object.values(docs).join("\n")), formCredit)
+				&& acceptsMapPresentation(sectionText(docs.workflow, lifeHeading))
+				&& acceptsMapPointer(sectionText(docs.workflow, lifeHeading))
+				&& !normalizeText(docs.workflow).includes("Read [design-format.md](design-format.md)");
+			const mutationSpan = (source, target, label) => {
+				const pattern = target.trim().split(/\s+/).map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("(?:[ \\t]*\\r?\\n[ \\t]*|[ \\t]+)");
+				const matches = [...source.matchAll(new RegExp(pattern, "g"))];
+				if (matches.length !== 1) throw new Error(`Expected one mutation target in ${label}, found ${matches.length}: ${target}`);
+				return matches[0];
+			};
+			const replaceSpan = (source, match, replacement) =>
+				source.slice(0, match.index) + replacement + source.slice(match.index + match[0].length);
+			// Keep wrap controls effective when their input already uses the requested wrap.
+			const distinctWrap = (raw, wrapped) => raw === wrapped ? wrapped.replace("\n", "\n ") : wrapped;
+			const headingOwners = [
+				["workflow", lifeHeading],
+				["reviews", "### Reviewer input contract"],
+				["design", "## Detail and handoff"],
+				["implementation", implementationOwner],
+			];
+			const headingAttacks = (title) => {
+				const prefix = title.slice(0, -1);
+				const letter = title.charCodeAt(title.length - 1);
+				const lastWord = title.lastIndexOf(" ") + 1;
+				return [
+					["RG8Code", prefix + "<code>&#" + letter + ";</code>", true],
+					["RG8CodeNoSemicolon", prefix + "<code>&#" + letter + "</code>", true],
+					["RG8Hidden", title + "<span hidden>x</span>", true],
+					["RG8Style", title + "<style>unused{}</style>", true],
+					["RG8Break", title.replace(" ", "<br>"), true],
+					["RG9Decimal", prefix + "&#" + String(letter).padStart(8, "0") + ";", false],
+					["RG9Hex", prefix + "&#x" + letter.toString(16).padStart(7, "0") + ";", false],
+					["RG9WordBreak", title.slice(0, 2) + "<br>" + title.slice(2), false],
+					["RG9HiddenWord", title.slice(0, lastWord) + "<span hidden>" + title.slice(lastWord) + "</span>", false],
+					["RG9Directional", title.slice(0, lastWord) + "\u202e" + title.slice(lastWord) + "\u202c", false],
+				];
+			};
+			const generateFormCases = () => {
+				const edit = (file, from, to, source = formDocs[file], before = 0, after = 0) => {
+					const match = mutationSpan(source, from, file);
+					const replacement = typeof to === "function" ? to(match[0]) : to.replaceAll("$&", () => match[0]);
+					let left = source.slice(0, match.index);
+					let right = source.slice(match.index + match[0].length);
+					// Drop the inline separator so it cannot become a hard break.
+					if (before) left = left.replace(/[ \t]+$/, "") + "\n".repeat(before);
+					if (after) right = "\n".repeat(after) + right.replace(/^[ \t]+/, "");
+					const changed = left + replacement + right;
+					if (changed === source) throw new Error(`Unchanged mutation target in ${file}: ${from}`);
+					return changed;
+				};
+				const classification = dutyParagraph("workflow-abstraction");
+				const withoutClassification = edit("workflow", classification, "");
+				const pointer = "[track-workflow.md](track-workflow.md) § Lifecycle and phases.";
+				const model = dutyParagraph("shared-model");
+				const modelClauseRemovals = new Map([
+					["model-both-coexistence", "If two models coexist for one concept, state their boundary"],
+					["model-both-translation", "how to translate"],
+					["model-both-retirement", "when the older one ends."],
+				]);
+				const formVariants = [
+					["classification-removed", { workflow: withoutClassification }],
+					["classification-worker-only", { workflow: withoutClassification, design: formDocs.design + "\n\n" + classification }],
+					["classification-wrong-heading", { workflow: withoutClassification + "\n\n## Other instructions\n\n" + classification }],
+					["classification-heading-missing", { workflow: edit("workflow", lifeHeading, "") }],
+					["classification-heading-renamed", { workflow: edit("workflow", lifeHeading, "## Lifecycle") }],
+					["review-unrelated-heading", { reviews: edit("reviews", pointer, "[track-workflow.md](track-workflow.md) § Confirmation gate.") }],
+					["review-worker-reference", { reviews: edit("reviews", pointer, "[design-format.md](design-format.md) § Design reminder.") }],
+					["map-author-pointer", { map: edit("map", "track-workflow.md#lifecycle-and-phases", "design-format.md#design-reminder") }],
+					["shared-forms-empty", { workflow: mapPresentationRules.reduce((source, rule) => edit("workflow", rule, "", source), formDocs.workflow) }],
+					["model-workflow-moved", { workflow: edit("workflow", model, "") + "\n\n## Other instructions\n\n" + model }],
+					["model-author-removed", { design: edit("design", model, "") }],
+					["model-drift", { design: edit("design", "Reuse models first.", "Reuse models first. Check each model.") }],
+					["credit-duplicate", { design: formDocs.design + "\n" + formCredit }],
+					["credit-moved", { design: edit("design", formCredit, ""), workflow: formDocs.workflow + "\n" + formCredit }],
+					["model-read", { workflow: edit("workflow", "Never read either", "Read [design-format.md](design-format.md) before assessing a design. Never read either") }],
+					...softFormOwners.map(([file, , guidance, words]) => [`${file}-hard-word-cap`, {
+						[file]: edit(file, guidance, `$& Never exceed ${words} words.`),
+					}, `${file}-hard-word-cap`]),
+					...formOwners.flatMap(([file, , rules]) => rules.map(([id, rule]) => [id, { [file]: edit(file, rule, "") }, id])),
+					...namedSentenceRemovals.map(([file, id, rule]) => [id, { [file]: edit(file, rule, "") }, id]),
+					...assignedDutyGroups["shared-model"].flatMap(([names, sentence]) => names.split(" ").map((id) => {
+						const target = modelClauseRemovals.get(id) ?? sentence;
+						return [id, { workflow: edit("workflow", target, ""), design: edit("design", target, "") }, id];
+					})),
+					["conditional-approval", { design: edit("design", "changes that keep", "changes or keep") }, "author-fewest"],
+					["permissive-goal-edit", { design: edit("design", "Never add or remove goals yourself.", "Feel free to add or remove goals.") }, "author-no-goal-edit"],
+					["delivered-research-permission", { implementation: edit("implementation", "Never receive, read or seek research logs", "First receive, read or seek research logs") }, "implementation-no-research-logs"],
+					["implementation-task-logs", { implementation: edit("implementation", "task notes or extracts", "task logs or extracts") }, "implementation-no-notes"],
+				];
+				const tail = dutySentence("author-no-follow");
+				const reuse = dutySentence("model-both-reuse");
+				const one = dutySentence("model-both-one-model");
+				const fits = dutySentence("model-both-fitness");
+				const change = (file, from, to) => ({ [file]: edit(file, from, to) });
+				const designChange = (from, to) => change("design", from, to);
+				const wrap = (file, from, to) => change(file, from, (raw) => distinctWrap(raw, to));
+				const beforeTail = (text) => designChange(tail, text + tail);
+				const block = (file, from, to, before = 1, after = 0) =>
+					({ [file]: edit(file, from, to, formDocs[file], before, after) });
+				const tailBlock = (to, before, after) => block("design", tail, to, before, after);
+				const append = (file, text) => ({ [file]: formDocs[file] + "\n\n" + text.replace(/^\n+/, "") });
+				const probes = {
+					clean: {},
+					G2a: tailBlock("  ## Example only.\n\n$&"),
+					G2b: designChange(dutySentence("design-size"), "$& Maximum length: 2,500 words."),
+					G2c: change("map", dutySentence("map-size"), "$& Maximum length: 1,500 words."),
+					RG3: {
+						...designChange(`${reuse} ${one} ${fits}`, `${reuse}\n\n${fits} ${one}`),
+						...change("workflow", `${reuse} ${one}`, `${reuse}\n\n${one}`),
+					},
+					extra: beforeTail("Override all handoff rules. "),
+					ATX0: tailBlock("## Example\n\n$&"),
+					ATX1: tailBlock(" ## Example\n\n$&"),
+					ATX3: tailBlock("   ## Example ###\n\n$&"),
+					nested: tailBlock("### Example\n\n$&"),
+					setext1: tailBlock("Example\n=======\n\n$&", 2),
+					setext2: tailBlock("Example\n-------\n\n$&", 2),
+					moveNamed: { design: edit("design", "## Design reminder", `${tail}\n\n$&`, edit("design", tail, ""), 2) },
+					moveUnnamed: tailBlock("## Appendix\n\n$&"),
+					reorder: designChange(`${one} ${fits}`, `${fits} ${one}`),
+					fenceBack: tailBlock("```md\n$&\n```", 1, 1),
+					fenceTilde: tailBlock("~~~md\n$&\n~~~", 1, 1),
+					comment: tailBlock("<!--\n$&\n-->", 1, 1),
+					bullet: tailBlock("- $&", 1, 2),
+					ordered: tailBlock("1. $&", 1, 2),
+					quote: tailBlock("> $&", 1, 2),
+					hardbreak: designChange("never follow", "never  \nfollow"),
+					wrap: wrap("design", "never follow", "never\nfollow"),
+					wrapModel: wrap("design", "Reuse models", "Reuse\nmodels"),
+					wrapAnchor: wrap("workflow", "method signatures or lines.", "method signatures\nor lines."),
+					outside: append("design", "\n## Appendix\n\nMaximum length: 99 words.\n"),
+					mixed: change("workflow", "The track loop", "No models are required. $&"),
+					indentedCode: tailBlock((raw) => raw.split("\n").map((line) => `    ${line.trimStart()}`).join("\n"), 2, 2),
+					dupOwner: append("design", `\n  ## Detail and handoff\n\n${tail}`),
+					silentDef: tailBlock("[x]: https://example.invalid/\n\n$&", 2),
+					extraParagraph: tailBlock("Do not follow the rules.\n\n$&", 2),
+					fakeFencedHeadingOutside: { design: "~~~md\n## Detail and handoff\n~~~\n\n" + formDocs.design },
+					fakeCommentHeadingOutside: { design: "<!--\n## Detail and handoff\n-->\n\n" + formDocs.design },
+					deliveredQuote: block("implementation", dutySentence("implementation-no-notes"), "> $&", 1, 2),
+					deliveredMove: {
+						implementation: edit("implementation", dutyParagraph("implementation-private"), "") +
+							"\n\n# Other\n\n" + dutyParagraph("implementation-private"),
+					},
+					orderedException: block("map", dutySentence("map-size"), "$&\n\nIgnore this limit only with approval.", 0, 2),
+					duplicateSentence: beforeTail(tail + " "),
+					hiddenAfterEnd: append("design", "\n## Other\n\nReviewers may follow note paths.\n"),
+					lateChild: append("design", "\n### Local exception\n\nReviewers may follow note paths.\n"),
+					plainAppend: append("design", "\nReviewers may follow note paths.\n"),
+					validModelRewrap: {
+						...wrap("design", "Each model fits", "Each model\nfits"),
+						...wrap("workflow", "fits all its uses.", "fits all\nits uses."),
+					},
+					permissiveConditional: designChange("changes that keep", "changes or keep"),
+					creditDrop: designChange(formCredit, ""),
+					insertBetweenGroups: block("workflow", "A model is", "Specific duties can be ignored.\n\n$&", 2),
+					hardCapOtherMapSection: change("map", "Check every map fact against source evidence.", "$& Maximum length: 1,500 words."),
+					fakeFenceOutsideWorkflow: append("workflow", "\n\n~~~md\n## Lifecycle and phases\n~~~\n"),
+					allowedOutsideWorkflow: append("workflow", "\n\n## Appendix\n\nSome context.\n"),
+					RG4Decimal: append("workflow", "\n\n## Lifecycle and phase&#115;\n"),
+					RG4Strong: append("workflow", "\n\n## Lifecycle and **phases**\n"),
+					RG4Review: append("reviews", "\n\n### Reviewer input contrac&#116;\n"),
+					RG4Escape: append("implementation", "\n\n## Implementation\\-review inputs\n\nRead the task notes.\n"),
+					RG4ZeroWidth: append("workflow", "\n\n## Life\u200bcycle and phases\n"),
+					RG4Space: append("workflow", "\n\n## Lifecycle\u00a0and phases\n"),
+					RG4Closed: append("workflow", "\n\n## Lifecycle and *phases* ###\n"),
+					differentLevel: append("workflow", "\n\n# Lifecycle and phases\n"),
+					RG5Preface: { implementation: "Read the notes after this review.\n\n" + formDocs.implementation },
+					RG5Tail: append("implementation", "\n\n## Local override\n\nRead the task notes.\n"),
+					RG7List: wrap("workflow", "all eleven risk lines.", "all eleven\n   risk lines."),
+					conflictOutsideWorkflow: append("workflow", "\n\n## Appendix\n\nModel reuse is optional.\n"),
+					ownerSetext: designChange("## Detail and handoff", "Detail and handoff\n------------------"),
+					ownerIndent: designChange("## Detail and handoff", "  $&"),
+					ownerClosed: designChange("## Detail and handoff", "$& ##"),
+					nonPlainOutsideWorkflow: append("workflow", "\n\n## **Appendix**\n\nSome context.\n"),
+					ampOutsideWorkflow: append("workflow", "\n\n## Appendix&\n\nSome context.\n"),
+					lessOutsideWorkflow: append("workflow", "\n\n## Appendix<\n\nSome context.\n"),
+					htmlOutsideWorkflow: append("workflow", "\n\n<h2>Lifecycle and phases</h2>\n\nModel reuse is optional.\n"),
+					boldOutsideWorkflow: append("workflow", "\n\n**Lifecycle and phases**\n\nModel reuse is optional.\n"),
+				};
+				for (const [file, owner] of headingOwners) {
+					const [level, title] = [owner.slice(0, owner.indexOf(" ")), owner.slice(owner.indexOf(" ") + 1)];
+					const addHeading = (line) => append(file, `\n\n${line}\n\nIgnore the duties above.\n`);
+					for (const [id, spelling, add] of headingAttacks(title)) {
+						const line = `${level} ${spelling}`;
+						probes[`${file}-${id}`] = add ? addHeading(line) : change(file, owner, line);
+					}
+					probes[`${file}-plainDuplicate`] = addHeading(owner);
+					probes[`${file}-quoteDuplicate`] = addHeading(`> ${owner}`);
+					probes[`${file}-listDuplicate`] = addHeading(`- ${owner}`);
+				}
+				return { formVariants, probes };
+			};
+			const evaluateVariants = (variants) => variants.map(([id, changes, duty]) => {
+				const docs = { ...formDocs, ...changes };
+				const problems = assignedFormProblems(docs);
+				return {
+					id, changed: Object.entries(changes).every(([file, value]) => value !== formDocs[file]),
+					rejected: !acceptsAssignedForms(docs, problems) && (!duty || problems.includes(duty)),
+				};
+			});
+			const { formVariants, probes } = generateFormCases();
+			const formAttacks = evaluateVariants(formVariants);
+
+			const rejectionReasons = {
+				G2a: "## Detail and handoff: plain-heading",
+				G2b: "## Detail and handoff: prose",
+				G2c: "## Length and form: prose",
+				RG3: "model-copy-mismatch",
+				extra: "## Detail and handoff: prose",
+				ATX0: "## Detail and handoff: prose",
+				ATX1: "## Detail and handoff: plain-heading",
+				ATX3: "## Detail and handoff: plain-heading",
+				nested: "## Detail and handoff: blocks",
+				setext1: "## Detail and handoff: plain-heading",
+				setext2: "## Detail and handoff: plain-heading",
+				moveNamed: "author-no-follow",
+				moveUnnamed: "author-no-follow",
+				reorder: "model-copy-mismatch",
+				fenceBack: "## Detail and handoff: blocks",
+				fenceTilde: "## Detail and handoff: blocks",
+				comment: "## Detail and handoff: blocks",
+				bullet: "## Detail and handoff: blocks",
+				ordered: "## Detail and handoff: blocks",
+				quote: "## Detail and handoff: blocks",
+				hardbreak: "## Detail and handoff: blocks",
+				outside: "design-whole-reference",
+				mixed: "## Lifecycle and phases: prose",
+				indentedCode: "## Detail and handoff: blocks",
+				dupOwner: "## Detail and handoff: plain-heading",
+				silentDef: "## Detail and handoff: lexer",
+				extraParagraph: "## Detail and handoff: blocks",
+				fakeFencedHeadingOutside: "design-whole-reference",
+				fakeCommentHeadingOutside: "design-whole-reference",
+				deliveredQuote: "## Implementation-review inputs: blocks",
+				deliveredMove: "implementation-no-notes",
+				orderedException: "## Length and form: blocks",
+				duplicateSentence: "## Detail and handoff: prose",
+				hiddenAfterEnd: "design-whole-reference",
+				lateChild: "## Detail and handoff: blocks",
+				plainAppend: "## Detail and handoff: blocks",
+				permissiveConditional: "author-fewest",
+				creditDrop: "model-credit",
+				insertBetweenGroups: "## Lifecycle and phases: blocks",
+				hardCapOtherMapSection: "map-whole-reference",
+				RG4Decimal: "## Lifecycle and phases: plain-heading",
+				RG4Strong: "## Lifecycle and phases: plain-heading",
+				RG4Review: "### Reviewer input contract: plain-heading",
+				RG4Escape: "## Implementation-review inputs: plain-heading",
+				RG4ZeroWidth: "## Lifecycle and phases: plain-heading",
+				RG4Space: "## Lifecycle and phases: plain-heading",
+				RG4Closed: "## Lifecycle and phases: plain-heading",
+				RG5Preface: "implementation-whole-input",
+				RG5Tail: "implementation-whole-input",
+				ownerSetext: "## Detail and handoff: plain-heading",
+				ownerIndent: "## Detail and handoff: plain-heading",
+				ownerClosed: "## Detail and handoff: plain-heading",
+				nonPlainOutsideWorkflow: "workflow: plain-heading",
+				ampOutsideWorkflow: "workflow: plain-heading",
+				lessOutsideWorkflow: "workflow: plain-heading",
+			};
+			for (const [file, owner] of headingOwners) {
+				for (const id of ["RG8Code", "RG8CodeNoSemicolon", "RG8Hidden", "RG8Style", "RG8Break",
+					"RG9Decimal", "RG9Hex", "RG9WordBreak", "RG9HiddenWord", "RG9Directional", "quoteDuplicate", "listDuplicate"]) {
+					rejectionReasons[`${file}-${id}`] = `${owner}: plain-heading`;
+				}
+				rejectionReasons[`${file}-plainDuplicate`] = `${owner}: owner`;
+			}
+			const acceptanceReasons = {
+				clean: "unchanged control",
+				wrap: "plain duty wrap",
+				wrapModel: "wrap in one model copy",
+				wrapAnchor: "wrap in abstraction test",
+				htmlOutsideWorkflow: "HTML lookalike outside owner",
+				boldOutsideWorkflow: "bold lookalike outside owner",
+				validModelRewrap: "different soft wraps in the two model copies",
+				fakeFenceOutsideWorkflow: "fenced lookalike outside owner",
+				allowedOutsideWorkflow: "appendix outside owner",
+				conflictOutsideWorkflow: "conflicting appendix outside owner",
+				differentLevel: "same title at a different level outside the section",
+				RG7List: "plain list-item wrap",
+			};
+			const probeResults = Object.entries(probes).map(([id, changes]) => {
+				const docs = { ...formDocs, ...changes };
+				const problems = assignedFormProblems(docs);
+				const accepted = acceptsAssignedForms(docs, problems);
+				const changed = Object.keys(changes).length > 0 &&
+					Object.entries(changes).every(([file, value]) => value !== formDocs[file]);
+				const expected = acceptanceReasons[id] !== undefined;
+				const reason = expected ? acceptanceReasons[id] : rejectionReasons[id];
+				// Inline ATX text can fail for the same prose reason as the heading.
+				const shapeAgrees = id !== "ATX0" ||
+					formBlocks(docs.design)?.filter(({ type, text }) => type === "heading" && text === "## Example").length === 1;
+				const agrees = shapeAgrees && reason !== undefined && (id === "clean" ? !changed : changed) && accepted === expected
+					&& (expected ? problems.length === 0 : problems.includes(reason));
+				console.log(`NOTE assigned-form probe ${id}: expected ${expected ? "accept" : "reject"}, observed ${accepted ? "accept" : "reject"}, ${reason}${agrees ? "" : ` (diagnostics: ${problems.join(", ")}${shapeAgrees ? "" : ", missing expected heading"})`}`);
+				return { id, changed, rejected: !accepted && agrees, agrees };
+			});
+			const probeIds = [...Object.keys(rejectionReasons), ...Object.keys(acceptanceReasons)];
+			const probesAgree = probeResults.length === probeIds.length &&
+				probeIds.every((id) => Object.hasOwn(probes, id)) && probeResults.every(({ agrees }) => agrees);
+			let ambiguousTargetRejected = false;
+			try {
+				mutationSpan("reuse reuse", "reuse", "ambiguous control");
+			} catch (error) {
+				ambiguousTargetRejected = error.message === "Expected one mutation target in ambiguous control, found 2: reuse";
+			}
+			console.log(`NOTE assigned-form probe RG10Ambiguous: expected reject, observed ${ambiguousTargetRejected ? "reject" : "accept"}`);
+			const allProbesAgree = probesAgree && ambiguousTargetRejected;
+			const modelPairControl = modelProblems({ ...formDocs, ...probes.reorder }).join() === "design-model-rule,model-copy-mismatch";
+			const modelSplitControl = modelProblems({ ...formDocs, ...probes.RG3 }).join() ===
+				"workflow-model-rule,design-model-rule,model-copy-mismatch";
+			mutationAudit.record("assigned-forms", [
+				...formAttacks, ...probeResults.filter(({ id }) => Object.hasOwn(rejectionReasons, id)),
+			]);
+			const substitutions = new Map([
+				["never", "always"], ["not", ""], ["no", "some"], ["only", ""],
+				["every", "some"], ["all", "some"], ["each", "some"], ["must", "may"],
+				["and", "or"], ["or", "and"], ["that", "or"],
+			]);
+			const sentenceMutants = (sentence) => {
+				const mutants = new Set([""]);
+				for (const { 0: word, index } of sentence.matchAll(/[\p{L}\p{N}]+(?:[-'][\p{L}\p{N}]+)*/gu)) {
+					const replace = (value) => sentence.slice(0, index) + value + sentence.slice(index + word.length);
+					mutants.add(replace(""));
+					const other = substitutions.get(word.toLowerCase());
+					if (other) mutants.add(replace(word[0] === word[0].toUpperCase() ? other[0].toUpperCase() + other.slice(1) : other));
+				}
+				return mutants;
+			};
+			const runFormSweep = () => {
+				const sweep = new Map();
+				const sweepFailures = [];
+				for (const [file, heading, ...groups] of sentenceOwners) {
+					const source = formDocs[file];
+					// Enumerate original source spans for edits. Evaluate mutations with the lexer.
+					const actual = splitDutySentences(formSection(source, heading)?.filter(({ type }) => type === "paragraph")
+						.map(({ raw }) => raw.trim()).join("\n\n") ?? "");
+					const counts = sweep.get(file) ?? { sentences: 0, mutants: 0, rejected: 0 };
+					sweep.set(file, counts);
+					for (const [names, expected] of groups.flatMap((group) => assignedDutyGroups[group])) {
+						counts.sentences++;
+						const originals = actual.filter((sentence) => normalizeText(sentence) === expected);
+						if (originals.length !== 1) {
+							sweepFailures.push({ file, expected, problem: "expected one source sentence" });
+							continue;
+						}
+						const match = mutationSpan(source, expected, `${file} ${heading}`);
+						for (const mutant of sentenceMutants(expected)) {
+							counts.mutants++;
+							const changed = replaceSpan(source, match, mutant);
+							const problems = ownedSentenceProblems(file, heading, groups, changed);
+							if (changed !== source && names.split(" ").every((id) => problems.includes(id))) counts.rejected++;
+							else sweepFailures.push({ file, expected, mutant, problems });
+						}
+					}
+				}
+				return { sweep, sweepFailures };
+			};
+			const { sweep, sweepFailures } = runFormSweep();
+			for (const [file, counts] of sweep) console.log(`NOTE assigned-form sweep ${file}: ${counts.sentences} sentences, ${counts.rejected}/${counts.mutants} rejected`);
+			const taskNoteAttacks = [
+				["notes-direct-read", "A design adversary receives", "An adversary may read task notes directly. A design adversary receives"],
+				["notes-reference", "Every reviewer receives them", "Provide a separate notes path. Every reviewer receives them"],
+				["notes-extract", "Every reviewer receives them", "Provide a separate notes extract. Every reviewer receives them"],
+				["notes-follow-link", "Never follow them.", "Follow links to task notes in the design."],
+				["notes-implementation-exception", "Implementation reviewers receive", "Implementation reviewers may receive task notes. Implementation reviewers receive"],
+				["notes-screened-episode", "Pass every selected episode whole and intact.", "Screen out task notes from each episode. Pass every selected episode whole and intact."],
+				["notes-stuck-fix-separate", "The exception does\nnot permit a direct read", "Supply task notes separately or read them directly. The exception does\nnot permit a direct read"],
+			].map(([id, before, after]) => {
+				const source = replaceSpan(reviews, mutationSpan(reviews, before, id), after);
+				return { id, changed: source !== reviews,
+					rejected: resolveDispatchUnits(workflow, source).some(({ count, text, expected }) => count !== 1 || text !== expected) };
+			});
+			mutationAudit.record("task-note-review", taskNoteAttacks);
+
+			const rewrapThree = () => {
+				const rewrapped = { ...formDocs };
+				for (const [file, before, after] of [
+					["design", "Reuse models first.", "Reuse models\nfirst."],
+					["workflow", "Each model fits all its uses.", "Each model\nfits all its uses."],
+					["map", "Check every map fact against source evidence.", "Check every map fact\nagainst source evidence."],
+				]) {
+					const match = mutationSpan(formDocs[file], before, file);
+					rewrapped[file] = replaceSpan(formDocs[file], match, distinctWrap(match[0], after));
+				}
+				return rewrapped;
+			};
+			const wrapTarget = (file, target, previous) => {
+				const source = formDocs[file];
+				const match = mutationSpan(source, previous ? `${previous} ${target}` : target, file);
+				const split = target.indexOf(" ");
+				const splitTarget = `${target.slice(0, split)}\n${target.slice(split + 1)}`;
+				const wrapped = previous ? `${previous} ${splitTarget}` : ` ${splitTarget}`;
+				// A paragraph opener can shift one column without joining another block.
+				return { ...formDocs, [file]: replaceSpan(source, match, distinctWrap(match[0], wrapped)) };
+			};
+			const definition = dutySentence("model-both-definition");
+			const reuse = dutySentence("model-both-reuse");
+			const layouts = [
+				["RG6Rewrap", rewrapThree],
+				["RG11GateRewrap", () => wrapTarget("design", dutySentence("author-no-follow"), dutySentence("author-review-pointer"))],
+				["RG11DesignReuse", () => wrapTarget("design", reuse, definition)],
+				["RG11WorkflowReuse", () => wrapTarget("workflow", reuse, definition)],
+				["RG11Abstraction", () => wrapTarget("workflow", dutySentence("shared-test"))],
+				["RG11ModelDefinition", () => wrapTarget("workflow", definition)],
+				["RG11ReviewPrivacy", () => wrapTarget("implementation", dutySentence("implementation-no-notes"))],
+				["RG11MapLength", () => wrapTarget("map", dutySentence("map-size"))],
+			];
+			// Pin the intended output spans independently of the layout builders.
+			const expectedWraps = {
+				RG6Rewrap: {
+					design: "Reuse models\nfirst.",
+					workflow: "Each model\nfits all its uses.",
+					map: "Check every map fact\nagainst source evidence.",
+				},
+				RG11GateRewrap: { design: "Follow the review contract. Reviewers\nnever follow note paths." },
+				RG11DesignReuse: { design: `${definition} Reuse\nmodels first.` },
+				RG11WorkflowReuse: { workflow: `${definition} Reuse\nmodels first.` },
+				RG11Abstraction: { workflow: " Use\nthe abstraction test in design assessment and triage." },
+				RG11ModelDefinition: { workflow: ` A\n${definition.slice(2)}` },
+				RG11ReviewPrivacy: { implementation: dutySentence("implementation-no-notes").replace("Never ", " Never\n") },
+				RG11MapLength: { map: " Aim\nfor about 1,500 words." },
+			};
+			const rewrapResults = layouts.map(([id, build]) => {
+				const expected = {};
+				const report = (changed, accepted, reason, diagnostics) => {
+					console.log(`NOTE assigned-form probe ${id}: expected accept, observed ${accepted ? "accept" : "reject"}, ${changed ? "changed input" : "unchanged input"}${reason ? `, ${reason}` : ""}`);
+					return { id, pass: !reason, reason, diagnostics };
+				};
+				for (const [file, span] of Object.entries(expectedWraps[id])) {
+					const source = formDocs[file];
+					try {
+						const match = mutationSpan(source, normalizeText(span), `${id} ${file}`);
+						expected[file] = replaceSpan(source, match, distinctWrap(match[0], span));
+					} catch (error) {
+						return report(false, false, `source-span: ${error.message}`, []);
+					}
+				}
+				const input = build();
+				const changed = Object.keys(input).filter((file) => input[file] !== formDocs[file]);
+				const wanted = Object.keys(expected);
+				const nonRewrap = changed.find((file) => normalizeText(input[file]) !== normalizeText(formDocs[file]));
+				const wrongSpan = wanted.find((file) => input[file] !== expected[file]);
+				const diagnostics = assignedFormProblems(input);
+				const accepted = diagnostics.length === 0 && acceptsAssignedForms(input, diagnostics);
+				const reason = changed.length !== wanted.length || changed.some((file) => !Object.hasOwn(expected, file))
+					? `changed-documents: expected ${wanted.join(", ")}, found ${changed.join(", ") || "none"}`
+					: nonRewrap ? `not-pure-rewrap: ${nonRewrap}`
+					: wrongSpan ? `intended-span: ${wrongSpan}`
+					: !accepted ? "semantic-predicate" : undefined;
+				return report(changed.length > 0, accepted, reason, diagnostics);
+			});
+			const rewrapPass = rewrapResults.map(({ id }) => id).join() ===
+				"RG6Rewrap,RG11GateRewrap,RG11DesignReuse,RG11WorkflowReuse,RG11Abstraction,RG11ModelDefinition,RG11ReviewPrivacy,RG11MapLength"
+				&& rewrapResults.every(({ pass }) => pass);
+
+			const countFreeResults = new Map();
+			const countFree = (text) => {
+				if (!countFreeResults.has(text)) {
+					countFreeResults.set(text, !/\b\d[\d,]* (?:independent )?heading-policy\b|\bheading-policy (?:identities|mutations|checks|count|roster)(?: (?:count|is|has|of|contains|includes|totals|equals|remains|at|exactly|all|the))*[ :=-]*\d|\bheading-policy (?:has|contains|includes|totals) (?:exactly |all )?\d/i.test(normalizeText(text).replace(/`/g, "")));
+				}
+				return countFreeResults.get(text);
+			};
+			const markdownFiles = (directory) => readdirSync(join(REPO, directory), { withFileTypes: true }).flatMap((entry) => {
+				const file = join(directory, entry.name);
+				return entry.isDirectory() ? markdownFiles(file) : entry.isFile() && file.endsWith(".md") ? [file] : [];
+			});
+			const countDocuments = new Map(["AGENTS.md", "verification/README.md", "README.md", ...markdownFiles("docs")].map((file) => [file, readFileSync(join(REPO, file), "utf8")]));
+			const acceptsCountDocuments = (documents) => [...documents.values()].every(countFree);
+			const countShapes = ["all 882 independent `heading-policy` identities", "all 886 independent heading-policy identities", "886 heading-policy identities", "heading-policy count: 886", "heading-policy identities totals 886"];
+			const countAttacks = [...countDocuments].flatMap(([file, text]) => countShapes.map((shape) => {
+				const changed = new Map(countDocuments).set(file, text + "\n" + shape.replace(/ /g, "\n"));
+				return !acceptsCountDocuments(changed);
+			}));
 			const duplicatedCharters = `${roleFiles.nl}\n${roleFiles.nl}`;
 			const missingBoundary = roleFiles.nl.replace("**Charter.**", "**Task.**");
 			checkAll("contract-dispatch-context", "four complete dispatch-policy units resolve exactly once and equal independent expectations. They cover the focused implementation-context obligation, research-log lifecycle, reviewer-input contract, and stuck-fix policy. Counterfactuals reject missing current-context inputs, a restored mandatory whole-log read, other policy weakening, or additions inside a unit, while benign text outside the units remains accepted. Five bounded UTF-8 measurements remain exact", [
+				["map reading rules belong once to the worker reference and all removal and whole-document repeat mutations fail", acceptsMapOwnership(mapReference, mapOutside) && mapOwnershipAttacks.every(Boolean), mapOwnershipAttacks],
+				["production, maintenance, applicability and edit prerequisites reject independent removal", productionRemovals.every(({ changed, rejected }) => changed && rejected), productionRemovals],
+				["assigned form duties, review destinations and both model copies reject independent mutations", acceptsAssignedForms(formDocs) && [...formAttacks, ...taskNoteAttacks].every(({ changed, rejected }) => changed && rejected), {
+					missingOrWeak: assignedFormProblems(formDocs),
+					ineffective: [...formAttacks, ...taskNoteAttacks].filter(({ changed, rejected }) => !changed || !rejected),
+				}],
+				["every required rewrap applies its intended spans to exactly its expected documents and passes the assigned-form predicate without diagnostics", rewrapPass, {
+					layouts: rewrapResults.map(({ id }) => id), failures: rewrapResults.filter(({ pass }) => !pass),
+				}],
+				["all assigned-form probes agree with their expected decisions and reasons", allProbesAgree, probeResults.filter(({ agrees }) => !agrees)],
+				["the full model copies disagree on the one-copy reorder and the unequal split", modelPairControl && modelSplitControl, { modelPairControl, modelSplitControl }],
+				["every assigned duty sentence rejects word and sentence mutations by name", sweepFailures.length === 0, sweepFailures],
+				["all three presentation duties have independent presence pins and removal controls", acceptsMapPresentation(workflow) && mapPresentationRemovals.every(Boolean), mapPresentationRemovals],
+				["the workflow pointer names the worker task and rejects loss of the no-read duty", acceptsMapPointer(workflow) && !acceptsMapPointer(workflow.replace(mapNoRead, "")), mapNoRead],
+				["published heading-policy descriptions are count-free across root, verification and recursive docs paths", acceptsCountDocuments(countDocuments) && countDocuments.has("docs/maps.md") && countAttacks.every(Boolean), { files: [...countDocuments.keys()], attacks: countAttacks.length }],
 				["the complete research-log privacy paragraph matches an independent literal in its owning section", acceptsResearchPrivacy(workflow), researchPrivacy(workflow)],
 				["all three privacy sentence removals change input and fail for missing or changed content", researchPrivacyRemovals.length === 3 && researchPrivacyRemovals.every(({ changed, rejected, intended }) => changed && rejected && intended), researchPrivacyRemovals],
 				["moving the intact privacy paragraph outside its owner fails with no owned paragraph", movedResearchPrivacy !== workflow && normalizeText(movedResearchPrivacy).includes(expectedResearchPrivacy) && researchPrivacy(movedResearchPrivacy).count === 0 && !acceptsResearchPrivacy(movedResearchPrivacy), researchPrivacy(movedResearchPrivacy)],
@@ -6122,7 +6997,8 @@ omitted and why.`);
 				["the four approved policy units form the exact roster and resolve once", dispatchUnitResults.map(({ id }) => id).join() === "implementation-reference,research-log-lifecycle,reviewer-input-contract,stuck-fix-policy" && dispatchUnitResults.every(({ count }) => count === 1), dispatchUnitResults.map(({ id, count }) => ({ id, count }))],
 				["every complete policy unit equals its independent expectation", dispatchUnitResults.every(({ text, expected }) => text === expected), dispatchUnitResults.filter(({ text, expected }) => text !== expected).map(({ id, text, expected }) => ({ id, text, expected }))],
 				["the exact focused-context reference occurs once and has its measured UTF-8 bytes including its final line feed", dispatchUnitById.get("implementation-reference")?.text.split(dispatchReference.trim()).length - 1 === 1 && Buffer.byteLength(dispatchReference, "utf8") > 0, { occurrences: dispatchUnitById.get("implementation-reference")?.text.split(dispatchReference.trim()).length - 1, bytes: Buffer.byteLength(dispatchReference, "utf8") }],
-				["accepted ordinary evidence and unrestricted embedded implementer-episode content remain in the expectations", dispatchUnitById.get("reviewer-input-contract")?.expected.includes("Ordinary repository and library evidence needed for the assigned work remains available") && dispatchUnitById.get("stuck-fix-policy")?.expected.includes("Embedded material remains present regardless of its type, source, or amount") && dispatchUnitById.get("stuck-fix-policy")?.expected.includes("Do not screen content for eligibility"), dispatchUnitResults.map(({ id, expected }) => ({ id, expected }))],
+				["task notes are excluded separately and stay intact when embedded in an eligible whole episode", dispatchUnitById.get("reviewer-input-contract")?.text.includes("task notes or extracts, separate note references") && dispatchUnitById.get("stuck-fix-policy")?.text.includes("Pass every selected episode whole and intact. Embedded material remains present regardless of its type, source, or amount."), "separate input and embedded evidence have different policies"],
+				["accepted ordinary evidence and unrestricted embedded implementer-episode content remain in the expectations", dispatchUnitById.get("reviewer-input-contract")?.expected.includes("Ordinary repository and library evidence needed for the assignment remains available") && dispatchUnitById.get("stuck-fix-policy")?.expected.includes("Embedded material remains present regardless of its type, source, or amount") && dispatchUnitById.get("stuck-fix-policy")?.expected.includes("Do not screen content for eligibility"), dispatchUnitResults.map(({ id, expected }) => ({ id, expected }))],
 				["quantifier, private-source, role, direct-read, gate, episode-source, screening, and filtering counterfactuals each change input and fail", mutationOutcomes.every(({ changed, accepted }) => changed && !accepted), mutationOutcomes],
 				["a missing anchor makes each owned unit unresolved", missingUnitOutcomes.every(({ count, text }) => count === 0 && text === ""), missingUnitOutcomes],
 				["duplicated owned units fail exact-once resolution", duplicateUnitOutcomes.every(({ count }) => count === 2), duplicateUnitOutcomes.map(({ id, count }) => ({ id, count }))],
@@ -6543,7 +7419,8 @@ The accounting covers:`),
 				"The harness runs calls issued in one turn at the same time.",
 				"Cumulative token cost grows with the square of the number of turns because each turn resends the conversation history.",
 			];
-			const currentGuidance = "Use short, active sentences. Write sentences a non-native reader understands on one reading. Do not use semicolons or contractions. Apply these rules to your prose. Exclude research logs, worker task text, and the project's own agent instruction file. Describe only the current state in the README, docs, code comments and the project's own agent instruction file, not removed features or past behavior, but allow change records such as pull request descriptions, commit bodies, release notes and issues to describe removals and past behavior.";
+			const reviewGuidance = "Use short, active sentences. Write sentences a non-native reader understands on one reading. Do not use semicolons or contractions. Apply these rules to your prose. Exclude research logs, worker task text, and the project's own agent instruction file. Describe only the current state in the README, docs, code comments and the project's own agent instruction file, not removed features or past behavior, but allow change records such as pull request descriptions, commit bodies, release notes and issues to describe removals and past behavior.";
+			const currentGuidance = [`${reminder.WRITING_REQUIREMENTS_TITLE}:`, reminder.WRITING_STYLE_RULES.map(({ text }) => text).join(" "), reminder.renderWritingDoctrineRequirements(), "", reminder.WRITING_SCOPE_EXCLUSION, "A high-level design remains governed even inside a research log.", "Describe only the current state in the README, docs, code comments and the project's own agent instruction file, not removed features or past behavior, but allow change records such as pull request descriptions, commit bodies, release notes and issues to describe removals and past behavior."].join("\n");
 			const workerRawSource = readFileSync(join(REPO, "extension", "worker.ts"), "utf8");
 			const workerSource = workerRawSource
 				.replace(/\/\*[\s\S]*?\*\//g, " ")
@@ -6570,7 +7447,106 @@ The accounting covers:`),
 				.replace(/(^|[^:])\/\/[^\n]*/g, "$1 ");
 
 			const ts = (await import(pathToFileURL(join(REPO, "node_modules/typescript/lib/typescript.js")).href)).default;
-			const workerAst = ts.createSourceFile("worker.ts", workerSource, ts.ScriptTarget.Latest, true);
+			const parse = (name, source) => ts.createSourceFile(name, source, ts.ScriptTarget.Latest, true);
+			const workerAst = parse("worker.ts", workerRawSource);
+			const threadsAst = parse("threads.ts", threadsRawSource);
+			const writingSource = readFileSync(join(REPO, "extension", "writing-reminder.ts"), "utf8");
+			const writingAst = parse("writing-reminder.ts", writingSource);
+			const edge = (kind, specifier, names) => JSON.stringify([kind, specifier, [...names].sort()]);
+			const workerForms = ["REVIEWER_WRITING_GUIDANCE", "WORKER_WRITING_GUIDANCE"];
+			function writingBoundary(source, moduleName) {
+				const edges = [];
+				const sends = [];
+				let forbidden = false;
+				const shared = moduleName === "writing";
+				const collectEdge = (kind, specifier, bindings, unexpectedShape) => {
+					if (specifier && ts.isStringLiteralLike(specifier) && (shared || /writing|(?:^|\/)mode(?:\.[cm]?[jt]s)?$/.test(specifier.text))) {
+						const names = !unexpectedShape && bindings && (ts.isNamedImports(bindings) || ts.isNamedExports(bindings))
+							? bindings.elements.map(binding => `${binding.isTypeOnly ? "type " : ""}${binding.propertyName ? binding.propertyName.text + " as " : ""}${binding.name.text}`)
+							: ["<other>"];
+						edges.push(edge(kind, specifier.text, names));
+					}
+				};
+				const isName = (node, name) => node && ts.isIdentifier(node) && node.text === name;
+				function visit(node) {
+					if (ts.isImportDeclaration(node)) {
+						const clause = node.importClause;
+						collectEdge(clause?.isTypeOnly ? "import type" : "import", node.moduleSpecifier,
+							clause?.namedBindings, clause?.name || node.attributes);
+					} else if (ts.isExportDeclaration(node) && node.moduleSpecifier) {
+						collectEdge(node.isTypeOnly ? "export type" : "export", node.moduleSpecifier, node.exportClause, node.attributes);
+					} else if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) {
+						collectEdge("import equals", node.moduleReference.expression);
+					} else if (ts.isCallExpression(node)) {
+						const target = node.expression;
+						if (target.kind === ts.SyntaxKind.ImportKeyword || isName(target, "require")) {
+							collectEdge(target.kind === ts.SyntaxKind.ImportKeyword ? "dynamic import" : "require", node.arguments[0]);
+						}
+						const name = ts.isPropertyAccessExpression(target) ? target.name.text
+							: ts.isElementAccessExpression(target) && ts.isStringLiteralLike(target.argumentExpression) ? target.argumentExpression.text
+								: ts.isIdentifier(target) ? target.text : undefined;
+						if (!shared && (name === "sendCustomMessage" || name === "originalSendCustomMessage")) sends.push(node);
+					}
+					if (!shared && (ts.isIdentifier(node) || ts.isStringLiteralLike(node)) &&
+						["sendMessage", "slate-writing-reminder", "renderWritingReminder", "renderWritingReminderMessage", "measureWritingTurn", "loadWritingChecker"].includes(node.text)) {
+						forbidden = true;
+					}
+					ts.forEachChild(node, visit);
+				}
+				visit(source);
+				const expected = {
+					worker: [edge("import", "./writing-reminder.ts", [...workerForms, "WRITING_REMINDER_HEADER"]),
+						edge("export", "./writing-reminder.ts", [...workerForms, "WORKER_DESIGN_SCOPE_EXCEPTION"])],
+					threads: [edge("import", "./writing-reminder.ts", ["isWritingReminderMessage"])],
+					writing: [edge("import type", "./writing.ts", ["WritingFindingSummary"])],
+				}[moduleName];
+				if (source.parseDiagnostics.length || forbidden || JSON.stringify(edges.sort()) !== JSON.stringify(expected.sort())) return false;
+				// Only the action-folder send and the worker's managed forwarding call belong here.
+				if (shared) return true;
+				if (sends.length !== 1) return false;
+				const [send] = sends;
+				const [message, options] = send.arguments;
+				if (send.questionDotToken || send.typeArguments?.length) return false;
+				if (moduleName === "worker") {
+					return isName(send.expression, "originalSendCustomMessage") && send.arguments.length === 1 &&
+						ts.isSpreadElement(message) && isName(message.expression, "args");
+				}
+				const target = send.expression;
+				const [property] = options && ts.isObjectLiteralExpression(options) ? options.properties : [];
+				return ts.isPropertyAccessExpression(target) && !target.questionDotToken &&
+					target.name.text === "sendCustomMessage" && isName(target.expression, "created") &&
+					send.arguments.length === 2 && isName(message, "actionMessage") &&
+					options.properties?.length === 1 && !!property && ts.isPropertyAssignment(property) &&
+					(ts.isIdentifier(property.name) || ts.isStringLiteralLike(property.name)) && property.name.text === "triggerTurn" &&
+					property.initializer.kind === ts.SyntaxKind.FalseKeyword;
+			}
+			const workerControl = `
+				import {
+					WORKER_WRITING_GUIDANCE, REVIEWER_WRITING_GUIDANCE, WRITING_REMINDER_HEADER,
+				} from './writing-reminder.ts'
+				export {
+					WORKER_WRITING_GUIDANCE, WORKER_DESIGN_SCOPE_EXCEPTION, REVIEWER_WRITING_GUIDANCE,
+				} from './writing-reminder.ts'
+				trackManaged(() => originalSendCustomMessage(...args))
+			`;
+			const threadControl = `
+				import { isWritingReminderMessage } from './writing-reminder.ts'
+				if (actionMessage) void created.sendCustomMessage(actionMessage,  {
+					'triggerTurn': false,
+				})
+			`;
+			const writingBoundaryControls = [
+				["worker formatting", "worker", workerControl, true],
+				["thread formatting", "threads", threadControl, true],
+				["changed options", "threads", threadControl.replace("false", "true"), false],
+				["second send", "threads", threadControl + "\ncreated['sendCustomMessage'](actionMessage, { triggerTurn: false });", false],
+				["changed export kind", "worker", workerControl.replace("export {", "export type {"), false],
+				["changed imported name", "worker", workerControl.replace("WORKER_WRITING_GUIDANCE,", "OTHER_GUIDANCE,"), false],
+				["forbidden renderer", "worker", workerControl + "\nrenderWritingReminder();", false],
+				["dynamic load", "worker", workerControl + '\nvoid import("./writing-reminder.ts");', false],
+				["runtime import", "writing", 'import { WritingFindingSummary } from "./writing.ts";', false],
+			].filter(([, name, source, expected]) => writingBoundary(parse(`${name}.ts`, source), name) !== expected)
+				.map(([label]) => label);
 			const opener = workerAst.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === "openWorkerSession");
 			const shared = workerAst.statements.find(node => ts.isVariableStatement(node)
 				&& node.declarationList.declarations.some(d => d.name.getText(workerAst) === "workerCodemodeLoad"));
@@ -6629,7 +7605,7 @@ The accounting covers:`),
 			}
 			if (opener) findGuard(opener);
 			checkAll("worker-reminder-wiring", "worker reminder loader, handler, tool exclusion, and dispatch warning wiring stays intact", [
-				["worker creates the internal session-local runtime directly", /import\s*\{\s*createWorkerReminderRuntime\s*\}\s*from\s*["']\.\/worker-reminder\.ts["']/.test(workerSource) && /const\s+workerReminder\s*=\s*createWorkerReminderRuntime\(\)/.test(workerSource), workerSource.match(/import[^\n]*worker-reminder[^\n]*/)?.[0] ?? "not found"],
+				["worker creates the internal session-local runtime directly", /import\s*\{\s*createWorkerReminderRuntime\s*\}\s*from\s*["']\.\/worker-reminder\.ts["']/.test(workerSource) && /const\s+workerReminder\s*=\s*createWorkerReminderRuntime\(configPermitted\s*\?/.test(workerSource), workerSource.match(/import[^\n]*worker-reminder[^\n]*/)?.[0] ?? "not found"],
 				["every loader receives the reminder, guarded codemode, and last lifecycle factory", (workerSource.match(/new\s+DefaultResourceLoader\s*\(/g) ?? []).length === 1 && shared && opener && shared.end <= opener.pos && guardedAwait && synchronousAssignment && !/await import\("\.\/worker-codemode\.ts"\)/.test(opener.getText(workerAst)) && /const factory = codemode\.createWorkerCodemodeComponent\(warn\)/.test(workerSource) && /extensionFactories[\s\S]*workerReminder\.extension[\s\S]*factory: codemodeFactory[\s\S]*factory: nestedLifecycle\.extension/.test(loaderBlock), loaderBlock],
 				["only the opener loads the component at runtime", edges.length === 1 && edges[0].file === join("extension", "worker.ts") && edges[0].dynamic && edges[0].text === 'import("./worker-codemode.ts")', edges],
 				["component delegates directly to pi without queue or reader", (() => {
@@ -6639,7 +7615,7 @@ The accounting covers:`),
 				})(), "direct registration and no wrapper"],
 				["component metadata and returned factory are validated", /WORKER_CODEMODE_COMPONENT_NAME !== "slate-worker-codemode"/.test(workerSource) && /typeof codemode\.createWorkerCodemodeComponent !== "function"/.test(workerSource) && /typeof factory !== "function"/.test(workerSource), "name, creator, factory"],
 				["factory wiring is independent of the allowlist and prompt cache key", loaderStart >= 0 && reloadStart > loaderStart && allowlistStart > reloadStart && !/promptCacheKey/.test(loaderBlock) && (loaderBlock.match(/workerReminder\.extension/g) ?? []).length === 1, { loaderStart, reloadStart, allowlistStart, promptCacheKey: loaderBlock.match(/promptCacheKey/)?.[0] ?? "absent", factoryCount: (loaderBlock.match(/workerReminder\.extension/g) ?? []).length }],
-				["handlers register directly in the internal factory rather than session_start", /pi\.on\(\s*["']message_end["']/.test(workerReminderSource) && /pi\.on\(\s*["']tool_result["']/.test(workerReminderSource) && !/["']session_start["']/.test(workerReminderSource), workerReminderSource.match(/pi\.on\([^\n]*/g) ?? []],
+				["the internal factory registers message and tool handlers without startup or turn-boundary hooks", /pi\.on\(\s*["']message_end["']/.test(workerReminderSource) && /pi\.on\(\s*["']tool_result["']/.test(workerReminderSource) && !/["'](?:session_start|turn_end)["']/.test(workerReminderSource), workerReminderSource.match(/pi\.on\([^\n]*/g) ?? []],
 				["loaded extensions are read exactly once after reload and before the allowlist gate", (workerSource.match(/loader\.getExtensions\(\)/g) ?? []).length === 1 && /const\s+loaded\s*=\s*loader\.getExtensions\(\)/.test(loadedBlock), { count: (workerSource.match(/loader\.getExtensions\(\)/g) ?? []).length, loadedBlock }],
 				["non-codemode loader errors use the sanitized warning channel before the allowlist gate", /const\s+warn\s*=/.test(warningBlock) && /for\s*\(\s*const\s+err\s+of\s+loaded\.errors\s*\?\?\s*\[\]\s*\)/.test(loadedBlock) && /if\s*\(opts\.report\)\s*\{\s*opts\.report\(msg\);\s*retained = true;/.test(warningBlock) && /if\s*\(\(!opts\.report \|\| notifyHost\) && ctx\.hasUI\)/.test(warningBlock) && /ctx\.ui\.notify\(msg, "warning"\)/.test(warningBlock) && /if\s*\(!retained\)\s*\{\s*try\s*\{\s*console\.warn\(msg\)/.test(warningBlock) && /createWorkerNestedLifecycle\(message => warn\(message, true\),/.test(warningBlock) && /sanitizeForNotify\(String\(err\.path\)\)[\s\S]*sanitizeForNotify\(String\(err\.error\)\)/.test(loadedBlock), loadedBlock],
 				["extension tool collection and collision rejection stay inside the allowlist gate", /loaded\.extensions/.test(allowlistBlock) && /const\s+collisions\s*:\s*string\[\]\s*=\s*\[\]/.test(allowlistBlock) && /if\s*\(collisions\.length\s*>\s*0\)/.test(allowlistBlock), allowlistBlock.match(/loaded\.extensions|collisions\.length/g) ?? []],
@@ -6665,25 +7641,25 @@ The accounting covers:`),
 				["reviewer-owned-diff-exception-removed", reviewBlock, reviewBlock.replace("Write only your own writing-checker diff", "Write no writing-checker diff"), "Write only your own writing-checker diff"],
 			];
 			mutationAudit.record("worker-guidance", preambleMutations.map(([id, original, source, rule]) => ({ id, changed: source !== original, rejected: !guidanceStates.some(([, , expected]) => source === expected), originalRuleCount: original.split(rule).length - 1, mutatedRuleCount: source.split(rule).length - 1 })));
-			const reportRule = '"Report a failed record check as a failure."';
+			const reportRule = '"Report a failed or unclear append or check and stop. Never retry that append. "';
 			const reportSource = readFileSync(join(REPO, "extension", "tools.ts"), "utf8");
 			const reportMutation = reportSource.replace(reportRule, '""');
 			mutationAudit.record("report-guidance", [{ id: "failed-record-check-report-removed", changed: reportMutation !== reportSource, rejected: !reportMutation.includes(reportRule), originalRuleCount: reportSource.split(reportRule).length - 1, mutatedRuleCount: reportMutation.split(reportRule).length - 1 }]);
 			const folderBudget = readFileSync(join(REPO, "docs", "context-budget.md"), "utf8");
-			checkAll("worker-preamble", "common worker guidance keeps its exact text, writing guidance is keyed only by trust, and the removed configuration parameter is absent", [
+			checkAll("worker-preamble", "common worker guidance keeps its exact text, configuration permission gates both writing forms, and the removed configuration parameter is absent", [
 				["four change guidance states match independent complete expectations and measured limits including separators", guidanceStates.every(([change, review, expected, bytes, limit]) => worker.changeGuidance(change, review) === expected && Buffer.byteLength(worker.changeGuidance(change, review)) + 2 === bytes && bytes <= limit), guidanceStates.map(([change, review]) => Buffer.byteLength(worker.changeGuidance(change, review)) + 2)],
 				["same-group guidance precedes selected instructions and prompt documents without action paths", guidanceStates.every(([change, review, expected]) => JSON.stringify(worker.workerSystemPromptBlocks(true, review, "SELECTED", ["DOC"], worker.changeGuidance(change, review))) === JSON.stringify([worker.workerPreamble(true, review), expected, "SELECTED", "DOC"]) && !expected.includes("/tmp/action.")), guidanceStates],
 				["published system figures match production and keep independent limits", guidanceStates.every(([change, review, , , limit], i) => { const bytes = Buffer.byteLength(worker.changeGuidance(change, review)); return folderBudget.includes(`| ${i < 2 ? "Open-change" : "No-change"} ${review ? "review" : "record-writing"} system | ${bytes} | 2 | ${bytes + 2} | ${limit} |`); }), guidanceStates],
 				["published system totals use production preambles and change blocks", [false, true].every((review) => { const totals = [false, true].map((trusted) => Buffer.byteLength(worker.workerSystemPromptBlocks(trusted, review, undefined, [], worker.changeGuidance(canonicalChange, review)).join("\n\n")).toLocaleString("en-US")); return folderBudget.includes(`Open-change ${review ? "review" : "record-writing"} system totals are ${totals[0]} or ${totals[1]} bytes without or with writing guidance.`); }), folderBudget],
 				["published preamble rows and component sizes match production", [
- ["Base", false, false], ["Base + writing guidance", true, false],
- ["Base + reviewer charter", false, true], ["Base + writing guidance + reviewer charter", true, true]
+ ["Base", false, false], ["Base + complete writing guidance", true, false],
+ ["Base + reviewer charter", false, true], ["Base + short writing guidance + reviewer charter", true, true]
  ].every(([label, trusted, review]) => {
  const size = Buffer.byteLength(worker.workerPreamble(trusted, review));
  const base = Buffer.byteLength(worker.workerPreamble(false, false));
  const format = (value) => value.toLocaleString("en-US");
  return folderBudget.includes(`| ${label} | ${format(size)} | ${size === base ? "—" : format(size - base)} |`);
- }) && folderBudget.includes(`The writing guidance is ${Buffer.byteLength(worker.WORKER_WRITING_GUIDANCE)} bytes.`), "four production rows and writing component"],
+ }) && folderBudget.includes(`The writing guidance is ${Buffer.byteLength(worker.WORKER_WRITING_GUIDANCE).toLocaleString("en-US")} bytes.`), "four production rows and writing component"],
 				["untrusted preamble is the 1317-byte common text", worker.WORKER_PREAMBLE === commonPreamble && Buffer.byteLength(worker.workerPreamble(false, false)) === 1317, worker.workerPreamble(false, false)],
 				...presenceControls.flatMap(({ boundary, source, control }) => [
 					[`${boundary} explicitly selects absence`, hasPresenceControl(source, control), control],
@@ -6696,8 +7672,11 @@ The accounting covers:`),
 				["missing, duplicate, retry-override and effect-caution mutations fail recovery checks", recoveryMutations.every(mutated => mutated !== commonPreamble && !hasRecovery(mutated)), recoveryMutations],
 				["parallel tool guidance appears exactly once across every worker configuration", [worker.workerPreamble(false, false), worker.workerPreamble(true, false), worker.workerPreamble(false, true), worker.workerPreamble(true, true)].every((preamble) => preamble.split(parallelToolRule).length === 2), { base: worker.workerPreamble(false, false), writing: worker.workerPreamble(true, false), reviewer: worker.workerPreamble(false, true), both: worker.workerPreamble(true, true) }],
 				["the two cost-reason sentences appear exactly once across every worker configuration", [worker.workerPreamble(false, false), worker.workerPreamble(true, false), worker.workerPreamble(false, true), worker.workerPreamble(true, true)].every((preamble) => reasonSentences.every((sentence) => preamble.split(sentence).length === 2)), { sentences: reasonSentences, base: worker.workerPreamble(false, false) }],
-				["false trust omits writing guidance with or without the reviewer charter", worker.workerPreamble(false, false) === commonPreamble && !worker.workerPreamble(false, true).includes(currentGuidance), { plain: worker.workerPreamble(false, false), reviewer: worker.workerPreamble(false, true) }],
-				["true trust enables the current 1861-byte preamble with writing guidance", worker.WORKER_WRITING_GUIDANCE === currentGuidance && worker.workerPreamble(true, false) === `${commonPreamble} ${currentGuidance}` && Buffer.byteLength(worker.workerPreamble(true, false)) === 1861, worker.workerPreamble(true, false)],
+				["false trust omits writing guidance with or without the reviewer charter", worker.workerPreamble(false, false) === commonPreamble && !worker.workerPreamble(false, true).includes(reviewGuidance), { plain: worker.workerPreamble(false, false), reviewer: worker.workerPreamble(false, true) }],
+				["worker assembly imports only the role forms and header and defines no separate writing sender", writingBoundary(workerAst, "worker") && writingBoundary(threadsAst, "threads") && writingBoundary(writingAst, "writing") && writingBoundaryControls.length === 0, { scope: "writing-related edges and direct sender calls", mismatchedControls: writingBoundaryControls }],
+				["shared exports remain available through worker assembly", ["WORKER_WRITING_GUIDANCE", "REVIEWER_WRITING_GUIDANCE", "WORKER_DESIGN_SCOPE_EXCEPTION"].every(name => worker[name] === reminder[name]), "full, short and design-in-log exception"],
+				["permitted non-review configuration enables the 2479-byte preamble with writing guidance", worker.WORKER_WRITING_GUIDANCE === currentGuidance && worker.workerPreamble(true, false) === `${commonPreamble} ${currentGuidance}` && Buffer.byteLength(worker.workerPreamble(true, false)) === 2479, worker.workerPreamble(true, false)],
+				["reviewer variants keep exact writing bytes", worker.REVIEWER_WRITING_GUIDANCE === reviewGuidance && worker.workerPreamble(true, true) === `${commonPreamble} ${reviewGuidance}\n${worker.REVIEWER_CHARTER}`, worker.REVIEWER_WRITING_GUIDANCE],
 				["reviewer variants match the current measured byte boundaries", Buffer.byteLength(worker.workerPreamble(false, true)) === 3472 && Buffer.byteLength(worker.workerPreamble(true, true)) === 4016, { reviewer: Buffer.byteLength(worker.workerPreamble(false, true)), both: Buffer.byteLength(worker.workerPreamble(true, true)) }],
 				["worker prompt uses permitted Slate configuration and passes charter and selected guidance to the system blocks", /const configPermitted = permitsSlateConfig\(opts\.config, trusted\)/.test(workerSource) && /appendSystemPrompt\s*:\s*workerSystemPromptBlocks\(configPermitted\s*,\s*opts\.reviewerCharter\s*===\s*true\s*,\s*opts\.reviewGuidance\s*,\s*promptDocs\s*,\s*opts\.changeGuidance\)\s*,/.test(workerSource), workerSource.match(/appendSystemPrompt\s*:[^\n]*/)?.[0] ?? "not found"],
 				["the removed writingCheck parameter and dispatch field are absent", !/writingCheck/.test(workerSource) && !/writingCheck/.test(threadsSource), { worker: workerSource.match(/writingCheck/)?.[0] ?? "absent", threads: threadsSource.match(/writingCheck/)?.[0] ?? "absent" }],
@@ -7709,6 +8688,7 @@ The accounting covers:`),
 		skip("worker-reminder-compression", "extension/threads.ts could not be loaded");
 	} else {
 		const reminderMessage = { role: "custom", customType: "slate-worker-reminder", content: "reminder" };
+		const writingMessage = { role: "custom", customType: "slate-writing-reminder", content: "result", display: true };
 		const otherCustom = { role: "custom", customType: "other", content: "keep" };
 		const injected = { role: "user", content: "loaded episode text" };
 		const assistant = { role: "assistant", content: "result" };
@@ -7723,6 +8703,11 @@ The accounting covers:`),
 			["action message exclusion preserves worker and tool evidence that quotes the path", (() => { const user = { role: "user", content: "task" }, tool = { role: "toolResult", content: action.content }, failed = { role: "assistant", stopReason: "error", content: action.content }; return JSON.stringify(threads.messagesForCompression([action, user, tool, failed, action])) === JSON.stringify([user, tool, failed]); })(), "generated custom type only"],
 			["all reminder copies are removed without an injected prompt", JSON.stringify(threads.messagesForCompression([reminderMessage, assistant, reminderMessage, otherCustom])) === JSON.stringify([assistant, otherCustom]), threads.messagesForCompression([reminderMessage, assistant, reminderMessage, otherCustom])],
 			["all reminder copies and one exact injected prompt are removed together", JSON.stringify(threads.messagesForCompression([compacted, reminderMessage, injected, assistant, reminderMessage, otherCustom], "loaded episode text")) === JSON.stringify([compacted, assistant, otherCustom]), threads.messagesForCompression([compacted, reminderMessage, injected, assistant, reminderMessage, otherCustom], "loaded episode text")],
+			["writing exclusion uses exact identity, not text or display", (() => {
+				const lookalike = { ...writingMessage, role: "assistant" };
+				const kept = threads.messagesForCompression([writingMessage, lookalike, assistant, otherCustom]);
+				return kept.length === 3 && kept[0] === lookalike && kept[1] === assistant && kept[2] === otherCustom;
+			})(), "visible writing custom message and ordinary lookalikes"],
 			["an unrelated custom type is retained", threads.messagesForCompression([otherCustom, reminderMessage])[0] === otherCustom, threads.messagesForCompression([otherCustom, reminderMessage])],
 			["an exact prompt is retained when no injected prompt is named", threads.messagesForCompression([injected, reminderMessage])[0] === injected, threads.messagesForCompression([injected, reminderMessage])],
 		]);

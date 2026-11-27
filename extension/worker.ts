@@ -51,6 +51,7 @@ import type { LogicalModelEffort } from "./logical-model-definitions.ts";
 import type { RecoveryCandidate } from "./logical-model-recovery.ts";
 import { RequestThrottleAbort, type RequestThrottle } from "./request-throttle.ts";
 import { createWorkerReminderRuntime } from "./worker-reminder.ts";
+import { REVIEWER_WRITING_GUIDANCE, WORKER_WRITING_GUIDANCE, WRITING_REMINDER_HEADER } from "./writing-reminder.ts";
 import { createWorkerNestedLifecycle } from "./worker-nested-lifecycle.ts";
 import { describeSpecDefect, splitModelSpec, type SlateConfig, type ThreadType } from "./state.ts";
 import { PI_BUILTIN_TOOL_NAMES, SLATE_TOOL_NAMES } from "./worker-extensions.ts";
@@ -71,6 +72,10 @@ export type WorkerSession = Awaited<ReturnType<typeof createAgentSession>>["sess
 	shutdownWorker(): Promise<void>;
 };
 
+type OpenedWorkerSession = WorkerSession & {
+	workerReminderCompletedTurn: ReturnType<typeof createWorkerReminderRuntime>["completedTurn"];
+};
+
 export const DEFAULT_WORKER_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"];
 
 /** Thread types that receive the reviewer charter and require findings structure. */
@@ -87,8 +92,8 @@ export function isJudgementThreadType(type: unknown): type is (typeof JUDGEMENT_
 // The node test pins this copy to pi-ai's declaration.
 export const OPENAI_PROMPT_CACHE_KEY_MAX_LENGTH = 64;
 
-// Common writing guidance reaches every trusted worker configuration.
-// Reviewer guidance is added only for judgement thread types.
+// Configuration permission gates writing guidance in both role forms.
+// Judgement thread types receive the short form and reviewer charter.
 export const WORKER_PREAMBLE = [
 	"You are a worker thread executing ONE bounded action for an orchestrator.",
 	"Do the action fully, then stop.",
@@ -103,8 +108,7 @@ export const WORKER_PREAMBLE = [
 	"A script run by Slate's codemode tool can itself call only active tools. Another tool it calls, such as an MCP gateway, may forward to a deferred tool.",
 ].join(" ");
 
-export const WORKER_WRITING_GUIDANCE =
-	"Use short, active sentences. Write sentences a non-native reader understands on one reading. Do not use semicolons or contractions. Apply these rules to your prose. Exclude research logs, worker task text, and the project's own agent instruction file. Describe only the current state in the README, docs, code comments and the project's own agent instruction file, not removed features or past behavior, but allow change records such as pull request descriptions, commit bodies, release notes and issues to describe removals and past behavior.";
+export { REVIEWER_WRITING_GUIDANCE, WORKER_DESIGN_SCOPE_EXCEPTION, WORKER_WRITING_GUIDANCE } from "./writing-reminder.ts";
 
 export const REVIEWER_CHARTER = `- Trace, don't guess: cite evidence from code actually read (file:line
   or diff hunk) for every claim about behavior. Read third-party /
@@ -145,7 +149,8 @@ export const REVIEWER_CHARTER = `- Trace, don't guess: cite evidence from code a
 `;
 
 export function workerPreamble(trusted: boolean, reviewerCharter: boolean): string {
-	const prose = trusted ? `${WORKER_PREAMBLE} ${WORKER_WRITING_GUIDANCE}` : WORKER_PREAMBLE;
+	const guidance = reviewerCharter ? REVIEWER_WRITING_GUIDANCE : WORKER_WRITING_GUIDANCE;
+	const prose = trusted ? `${WORKER_PREAMBLE} ${guidance}` : WORKER_PREAMBLE;
 	return reviewerCharter === true ? `${prose}\n${REVIEWER_CHARTER}` : prose;
 }
 
@@ -474,9 +479,9 @@ export async function openWorkerSession(opts: {
 	/** Internal test seam for the fixed nested-settlement diagnostic interval. */
 	testOnlyNestedWarningMs?: number;
 	report?: (message: string) => void; // lifecycle failures visible to the dispatch and host
-	onCreated?: (session: WorkerSession) => void; // publish ownership and install capture before session_start begins
+	onCreated?: (session: OpenedWorkerSession) => void; // publish ownership and install capture before session_start begins
 	deferShutdownOnOpenFailure?: boolean; // ThreadManager persists captured startup facts before shutdown
-}): Promise<WorkerSession> {
+}): Promise<OpenedWorkerSession> {
 	const { ctx } = opts;
 	const agentDir = getAgentDir();
 
@@ -533,7 +538,10 @@ export async function openWorkerSession(opts: {
 	// Absolute units come from the host resolver, never from JSON path fields.
 	// Pi still controls which extensions are present in the host registry.
 	const extensionPaths = configPermitted ? (opts.extensionPaths ?? []) : [];
-	const workerReminder = createWorkerReminderRuntime();
+	const workerReminder = createWorkerReminderRuntime(configPermitted ? {
+		interval: opts.config?.writing?.remindTurns,
+		standalone: `${WRITING_REMINDER_HEADER}\n\n${opts.reviewerCharter === true ? REVIEWER_WRITING_GUIDANCE : WORKER_WRITING_GUIDANCE}`,
+	} : undefined);
 	const warn = (msg: string, notifyHost = false) => {
 		let retained = false;
 		try {
@@ -738,6 +746,7 @@ export async function openWorkerSession(opts: {
 	};
 	const workerSession = Object.assign(session, {
 		workerReminderHandledToolResult: workerReminder.handledToolResult,
+		workerReminderCompletedTurn: workerReminder.completedTurn,
 		closeManagedOperations(): void {
 			managedAdmissionOpen = false;
 			nestedLifecycle.close();

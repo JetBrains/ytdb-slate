@@ -17,7 +17,9 @@ const nativeName = "macOS native notification retains exact unique text in a new
 const macJobArgs = [...jobArgs, nativePath];
 const windowsNativePath = "test/notification-native-windows-readback.test.ts";
 const windowsNativeName = "Windows native notification retains exact unique text in operating system toast history";
-const windowsJobArgs = [...jobArgs, windowsNativePath];
+const recordPath = "test/safe-record-write.test.ts";
+const recordNames = requiredRoster[3]!.names;
+const windowsJobArgs = [jobArgs[0]!, "--test-concurrency=1", ...jobArgs.slice(1), windowsNativePath, recordPath];
 
 function fixture(t: test.TestContext, platform = "linux") {
 	const root = mkdtempSync(join(tmpdir(), "slate-required-case-"));
@@ -35,6 +37,8 @@ function fixture(t: test.TestContext, platform = "linux") {
 			? prefix + `requiredCase(${JSON.stringify(name)}, {}, async (t, complete) => { complete(); });`
 			: "");
 	}
+	writeFileSync(join(root, recordPath), platform === "win32" ? prefix + recordNames.map(name =>
+		`requiredCase(${JSON.stringify(name)}, {}, async (t, complete) => { complete(); });`).join("\n") : "");
 	return root;
 }
 
@@ -134,11 +138,20 @@ test("required reporter rejects optional, failed, absent and repeated results", 
 });
 
 test("required roster validates global uniqueness before platform selection", () => {
-	assert.equal(selectRequiredFiles().size, ["darwin", "win32"].includes(process.platform) ? 2 : 1);
+	assert.equal(selectRequiredFiles().size, process.platform === "win32" ? 3 : process.platform === "darwin" ? 2 : 1);
 	assert.equal(selectRequiredFiles(requiredRoster, "linux").size, 1);
-	assert.equal(selectRequiredFiles(requiredRoster, "win32").size, 2);
+	assert.equal(selectRequiredFiles(requiredRoster, "win32").size, 3);
 	assert.equal(selectRequiredFiles(requiredRoster, "darwin").size, 2);
-	assert.equal(requiredRoster.length, 3);
+	assert.equal(requiredRoster.length, 4);
+	assert.deepEqual(requiredRoster[3], { file: fileURLToPath(new URL(recordPath, source)),
+		names: [
+			"safe record writes preserve exclusive creation and complete byte identity",
+			"safe record writes reject unsafe leaves and retention aliases",
+			"safe record writes report platform protections and checked fallback",
+			"safe record writes detect changed identities before payload writes",
+			"safe record writes retain partial bytes and primary failures",
+			"safe record writes bound reports and guard the production interface",
+		], platforms: ["win32"] });
 	assert.deepEqual(requiredRoster[1], { file: fileURLToPath(new URL(nativePath, source)),
 		names: [nativeName], platforms: ["darwin"] });
 	assert.deepEqual(requiredRoster[2], { file: fileURLToPath(new URL(windowsNativePath, source)),
@@ -179,7 +192,17 @@ for (const [platform, args] of [["win32", windowsJobArgs], ["darwin", macJobArgs
 		}
 		writeFileSync(join(root, "test/unrelated.test.ts"), 'import test from "node:test"; test("other", () => {});');
 		for (const path of ["test/unrelated.test.ts", "test/missing*.test.ts", "test/missing.test.ts"]) {
-			assert.notEqual(execute(root, good, [...jobArgs.slice(0, -1), path, ...args.slice(jobArgs.length)]).status, 0);
+			assert.notEqual(execute(root, good, args.map(arg => arg === jobArgs.at(-1) ? path : arg)).status, 0);
+		}
+		if (platform === "win32") {
+			assert.notEqual(execute(root, good, args.filter(arg => arg !== recordPath)).status, 0);
+			const recordFile = join(root, recordPath), recordGood = readFileSync(recordFile, "utf8");
+			for (const body of ["", recordGood.replace(recordNames[0]!, "renamed record"),
+				recordGood.replace("complete();", "return;"), recordGood.replace("{},", "{ skip: true },")]) {
+				writeFileSync(recordFile, body);
+				assert.notEqual(execute(root, good, args).status, 0);
+			}
+			writeFileSync(recordFile, recordGood);
 		}
 		{
 			assert.notEqual(execute(root, good, jobArgs).status, 0, "omitting the native file must fail");

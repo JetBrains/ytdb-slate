@@ -110,10 +110,10 @@ limit and pin Node 24.18.0. They inherit the read-only workflow permission,
 reuse the Linux action SHAs and install with `npm ci --ignore-scripts`.
 Neither job starts a pi session. The workflow configures no required-check ruleset.
 
-The Windows job runs both files with ordinary `spec` output visible:
+The Windows job runs three files in order with ordinary `spec` output visible:
 
 ```text
-node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=./verification/required-case-reporter.ts --test-reporter-destination=stdout test/notification-push-portable.test.ts test/notification-native-windows-readback.test.ts
+node --test --test-concurrency=1 --test-reporter=spec --test-reporter-destination=stdout --test-reporter=./verification/required-case-reporter.ts --test-reporter-destination=stdout test/notification-push-portable.test.ts test/notification-native-windows-readback.test.ts test/safe-record-write.test.ts
 ```
 
 The macOS job runs both files in one invocation with the same reporters:
@@ -154,8 +154,10 @@ list selects applicable native cases through `process.platform`. A selected
 platform must have at least one required file. The macOS native file has one
 required case with `platforms: ["darwin"]`. The Windows native file has one
 required case with `platforms: ["win32"]`. Each native file registers no case
-outside its platform. The roster has three files in total. The selected roster
-has two files on macOS or Windows and one on Linux.
+outside its platform. The safe record-write command file uses `platforms: ["win32"]`.
+Its six required cases run on real files with a 60-second suite limit.
+The roster has four files in total. The selected roster has three files on Windows,
+two on macOS and one on Linux.
 
 The reporter runs only in the macOS and Windows job commands. The Linux runner
 uses its ordinary reporters without this required-file contract. Linux runs
@@ -861,6 +863,57 @@ objects. A shallow clone without those objects fails the default comparisons.
 It starts no Pi session, uses no network, and writes only to its disposable work
 directory.
 
+The resolver harness borrows pi's jiti TypeScript transpiler and marked Markdown parser.
+It selects pi through `PI_BIN`, then checkout-local `node_modules/.bin/pi`, then `PATH`.
+Parser resolution uses only that conveyed physical launcher, not another installation.
+Without `SLATE_ACTIVE_PI`, active checks fail with instructions to use either wrapper or supply the physical launcher path.
+`SLATE_ACTIVE_REPO` binds the document tree and pi pin.
+A selected tree with different roster source refuses startup with a source-mismatch diagnostic.
+The selected pi manifest must match the repository's exact pi devDependency pin.
+The parser must be marked 18.0.11 with the required exports and token shapes.
+Native active-owner tests use the same selected parser origin through the peer linker's verified selection binding.
+The peer linker selects pi in the same order and links its bundled SDK packages into checkout `node_modules`.
+Neither path starts a pi session to obtain the parser.
+
+Parser contract tests check the version and the heading, block and inline token shapes used by ownership checks.
+Active-owner checks enforce unique headings, region boundaries and independent clause occurrences.
+Code blocks and hidden text cannot satisfy a clause.
+Each owner has an independent literal list census.
+The common owner requires exactly one top-level, unordered, tight, non-task list with six items.
+The worker and exception owners permit no lists, including nested or quoted lists.
+A census mismatch rejects every clause of that owner.
+Declared list-item text supplies prose, including the six marked triggers.
+The sixth item ends at `occupied creation.`.
+The worker-stop and task-read clauses must follow the list in a separate paragraph.
+Moving other clauses within their owner into the valid list or appending item text can pass ownership.
+The separate complete-byte guard rejects these accepted residual cases.
+Block and inline HTML at or before a region owner's end rejects that owner, including HTML before its heading.
+HTML after the region passes ownership, including HTML in the terminating heading.
+Inline HTML takes the position of its containing block.
+The whole-document exception owner rejects any HTML.
+These rules reject hidden containers, including containers separated by blank lines.
+Whole-document byte guards remain separate from structural ownership checks.
+Count-preserving moves and separate occurrence and boundary mutants test the mutation audit without byte-guard masking.
+
+Missing tooling, a mismatched version, unsupported tokens, parse failures and transpilation failures fail visibly with a nonzero result.
+No tooling failure may report an empty successful check set.
+A missing or mismatched installation reports the remedy `npm ci --ignore-scripts`.
+The resolver wrapper checks these prerequisites before running checks and refuses with exit 2.
+The in-suite parser contract remains a second check.
+
+The record-contract family has 9,194 mutations, including 9,064 safe-write attacks.
+Its 40 duties contain 226 independently owned clauses across the common, worker and exception documents.
+Active-owner checks add 121 attacks and 48 controls without the complete-byte guard.
+The common rules require command retention before design, map and plan edits.
+Each write attempt needs checked operation and attempt entries.
+Plan edits require an eligible root-log identity, verified retention and an orchestrator decision.
+Worker routing checks cover six result classes, fatal-result precedence and bounded preservation retries.
+Recovery checks cover stop evidence, same-record identity selection, occupied creation and restoration before edit retry.
+The command remains responsible for exclusive creation, comparison, hashing and preservation.
+It grants no replacement permission.
+Real-file cases cover absent and occupied restoration, complete payload arrival and vanished-copy refusal.
+A held real managed operation in `test/single-action-threads.test.ts` checks that dispatch joins settlement before shutdown and action-folder release.
+
 It also checks the workflow contract for requirement-level investigation after
 two same-requirement repair rounds (`contract-requirement-investigation`). The
 check proves policy text and mutation resistance only. It does not enforce live
@@ -874,9 +927,9 @@ bash verification/run-resolver-checks.sh --repo . --strict
 The wrapper reports one `CHECK` line per identifier, one roster audit, and one
 summary. Exit 0 means every non-excluded check passed. Exit 1 means a failure, missing check,
 or strict `NOT RUN`. Exit 2 means the wrapper refused to start. The roster and
-summary output own the live count. The full suite has 208 checks plus the roster
-audit, for 209 result lines. Its independent mutation roster has 35 families and
-2,377 identities. The 53 surviving-safeguards identities preserve reviewed-state,
+summary output own the live count. The full suite has 248 checks plus the roster
+audit, for 249 result lines. Its independent mutation roster has 37 families and
+11,487 identities. The 53 surviving-safeguards identities preserve reviewed-state,
 privacy, acceptance and delivery rules. The one-branch-rules family covers 32
 named violations. The audit-repairs family covers ten configuration, recursive
 pointer, delivery verification and README merge-advice cases. Each case accepts
@@ -884,7 +937,10 @@ original and wrapped text and rejects removal and contradiction. History-moves
 relocates a rule outside its owner. Ordering-wrapped attacks a wrapped rule.
 Pause controls pass valid wrapped policy through the complete history-unit
 check and require that the same check reject permission for open-range
-interleaving. These checks prove document policy, not live workflow execution.
+interleaving. The 17 review-history cases reject the listed restored and reworded
+rules. Correct-sentence controls accept the listed valid guidance. Both use plain
+and reflowed text. This check does not prove a removed rule is absent in other
+words. These checks prove document policy, not live workflow execution.
 
 `--exclude <id,id>` accepts only `doctrine-original-base` and
 `doctrine-original-controls`, together or individually. The driver accepts the
@@ -896,18 +952,24 @@ fail `--strict`. The roster still requires every expected identifier exactly
 once. Without this option, the wrapper runs every check and keeps the default
 output format.
 
-`--only <id,id>` accepts only `contract-delivery-packages` and
-`contract-heading-regions`, individually or together. The driver owns this list.
+`--only <id,id>` accepts only `contract-delivery-packages`,
+`contract-heading-regions` and `contract-review-history`, alone or in combination.
+The driver owns this list.
 The wrapper validates option shape and passes the value through. Unknown or
 empty identifiers, duplicate identifiers, repeated options, `roster`, and any
 combination with `--exclude` refuse startup with exit 2. The wrapper reports
 `verification: refused to start — <reason>`.
 
-Selection loads only required modules and runs only the requested checks and
-their prerequisites. Checks retain their full-run implementations. The independent
-mutation roster supplies identities for selected families. Heading selection
-requires all 894 `heading-policy` identities, including commit identity rules. Package selection has an empty
-mutation scope. Missing, duplicate, incomplete, outside-family or crashed mutation
+Selection skips unrelated checks and their conditional imports. The driver still
+loads its static imports, including `assigned-form-duties.ts`, which imports
+`marked`. The wrapper still runs its common prerequisite checks. The driver
+loads `extension/paths.ts` through jiti for heading and package selection, but
+not for history-only selection. Checks retain their full-run implementations.
+The independent mutation roster supplies identities for selected families. Heading selection
+requires all `heading-policy` identities, including commit identity rules. History
+selection runs the full escalation check's history assertion and audits its 17
+`review-history` identities. Package selection has an empty mutation scope.
+Missing, duplicate, incomplete, outside-family or crashed mutation
 execution fails `selected-mutation-audit`. Crash and driver failure lines always
 report. A separate `roster` audit requires each requested check and scoped audit
 exactly once. Missing, duplicate, unexpected and `NOT RUN` results fail the roster,
@@ -972,15 +1034,22 @@ approved guarantee.
 
 `test/delivery-reference-contract.test.ts` runs disposable mutations through the
 real strict resolver wrapper. The clean case runs the full suite with
-`--exclude doctrine-original-base,doctrine-original-controls`. The 51 changed
-cases select their package or heading check with `--only`. Each rejected case
-requires exit 1 and its target failure. Each changed case requires the exact
-selected report identifiers, roster PASS and selected summary. Heading-anchor
-removals also require scoped mutation audit FAIL. Accepted changed cases prove
-only target-check acceptance, not whole-suite acceptance of the edit.
-An unchanged-document equivalence case compares both selected verdicts and
-executed mutation counts with the clean full run. The default resolver run
-still covers both original-base checks.
+`--exclude doctrine-original-base,doctrine-original-controls`. The 76 changed
+package and heading cases and 34 forbidden history cases select their target
+check with `--only`. Each rejected selected case requires exit 1 and its target
+failure. Each selected case requires the exact report identifiers, roster PASS
+and selected summary. Heading-anchor removals and forbidden history cases require
+scoped mutation audit FAIL. Forbidden history cases also require the history
+failure diagnostic and 17 recorded rows. The count and audit failure do not
+prove identity accounting on dirty input. Accepted selected cases prove only
+target-check acceptance, not whole-suite acceptance of the edit.
+
+The 17 safeguard cases, two resolver-body cases and ten compliant history cases
+run with only the two original-base checks excluded. Compliant history cases
+require all non-excluded checks to pass. Three clean comparison runs match
+selected verdicts and executed mutation counts against the clean nearly full run.
+The clean history selection requires both audits to pass and accounts for all 17
+history identities. The default resolver run covers both original-base checks.
 Run this test and the strict resolver suite after changing the scanner,
 its reviewed roster, or a reference-bearing documentation context.
 
@@ -993,37 +1062,42 @@ exact current production renders are:
 | fixture | paths | portable characters | lines |
 | --- | ---: | ---: | ---: |
 | shipped logical section | 0 | 4938 | 9 |
-| trusted shipped-default doctrine | 5 | 9746 | 72 |
+| trusted shipped-default doctrine | 5 | 9739 | 72 |
 | untrusted doctrine | 4 | 2711 | 33 |
-| draft pull requests, shipped policy | 6 | 9816 | 73 |
-| capped workers, shipped policy | 5 | 11093 | 82 |
-| draft plus capped workers | 6 | 11163 | 83 |
-| deferred issues plus capped workers | 5 | 11167 | 83 |
-| routing recommendations plus capped workers | 5 | 11146 | 83 |
-| draft plus deferred issues and capped workers | 6 | 11237 | 84 |
-| draft plus routing recommendations and capped workers | 6 | 11212 | 84 |
-| deferred issues plus routing recommendations and capped workers | 5 | 11220 | 84 |
-| canonical maximal baseline with all workflow options | 6 | 11286 | 85 |
-| maximal baseline with an open change | 6 | 11484 | 86 |
-| maximal baseline with source and legacy root log | 6 | 11714 | 88 |
-| dogfood config and extension roster | 6 | 10411 | 84 |
-| 19,400-character policy plus draft, source and legacy log | 6 | 26053 | 86 |
-| same policy plus draft and deferred issues, source and legacy log | 6 | 26127 | 87 |
-| same policy plus routing recommendations, source and legacy log | 5 | 26036 | 86 |
-| same policy plus deferred issues and routing recommendations, source and legacy log | 5 | 26110 | 87 |
-| same policy plus draft and routing recommendations, source and legacy log | 6 | 26102 | 87 |
-| same boundary composition plus deferred issues | 6 | 26176 | 88 |
-| valid shipped policy plus 88 capped tools, source and legacy log | 6 | 29388 | 171 |
+| draft pull requests, shipped policy | 6 | 9809 | 73 |
+| capped workers, shipped policy | 5 | 11086 | 82 |
+| draft plus capped workers | 6 | 11156 | 83 |
+| deferred issues plus capped workers | 5 | 11160 | 83 |
+| routing recommendations plus capped workers | 5 | 11139 | 83 |
+| draft plus deferred issues and capped workers | 6 | 11230 | 84 |
+| draft plus routing recommendations and capped workers | 6 | 11205 | 84 |
+| deferred issues plus routing recommendations and capped workers | 5 | 11213 | 84 |
+| canonical maximal baseline with all workflow options | 6 | 11279 | 85 |
+| maximal baseline with an open change | 6 | 11477 | 86 |
+| maximal baseline with source and legacy root log | 6 | 11707 | 88 |
+| dogfood config and extension roster | 6 | 10404 | 84 |
+| 19,400-character policy plus draft, source and legacy log | 6 | 26046 | 86 |
+| same policy plus draft and deferred issues, source and legacy log | 6 | 26120 | 87 |
+| same policy plus routing recommendations, source and legacy log | 5 | 26029 | 86 |
+| same policy plus deferred issues and routing recommendations, source and legacy log | 5 | 26103 | 87 |
+| same policy plus draft and routing recommendations, source and legacy log | 6 | 26095 | 87 |
+| same boundary composition plus deferred issues | 6 | 26169 | 88 |
+| valid shipped policy plus 88 capped tools, source and legacy log | 6 | 29381 | 171 |
+
+Complete worker writing guidance measures 1161 UTF-8 bytes, including the design-scope exception.
+The permitted non-review preamble measures 2479 bytes.
+Its open-change record-writing system measures 3278 bytes.
+The short reviewer writing form remains 543 bytes, with a 4016-byte permitted review preamble.
 
 The capped worker baseline has two units and four tools. Each unit label has 128
 characters. Each tool name has 64 characters. Each description has 140
 characters. The dogfood fixture reads `.pi/slate.json` and represents its two
 configured extension units.
 
-The canonical 11,286-character baseline uses all four default logical models,
+The canonical 11,279-character baseline uses all four default logical models,
 all three workflow options, and the capped worker roster. With an open change,
-a direct source folder, and a legacy root log, it measures 11,714 characters.
-Its required five-percent value is 12,300. The 26,300 whole-doctrine ceiling
+a direct source folder, and a legacy root log, it measures 11,707 characters.
+Its required five-percent value is 12,293. The 26,300 whole-doctrine ceiling
 keeps that reserve. The exact fixtures cover all eight workflow-option
 combinations.
 
@@ -1034,17 +1108,17 @@ characters and 12 lines. An adoption pause adds neither version.
 Runtime rejection controls are separate. A logical section at exactly 19,400
 portable characters or 105 lines is valid. A section at 19,401 characters or
 106 lines is rejected before work. The four routing-enabled boundary
-compositions and the 26,053-character and 26,127-character feature-off
+compositions and the 26,046-character and 26,120-character feature-off
 compatibility controls include the current change, direct source, and legacy
 root log. They prove that an exact-boundary policy fits the 26,300-character
-whole-doctrine ceiling. The 26,176-character control has 124 characters of headroom.
-A valid third worker unit with a 118-character label and all three workflow
-options measures 26,300. A 119-character label measures 26,301 and fails. These controls are
+whole-doctrine ceiling. The 26,169-character control has 131 characters of headroom.
+A valid third worker unit with a 125-character label and all three workflow
+options measures 26,300. A 126-character label measures 26,301 and fails. These controls are
 not reserve-bearing canonical baselines.
 
 The over-cap counterfactual keeps the shipped logical policy valid and adds 88
 supported capped worker tools. With an open change, source, and legacy log, its
-29,388 portable characters exceed the ceiling by 3,088 characters.
+29,381 portable characters exceed the ceiling by 3,081 characters.
 This transformed fixture replaces the retired six-copy physical model-row shape.
 It does not assume an old per-row or per-tool increment. Removing the whole-
 doctrine comparison makes the counterfactual pass and therefore breaks the
@@ -1080,20 +1154,123 @@ and text added only with several rows.
 `test/workflow-context-budget.test.ts` owns phase measurements, read-reference
 coverage, literal-limit enforcement, mutation controls, and publication equality.
 `verification/workflow-context-map.mjs` holds the reviewed read assignments and
-literal limits for 36 rows. The user approved the limits for the other 35 rows
-on 2026-10-16. Each of those byte limits is ceil(baseline bytes * 1.05).
-The approved limits for Research with publishing off and an ordinary plan
-are 77,245 required bytes and 145,881 conditional-maximum bytes.
-The approval date is 2026-11-25. Each limit uses its 2026-11-12 approved value
-plus 410 bytes of approved shipped model policy growth.
-Neither limit includes a five percent reserve.
-A higher limit requires a new user approval.
+literal limits approved by the user on 2026-10-16. The two nested research
+conditional limits were approved on 2026-10-25.
+Classification and recovery funding sets seven ordinary maximum limits independently.
+Research maxima are 152,344 bytes with publishing off and 163,856 with publishing on.
+Publishing-off ordinary maxima are 188,381 bytes in phases 2–4 and 240,410 in phases 5–6.
+Publishing-off ordinary required limits are 79,389 bytes in phase 1, 115,341 in phases 2–4 and 139,693 in phases 5–6.
+The approval of 2026-11-26 assigns 410 bytes of shipped model policy text to each comparison start and each of these seven ordinary maximum limits.
+The five percent reserve does not apply to these seven increases. All other stored phase limits stay fixed.
+Research measures 79,213 required and 152,300 maximum bytes.
+The separate research reservation is 79,410 required and 152,344 maximum bytes.
+Independent classification-start literals bound every phase and session coordinate by 566 required and 3,061 maximum added bytes.
+The placement and preservation controls retain their source-stage proofs and session-specific extras.
+Earlier savings cannot fund these increases.
+Worker ceilings are 12,088 bytes for common rules, 5,200 for narrow reads and 14,500 for the full reference.
+Common plus narrow is limited to 17,287 bytes, or 21,053 with maps.
+Common plus full is limited to 26,587 bytes, or 30,353 with maps.
+The map reference measures 3,726 bytes. The design reference measures 3,369 bytes against its 3,369-byte limit per full author read.
+The tightest stored margin is 17 bytes. The tightest historical share margin is 13 bytes.
+Tests measure all 36 phase rows, 82 session-entry pairs, 402 session continuation pairs and 31 worker task kinds through production rendering and read selection.
+Each literal limit has independent equality and one-byte-overflow controls.
+The user must approve higher limits.
+
+The assigned-forms checks use the marked Markdown lexer to identify twelve
+sections with sentence duties. The checks inspect every heading token, including
+nested tokens, in the design, map, workflow, recursive workflow, review rules,
+and implementation input documents. They also inspect the assembled reviewer
+prompt. Each owner must occur exactly once at its level.
+
+A plain heading is a top-level Markdown heading on a single line. It starts at
+column one with one to six hash signs and one space. Its title uses only ASCII
+letters, digits, commas, hyphens, and single spaces between parts of the title.
+It has no trailing space or closing hash signs. The checks report
+`plain-heading` for any heading token outside this form, even for an unrelated
+title outside the checked sections. A future heading outside this form fails
+until the rule is extended.
+
+The checks compare ordered blocks against independent expectations. They check the
+context blocks and duties in each owned section. They also compare the entire
+design reference, map reference and implementation-review input. The implementation
+check isolates the input as delivered by the production loader. It checks owner
+uniqueness across the assembled prompt as well.
+
+The workflow model rule must follow the abstraction test. Both copies must match
+the complete independent rule and each other. Plain soft wraps pass in prose,
+including prose in list items. List markers, ordered numbers, item boundaries,
+nesting and hard breaks remain significant. A wrap that changes a heading
+into another block is not a prose wrap. Duty paragraphs retain their source
+text apart from soft wraps. Other block types cannot stand in for duty paragraphs.
+
+The sentence sweep checks the expected duty names internally and reports totals
+per document. On failure it reports the source sentence and the mutant. It checks
+word and sentence deletion, conjunctions and qualifiers. Separate probes cover
+owner identity, complete model comparison, whole-input additions and allowed
+formatting. Structural probes supply the line or blank line
+that their Markdown block needs. The strict run audits 246 negative identities
+in assigned-forms. It runs the negative roster and the sentence sweep once
+on the committed layout. It checks 12 positive probes. Eight more controls must
+apply the intended whitespace edits to exactly the expected documents. Each
+control must pass the assigned-form predicate with no diagnostics. One input
+joins `Reviewers` to the previous sentence and starts the next line with
+`never`. Six inputs break after the first word of a target sentence. If the
+sentence starts its paragraph, one leading space shifts it without joining
+separate blocks. One input rewraps prose in three documents.
+The mutation matcher accepts whitespace changes and requires exactly one
+match. A separate control requires two matches to throw.
+
+"The rule checks do not detect added or contradictory text outside the checked sections."
+
+"Every heading in a checked document must be a plain heading. Owner uniqueness compares the text and level of plain headings. The rule checks do not detect other constructs that look like a heading."
+
+"The negative tests of the rule checks are built for the committed line layout of the checked documents. A rewrap of a checked document can require an update of these tests. The rule check itself accepts plain rewraps."
+
+Text outside this semantic check remains subject to document digests, other
+applicable controls and human review.
+The main workflow owns the shared design model rule. Revise both copies together. Retire the duplicate only after approval and measured proof that both readers can reach one shared copy.
+
+The map also names bounded session-entry cases. Research and optional handoffs
+use their current phase. Code-track boundaries use phase 7, including the second
+boundary after a meaningful pre-track change. Design tracks enter nested phase 1.
+Parent returns use the continuing parent phase. Equivalent successive tracks
+reuse these coordinates without fixing a track count.
+
+Entry tests compare document identities, conditions and selected range unions
+against an independent accumulated-set selection plus named resume reads.
+Renewed focus judgment at any nested phase-1 resume adds definition ranges.
+This includes design-track entry and optional handoffs inside a design subtree.
+Root research starts add none, even with a nested plan.
+Unchanged-record reconciliation adds none. Other entries equal their accumulated
+sets. Continuation retains entry reads and accumulates later phases.
+Negative controls remove successor rereads and conditional reads, add an
+unsupported release, and reset a continuing session. Outcome-dependent transfer
+controls retain current reads after failure, cancellation, or resume without transfer.
+Any completed transfer starts a session. Single-track work has no mandatory boundary.
+The publication includes fresh rendered nested phase-1 resume totals.
+Handoff savings in variable conversation content remain outside this metric.
+Re-run the native phase tests after changing mapped reads, document exports,
+doctrine, phase assignments, limits, entry coordinates, resume ranges, source
+duties, scenario filters, or publication text. Inspect with
+`SLATE_PHASE_INSPECT=1 node --test test/workflow-context-budget.test.ts`.
+
+After any resume, handoff, or reread source duty changes, reconcile session-entry
+assignments semantically even when tests pass. Check `extension/mode.ts` doctrine
+rules, `docs/track-workflow.md` § Confirmation gate and § Resume order and
+reconciliation, `docs/recursive-workflow.md` § Resume and folder forks, and
+`docs/blast-radius.md` focus and coverage definitions. Compare recipients,
+conditions, selected ranges, and inherited records at every affected start.
+Update entry assignments, independent expectations, and the publication from a
+fresh production render. If no update is needed, record an explicit no-change
+decision with the checked duties and reasons in the implementer report.
+A passing test run does not replace this reconciliation.
+
 Publishing-disabled delivery uses accepted local branch history. Its checks cover
 marker completion, branch preservation, local verification and resume, private
 history inspection, and owning-log verification before closure. The default
 publishing template has no disabled-delivery read assignment. The delivery
 reference tests reject a final squash and deleted preservation duties. They also
-accept the current history rule with harmless line wrapping. The user must approve fresh baseline limits.
+accept the current history rule with harmless line wrapping.
 
 On failure, inspect the reported scenario, phase, source ranges, total, limit,
 and excess bytes. Check for a wrong read assignment or unintended growth first.
@@ -1120,8 +1297,11 @@ A failed comparison grants no authority to replace its base.
 ## Re-run triggers
 
 Re-run phase tests after changes to mapped reads, document exports, doctrine,
-phase assignments, limits, or the published phase section. Run both independent
-package-content commands and their self-test for package evidence.
+phase assignments, limits, entry coordinates, resume ranges, source duties,
+scenario filters, or publication text. Any resume, handoff, or reread source-duty
+change also requires the semantic reconciliation under Workflow-phase context
+maintenance, even when tests pass. Run both independent package-content commands
+and their self-test for package evidence.
 
 Re-run the strict suite after changes to active logical-model modules,
 `mode.ts`, `paths.ts`, worker-extension doctrine, state sanitizers, base-model
@@ -1275,70 +1455,91 @@ Run the hand-run integration net from the repository root:
 bash verification/run-worker-reminder-check.sh --repo .
 ```
 
-The harness starts one real offline pi session. A deterministic in-process
-provider makes the orchestrator call the real `thread` tool. The worker issues
-two independent built-in `read` calls in one turn, receives the hidden reminder
-on its continuation request, returns a fixed marker and produces an episode.
-The scratch config keeps `workerExtensions` empty and sets `cacheKeyEnabled` to
-`false`. The TypeScript canary loads through the same jiti module aliases as
-Slate. It registers the native provider on the host and on every test-created
-`ModelRuntime`. The same native provider serves the worker and the compressor
-through Pi's model registry. The harness checks each request path separately.
-The canary restores its `ModelRuntime.create` wrapper during session shutdown
-when it still owns that method.
+Each case starts a real offline Pi session with a deterministic in-process
+provider. The orchestrator calls the real `thread` tool. The worker uses
+built-in reads, including two independent calls in one turn. Normal cases
+set `workerExtensions` to an empty allowlist and `cacheKeyEnabled` to `false`.
+The canary loads through Pi's module aliases. It registers the provider
+on the host and on each test-created `ModelRuntime`. It restores its wrapper
+on shutdown when it still owns the method.
 
-On the reference machine, the run takes about five seconds. The hard bound is
-GNU `timeout`: TERM after 60 seconds and KILL five seconds later. Exit **0** means
-every assertion passed. Exit **1** means at least one check failed. Exit **2**
-means the harness refused to start because its invocation, tools, checkout,
-canary, pi binary or exact version pin did not satisfy a precondition.
+The driver checks each case against its expected roster. It checks load and
+session health, exact requests by role and route, tool results, steering
+order, hidden records, compressor input, and durable episodes. The normal
+cases compare tools-only and combined delivery with the same work and
+answer. Both durable episode bodies must include the answer marker and two
+distinct tool-result markers copied from the actual compressor input. Neither
+that input nor the durable episodes may contain an automatic reminder.
 
-The 18 result lines assert these properties:
+A case omits `writing.remindTurns` and checks four exact tools-only sends before
+the combined send in round five. Worker request six is the first to include
+writing. A separate interval-three case verifies that an output-length stop
+does not advance cadence and a later normal completion does.
 
-1. Pi exits zero within the timeout.
-2. The RPC, host-session and worker-session JSON Lines parse completely.
-3. Pi emits no `extension_error` event.
-4. The `/slate` command comes from the checkout under test.
-5. The Pi-registered provider handles orchestrator, worker and compressor calls offline.
-6. One real thread dispatch completes with status `ok`.
-7. The worker makes one two-read request and one fixed-marker continuation request.
-8. Both built-in read results persist in their exact unchanged shape.
-9. Exactly one worker reminder persists with the exact type, text and `display: false`.
-10. The reminder follows both tool results and precedes the continuation assistant message.
-11. The continuation provider context contains exactly one reminder.
-12. The provider sees exactly two worker calls, two orchestrator calls and one compressor call.
-13. The delivered reminder produces no false reminder-miss warning.
-14. The compressor request contains no reminder text or custom type.
-15. The durable episode exists and contains no reminder text or custom type.
-16. An empty worker-extension allowlist and disabled cache key do not prevent delivery.
-17. The orchestrator receives the result and returns its fixed completion marker.
-18. The roster reports every expected identifier exactly once.
+The matched threshold cases start with the same nonempty history. Only the
+combined case compacts after the answer. Both store the same exact observation
+even though compaction moves the answer before the startup offset. The harness
+checks exact saved answer bytes after overflow and output-length recovery, and
+the failure diagnostic in both the tool result and episode when compaction is
+disabled. Cancelled and failed summaries, rejection of an oversized form and
+both steering modes have separate cases. Model-selected work and a compaction
+handler's follow-up have separate controls. The handler case expects a different
+answer after the follow-up.
 
-The run proves one clean worker path through factory loading, tool-result hooks,
-steer delivery, provider context, worker JSON Lines and episode filtering. It
-proves that successful delivery produces no false reminder-miss warning. A single
-clean run cannot prove that a real missing reminder produces the warning. The
-pure `worker-reminder-detection` and `worker-reminder-wiring` checks, plus the
-unit tests in `test/single-action-threads.test.ts`, carry that property. The run
-proves `display: false` structurally. It does not prove visual invisibility in
-the terminal user interface. Check that presentation manually. It also does not
-prove concurrent session isolation. The pure `worker-reminder-state` family
-covers two interleaved factory instances.
+| Worker reminder form | Content | Converted without timestamp | Provider-facing object | Saved JSON Lines record |
+| --- | ---: | ---: | ---: | ---: |
+| Tools only | 330 | 383 | 409 | 499 |
+| Tools with full writing guidance | 1,493 | 1,563 | 1,589 | 1,679 |
+| Tools with short writing guidance | 875 | 930 | 956 | 1,046 |
+
+Use Pi 1.6.0 to reproduce these UTF-8 byte counts.
+The normal runs measure full and tools-only provider objects with timestamps
+and the saved lines with line feeds. The real worker role tests also measure
+the short form at both points.
+The context-budget test uses Pi's conversion and a fixed record fixture for
+all three rows. The standalone full
+and short writing forms use 1,180 and 562 bytes including the header. The
+1,180-byte cap limits standalone writing and separately limits the writing
+increment. It does not limit the combined serialized object. The combined
+forms add 1,163 and 545 content bytes, or 1,180 and 547 serialized bytes per
+retained appearance. These are not wire or billing sizes. The worker-action
+section in the context budget gives the repetition assumptions.
+
+GNU `timeout` sends TERM after 60 seconds and KILL five seconds later if needed.
+The remote procedure call (RPC) controller requires prompt acceptance, agent
+settlement and a zero exit code from its child. Signal termination fails even
+after settlement. Exit **0** means every assertion passed. Exit **1** means a
+check failed. Exit **2** means a precondition failed. The driver stops starting
+cases and exits **130** on handled cancellation. The harness tests do not prove
+process-group cleanup or immediate cancellation of an active case when only the
+driver receives a signal.
+
+The harness checks `display: false` structurally. Check terminal presentation
+separately. The host tests exercise actual worker reopening, retries and
+failover. The session opener (`openWorkerSession`) configures worker cadence.
+`ThreadManager` forwards reported turn completions during dispatch. The host
+test that opens a session directly installs its own completion subscriber.
+The factory tests exercise interleaved sessions. Successful delivery must not
+raise a reminder-miss warning. The `worker-reminder-detection` and
+`worker-reminder-wiring` resolver checks and the single-action unit tests
+cover the missing-reminder rule.
 
 A clean run removes its disposable scratch directory. A failed run keeps the
 directory and inlines pi stderr and stdout. The child starts through `env -i`,
 uses dead proxy settings and sets `PI_OFFLINE=1`. The provider performs no
 network operation. This setup is not an operating-system network sandbox.
 
-Re-run this harness after changes to `extension/worker-reminder.ts`, reminder
-factory loading or error handling in `extension/worker.ts`, action-slice
-detection or compression filtering in `extension/threads.ts`, custom-message
-shape or steer delivery, either harness file, the pi pin, or an asserted RPC,
-provider-evidence or JSON Lines shape.
+Re-run this harness after changes to the worker reminder, shared writing
+forms or cadence validation, worker settings, factory loading or loader-error
+reporting in `extension/worker.ts`, completed-turn input, observation capture,
+warning detection or episode filtering. Re-run it after changes to configuration
+source merging or permission checks for worker writing in `extension/config.ts`.
+Re-run it after changes to custom messages, steer delivery, either harness file,
+the Pi pin, or the asserted RPC, provider evidence or JSON Lines shapes.
 
 | file | role |
 | --- | --- |
-| `run-worker-reminder-check.sh` | driver, isolated scratch environment, real pi session, evidence parser, 18-result roster and artifact policy |
+| `run-worker-reminder-check.sh` | driver, isolated scratch environment, real pi session, evidence parser, per-case rosters and artifact policy |
 | `worker-reminder-canary.ts` | deterministic offline provider, orchestrator and worker scripts, call classification and provider-context evidence |
 
 # Packaging guards — `run-packaging-checks.sh`
@@ -1577,11 +1778,12 @@ the driver, which reads that line. `L5` and `T1` turn an absent line or an
 empty line into a failure, and not into a quiet pass.
 
 The harness takes the pi CLI from the order that it shares with the resolver
-checks (`AGENTS.md` § CI), with two deliberate differences. It accepts
+checks (`AGENTS.md` § CI), with one selection difference. It accepts
 **no** pi from `PATH`: after `PI_BIN` and `node_modules/.bin/pi` in the checkout,
-it refuses to start. It also requires the same version from `pi --version` as the
-`@earendil-works/pi-coding-agent` pin in `devDependencies`. Both rules have one
-reason: this harness asserts on pi's rpc output shapes, so it must exercise the
+it refuses to start. Both wrappers require the selected pi version to match the
+`@earendil-works/pi-coding-agent` pin in `devDependencies`.
+The load check reads `pi --version`. The resolver checks read its package manifest.
+The load check asserts on pi's rpc output shapes, so it must exercise the
 same pi that the typecheck pins.
 
 The harness prints `PI_BIN` loudly in its output. `PI_BIN` is an override for an

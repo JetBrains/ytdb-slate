@@ -9,6 +9,7 @@ const HEADER = "[slate] Reminder:";
 const FINDINGS_HEADING = "Recent writing findings:";
 const REQUIREMENTS_HEADING = "Writing and conversation requirements:";
 const DESIGN_HEADING = "Design requirements:";
+const FORM_CUE = "- Give diagrams, tables and prose equal value. Choose the clearest set.";
 const REQUIREMENT_FRAGMENTS = [
 	"Use short, active language. Keep exact technical terms. Do not use semicolons or contractions.",
 	"Write for a reader whose first language is not English.",
@@ -84,7 +85,8 @@ function reminderInputs(context) {
 function completeRequirementStructure(text) {
 	const writing = text.indexOf(REQUIREMENTS_HEADING);
 	const design = text.indexOf(DESIGN_HEADING);
-	return writing >= 0 && design > writing && REQUIREMENT_FRAGMENTS.every((fragment) => text.split(fragment).length === 2);
+	return writing >= 0 && design > writing && text.split(FORM_CUE).length === 2 &&
+		text.split("\n").at(-3) === FORM_CUE && REQUIREMENT_FRAGMENTS.every((fragment) => text.split(fragment).length === 2);
 }
 
 export default function reminderCanary(pi) {

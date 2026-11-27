@@ -238,9 +238,9 @@ ${n}. Check user-facing prose before delivery. Write sentences a reader understa
    test vocabulary. Follow these ${WRITING_REQUIREMENTS_TITLE.toLowerCase()}:
 ${renderWritingDoctrineRequirements("   ")}
 
-   Apply these requirements to README and documentation text, code comments and
-   pull request text. Apply these requirements also to commit bodies, issues,
-   review comments, release notes and user messages.
+   Apply these requirements to user-facing prose: README, docs, code comments,
+   pull requests, commit bodies, issues, review comments, release notes, user
+   messages, maps, designs and package drafts.
 ${renderWritingScopeExclusion("   ")}
    Rules, limits, and checker: ${WRITING_GUIDANCE_DOC}. Read it only for an unusual
    prose decision. Skip it if already in context.`;
